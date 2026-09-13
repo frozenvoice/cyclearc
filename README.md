@@ -41,7 +41,7 @@ The **Codex** or **Claude** label on account cards, selected details, tray toolt
 
 **Requirements:** Windows 10/11 on x64. Codex monitoring requires an installed Codex CLI signed into a ChatGPT account that reports subscription limits, and network access. Claude monitoring requires Claude Code with official statusLine rate-limit support and Windows PowerShell; it does not require Codex sign-in.
 
-1. Download the executable from the [latest release](https://github.com/frozenvoice/cyclearc/releases/latest). Current source builds produce **`CycleArc.exe`**.
+1. Download **`CycleArc.exe`** from the [latest release](https://github.com/frozenvoice/cyclearc/releases/latest).
 2. Put it in a folder you want to keep and run it. The .NET runtime is bundled; there is no separate runtime installer.
 3. Open the tray icon and **Manage accounts → Add an account**. For Codex, existing CLI sign-ins are discovered automatically; choose **New account sign-in** to add another account. For Claude, choose **Connect Claude**, then connect the current login or sign in through your browser.
 4. Codex appears after a successful quota check; Claude appears after verified connection, with unknown limits until usage arrives. If Codex cannot be found, install the [Codex CLI](https://developers.openai.com/codex/cli/) or open **Settings → Connection** and select its executable path. For Claude setup, follow the [connection steps below](#claude-code-connection).

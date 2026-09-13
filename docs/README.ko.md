@@ -90,7 +90,7 @@ ChatGPT Pro/Sol 기록 추정 기능은 종료했습니다. Edge/Chrome 확장, 
 
 배포 파일은 **`CycleArc.exe` 하나**입니다. .NET 런타임이 포함되어 별도 .NET 설치가 필요 없습니다.
 
-현재 소스 빌드는 디버그 심볼을 제외한 **Release · Windows x64** 실행 파일을 생성합니다.
+[최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 디버그 심볼을 제외한 **Release · Windows x64** 실행 파일을 다운로드하세요.
 
 Codex 조회에는 이 PC에 설치된 **Codex CLI**, 구독 한도를 제공하는 ChatGPT 계정으로의 CLI 로그인과 네트워크 연결이 필요합니다. Claude 조회에는 공식 statusLine 한도 필드를 제공하는 **Claude Code**와 Windows PowerShell이 필요하며 Codex 로그인은 필요하지 않습니다. 두 서비스 모두 CycleArc에서 공식 로그인을 시작할 수 있습니다.
 앱은 `codex.exe` 또는 `codex.cmd`를 PATH와 일반 설치 위치에서 찾습니다.
