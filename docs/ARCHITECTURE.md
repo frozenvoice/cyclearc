@@ -180,9 +180,16 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
   Save/Cancel behavior. Korean/English and dark/light themes use the existing resources.
   Writes flush a same-directory temporary file before atomic replacement, retaining the previous
   valid primary as `.bak`. Missing or corrupt primary files recover from backup; corrupt data never replaces it.
-  System theme and display events marshal through the owning Dispatcher and unsubscribe on exit.
+  System theme/display, power-resume and session-unlock/connect events marshal through the
+  owning Dispatcher and unsubscribe on exit.
   Fixed themes ignore system theme changes. Widgets recover into connected work areas after
   startup, size/DPI or monitor changes; position reset is applied only on Settings Save.
+  `FloatingWidgetController` owns each widget window and its subscriptions. The existing
+  two-second passive timer also checks native visibility, minimized state and topmost flags
+  independently of quota changes. A closed window is replaced while the widget remains enabled
+  with a displayable account. Coalesced resume/unlock/display recovery replaces the transparent
+  HWND and restores saved preferences without activation; queued callbacks cannot resurrect a
+  disabled widget or run after disposal. Minimized rectangles never overwrite saved positions.
   Local installation retries bounded file operations and restores/restarts the old executable
   when deployment or startup fails. Failed pre-backup moves never restore a stale backup.
 - Reset rows show server reset time plus remaining days/hours. A one-minute UI-only timer

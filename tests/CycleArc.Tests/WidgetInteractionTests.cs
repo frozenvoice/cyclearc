@@ -45,7 +45,6 @@ public class WidgetInteractionTests
         Assert.DoesNotContain("DragMove()", widgetCode, StringComparison.Ordinal);
         Assert.Contains("MouseButton.Middle", widgetCode, StringComparison.Ordinal);
         var appCode = File.ReadAllText(Find("src/CycleArc/App.xaml.cs"));
-        Assert.Contains("_widgetEvents.TrySubscribe", appCode, StringComparison.Ordinal);
         Assert.Contains("RefreshCodexAsync", appCode, StringComparison.Ordinal);
         Assert.DoesNotContain("TryGetConversation", appCode, StringComparison.Ordinal);
     }
@@ -81,7 +80,7 @@ public class WidgetInteractionTests
         var app = File.ReadAllText(Find("src/CycleArc/App.xaml.cs"));
         Assert.Contains("CloseWidgetRequested?.Invoke()", tray);
         Assert.Contains("위젯 닫기", tray);
-        Assert.Contains("_widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu()", app);
+        Assert.Contains("widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu()", app);
         Assert.Contains("_tray.CloseWidgetRequested += CloseWidget", app);
         var start = app.IndexOf("private void CloseWidget()", StringComparison.Ordinal);
         var close = app[start..app.IndexOf("private void ApplyWidget()", start, StringComparison.Ordinal)];

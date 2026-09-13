@@ -48,6 +48,11 @@ internal static class Program
                 DocumentationScreenshots.Export(claudeUsageDirectory, claudeUsageOnly: true);
                 return 0;
             }
+            if (args is ["--widget-recovery", var recoveryDirectory])
+            {
+                WidgetRecoveryChecks.Run(recoveryDirectory);
+                return 0;
+            }
             if (args is ["--screenshots", var directory])
             {
                 DocumentationScreenshots.Export(directory);
@@ -75,6 +80,7 @@ internal static class Program
             CheckEnvironmentCallbacks(app);
             CheckWidgetRecovery();
             CheckWidgetRestart();
+            WidgetRecoveryChecks.Run();
             WidgetDpiChecks.Run();
             CheckPositionReset();
             var applyTheme = typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)
@@ -406,23 +412,27 @@ internal static class Program
         var owner = Environment.CurrentManagedThreadId;
         var themeCalls = 0;
         var displayCalls = 0;
+        var restoredCalls = 0;
         void CheckThread()
         {
             if (Environment.CurrentManagedThreadId != owner)
                 throw new InvalidOperationException("Desktop event escaped the WPF dispatcher.");
         }
         using var monitor = new DesktopEnvironmentMonitor(dispatcher,
-            () => { CheckThread(); themeCalls++; }, () => { CheckThread(); displayCalls++; }, false);
-        Task.Run(() => { monitor.NotifyThemeChanged(); monitor.NotifyDisplayChanged(); }).GetAwaiter().GetResult();
-        if (themeCalls != 0 || displayCalls != 0) throw new InvalidOperationException("Desktop event ran on a worker.");
+            () => { CheckThread(); themeCalls++; }, () => { CheckThread(); displayCalls++; }, false,
+            () => { CheckThread(); restoredCalls++; });
+        Task.Run(() => { monitor.NotifyThemeChanged(); monitor.NotifyDisplayChanged(); monitor.NotifyDesktopRestored(); }).GetAwaiter().GetResult();
+        if (themeCalls != 0 || displayCalls != 0 || restoredCalls != 0) throw new InvalidOperationException("Desktop event ran on a worker.");
         PumpDispatcher(dispatcher);
-        if (themeCalls != 1 || displayCalls != 1) throw new InvalidOperationException("Desktop event was lost.");
+        if (themeCalls != 1 || displayCalls != 1 || restoredCalls != 1) throw new InvalidOperationException("Desktop event was lost.");
         monitor.NotifyThemeChanged();
         monitor.NotifyDisplayChanged();
+        monitor.NotifyDesktopRestored();
         monitor.Dispose();
         monitor.NotifyThemeChanged();
+        monitor.NotifyDesktopRestored();
         PumpDispatcher(dispatcher);
-        if (themeCalls != 1 || displayCalls != 1) throw new InvalidOperationException("Disposed callbacks executed.");
+        if (themeCalls != 1 || displayCalls != 1 || restoredCalls != 1) throw new InvalidOperationException("Disposed callbacks executed.");
 
         dispatcher.InvokeShutdown();
     }

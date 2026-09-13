@@ -174,6 +174,8 @@ Only the official statusLine input is used for usage. Authentication uses the of
 
 The zoom shortcuts also support the numeric keypad. Widget position can be reset from **Settings → Widget**; the reset takes effect when you save.
 
+With **Show widget** enabled and a displayable account, CycleArc checks the native window every two seconds and restores unexpected hiding, minimization or a lost always-on-top setting without taking keyboard focus. After sleep, unlock or display changes it recreates the widget with the saved position, opacity and interaction settings. Turning the widget off still keeps it hidden. Recovery events are recorded in the local app log.
+
 <details>
 <summary><strong>Settings and compact widget</strong></summary>
 

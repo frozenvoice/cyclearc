@@ -2,6 +2,26 @@
 
 ## Current release — Codex and Claude Code
 
+- Widget visibility recovery (2026-09-13): `FloatingWidgetController` keeps the enabled
+  widget's native window synchronized with its saved preferences and selected account.
+  Native hide/minimize/topmost loss is checked by the existing two-second timer. Closed
+  windows recover with fresh event subscriptions; coalesced resume/unlock/display callbacks
+  replace the transparent window without losing position, opacity or interaction settings.
+  - `./dev-run.ps1 -NoLaunch` passed restore, Release build (0 warnings/errors), **1,158 unit
+    tests**, 15 installer scenarios, **666 WPF renders**, built/published Claude receiver
+    checks and the new widget lifecycle checks in both languages/dark/light on **3 monitors**.
+    The single-file win-x64 executable SHA-256 is
+    `6BAE3471E5CC2C874D506985FAD5184403890661B9E4FBE2230ED631878153C3`.
+  - Native checks cover hidden and minimized HWNDs, topmost loss, unexpected closure,
+    repeated recovery, per-window click handlers, account disappearance/reappearance,
+    disable during queued recovery, disposal and keyboard focus preservation. Minimized
+    rectangles do not replace saved coordinates. Desktop callbacks are dispatched and
+    disposed safely. Four recovery previews were visually inspected; existing documentation
+    images still represent the unchanged layout.
+  - The reported widget retained on-screen bounds and native visible/topmost flags at
+    inspection; its original disappearance trigger was not captured. Tests use synthetic
+    windows and simulated callbacks, without changing the user's power/session state.
+
 - Claude elapsed-reset receipts (2026-09-13): a passed reset no longer marks a received
   sample stale or raises attention. This supersedes the elapsed-reset warning retained in
   the 2026-09-12 idle-receipt change below. Original percentages, reset times and receipt

@@ -26,6 +26,7 @@ public partial class FloatingWidget : Window
     public FloatingWidget()
     {
         InitializeComponent();
+        ShowActivated = false;
         ContentRendered += (_, _) =>
         {
             if (_positionReady) return;
@@ -86,6 +87,8 @@ public partial class FloatingWidget : Window
     public void RecoverPosition(IReadOnlyList<ScreenRect>? workAreas = null)
     {
         if (_recoveringPosition || _drag is not null || _applying || _restoringPixels || _closed) return;
+        // A minimized window's native rectangle is not a position to save or clamp.
+        if (WindowState != WindowState.Normal || IsIconic(new WindowInteropHelper(this).Handle)) return;
         if (workAreas is null)
         {
             if (!_positionReady) return;
@@ -105,6 +108,31 @@ public partial class FloatingWidget : Window
             Moved?.Invoke(Left, Top);
         }
         finally { _recoveringPosition = false; }
+    }
+
+    public bool EnsureVisible(bool alwaysOnTop)
+    {
+        if (_closed) return false;
+        var repaired = false;
+        if (WindowState != WindowState.Normal)
+        {
+            WindowState = WindowState.Normal;
+            repaired = true;
+        }
+        if (!IsVisible) { Show(); repaired = true; }
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (IsIconic(hwnd)) { ShowWindow(hwnd, 4); repaired = true; } // SHOWNOACTIVATE
+        var nativeTopmost = (GetWindowLong(hwnd, GwlExstyle) & 0x00000008) != 0;
+        if (!IsWindowVisible(hwnd) || nativeTopmost != alwaysOnTop || repaired)
+        {
+            // Native flags can disagree with WPF's cached Visibility/Topmost properties.
+            SetWindowPos(hwnd, alwaysOnTop ? new IntPtr(-1) : new IntPtr(-2), 0, 0, 0, 0,
+                0x0001 | 0x0002 | 0x0010 | 0x0040); // NOSIZE | NOMOVE | NOACTIVATE | SHOWWINDOW
+            repaired = true;
+        }
+        RecoverPosition();
+        if (repaired) InvalidateVisual();
+        return repaired;
     }
 
     public (int X, int Y)? PixelPosition
@@ -164,6 +192,12 @@ public partial class FloatingWidget : Window
     private struct NativeRect { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hwnd, int command);
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
 

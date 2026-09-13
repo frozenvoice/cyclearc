@@ -36,7 +36,7 @@ public class ManualIncrementalSyncTests
         Assert.Contains("_refresh = _codex.Refresh", app, StringComparison.Ordinal);
         var accounts = File.ReadAllText(Find("src/CycleArc.Core/Codex/CodexAccountManager.cs"));
         Assert.Contains("new CodexRefreshCoordinator", accounts, StringComparison.Ordinal);
-        foreach (var surface in new[] { "_tray.SyncRequested", "_flyout.SyncRequested", "_widget.RefreshRequested" })
+        foreach (var surface in new[] { "_tray.SyncRequested", "_flyout.SyncRequested", "widget.RefreshRequested" })
             Assert.Contains(surface, app, StringComparison.Ordinal);
         Assert.Contains("RefreshCodexAsync()", app, StringComparison.Ordinal);
         Assert.DoesNotContain("_taskbarStrip", app, StringComparison.Ordinal);

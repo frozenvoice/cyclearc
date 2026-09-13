@@ -68,6 +68,9 @@ Repository: `cyclearc`; solution: `CycleArc.sln`; distribution: one self-contain
 - Marshal background and system-event callbacks to the WPF Dispatcher. Bound subprocess startup, requests,
   cancellation and shutdown; do not leak child processes. Shared refresh is single-flight across entry points:
   only its owner clears busy state, with visible progress until the operation actually finishes.
+- Keep enabled widget visibility separate from WPF's cached `IsVisible` state. Preserve native
+  hide/minimize/topmost and resume/unlock/display recovery, saved position and per-window event
+  subscriptions. Recovery must not steal focus, revive disabled/accountless widgets or run after exit.
 - Use the existing Korean/English localization and Dark/Light/System resources. State must be clear without
   relying only on color or hover. Preserve readable controls, scaling, scrolling and widget recovery after DPI changes.
   Keep native tray text within 127 characters, retaining Claude freshness/receipt/scope before long nicknames.

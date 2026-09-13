@@ -26,7 +26,6 @@ public partial class App : Application
     private readonly DispatcherTimer _displayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private readonly DispatcherTimer _passiveTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private Task _passiveTask = Task.CompletedTask;
-    private readonly OnceEventSubscription _widgetEvents = new();
     private Task _creditUseTask = Task.CompletedTask;
     private FlyoutWindow? _flyout;
     private AccountsWindow? _accountsWindow;
@@ -34,7 +33,7 @@ public partial class App : Application
     private Task _claudeIdentityTask = Task.CompletedTask;
     private ClaudeConnectionService _claudeConnections = null!;
     private ClaudeConnectionWindow? _claudeWindow;
-    private FloatingWidget? _widget;
+    private FloatingWidgetController? _widgetController;
     private DesktopEnvironmentMonitor? _environment;
     public bool IsExiting { get; private set; }
 
@@ -116,12 +115,14 @@ public partial class App : Application
         _displayTimer.Start();
         _passiveTimer.Tick += (_, _) =>
         {
+            if (!IsExiting) _widgetController?.MaintainVisibility();
             if (!IsExiting && _passiveTask.IsCompleted) _passiveTask = ReadPassiveUsageAsync();
         };
         _passiveTimer.Start();
         RefreshSnapshot();
         ApplyWidget();
-        _environment = new DesktopEnvironmentMonitor(Dispatcher, OnSystemThemeChanged, OnDisplayChanged);
+        _environment = new DesktopEnvironmentMonitor(Dispatcher, OnSystemThemeChanged, OnDisplayChanged,
+            desktopRestored: OnDesktopRestored);
         if (firstUse || e.Args.Contains("--show", StringComparer.Ordinal)) ShowMain();
         _ = RefreshCodexAsync();
         _discoveryTask = DiscoverStartupAsync();
@@ -177,12 +178,7 @@ public partial class App : Application
         _tray.Update(overview, _settings.TrayIconStyle);
         _flyout?.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing);
         _accountsWindow?.Bind(accounts, overview.SelectedId);
-        if (_widget is not null)
-        {
-            _widget.BindAccount(overview.Selected, overview.Accounts.Count > 1);
-            if (_settings.FloatingWidgetEnabled && overview.Selected is not null) { if (!_widget.IsVisible) _widget.Show(); }
-            else _widget.Hide();
-        }
+        _widgetController?.Update(_settings, overview);
     }
 
     private void ToggleFlyout()
@@ -364,34 +360,26 @@ public partial class App : Application
 
     private void ApplyWidget()
     {
-        if (!_settings.FloatingWidgetEnabled)
+        _widgetController ??= new FloatingWidgetController(widget =>
         {
-            _widget?.Hide();
-            return;
-        }
-
-        _widget ??= new FloatingWidget();
-        _widgetEvents.TrySubscribe(() =>
-        {
-            _widget.Moved += (left, top) =>
+            widget.Moved += (left, top) =>
             {
+                if (IsExiting || !ReferenceEquals(_widgetController?.CurrentWindow, widget)) return;
                 _settings.WidgetLeft = left;
                 _settings.WidgetTop = top;
-                if (_widget.PixelPosition is { } pixels)
+                if (widget.PixelPosition is { } pixels)
                 {
                     _settings.WidgetPixelLeft = pixels.X;
                     _settings.WidgetPixelTop = pixels.Y;
                 }
                 _settingsStore.Save(_settings);
             };
-            _widget.FlyoutRequested += ToggleFlyout;
-            _widget.RefreshRequested += () => _ = RefreshCodexAsync();
-            _widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu();
-        });
-        _widget.Apply(_settings);
+            widget.FlyoutRequested += ToggleFlyout;
+            widget.RefreshRequested += () => _ = RefreshCodexAsync();
+            widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu();
+        }, _log.Info);
         var overview = UsageAccountOverview.Create(_codex.Accounts, _codex.SelectedId);
-        _widget.BindAccount(overview.Selected, overview.Accounts.Count > 1);
-        if (overview.Selected is not null) _widget.Show(); else _widget.Hide();
+        _widgetController.Update(_settings, overview, applySettings: true);
     }
 
     private static void ApplyTheme(AppTheme theme)
@@ -428,8 +416,13 @@ public partial class App : Application
     private void OnDisplayChanged()
     {
         if (IsExiting) return;
-        _widget?.RecoverPosition();
+        _widgetController?.RecoverAfterEnvironmentChange();
         _flyout?.RefreshWorkArea();
+    }
+
+    private void OnDesktopRestored()
+    {
+        if (!IsExiting) _widgetController?.RecoverAfterEnvironmentChange();
     }
 
     private static Color MediaColor(byte r, byte g, byte b) => Color.FromRgb(r, g, b);
@@ -451,6 +444,7 @@ public partial class App : Application
     {
         if (IsExiting) return;
         IsExiting = true;
+        _widgetController?.Dispose();
         _environment?.Dispose();
         _codexTimer.Stop();
         _displayTimer.Stop();
@@ -459,7 +453,6 @@ public partial class App : Application
         _accountsWindow?.CancelOperation();
         _claudeWindow?.CancelOperation();
         _flyout?.Hide();
-        _widget?.Hide();
         // Let the existing bounded client stop and reap its app-server process.
         try { await Task.WhenAll(_refresh.WaitForIdleAsync(), _creditUseTask, _discoveryTask, _passiveTask, _claudeIdentityTask,
             _claudeWindow?.ActiveOperation ?? Task.CompletedTask,
@@ -472,6 +465,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _widgetController?.Dispose();
         _environment?.Dispose();
         if (_ownsMutex) _mutex?.ReleaseMutex();
         _mutex?.Dispose();
