@@ -193,7 +193,7 @@ public class ConversationSchemaHealthTests
         Directory.CreateDirectory(dir);
         using var store = new SqliteStore(Path.Combine(dir, "dup.db"));
         var models = new ModelNormalizer();
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")));
+        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
         var now = T.AddHours(1).ToUnixTimeSeconds();
         var fixture = new FixtureChatGptProvider(quota: CycleQuota());
         var item = new ConversationIndexItem { Id = "conv-dup", UpdateTime = now, CreateTime = now - 10 };
@@ -610,7 +610,7 @@ public class ConversationSchemaHealthTests
         var dir = Path.Combine(Path.GetTempPath(), "cyclearc-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var models = new ModelNormalizer();
-        return new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")));
+        return new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
     }
 
     private static (SyncEngine Engine, SqliteStore Store, FixtureChatGptProvider Fixture, IncrementalSyncTests.CountingProvider Provider, AppSettings Settings, List<ConversationIndexItem> Items) CreateHarness(int count)
@@ -619,7 +619,8 @@ public class ConversationSchemaHealthTests
         Directory.CreateDirectory(dir);
         var store = new SqliteStore(Path.Combine(dir, "schema.db"));
         var models = new ModelNormalizer();
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")));
+        // Use the snapshot's fixed reference time so synthetic conversations cannot age out.
+        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
         var after = T.AddHours(1).ToUnixTimeSeconds();
         var fixture = new FixtureChatGptProvider(quota: CycleQuota());
         var items = new List<ConversationIndexItem>();

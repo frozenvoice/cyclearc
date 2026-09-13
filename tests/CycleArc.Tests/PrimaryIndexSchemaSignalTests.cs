@@ -180,7 +180,8 @@ public class PrimaryIndexSchemaSignalTests
         Directory.CreateDirectory(dir);
         var store = new SqliteStore(Path.Combine(dir, "index-schema.db"));
         var models = new ModelNormalizer();
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")));
+        // Use the snapshot's fixed reference time so synthetic conversations cannot age out.
+        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
         var after = T.AddHours(1).ToUnixTimeSeconds();
         var fixture = new FixtureChatGptProvider(quota: CycleQuota());
         for (var i = 0; i < count; i++)

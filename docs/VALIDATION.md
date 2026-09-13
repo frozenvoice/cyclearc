@@ -2,6 +2,13 @@
 
 ## Current release — Codex and Claude Code
 
+- Release 0.5.0 fixture clock correction (2026-09-13): 23 retained history tests failed
+  when their fixed September 6 samples aged out of a scan using the real system clock.
+  The affected schema-health, primary-index and isolated-failure harnesses now inject
+  the existing `MutableClock` at their snapshot reference time, including restarts.
+  All 56 tests in those three classes passed with the original assertions preserved.
+  This changes synthetic test setup only; runtime collection and real data are untouched.
+
 - Widget visibility recovery (2026-09-13): `FloatingWidgetController` keeps the enabled
   widget's native window synchronized with its saved preferences and selected account.
   Native hide/minimize/topmost loss is checked by the existing two-second timer. Closed

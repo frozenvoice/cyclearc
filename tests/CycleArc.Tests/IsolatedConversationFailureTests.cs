@@ -61,7 +61,8 @@ public class IsolatedConversationFailureTests
         Directory.CreateDirectory(dir);
         using var store = new SqliteStore(Path.Combine(dir, "live.db"));
         var models = new ModelNormalizer();
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")));
+        // Use the snapshot's fixed reference time so synthetic conversations cannot age out.
+        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
         var after = T.AddHours(1).ToUnixTimeSeconds();
         var giant = new ConversationIndexItem { Id = "conv-giant", UpdateTime = after, CreateTime = after - 10 };
         var other = new ConversationIndexItem { Id = "conv-ok", UpdateTime = after - 1, CreateTime = after - 20 };
