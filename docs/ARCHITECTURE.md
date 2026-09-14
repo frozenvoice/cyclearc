@@ -192,6 +192,10 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
   with a displayable account. Coalesced resume/unlock/display recovery replaces the transparent
   HWND and restores saved preferences without activation; queued callbacks cannot resurrect a
   disabled widget or run after disposal. Minimized rectangles never overwrite saved positions.
+  WPF's DPI resize can request activation even inside a non-activating native move. Widget
+  settings/position updates, minimized restores and controller-owned closure use a synchronous
+  activation guard on the current UI thread; it is released on success or exception and does
+  not change DPI scaling, pointer interaction or other processes.
   Local installation retries bounded file operations and restores/restarts the old executable
   when deployment or startup fails. Failed pre-backup moves never restore a stale backup.
 - Reset rows show server reset time plus remaining days/hours. A one-minute UI-only timer

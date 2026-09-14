@@ -38,6 +38,46 @@ public partial class FloatingWidget : Window
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(() => RecoverPosition());
     }
 
+    public void CloseWithoutActivation()
+    {
+        using var activation = new PassiveUpdate();
+        Close();
+    }
+
+    private sealed class PassiveUpdate : IDisposable
+    {
+        private static readonly HookCallback Callback = FilterActivation;
+        private IntPtr _hook;
+
+        public PassiveUpdate()
+        {
+            // WPF's nested DPI resize omits NOACTIVATE. Veto activation only on this
+            // UI thread during the synchronous widget update, including native creation.
+            _hook = SetWindowsHookEx(5, Callback, IntPtr.Zero, GetCurrentThreadId()); // WH_CBT
+            if (_hook == IntPtr.Zero) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        }
+
+        private static IntPtr FilterActivation(int code, IntPtr wParam, IntPtr lParam) =>
+            code == 5 ? new IntPtr(1) : CallNextHookEx(IntPtr.Zero, code, wParam, lParam); // HCBT_ACTIVATE
+
+        public void Dispose()
+        {
+            if (_hook == IntPtr.Zero) return;
+            UnhookWindowsHookEx(_hook);
+            _hook = IntPtr.Zero;
+        }
+
+        private delegate IntPtr HookCallback(int code, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern IntPtr SetWindowsHookEx(int hook, HookCallback callback, IntPtr module, uint threadId);
+        [DllImport("user32.dll")]
+        private static extern bool UnhookWindowsHookEx(IntPtr hook);
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+    }
+
     public void Bind(CodexQuotaSnapshot snapshot)
     {
         Title = UiText.WidgetTitle;
@@ -68,6 +108,7 @@ public partial class FloatingWidget : Window
 
     public void Apply(AppSettings settings)
     {
+        using var activation = new PassiveUpdate();
         _applying = true;
         try
         {
@@ -116,6 +157,7 @@ public partial class FloatingWidget : Window
         var repaired = false;
         if (WindowState != WindowState.Normal)
         {
+            using var activation = new PassiveUpdate();
             WindowState = WindowState.Normal;
             repaired = true;
         }
@@ -167,6 +209,7 @@ public partial class FloatingWidget : Window
 
     private void SetPixelPosition(int x, int y)
     {
+        using var activation = new PassiveUpdate();
         SetWindowPos(new WindowInteropHelper(this).Handle, IntPtr.Zero, x, y, 0, 0,
             0x0001 | 0x0004 | 0x0010); // NOSIZE | NOZORDER | NOACTIVATE
     }

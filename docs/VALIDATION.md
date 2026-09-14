@@ -2,6 +2,30 @@
 
 ## Current release — Codex and Claude Code
 
+- Release 0.5.1 integration and widget fixes (2026-09-14): the Claude-enabled 0.5.0
+  source and the two fixes previously delivered on the Codex-only main line are merged.
+  Main and the new release now share the Codex/Claude account-management implementation.
+  The widget always displays the selected account's nickname, reported email or existing
+  provider/profile fallback, including when only one profile exists.
+  - Added **60 identity renders** across both languages/all themes, including Claude email
+    and profile fallbacks, blank names, quota states, long-email ellipsis/tooltips and removal.
+    The retained history fixtures share a deterministic clock across parsing, scans and restart.
+  - Mixed-DPI native testing exposed WPF activating a widget during its nested DPI resize.
+    A synchronous, current-UI-thread activation guard covers settings/position updates,
+    minimized restoration and controller-owned closure. Native regression checks use a
+    separate active-window fixture, reproduce the nested resize on single-monitor desktops,
+    and verify foreground/thread activation, zero transient widget activations and guard
+    cleanup after successful and exceptional updates.
+  - `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed restore, Release build with
+    **0 warnings/errors**, **1,158 unit tests**, **15 installer scenarios**, **726 WPF renders**,
+    native widget lifecycle/DPI checks on **2 monitors**, and built/published Claude bridge
+    and headless receiver checks. The win-x64 self-contained output contains only
+    `CycleArc.exe`.
+  - Six widget previews and English/Korean dark/light account-management/guide previews
+    were visually inspected using synthetic accounts. Existing documentation images still
+    represent the layout. No real login, quota query or model request was performed.
+    Installation/connection on the reporting PC remains a live-environment check.
+
 - Release 0.5.0 fixture clock correction (2026-09-13): 23 retained history tests failed
   when their fixed September 6 samples aged out of a scan using the real system clock.
   The affected schema-health, primary-index and isolated-failure harnesses now inject
@@ -257,6 +281,37 @@
     A user must connect each profile's generated statusLine command in the corresponding
     Claude Code settings and use Claude Code to receive live data. Official statusLine has
     no verified account identity; profile attribution is explicitly local and user-configured.
+
+- Earlier Codex-only main: single-account widget identity (2026-09-14): the widget used to hide the account name
+  whenever only one profile existed, regardless of its nickname. `FloatingWidget.BindAccount`
+  now shows any selected account's existing `DisplayName`; `App.xaml.cs` no longer passes an
+  account-count visibility flag. The shared nickname/email/localized fallback rule is reused.
+  `AccountUiChecks` reproduces the missing single-account email before the fix and adds
+  48 offline WPF renders across English/Korean and Dark/Light/System. Cases cover empty and
+  whitespace nicknames, configured nicknames, refreshing/stale/signed-out states, long-email
+  ellipsis/full tooltips and clearing the identity after account removal. Existing 0/1/3/8
+  account and long-name checks remain. Synthetic dark/light previews were visually inspected.
+  Full `./dev-run.ps1` passed restore, Release build (0 warnings/errors), all 1,047 unit
+  tests, 15 installer scenarios, 48 new identity renders, 120 existing account renders,
+  180 widget DPI/layout renders and 36 production renders. Self-contained win-x64 publish
+  contains exactly `CycleArc.exe`; local replacement/startup succeeded. Verification of the
+  updated executable on the other PC remains a user-side check; no live-account quota read
+  or authentication change was needed to reproduce this presentation issue.
+
+- Earlier Codex-only main: development launcher date regression (2026-09-14): reproduced the reported 23 failures
+  in `PrimaryIndexSchemaSignalTests`, `ConversationSchemaHealthTests` and
+  `IsolatedConversationFailureTests`. Their fixed September 6 fixtures were filtered out
+  when the system clock moved into a later quota period. The retained legacy tests now use
+  a fixture-aligned `MutableClock` in both `SyncEngine` and `ConversationParser`, including
+  restarted engines and presentation snapshots. Existing cases remain; added assertions
+  verify body fetches, completion timestamps and deferred failures after restart. Fatal-auth
+  and paused-run checks explicitly advance the clock to keep timestamp-preservation checks meaningful.
+  All 56 affected-class cases passed. The complete `./dev-run.ps1` run passed restore,
+  Release build (0 warnings/errors), all 1,047 unit tests, 15 installer scenarios,
+  120 account WPF renders, 180 widget DPI/layout renders and 36 production WPF renders.
+  Self-contained win-x64 publish produced exactly `CycleArc.exe`; local replacement and
+  startup succeeded. This changes test setup only; live-account quota behavior was not
+  separately revalidated.
 
 - Repository rename and default-branch screenshots (2026-09-12): repository, badge,
   download/issue links, clone instructions and the app's About link use `frozenvoice/cyclearc`.

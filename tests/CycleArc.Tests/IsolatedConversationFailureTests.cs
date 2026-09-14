@@ -7,6 +7,8 @@ namespace CycleArc.Tests;
 public class IsolatedConversationFailureTests
 {
     private static readonly DateTimeOffset T = new(2026, 9, 6, 5, 20, 14, TimeSpan.Zero);
+    // Keep the scan and presentation inside the fixed fixture's quota period.
+    private static readonly DateTimeOffset Now = T.AddHours(12);
 
     [Fact]
     public void LiveTimeoutDiagnostics_AreBridgeTimeoutNotSchemaMismatch()
@@ -61,8 +63,8 @@ public class IsolatedConversationFailureTests
         Directory.CreateDirectory(dir);
         using var store = new SqliteStore(Path.Combine(dir, "live.db"));
         var models = new ModelNormalizer();
-        // Use the snapshot's fixed reference time so synthetic conversations cannot age out.
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
+        var clock = new MutableClock(Now);
+        var engine = new SyncEngine(store, new ConversationParser(models, clock), models, new AppLog(Path.Combine(dir, "logs")), clock);
         var after = T.AddHours(1).ToUnixTimeSeconds();
         var giant = new ConversationIndexItem { Id = "conv-giant", UpdateTime = after, CreateTime = after - 10 };
         var other = new ConversationIndexItem { Id = "conv-ok", UpdateTime = after - 1, CreateTime = after - 20 };
@@ -76,6 +78,8 @@ public class IsolatedConversationFailureTests
 
         var run1 = await engine.SyncAsync(provider, settings, force: true);
         Assert.Equal(AppSyncStatus.UpToDate, run1.Status);
+        Assert.Equal(Now, engine.LastSyncCompleted);
+        Assert.Equal(2, provider.BodyFetches);
         Assert.Equal(0, engine.LastCoverage.FailedConversations);
         Assert.Equal(2, store.GetUsageEvents().Count(e => e.QuotaFamily == QuotaFamily.GptPro));
         var snapshot1 = Snapshot(engine, store, settings);
@@ -145,7 +149,7 @@ public class IsolatedConversationFailureTests
         new QuotaEngine().Build(
             store.GetUsageEvents(),
             settings,
-            T.AddHours(12),
+            Now,
             engine.LastSyncCompleted,
             engine.LastCoverage,
             engine.LastQuotaMetadata,
@@ -172,8 +176,8 @@ public class IsolatedConversationFailureTests
     private static CodexQuotaSnapshot AvailableCodex() => new(
         CodexQuotaStatus.Available,
         null,
-        DateTimeOffset.Now,
-        DateTimeOffset.Now,
+        Now,
+        Now,
         null,
         null,
         null,

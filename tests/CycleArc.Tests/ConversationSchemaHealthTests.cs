@@ -7,6 +7,8 @@ namespace CycleArc.Tests;
 public class ConversationSchemaHealthTests
 {
     private static readonly DateTimeOffset T = new(2026, 9, 6, 5, 20, 14, TimeSpan.Zero);
+    // Keep the scan and presentation inside the fixed fixture's quota period.
+    private static readonly DateTimeOffset Now = T.AddHours(12);
 
     [Theory]
     [InlineData(1, 0, 1, 0, 0, false)]
@@ -179,7 +181,8 @@ public class ConversationSchemaHealthTests
         Directory.CreateDirectory(dir);
         using var store = new SqliteStore(Path.Combine(dir, "index.db"));
         var models = new ModelNormalizer();
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")));
+        var clock = new MutableClock(Now);
+        var engine = new SyncEngine(store, new ConversationParser(models, clock), models, new AppLog(Path.Combine(dir, "logs")), clock);
         var outcome = await engine.SyncAsync(new IndexMismatchProvider(), AppSettings.CreateDefaults(), true);
         Assert.Equal(AppSyncStatus.ProviderSchemaMismatch, outcome.Status);
         Assert.False(engine.LastCoverage.ConversationSchemaSystemicFailure);
@@ -193,7 +196,8 @@ public class ConversationSchemaHealthTests
         Directory.CreateDirectory(dir);
         using var store = new SqliteStore(Path.Combine(dir, "dup.db"));
         var models = new ModelNormalizer();
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
+        var clock = new MutableClock(Now);
+        var engine = new SyncEngine(store, new ConversationParser(models, clock), models, new AppLog(Path.Combine(dir, "logs")), clock);
         var now = T.AddHours(1).ToUnixTimeSeconds();
         var fixture = new FixtureChatGptProvider(quota: CycleQuota());
         var item = new ConversationIndexItem { Id = "conv-dup", UpdateTime = now, CreateTime = now - 10 };
@@ -218,12 +222,12 @@ public class ConversationSchemaHealthTests
     [Fact]
     public async Task I_DeferredHistoricalSchemaFailures_DoNotEscalate()
     {
-        var clock = new MutableClock(T);
+        var clock = new MutableClock(Now);
         var dir = Path.Combine(Path.GetTempPath(), "cyclearc-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         using var store = new SqliteStore(Path.Combine(dir, "deferred.db"));
         var models = new ModelNormalizer();
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), clock);
+        var engine = new SyncEngine(store, new ConversationParser(models, clock), models, new AppLog(Path.Combine(dir, "logs")), clock);
         var now = T.AddHours(1).ToUnixTimeSeconds();
         var fixture = new FixtureChatGptProvider(quota: CycleQuota());
         for (var i = 0; i < 3; i++)
@@ -367,8 +371,11 @@ public class ConversationSchemaHealthTests
         Assert.True(engine.ConversationSchemaSystemicFailureLatched);
 
         var restarted = RestartEngine(store);
+        Assert.Equal(Now, restarted.LastSyncCompleted);
         Assert.True(restarted.ConversationSchemaSystemicFailureLatched);
         var deferred = await restarted.SyncAsync(provider, settings, force: false);
+        Assert.Equal(Now, restarted.LastSyncCompleted);
+        Assert.Equal(3, restarted.LastCoverage.FailureSummary.DeferredCount);
         Assert.True(restarted.ConversationSchemaSystemicFailureLatched);
         Assert.True(restarted.LastCoverage.ConversationSchemaSystemicFailure);
         Assert.Equal(AppSyncStatus.ProviderSchemaMismatch, deferred.Status);
@@ -420,7 +427,8 @@ public class ConversationSchemaHealthTests
     [Fact]
     public async Task FatalAuth_ReplacesStaleCoverage_ButKeepsLatch()
     {
-        var (engine, store, fixture, provider, settings, _) = CreateHarness(3);
+        var clock = new MutableClock(Now);
+        var (engine, store, fixture, provider, settings, _) = CreateHarness(3, clock);
         fixture.LoadOverride = _ => SchemaLoad();
         var run1 = await engine.SyncAsync(provider, settings, force: true);
         Assert.Equal(AppSyncStatus.ProviderSchemaMismatch, run1.Status);
@@ -428,6 +436,7 @@ public class ConversationSchemaHealthTests
         Assert.True(engine.LastCoverage.ConversationSchemaSystemicFailure);
         var completed = engine.LastSyncCompleted;
         var events = store.GetUsageEvents().Count;
+        clock.UtcNow = Now.AddMinutes(1);
 
         var run2 = await engine.SyncAsync(
             new ThrowingAccountProvider(fixture, new ChatGptProviderException("Authentication required.", 401)),
@@ -522,14 +531,16 @@ public class ConversationSchemaHealthTests
     [Fact]
     public async Task PausedAutoSync_ReportsCurrentRunCoverage_AndKeepsLatch()
     {
-        var (engine, store, fixture, provider, settings, items) = CreateHarness(3);
+        var clock = new MutableClock(Now);
+        var (engine, store, fixture, provider, settings, items) = CreateHarness(3, clock);
         fixture.LoadOverride = _ => SchemaLoad();
         var run1 = await engine.SyncAsync(provider, settings, force: true);
         Assert.Equal(AppSyncStatus.ProviderSchemaMismatch, run1.Status);
         Assert.True(engine.LastCoverage.ConversationSchemaSystemicFailure);
         Assert.True(engine.ConversationSchemaSystemicFailureLatched);
         var completed = engine.LastSyncCompleted;
-        Assert.NotNull(completed);
+        Assert.Equal(Now, completed);
+        clock.UtcNow = Now.AddMinutes(1);
 
         engine.RetryAttempts = 1;
         engine.RetryBaseDelay = TimeSpan.Zero;
@@ -593,7 +604,7 @@ public class ConversationSchemaHealthTests
             Used = 5,
             ReconstructedUsed = 5,
             CurrentCycleKnown = true,
-            LastSync = DateTimeOffset.UtcNow,
+            LastSync = Now,
             Status = AppSyncStatus.ProviderSchemaMismatch,
             Coverage = coverage
         };
@@ -610,17 +621,18 @@ public class ConversationSchemaHealthTests
         var dir = Path.Combine(Path.GetTempPath(), "cyclearc-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var models = new ModelNormalizer();
-        return new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
+        var clock = new MutableClock(Now);
+        return new SyncEngine(store, new ConversationParser(models, clock), models, new AppLog(Path.Combine(dir, "logs")), clock);
     }
 
-    private static (SyncEngine Engine, SqliteStore Store, FixtureChatGptProvider Fixture, IncrementalSyncTests.CountingProvider Provider, AppSettings Settings, List<ConversationIndexItem> Items) CreateHarness(int count)
+    private static (SyncEngine Engine, SqliteStore Store, FixtureChatGptProvider Fixture, IncrementalSyncTests.CountingProvider Provider, AppSettings Settings, List<ConversationIndexItem> Items) CreateHarness(int count, MutableClock? clock = null)
     {
         var dir = Path.Combine(Path.GetTempPath(), "cyclearc-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var store = new SqliteStore(Path.Combine(dir, "schema.db"));
         var models = new ModelNormalizer();
-        // Use the snapshot's fixed reference time so synthetic conversations cannot age out.
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
+        clock ??= new MutableClock(Now);
+        var engine = new SyncEngine(store, new ConversationParser(models, clock), models, new AppLog(Path.Combine(dir, "logs")), clock);
         var after = T.AddHours(1).ToUnixTimeSeconds();
         var fixture = new FixtureChatGptProvider(quota: CycleQuota());
         var items = new List<ConversationIndexItem>();
@@ -666,7 +678,7 @@ public class ConversationSchemaHealthTests
         new QuotaEngine().Build(
             store.GetUsageEvents(),
             settings,
-            T.AddHours(12),
+            Now,
             engine.LastSyncCompleted,
             engine.LastCoverage,
             engine.LastQuotaMetadata,
@@ -693,8 +705,8 @@ public class ConversationSchemaHealthTests
     private static CodexQuotaSnapshot AvailableCodex() => new(
         CodexQuotaStatus.Available,
         null,
-        DateTimeOffset.Now,
-        DateTimeOffset.Now,
+        Now,
+        Now,
         null,
         null,
         null,

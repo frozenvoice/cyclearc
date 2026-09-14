@@ -75,7 +75,7 @@ public sealed class FloatingWidgetController(Action<FloatingWidget> configure, A
     {
         var previous = _window;
         _window = null;
-        previous?.Close();
+        previous?.CloseWithoutActivation();
     }
 
     public void Dispose()

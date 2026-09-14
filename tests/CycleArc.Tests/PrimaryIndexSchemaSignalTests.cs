@@ -6,6 +6,8 @@ namespace CycleArc.Tests;
 public class PrimaryIndexSchemaSignalTests
 {
     private static readonly DateTimeOffset T = new(2026, 9, 6, 5, 20, 14, TimeSpan.Zero);
+    // Keep the scan and presentation inside the fixed fixture's quota period.
+    private static readonly DateTimeOffset Now = T.AddHours(12);
 
     [Fact]
     public async Task A_NormalIndexSchemaMismatch_SetsPrimarySignal()
@@ -115,6 +117,8 @@ public class PrimaryIndexSchemaSignalTests
         fixture.LoadOverride = _ => SchemaLoad();
         var outcome = await engine.SyncAsync(new IndexScriptProvider(fixture), settings, force: true);
         Assert.Equal(AppSyncStatus.PartialData, outcome.Status);
+        Assert.Equal(Now, engine.LastSyncCompleted);
+        Assert.Equal(1, engine.LastBodyFetches);
         Assert.False(engine.LastCoverage.PrimaryIndexSchemaMismatch);
         Assert.False(engine.LastCoverage.ConversationSchemaSystemicFailure);
         Assert.Equal(1, engine.LastCoverage.FailureSummary.SchemaMismatchCount);
@@ -180,8 +184,8 @@ public class PrimaryIndexSchemaSignalTests
         Directory.CreateDirectory(dir);
         var store = new SqliteStore(Path.Combine(dir, "index-schema.db"));
         var models = new ModelNormalizer();
-        // Use the snapshot's fixed reference time so synthetic conversations cannot age out.
-        var engine = new SyncEngine(store, new ConversationParser(models), models, new AppLog(Path.Combine(dir, "logs")), new MutableClock(T.AddHours(12)));
+        var clock = new MutableClock(Now);
+        var engine = new SyncEngine(store, new ConversationParser(models, clock), models, new AppLog(Path.Combine(dir, "logs")), clock);
         var after = T.AddHours(1).ToUnixTimeSeconds();
         var fixture = new FixtureChatGptProvider(quota: CycleQuota());
         for (var i = 0; i < count; i++)
@@ -213,7 +217,7 @@ public class PrimaryIndexSchemaSignalTests
         new QuotaEngine().Build(
             store.GetUsageEvents(),
             settings,
-            T.AddHours(12),
+            Now,
             engine.LastSyncCompleted,
             engine.LastCoverage,
             engine.LastQuotaMetadata,
