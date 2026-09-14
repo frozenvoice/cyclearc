@@ -20,6 +20,8 @@ public sealed class CodexAccountManager
     private CodexAccountConfiguration _configuration;
     private string? _loginProfile;
     private readonly HashSet<string> _identityConflicts = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _identityConflictMarkersPending = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _identityConflictMarkerWrites = new(StringComparer.Ordinal);
     private readonly HashSet<string> _refreshingProfiles = new(StringComparer.Ordinal);
 
     public CodexAccountManager(CodexAccountStore store, string defaultHome,
@@ -39,7 +41,7 @@ public sealed class CodexAccountManager
             if (profile.Provider == UsageProviderId.Codex && !profile.IsManaged && store.HasIdentityConflict(profile))
                 _identityConflicts.Add(profile.Id);
         }
-        _ = Accounts; // Preserve legacy duplicate conflicts before asynchronous identity migration.
+        RefreshIdentityConflicts(); // Preserve legacy duplicate conflicts before asynchronous identity migration.
         Refresh = new CodexRefreshCoordinator(RefreshAllAsync);
         Refresh.StateChanged += () => Changed?.Invoke();
     }
@@ -65,13 +67,6 @@ public sealed class CodexAccountManager
                     .GroupBy(item => item.fingerprint!, StringComparer.Ordinal)
                     .Where(group => group.Count() > 1)
                     .Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
-                var managed = identities.Where(item => item.profile.IsManaged)
-                    .Select(item => item.fingerprint!)
-                    .ToHashSet(StringComparer.Ordinal);
-                foreach (var item in identities.Where(item => !item.profile.IsManaged && managed.Contains(item.fingerprint!)))
-                    _identityConflicts.Add(item.profile.Id);
-                foreach (var profile in _configuration.Profiles.Where(profile => _identityConflicts.Contains(profile.Id)))
-                    if (!_store.HasIdentityConflict(profile)) _store.RememberIdentityConflict(profile);
                 return _configuration.Profiles.Select(profile =>
                 {
                     var service = _services[profile.Id];
@@ -178,6 +173,7 @@ public sealed class CodexAccountManager
                     : _configuration.IgnoredHomes });
             if (_serviceHandlers.Remove(id, out var handler)) service.Changed -= handler;
             _identityConflicts.Remove(id);
+            _identityConflictMarkersPending.Remove(id);
             _services.Remove(id);
         }
         Changed?.Invoke();
@@ -288,6 +284,7 @@ public sealed class CodexAccountManager
                     AddService(profile, service);
                     added++;
                 }
+                RefreshIdentityConflicts();
                 Changed?.Invoke();
             }
             return new(added, failed, signedOut);
@@ -417,8 +414,10 @@ public sealed class CodexAccountManager
                 if (_serviceHandlers.Remove(profileId, out var handler)) originalService.Changed -= handler;
                 _services.Remove(profileId);
                 _identityConflicts.Remove(profileId);
+                _identityConflictMarkersPending.Remove(profileId);
                 AddService(replacement, candidateService);
             }
+            RefreshIdentityConflicts();
             Changed?.Invoke();
             return new(CodexQuotaStatus.Available, login.Identity);
         }
@@ -427,6 +426,7 @@ public sealed class CodexAccountManager
     }
     public Task<CreditRedemptionOutcome> ConsumeCreditAsync(string profileId, string creditId, CancellationToken token)
     {
+        ICodexAccountOperations? operations = null;
         lock (_gate)
         {
             var projected = Accounts.FirstOrDefault(account => account.Profile.Id == profileId);
@@ -434,19 +434,69 @@ public sealed class CodexAccountManager
                 || !projected.IsConnected || projected.Snapshot.Status != CodexQuotaStatus.Available
                 || !CodexRingPresentation.From(projected.Snapshot).IsAvailable
                 || profileId == _loginProfile || !_services.TryGetValue(profileId, out var service)
-                || service is not ICodexAccountOperations operations)
+                || service is not ICodexAccountOperations candidateOperations)
                 return Task.FromResult(CreditRedemptionOutcome.Unavailable);
-            return operations.ConsumeCreditAsync(creditId, token);
+            operations = candidateOperations;
         }
+        return operations!.ConsumeCreditAsync(creditId, token);
     }
     private IUsageAccountService AddService(CodexAccountProfile profile, IUsageAccountService? service = null)
     {
         service ??= _createService(profile);
         _services.Add(profile.Id, service);
-        Action<CodexQuotaSnapshot> handler = _ => Changed?.Invoke();
+        Action<CodexQuotaSnapshot> handler = _ =>
+        {
+            RefreshIdentityConflicts();
+            Changed?.Invoke();
+        };
         _serviceHandlers.Add(profile.Id, handler);
         service.Changed += handler;
         return service;
+    }
+
+    // Conflict markers are durable recovery state, so calculate and persist them
+    // only from lifecycle/background paths. Accounts must remain a pure projection
+    // that cannot wait on or mutate the filesystem while the UI thread is rendering.
+    private void RefreshIdentityConflicts()
+    {
+        CodexAccountProfile[] pending;
+        lock (_gate)
+        {
+            var identities = _configuration.Profiles
+                .Where(profile => profile.Provider == UsageProviderId.Codex)
+                .Select(profile => (profile, service: _services[profile.Id]))
+                .Select(item => (item.profile, fingerprint: IdentityOf(item.service)))
+                .Where(item => item.fingerprint is not null)
+                .ToArray();
+            var managed = identities.Where(item => item.profile.IsManaged)
+                .Select(item => item.fingerprint!)
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var item in identities.Where(item => !item.profile.IsManaged && managed.Contains(item.fingerprint!)))
+            {
+                if (_identityConflicts.Add(item.profile.Id)) _identityConflictMarkersPending.Add(item.profile.Id);
+            }
+
+            pending = identities
+                .Where(item => _identityConflictMarkersPending.Contains(item.profile.Id)
+                    && _identityConflictMarkerWrites.Add(item.profile.Id))
+                .Select(item => item.profile)
+                .ToArray();
+        }
+
+        foreach (var profile in pending)
+        {
+            var persisted = false;
+            try { persisted = _store.RememberIdentityConflict(profile); }
+            finally
+            {
+                lock (_gate)
+                {
+                    _identityConflictMarkerWrites.Remove(profile.Id);
+                    if (persisted && _identityConflicts.Contains(profile.Id))
+                        _identityConflictMarkersPending.Remove(profile.Id);
+                }
+            }
+        }
     }
 
     private static string? IdentityOf(IUsageAccountService service) =>

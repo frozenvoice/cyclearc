@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Nodes;
 using CycleArc.Codex;
 using CycleArc.Services;
@@ -33,6 +34,101 @@ public class CodexSnapshotStoreTests
         Assert.DoesNotContain("token", File.ReadAllText(path), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("cookie", File.ReadAllText(path), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Authorization", File.ReadAllText(path), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CorruptPrimary_RecoversValidBackup_WithoutOverwritingBackup()
+    {
+        var path = TempFile();
+        var store = new CodexSnapshotStore(path);
+        store.Save(Snapshot(42));
+        store.Save(Snapshot(17));
+        var backup = File.ReadAllText(store.BackupPath);
+
+        File.WriteAllText(path, "{broken");
+
+        var recoveredStore = new CodexSnapshotStore(path);
+        var recovered = recoveredStore.Load();
+        Assert.True(recoveredStore.RecoveredFromBackup);
+        Assert.Equal(42, recovered?.Windows.Single().UsedPercent);
+        Assert.Equal(backup, File.ReadAllText(store.BackupPath));
+    }
+
+    [Fact]
+    public void InvalidPrimaryAndBackup_ReturnsNoSnapshot()
+    {
+        var path = TempFile();
+        File.WriteAllText(path, "{\"version\":99,\"status\":\"Available\",\"windows\":[]}");
+        File.WriteAllText(path + ".bak", "{\"version\":1,\"status\":\"NotAStatus\",\"windows\":[]}");
+
+        var store = new CodexSnapshotStore(path);
+        Assert.Null(store.Load());
+        Assert.False(store.RecoveredFromBackup);
+    }
+
+    [Fact]
+    public void FailedOrInterruptedWrite_PreservesPrimaryAndBackup()
+    {
+        var files = new FaultingSnapshotFileSystem();
+        var store = new CodexSnapshotStore("snapshot.json", files);
+        store.Save(Snapshot(42));
+        store.Save(Snapshot(17));
+        var primary = files.Read("snapshot.json");
+        var backup = files.Read("snapshot.json.bak");
+
+        files.FailAfterWrite = true;
+        Assert.Throws<IOException>(() => store.Save(Snapshot(5)));
+        Assert.Equal(primary, files.Read("snapshot.json"));
+        Assert.Equal(backup, files.Read("snapshot.json.bak"));
+        Assert.DoesNotContain(files.Paths, path => path.EndsWith(".tmp", StringComparison.Ordinal));
+
+        files.FailAfterWrite = false;
+        files.FailReplace = true;
+        Assert.Throws<IOException>(() => store.Save(Snapshot(5)));
+        Assert.Equal(primary, files.Read("snapshot.json"));
+        Assert.Equal(backup, files.Read("snapshot.json.bak"));
+        Assert.DoesNotContain(files.Paths, path => path.EndsWith(".tmp", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void MissingVersion_IsRejected()
+    {
+        var path = TempFile();
+        var store = new CodexSnapshotStore(path);
+        store.Save(Snapshot(42));
+        var json = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        json.Remove("version");
+        File.WriteAllText(path, json.ToJsonString());
+
+        Assert.Null(store.Load());
+    }
+
+    [Theory]
+    [InlineData("version")]
+    [InlineData("status")]
+    [InlineData("kind")]
+    public void InvalidVersionOrEnum_IsRejected(string field)
+    {
+        var path = TempFile();
+        var store = new CodexSnapshotStore(path);
+        store.Save(Snapshot(42));
+        var json = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        if (field == "version") json["version"] = CodexSnapshotStore.CurrentVersion + 1;
+        else if (field == "status") json["status"] = "not-a-status";
+        else json["windows"]![0]!["kind"] = "not-a-window-kind";
+        File.WriteAllText(path, json.ToJsonString());
+
+        Assert.Null(store.Load());
+    }
+
+    [Fact]
+    public void OversizedSnapshot_IsRejected()
+    {
+        var path = TempFile();
+        var oversized = new string('x', CodexSnapshotStore.MaxSerializedBytes);
+        File.WriteAllText(path, "{\"version\":1,\"status\":\"Available\",\"technicalDetail\":\"" + oversized + "\",\"windows\":[]}");
+
+        Assert.Null(new CodexSnapshotStore(path).Load());
     }
 
     [Fact]
@@ -161,6 +257,17 @@ public class CodexSnapshotStoreTests
     private static string TempFile() =>
         Path.Combine(Path.GetTempPath(), $"cyclearc-codex-{Guid.NewGuid():N}.json");
 
+    private static CodexQuotaSnapshot Snapshot(double usedPercent) => new(
+        CodexQuotaStatus.Available,
+        "plus",
+        DateTimeOffset.Parse("2026-09-05T01:00:00Z"),
+        DateTimeOffset.Parse("2026-09-05T01:00:00Z"),
+        true,
+        null,
+        1,
+        [new CodexQuotaWindow(null, usedPercent, 300, null, CodexWindowKind.FiveHour)],
+        null);
+
     private static (CodexQuotaService Service, List<string> Logs) CachedService(ICodexProcessFactory factory)
     {
         var store = new CodexSnapshotStore(TempFile());
@@ -214,5 +321,61 @@ public class CodexSnapshotStoreTests
         {
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class FaultingSnapshotFileSystem : ICodexSnapshotFileSystem
+    {
+        private readonly Dictionary<string, string> _files = new(StringComparer.Ordinal);
+
+        public bool FailAfterWrite { get; set; }
+        public bool FailReplace { get; set; }
+        public IEnumerable<string> Paths => _files.Keys;
+
+        public void CreateDirectory(string path)
+        {
+        }
+
+        public bool Exists(string path) => _files.ContainsKey(path);
+
+        public string Read(string path) => _files.TryGetValue(path, out var value)
+            ? value
+            : throw new FileNotFoundException(path);
+
+        public bool TryReadAllText(string path, int maxBytes, out string contents)
+        {
+            contents = "";
+            if (!_files.TryGetValue(path, out var value)
+                || Encoding.UTF8.GetByteCount(value) > maxBytes)
+            {
+                return false;
+            }
+
+            contents = value;
+            return true;
+        }
+
+        public void WriteAndFlush(string path, string contents)
+        {
+            _files[path] = contents;
+            if (FailAfterWrite) throw new IOException("synthetic flush failure");
+        }
+
+        public void Replace(string sourceFileName, string destinationFileName, string destinationBackupFileName)
+        {
+            if (FailReplace) throw new IOException("synthetic replace failure");
+            var previous = Read(destinationFileName);
+            _files[destinationBackupFileName] = previous;
+            _files[destinationFileName] = Read(sourceFileName);
+            _files.Remove(sourceFileName);
+        }
+
+        public void Move(string sourceFileName, string destinationFileName, bool overwrite)
+        {
+            if (!overwrite && _files.ContainsKey(destinationFileName)) throw new IOException("destination exists");
+            _files[destinationFileName] = Read(sourceFileName);
+            _files.Remove(sourceFileName);
+        }
+
+        public void Delete(string path) => _files.Remove(path);
     }
 }

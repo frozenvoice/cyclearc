@@ -35,7 +35,19 @@ public static class CodexRateLimitParser
             return new CodexParseResult(CodexQuotaStatus.Unavailable, SafePlanType(accountResult), null, null, null, [], "rate-limits-unavailable");
         }
 
-        var windows = ReadWindows(bucket);
+        var windows = ReadWindows(bucket, out var malformedWindow);
+        if (malformedWindow)
+        {
+            return new CodexParseResult(
+                CodexQuotaStatus.ProtocolMismatch,
+                SafePlanType(accountResult),
+                null,
+                null,
+                null,
+                [],
+                "rate-limits-malformed-window");
+        }
+
         var ordinary = (root is null ? null : ReadBool(root, "ordinaryUsageAllowed", "ordinary_usage_allowed"))
                        ?? ReadBool(bucket, "ordinaryUsageAllowed", "ordinary_usage_allowed");
         var reached = ReadString(bucket, "rateLimitReachedType", "rate_limit_reached_type");
@@ -84,22 +96,49 @@ public static class CodexRateLimitParser
     }
 
     public static IReadOnlyList<CodexQuotaWindow> ReadWindows(JsonNode bucket)
+        => ReadWindows(bucket, out _);
+
+    private static IReadOnlyList<CodexQuotaWindow> ReadWindows(JsonNode bucket, out bool malformedWindow)
     {
         var windows = new List<CodexQuotaWindow>();
-        AddWindow(windows, bucket["primary"], null);
-        AddWindow(windows, bucket["secondary"], null);
+        malformedWindow = false;
 
-        if (bucket["windows"] is JsonArray array)
+        if (bucket is not JsonObject obj)
         {
-            foreach (var item in array)
+            malformedWindow = true;
+            return windows;
+        }
+
+        malformedWindow = !TryAddOptionalWindow(windows, obj, "primary", null)
+                          || !TryAddOptionalWindow(windows, obj, "secondary", null);
+
+        if (!malformedWindow
+            && obj.TryGetPropertyValue("windows", out var windowsNode)
+            && !IsNull(windowsNode))
+        {
+            if (windowsNode is not JsonArray array)
             {
-                AddWindow(windows, item, null);
+                malformedWindow = true;
+            }
+            else
+            {
+                foreach (var item in array)
+                {
+                    if (!TryAddPresentWindow(windows, item, null))
+                    {
+                        malformedWindow = true;
+                        break;
+                    }
+                }
             }
         }
 
-        if (windows.Count == 0 && LooksLikeSingleWindow(bucket))
+        if (!malformedWindow && windows.Count == 0 && LooksLikeSingleWindow(obj))
         {
-            AddWindow(windows, bucket, ReadString(bucket, "limitId", "limit_id"));
+            if (!TryAddPresentWindow(windows, obj, ReadString(obj, "limitId", "limit_id")))
+            {
+                malformedWindow = true;
+            }
         }
 
         return windows;
@@ -134,14 +173,34 @@ public static class CodexRateLimitParser
             CodexWindowClassifier.FromDurationMinutes(minutes));
     }
 
-    private static void AddWindow(List<CodexQuotaWindow> windows, JsonNode? node, string? fallbackLimitId)
+    private static bool TryAddOptionalWindow(
+        List<CodexQuotaWindow> windows,
+        JsonObject bucket,
+        string propertyName,
+        string? fallbackLimitId)
+    {
+        if (!bucket.TryGetPropertyValue(propertyName, out var node) || IsNull(node))
+        {
+            return true;
+        }
+
+        return TryAddPresentWindow(windows, node, fallbackLimitId);
+    }
+
+    private static bool TryAddPresentWindow(List<CodexQuotaWindow> windows, JsonNode? node, string? fallbackLimitId)
     {
         var window = TryReadWindow(node, fallbackLimitId);
-        if (window is not null)
+        if (window is null)
         {
-            windows.Add(window);
+            return false;
         }
+
+        windows.Add(window);
+        return true;
     }
+
+    private static bool IsNull(JsonNode? node) =>
+        node is null || node.GetValueKind() == JsonValueKind.Null;
 
     public static double? ReadPercent(JsonNode node, params string[] names)
     {

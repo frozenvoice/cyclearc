@@ -85,7 +85,9 @@ internal static class ClaudeStatusLineProcessChecks
         var cli = Path.Combine(directory, "synthetic claude.cmd");
         File.WriteAllText(cli, "@echo off\r\necho " + authJson + "\r\nexit /b 0\r\n");
         var auth = ClaudeAuthentication.Parse(authJson, 0);
-        new ClaudeConnectionStore(accounts, profile.Id).Save(new(1, profile.Id, directory, cli, false, auth.Fingerprint!, DateTimeOffset.UtcNow));
+        var connections = new ClaudeConnectionStore(accounts, profile.Id);
+        connections.Save(new(2, profile.Id, directory, cli, false, auth.Fingerprint!, DateTimeOffset.UtcNow,
+            BindingGeneration: Guid.NewGuid().ToString("N")));
         var oldScript = "$data = $input | Out-String | ConvertFrom-Json; Write-Output ('Existing line ' + $data.rate_limits.five_hour.used_percentage)";
         var oldCommand = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(oldScript));
         File.WriteAllText(Path.Combine(directory, "settings.json"), JsonSerializer.Serialize(new { theme = "preserve", statusLine = new { type = "command", command = oldCommand, padding = 2 } }));
@@ -99,12 +101,32 @@ internal static class ClaudeStatusLineProcessChecks
         if (File.Exists(bash))
         {
             result = RunProcess(bash, ["--noprofile", "--norc", "-c", command], json);
-            Check(result.Code == 0 && result.Output.Trim() == "Existing line 23.5", "Automatic bridge failed under Git Bash.");
+            Check(result.Code == 0 && result.Output.Trim() == "Existing line 23.5",
+                $"Automatic bridge failed under Git Bash (exit {result.Code}, output '{result.Output.Trim()}', error '{result.Error.Trim()}').");
         }
+        var beforeAuthLoss = File.ReadAllBytes(accounts.ClaudeStatusLinePath(profile.Id));
         File.WriteAllText(cli, "@echo off\r\necho {\"loggedIn\":false}\r\nexit /b 1\r\n");
         result = RunProcess(executable, [ClaudeStatusLineBridge.Argument, ClaudeStatusLineInstaller.Payload(options)], json);
         Check(result.Code == 1 && result.Output.Trim() == "Existing line 23.5", "Auth loss discarded existing status line output.");
-        Check(store.Read().State?.LastInputStatus == ClaudeInputStatus.Missing, "Signed-out bridge accepted another usage sample.");
+        Check(File.ReadAllBytes(accounts.ClaudeStatusLinePath(profile.Id)).SequenceEqual(beforeAuthLoss),
+            "Signed-out bridge changed the last quota receipt.");
+        Check(new ClaudeFailureStore(accounts).Read(profile.Id).State?.Kind == ClaudeFailureKind.AuthRequired,
+            "Signed-out bridge did not record the separate authentication failure.");
+
+        // Exercise plan changes and a delayed old-generation callback in the real executable.
+        File.WriteAllText(cli, "@echo off\r\necho " + authJson.Replace("\"pro\"", "\"max\"", StringComparison.Ordinal)
+            + "\r\nexit /b 0\r\n");
+        connections.Save(connections.Read().Binding! with { BindingGeneration = Guid.NewGuid().ToString("N") });
+        var currentOptions = ClaudeStatusLineInstaller.InstallAsync(accounts, profile.Id, directory, executable, default).GetAwaiter().GetResult();
+        result = RunProcess(executable, [ClaudeStatusLineBridge.Argument, ClaudeStatusLineInstaller.Payload(currentOptions)], json);
+        Check(result.Code == 0, "Same-account plan change prevented a current-generation receipt.");
+        var currentQuota = File.ReadAllBytes(accounts.ClaudeStatusLinePath(profile.Id));
+        var currentFailure = File.ReadAllBytes(accounts.ClaudeFailurePath(profile.Id));
+        result = RunProcess(executable, [ClaudeStatusLineBridge.Argument, ClaudeStatusLineInstaller.Payload(options)], json);
+        Check(result.Code == 1 && result.Output.Trim() == "Existing line 23.5", "Old callback lost previous statusLine output.");
+        Check(File.ReadAllBytes(accounts.ClaudeStatusLinePath(profile.Id)).SequenceEqual(currentQuota)
+            && File.ReadAllBytes(accounts.ClaudeFailurePath(profile.Id)).SequenceEqual(currentFailure),
+            "An old-generation callback changed the current quota or failure record.");
         Check(!File.ReadAllText(accounts.ClaudeStatusLinePath(profile.Id)).Contains("never-", StringComparison.Ordinal), "Bridge stored raw stdin.");
         Console.WriteLine("PASS: automatic Claude bridge in production executable; official auth adapter, quoted paths, preserved statusLine stdin/output, signed-out rejection, PowerShell/Git Bash, isolated synthetic data.");
     }
@@ -176,7 +198,7 @@ internal static class ClaudeStatusLineProcessChecks
 
         Console.WriteLine("PASS: production StopFailure hook beside desktop mutex; signed-in metadata/authentication failure, preserved quota receipt, metadata privacy, wrong/duplicate event, old generation, disconnection and stdin deadline.");
     }
-    private static (int Code, string Output) RunProcess(string executable, string[] args, string? input)
+    private static (int Code, string Output, string Error) RunProcess(string executable, string[] args, string? input)
     {
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -192,7 +214,7 @@ internal static class ClaudeStatusLineProcessChecks
             Task.WhenAll(output, error).GetAwaiter().GetResult();
             Check(!output.Result.Contains("never-", StringComparison.Ordinal) && !error.Result.Contains("never-", StringComparison.Ordinal),
                 "Raw statusLine data reached process output.");
-            return (process.ExitCode, output.Result);
+            return (process.ExitCode, output.Result, error.Result);
         }
         finally
         {

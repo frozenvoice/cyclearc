@@ -7,6 +7,13 @@
   cards and details retain all reported windows. Compact surfaces prefer a known weekly
   percentage, then a known five-hour percentage; an unknown weekly value cannot hide usable
   five-hour data. Missing windows are omitted, and unknown percentages are never filled with zero.
+  A present malformed window/container is a protocol failure and retains the same account's
+  last-good sample and success time. Absent/null optional windows remain valid.
+  Codex snapshots use flushed temporary files, atomic replacement and valid-backup recovery;
+  bounded load validation rejects corrupt or unsupported cache shapes before projecting data.
+  Account-list projection uses the service's last verified identity in memory. Binding
+  revalidation stays in refresh/probe operations; conflict markers are persisted outside the
+  shared projection lock so rendering does not wait on disk locks.
 - `IUsageProvider` creates isolated `IUsageAccountService` instances for the shared account
   manager. `CodexUsageProvider` adapts the existing Codex service without changing its
   protocol/client, identity verification, concurrency or cache format. `ClaudeUsageProvider`
@@ -39,6 +46,9 @@
   not filled from another sample. Idle samples stay Received with their original receipt;
   elapsed time and passed reset timestamps do not raise attention or invent zero usage.
   Invalid receipt metadata still makes the saved values stale.
+  Bound quota/failure commits also hold the connection mutation lease, preventing a generation
+  change between binding validation and file replacement. Superseded automatic and manual
+  callbacks leave quota receipt metadata untouched while existing statusLine output is preserved.
 - A separate two-second passive check reads Claude inboxes off the UI thread and emits changes
   only for new data/freshness transitions, preserving nickname editor focus. It does not start
   Codex, renew receipt timestamps or alter manual-refresh ownership. Normal manual refresh

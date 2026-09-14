@@ -53,7 +53,9 @@ public sealed class ClaudeFailureStore
         var path = _accounts.ClaudeFailurePath(profileId);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var lease = await AcquireAsync(path, token).ConfigureAwait(false);
-        var currentBinding = new ClaudeConnectionStore(_accounts, profileId).Read().Binding;
+        var connections = new ClaudeConnectionStore(_accounts, profileId);
+        using var bindingLease = await connections.AcquireLeaseAsync(token).ConfigureAwait(false);
+        var currentBinding = connections.Read().Binding;
         if (currentBinding is not { Disconnected: false }
             || currentBinding.BindingGeneration != bindingGeneration) throw new InvalidDataException("Claude binding changed.");
         var previous = Read(profileId).State;

@@ -31,14 +31,18 @@ public static class ClaudeStatusLineCommand
             var connection = new ClaudeConnectionStore(accounts, id).Read();
             // Automatically bound accounts require the bridge's official CLI identity check.
             // An old copied command must not bypass that check after the account is connected.
-            var parsed = connection.Binding is not null || connection.Unavailable
-                ? new ClaudeStatusLineResult(ClaudeInputStatus.Missing) : ClaudeStatusLineParser.Parse(bytes);
+            if (connection.Binding is not null || connection.Unavailable)
+            {
+                await output.WriteLineAsync(Format(new(ClaudeInputStatus.Missing))).ConfigureAwait(false);
+                return 0;
+            }
+            var parsed = ClaudeStatusLineParser.Parse(bytes);
             var store = new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(id), id);
-            await store.RecordAsync(parsed, received, deadline.Token).ConfigureAwait(false);
+            await store.RecordForUnboundProfileAsync(parsed, received, accounts, deadline.Token).ConfigureAwait(false);
             await output.WriteLineAsync(Format(parsed)).ConfigureAwait(false);
             return parsed.Status == ClaudeInputStatus.Malformed ? 1 : 0;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException or InvalidDataException)
         {
             // No exception text: stdin and paths may contain unrelated private session data.
             await output.WriteLineAsync("Claude | CycleArc unavailable").ConfigureAwait(false);

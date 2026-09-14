@@ -28,7 +28,10 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
 
     public string? Email(string profileId, string? fingerprint) => fingerprint is not null
         && _identities.TryGetValue(profileId, out var auth) && auth.Status == ClaudeAuthStatus.SignedIn
-        && auth.Fingerprint == fingerprint ? auth.Email : null;
+        && (auth.StableFingerprint == fingerprint
+            || (auth.Email is { } email
+                && ClaudeIdentity.LegacyFingerprint(email, auth.OrganizationId, auth.Plan) == fingerprint))
+            ? auth.Email : null;
 
     public async Task<ClaudeConnectionOverview> InspectAsync(string profileId, CancellationToken token)
     {
@@ -50,12 +53,28 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
         var auth = executable is null ? new ClaudeAuthentication(ClaudeAuthStatus.NotInstalled)
             : await _cli.AuthenticateAsync(executable, useDefault ? null : directory, false, token).ConfigureAwait(false);
         _identities[profileId] = auth;
+        ClaudeConnectionBinding? migrationBackup = null;
+
+        // Upgrade a legacy plan-sensitive binding only after the official identity
+        // check. If the old plan is not available as evidence, stay fail-closed: a
+        // changed hash cannot be recovered into an arbitrary email/org identity.
+        if (binding is { Disconnected: false } legacy
+            && auth.Status == ClaudeAuthStatus.SignedIn
+            && ClaudeIdentityBinding.TryMigrate(auth, legacy, out var upgraded))
+        {
+            migrationBackup = legacy;
+            binding = upgraded with
+            {
+                BindingGeneration = upgraded.BindingGeneration ?? Guid.NewGuid().ToString("N")
+            };
+            store.Save(binding);
+        }
 
         // Upgrade an existing CycleArc wrapper only after the official identity check. A
         // cancellation or timeout cannot invalidate a still-working legacy callback.
         if (binding is { Disconnected: false } current
             && auth.Status == ClaudeAuthStatus.SignedIn
-            && string.Equals(auth.Fingerprint, current.IdentityFingerprint, StringComparison.Ordinal)
+            && ClaudeIdentityBinding.Matches(auth, current)
             && ClaudeStatusLineInstaller.TryReadOwnedStatusLine(directory, profileId, out var owned)
             && owned is not null && File.Exists(owned.CycleArcExecutable)
             && ClaudeCli.IsExecutablePath(owned.CycleArcExecutable))
@@ -63,7 +82,7 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
             var oldBinding = current;
             var migrated = current.BindingGeneration is null
                 ? current with { BindingGeneration = Guid.NewGuid().ToString("N") } : current;
-            if (current.BindingGeneration is null) store.Save(migrated);
+            if (current != migrated) store.Save(migrated);
             try
             {
                 await ClaudeStatusLineInstaller.InstallAsync(accounts, profileId, directory,
@@ -72,7 +91,7 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
             }
             catch
             {
-                if (current.BindingGeneration is null) store.Save(oldBinding);
+                store.Save(migrationBackup ?? oldBinding);
                 throw;
             }
         }
@@ -103,7 +122,7 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
         }
         else if (binding is { Disconnected: false } activeSignedIn
                  && auth.Status == ClaudeAuthStatus.SignedIn
-                 && !string.Equals(auth.Fingerprint, activeSignedIn.IdentityFingerprint, StringComparison.Ordinal))
+                 && !ClaudeIdentityBinding.Matches(auth, activeSignedIn))
         {
             if (activeSignedIn.BindingGeneration is null)
             {
@@ -155,7 +174,7 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
                 .Where(candidate => !candidate.Unavailable).Select(candidate => candidate.Binding)
                 .FirstOrDefault(candidate => candidate is { Disconnected: false }
                     && string.Equals(candidate.ConfigDirectory, target, StringComparison.OrdinalIgnoreCase)
-                    && candidate.UseDefaultConfig == useDefault && candidate.IdentityFingerprint == auth.Fingerprint);
+                    && candidate.UseDefaultConfig == useDefault && ClaudeIdentityBinding.Matches(auth, candidate));
             if (existing is not null)
             {
                 profileId = existing.ProfileId;
@@ -166,13 +185,14 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
             }
             _identities[profileId] = auth;
             var same = previous is { Disconnected: false } && string.Equals(previous.ConfigDirectory, target, StringComparison.OrdinalIgnoreCase)
-                && previous.IdentityFingerprint == auth.Fingerprint && previous.UseDefaultConfig == useDefault;
+                && ClaudeIdentityBinding.Matches(auth, previous) && previous.UseDefaultConfig == useDefault;
             var generation = same && previous!.BindingGeneration is { } oldGeneration
                 ? oldGeneration : Guid.NewGuid().ToString("N");
-            var binding = new ClaudeConnectionBinding(1, profileId, target, cliPath,
+            var binding = new ClaudeConnectionBinding(2, profileId, target, cliPath,
                 target.Equals(managedRoot, StringComparison.OrdinalIgnoreCase)
                     || target.StartsWith(managedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
-                auth.Fingerprint!, same ? previous!.ConnectedAt : _clock.UtcNow, useDefault, false, generation);
+                auth.StableFingerprint!, same ? previous!.ConnectedAt : _clock.UtcNow, useDefault, false, generation,
+                ClaudeIdentity.SafePersistedPlan(auth.Plan));
             store.Save(binding);
             try
             {
@@ -217,7 +237,7 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
             var auth = await _cli.AuthenticateAsync(cliPath, binding.UseDefaultConfig ? null : binding.ConfigDirectory, true, token).ConfigureAwait(false);
             _identities[profileId] = auth;
             if (auth.Status != ClaudeAuthStatus.SignedIn) return new(false, auth);
-            if (!string.Equals(auth.Fingerprint, binding.IdentityFingerprint, StringComparison.Ordinal))
+            if (!ClaudeIdentityBinding.Matches(auth, binding))
             {
                 if (binding.BindingGeneration is { } oldGeneration)
                     await new ClaudeFailureStore(accounts).RecordAsync(profileId, oldGeneration,
@@ -226,7 +246,15 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
             }
             token.ThrowIfCancellationRequested();
             var generation = Guid.NewGuid().ToString("N");
-            var updated = binding with { CliExecutable = cliPath, BindingGeneration = generation };
+            var current = ClaudeIdentityBinding.TryMigrate(auth, binding, out var migrated) ? migrated : binding;
+            var updated = current with
+            {
+                Version = 2,
+                IdentityFingerprint = auth.StableFingerprint!,
+                Plan = ClaudeIdentity.SafePersistedPlan(auth.Plan),
+                CliExecutable = cliPath,
+                BindingGeneration = generation
+            };
             store.Save(updated);
             try
             {
