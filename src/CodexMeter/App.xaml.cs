@@ -140,7 +140,7 @@ public partial class App : Application
         _tray.Update(_codex.Snapshot, _settings.TrayIconStyle, accounts.Count > 1 ? _codex.Selected?.DisplayName : null);
         _flyout?.BindAccounts(accounts, _codex.SelectedId, _refresh.IsRefreshing);
         _accountsWindow?.Bind(accounts, _codex.SelectedId);
-        _widget?.BindAccount(_codex.Selected, accounts.Count > 1);
+        _widget?.BindAccount(_codex.Selected);
     }
 
     private void ToggleFlyout()
@@ -335,7 +335,7 @@ public partial class App : Application
             _widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu();
         });
         _widget.Apply(_settings);
-        _widget.BindAccount(_codex.Selected, _codex.Accounts.Count > 1);
+        _widget.BindAccount(_codex.Selected);
         _widget.Show();
     }
 

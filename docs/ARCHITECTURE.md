@@ -54,7 +54,9 @@
   Reset actions capture the selected local profile before confirmation and re-check reported identity
   inside the consuming App Server process. Credit IDs remain memory-only.
 - Flyout overview cards show all accounts; the selected account reuses the established ring/credit
-  detail layout and drives tray/widget output. Multiple-account widget/tray labels identify that choice.
+  detail layout and drives tray/widget output. The widget always identifies the selected account,
+  including a single profile: its nickname, otherwise email or the existing localized fallback.
+  Tray account labels identify the selection when multiple profiles exist.
   `AccountsWindow` shares the existing Korean/English strings and themed controls.
 - Official references: [Codex state locations](https://learn.chatgpt.com/docs/config-file/config-advanced#config-and-state-locations),
   [credential ownership](https://learn.chatgpt.com/docs/auth#credential-storage),

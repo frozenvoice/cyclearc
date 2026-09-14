@@ -2,6 +2,22 @@
 
 ## Current release — Codex only
 
+- Single-account widget identity (2026-09-14): the widget used to hide the account name
+  whenever only one profile existed, regardless of its nickname. `FloatingWidget.BindAccount`
+  now shows any selected account's existing `DisplayName`; `App.xaml.cs` no longer passes an
+  account-count visibility flag. The shared nickname/email/localized fallback rule is reused.
+  `AccountUiChecks` reproduces the missing single-account email before the fix and adds
+  48 offline WPF renders across English/Korean and Dark/Light/System. Cases cover empty and
+  whitespace nicknames, configured nicknames, refreshing/stale/signed-out states, long-email
+  ellipsis/full tooltips and clearing the identity after account removal. Existing 0/1/3/8
+  account and long-name checks remain. Synthetic dark/light previews were visually inspected.
+  Full `./dev-run.ps1` passed restore, Release build (0 warnings/errors), all 1,047 unit
+  tests, 15 installer scenarios, 48 new identity renders, 120 existing account renders,
+  180 widget DPI/layout renders and 36 production renders. Self-contained win-x64 publish
+  contains exactly `CycleArc.exe`; local replacement/startup succeeded. Verification of the
+  updated executable on the other PC remains a user-side check; no live-account quota read
+  or authentication change was needed to reproduce this presentation issue.
+
 - Development launcher date regression (2026-09-14): reproduced the reported 23 failures
   in `PrimaryIndexSchemaSignalTests`, `ConversationSchemaHealthTests` and
   `IsolatedConversationFailureTests`. Their fixed September 6 fixtures were filtered out
