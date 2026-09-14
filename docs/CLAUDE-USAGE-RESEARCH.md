@@ -3,6 +3,17 @@
 Reviewed **2026-09-12** against official Anthropic documentation and the installed
 Claude CLI **2.1.233** (`--help` and `auth status --help` only).
 
+Rechecked **2026-09-14** for a Desktop Code report: the connected terminal configuration had
+no projected receipt. The official [Desktop comparison](https://code.claude.com/docs/en/desktop#coming-from-the-cli)
+describes its graphical interface over the same engine, while the
+[statusLine guide](https://code.claude.com/docs/en/statusline) describes terminal output and
+local script callbacks. CycleArc's collector remains the terminal statusLine path; using
+the Desktop Code tab is not evidence that this callback ran. The UI now names the terminal
+explicitly. This is CycleArc's supported-integration boundary, not an explicit assertion in
+Anthropic's Desktop documentation that shared settings can never run statusLine. The Desktop
+docs describe shared settings but do not promise this terminal callback. No independent
+Desktop usage API or collector is introduced.
+
 ## Finding and decision
 
 Claude Web, Desktop and Code consume the same subscription usage allowance.

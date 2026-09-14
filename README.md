@@ -39,7 +39,7 @@ The **Codex** or **Claude** label on account cards, selected details, tray toolt
 
 ## Get started
 
-**Requirements:** Windows 10/11 on x64. Codex monitoring requires an installed Codex CLI signed into a ChatGPT account that reports subscription limits, and network access. Claude monitoring requires Claude Code with official statusLine rate-limit support and Windows PowerShell; it does not require Codex sign-in.
+**Requirements:** Windows 10/11 on x64. Codex monitoring requires an installed Codex CLI signed into a ChatGPT account that reports subscription limits, and network access. Claude monitoring requires the Claude Code terminal CLI with official statusLine rate-limit support and Windows PowerShell; it does not require Codex sign-in.
 
 1. Download **`CycleArc.exe`** from the [latest release](https://github.com/frozenvoice/cyclearc/releases/latest).
 2. Put it in a folder you want to keep and run it. The .NET runtime is bundled; there is no separate runtime installer.
@@ -118,9 +118,9 @@ To check current usage without using Code, choose **Open usage page** on the Cla
 
 1. Open **Manage accounts → Add an account → Connect Claude**. Set an optional nickname.
 2. Choose **Connect current login** to use the signed-in Claude CLI, or **Sign in to Claude** to complete the official browser login. CycleArc verifies `claude auth status --json` and configures the connection automatically. Other settings and the existing status line are preserved; no JSON copying is required.
-3. During normal **Claude Code** use, responses can supply shared subscription usage. For a separate login created by CycleArc, **Open Claude Code…** launches it with that profile's configuration and your chosen working folder. Only the official `rate_limits.five_hour` / `rate_limits.seven_day` → `used_percentage` and `resets_at` fields supply usage; absent values stay unknown.
+3. During normal **Claude Code terminal (CLI)** use, responses can supply shared subscription usage. **Open Claude Code terminal…** launches it with that profile's configuration and your chosen working folder. Use it when awaiting the first sample, especially for a separate login created by CycleArc. Only the official `rate_limits.five_hour` / `rate_limits.seven_day` → `used_percentage` and `resets_at` fields supply usage; absent values stay unknown.
 
-**Web and Desktop do not send updates to CycleArc.** Connection and usage receipt are separate: a connected account stays visible with **Awaiting usage** until Claude Code sends a sample. Repeating **Connect current login** reuses the same verified configuration binding and preserves its name and usage history. Closing or cancelling a new connection before it succeeds removes its empty draft from the list.
+**CycleArc supports usage receipt from the connected Claude Code terminal, not Web or the Desktop Code tab.** Connection and usage receipt are separate: a connected account stays visible with **Awaiting usage** until the connected Claude Code terminal sends a sample. Repeating **Connect current login** reuses the same verified configuration binding and preserves its name and usage history. Closing or cancelling a new connection before it succeeds removes its empty draft from the list.
 
 <details>
 <summary><strong>Connected, awaiting usage · Dark and Light</strong></summary>
@@ -132,7 +132,7 @@ To check current usage without using Code, choose **Open usage page** on the Cla
 <table>
   <tr><td align="center"><strong>Automatic connection · Dark</strong></td><td align="center"><strong>Automatic connection · Light</strong></td></tr>
   <tr>
-    <td><img src="docs/images/claude-connection-en-dark.png" alt="Production Claude connection window with synthetic signed-in identity, current-login connection, another-account login and Open Claude Code buttons" width="530"></td>
+    <td><img src="docs/images/claude-connection-en-dark.png" alt="Production Claude connection window with synthetic signed-in identity, current-login connection, another-account login and Open Claude Code terminal buttons" width="530"></td>
     <td><img src="docs/images/claude-connection-en-light.png" alt="The same automatic Claude connection window in the light theme; no manual JSON entry" width="530"></td>
   </tr>
 </table>

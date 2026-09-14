@@ -68,6 +68,11 @@ internal static class Program
                 AccountUiChecks.Run(accountsDirectory);
                 return 0;
             }
+            if (args is ["--tooltips", var toolTipDirectory])
+            {
+                ToolTipUiChecks.Run(toolTipDirectory);
+                return 0;
+            }
             if (args is ["--claude-ui", var claudeDirectory])
             {
                 MixedProviderUiChecks.Run(claudeDirectory);
@@ -77,6 +82,7 @@ internal static class Program
             AccountUiChecks.Run();
             CodexWindowUiChecks.Run();
             MixedProviderUiChecks.Run();
+            ToolTipUiChecks.Run();
             CheckEnvironmentCallbacks(app);
             CheckWidgetRecovery();
             CheckWidgetRestart();

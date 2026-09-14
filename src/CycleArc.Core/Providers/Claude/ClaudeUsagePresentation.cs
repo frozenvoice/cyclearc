@@ -23,11 +23,11 @@ public static class ClaudeUsagePresentation
     public static string StatusText(CodexQuotaSnapshot snapshot)
     {
         if (snapshot.Status == CodexQuotaStatus.Available)
-            return UiText.T("Last values received via Claude Code. Account usage may have changed since then.",
-                "Claude Code를 통해 마지막으로 받은 값입니다. 이후 계정 사용량은 달라졌을 수 있습니다.");
+            return UiText.T("Last values received via the Claude Code terminal. Account usage may have changed since then.",
+                "Claude Code 터미널에서 마지막으로 받은 값입니다. 이후 계정 사용량은 달라졌을 수 있습니다.");
         if (snapshot.TechnicalDetail == "claude-connected-waiting")
-            return UiText.T("Connected; no subscription usage received yet. Samples arrive via Claude Code responses. Check the usage page for current limits.",
-                "연결됐지만 구독 사용량은 아직 수신하지 못했습니다. Claude Code 응답을 통해 값을 받습니다. 현재 한도는 사용량 페이지에서 확인하세요.");
+            return UiText.T("Connected; waiting for usage from the Claude Code terminal. Desktop Code is not a supported source for CycleArc. Open the terminal in connection settings, or check the usage page for current limits.",
+                "연결됨 · Claude Code 터미널에서 수신 대기 중입니다. CycleArc는 데스크톱 Code 탭에서 사용량을 받는 기능을 지원하지 않습니다. 연결 설정에서 터미널을 열거나 사용량 페이지에서 현재 한도를 확인하세요.");
         if (snapshot.Status == CodexQuotaStatus.SignedOut)
             return UiText.T("Claude is disconnected. Open Connect to reconnect this profile.", "Claude 연결이 해제되었습니다. 연결 버튼에서 다시 연결할 수 있습니다.");
         if (snapshot.TechnicalDetail == "claude-statusline-malformed" || snapshot.Status == CodexQuotaStatus.ProtocolMismatch)
@@ -40,9 +40,9 @@ public static class ClaudeUsagePresentation
             return UiText.T("Stale data · The receipt time could not be verified. Showing the last valid values.",
                 "오래된 데이터 · 수신 시각을 확인할 수 없어 마지막 정상값을 표시합니다.");
         if (snapshot.Status == CodexQuotaStatus.Stale)
-            return UiText.T("Stale data · Last values received via Claude Code. Current usage may differ; check the usage page.",
-                "오래된 데이터 · Claude Code를 통한 마지막 수신값입니다. 현재 사용량은 다를 수 있으니 사용량 페이지에서 확인하세요.");
-        return UiText.T("No Claude subscription usage received. Connect this profile to receive samples via Claude Code. Limits may be absent before the first response or on unsupported plans.",
-            "Claude 구독 사용량을 아직 받지 못했습니다. 프로필을 연결하면 Claude Code를 통해 값을 받습니다. 첫 응답 전이거나 지원하지 않는 플랜이면 한도 정보가 없을 수 있습니다.");
+            return UiText.T("Stale data · Last values received via the Claude Code terminal. Current usage may differ; check the usage page.",
+                "오래된 데이터 · Claude Code 터미널의 마지막 수신값입니다. 현재 사용량은 다를 수 있으니 사용량 페이지에서 확인하세요.");
+        return UiText.T("No Claude subscription usage received. Connect a Claude Code terminal login to receive samples. Limits may be absent before the first response or on unsupported plans.",
+            "Claude 구독 사용량을 아직 받지 못했습니다. Claude Code 터미널 로그인을 연결해 사용량을 받으세요. 첫 응답 전이거나 지원하지 않는 플랜이면 한도 정보가 없을 수 있습니다.");
     }
 }

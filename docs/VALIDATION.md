@@ -2,6 +2,30 @@
 
 ## Current release — Codex and Claude Code
 
+- Release 0.5.2 tooltip and Claude connection guidance (2026-09-14):
+  - Reproduced the account tooltip failure in an open WPF popup: the system light background
+    (`#F1F2F7`) and app dark-theme text (`#EEF1F6`) had insufficient contrast.
+    Tooltips now use the app's foreground/background/border resources, wrap plain strings,
+    cap dimensions at 360 × 300 DIPs, and scroll exceptionally long content. Existing rich
+    content and click-open reset-credit help retain their behavior.
+  - Added **36 open-popup checks** across English/Korean and Dark/Light/System, covering
+    real account/avatar tooltip text, long email/message wrapping, visible rich content,
+    contrast and resource changes while open. The pre-fix Codex tooltip failed the
+    contrast assertion; the corrected template passes.
+  - Claude waiting/setup text and the launch button explicitly identify the connected
+    terminal CLI. Desktop Code is outside CycleArc's supported receipt path. Corrected
+    the old setup-only five-minute stale claim to match existing idle receipt persistence;
+    existing provider behavior and tests remain intact.
+  - The reporting PC had a connected binding and statusLine command but no projected receipt.
+    Only binding/setup and receipt-presence metadata were inspected. No credential files,
+    conversations or model requests were used, and no live Claude quota receipt is claimed.
+  - `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed restore, Release build with
+    **0 warnings/errors**, **1,158 unit tests**, **15 installer scenarios**, **762 WPF renders**,
+    native widget lifecycle/DPI checks on **2 monitors**, and built/published Claude bridge
+    and headless receiver checks. Self-contained win-x64 publish contains only `CycleArc.exe`.
+  - Inspected English/Korean dark/light Claude waiting/connection views and tooltip previews.
+    Updated the eight affected documentation images only; other previews remain unchanged.
+
 - Release 0.5.1 integration and widget fixes (2026-09-14): the Claude-enabled 0.5.0
   source and the two fixes previously delivered on the Codex-only main line are merged.
   Main and the new release now share the Codex/Claude account-management implementation.

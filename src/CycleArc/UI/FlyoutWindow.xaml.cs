@@ -210,10 +210,7 @@ public partial class FlyoutWindow : Window
         ApplyCreditExpansion();
         var helpText = UiText.T("Reset credits can renew your Codex usage limits. Select Use reset beside a credit to redeem it after confirmation.", "리셋권으로 Codex 사용 한도를 갱신할 수 있습니다. 리셋권 옆의 초기화 사용을 누르고 확인하면 해당 리셋권을 사용합니다.");
         _creditHelpTip ??= MakeTooltip(helpText);
-        ((TextBlock)_creditHelpTip.Content).Text = helpText;
-        _creditHelpTip.Background = (Brush)FindResource("CardBrush");
-        _creditHelpTip.BorderBrush = (Brush)FindResource("LineBrush");
-        ((TextBlock)_creditHelpTip.Content).Foreground = (Brush)FindResource("TextBrush");
+        _creditHelpTip.Content = helpText;
         CreditHelpButton.ToolTip = _creditHelpTip;
         System.Windows.Automation.AutomationProperties.SetName(CreditHelpButton, UiText.T("Reset credit count and help", "리셋권 보유 수와 안내"));
         SettingsButton.ToolTip = UiText.Settings;
@@ -289,11 +286,7 @@ public partial class FlyoutWindow : Window
             var row = new Grid { Margin = new Thickness(0, 7, 0, 7), MinHeight = 18 };
             if (item.Tooltip is not null)
             {
-                row.ToolTip = new System.Windows.Controls.ToolTip
-                {
-                    Background = (Brush)FindResource("CardBrush"), BorderBrush = (Brush)FindResource("LineBrush"),
-                    Content = new TextBlock { Text = item.Tooltip, Foreground = (Brush)FindResource("TextBrush") }
-                };
+                row.ToolTip = item.Tooltip;
             }
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -440,8 +433,7 @@ One credit will be consumed.",
     }
     private System.Windows.Controls.ToolTip MakeTooltip(string text) => new()
     {
-        Background = (Brush)FindResource("CardBrush"), BorderBrush = (Brush)FindResource("LineBrush"),
-        Content = new TextBlock { Text = text, MaxWidth = 320, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)FindResource("TextBrush") }
+        Content = text
     };
 
     private void OnCreditHelpClick(object sender, RoutedEventArgs e)

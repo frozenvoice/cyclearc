@@ -70,12 +70,17 @@
   is hidden. The projection never deletes profiles or rewrites the user's saved selection.
   Explicit Claude disconnection is persisted separately from its preserved quota cache, so a restart
   cannot resurrect the disconnected card. Reconnection shows **Awaiting usage** until a new official
-  sample arrives. Claude Code responses supply quota fields; Web/Desktop activity consumes
-  the same allowance but sends no update to this receiver.
+  sample arrives. Terminal Claude Code responses supply quota fields. Web/Desktop activity,
+  including the Desktop Code tab, consumes the same allowance; this integration supports receipt
+  from the connected terminal CLI. The waiting text and launch action identify that requirement.
 
 - The repository is `frozenvoice/cyclearc`; clone instructions use the folder `cyclearc`.
   Clone instructions, documentation badges/download links and the app's repository link use
   the same repository. The solution is `CycleArc.sln`; source/test projects use CycleArc names.
+
+- Tooltips share theme-owned foreground/background/chrome. Plain-string content wraps at a
+  bounded width; oversized content can scroll within a bounded height. Rich UI content remains
+  intact, and live placement targets propagate theme changes to open popups.
 
 - Product branding is **CycleArc**. The solution, project paths, namespaces, assemblies,
   shipped executable, window titles, menus, startup entry and App Server identity use CycleArc.

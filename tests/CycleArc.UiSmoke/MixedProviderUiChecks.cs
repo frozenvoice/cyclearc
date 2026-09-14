@@ -230,6 +230,13 @@ internal static class MixedProviderUiChecks
                 AccountUiChecks.PumpUntil(guide.ActiveOperation);
                 Check(!connection.LastLogin && connection.Calls == 1, "Existing-login action unexpectedly started interactive login.");
                 Check(((Button)guide.FindName("OpenClaudeButton")).Visibility == Visibility.Visible, "Successful connection has no Claude launch action.");
+                Check(((Button)guide.FindName("OpenClaudeButton")).Content.ToString()!.Contains(UiText.T("terminal", "터미널")),
+                    "Claude launch action does not identify the terminal.");
+                var receiptHint = ((TextBlock)guide.FindName("FreshnessHint")).Text;
+                Check(receiptHint.Contains(UiText.T("terminal", "터미널")) && receiptHint.Contains(UiText.T("Code tab", "Code 탭"))
+                    && receiptHint.Contains(UiText.T("original receipt time", "원래 수신 시각")),
+                    "Connection guide fails to distinguish terminal delivery from Desktop Code sessions.");
+
                 Check(((TextBlock)guide.FindName("AccountIdentity")).Text.Contains("person@example.invalid"), "Verified identity is missing.");
                 string? guideOpened = null;
                 typeof(ClaudeConnectionWindow).GetProperty("OpenExternalForTest", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -315,6 +322,10 @@ internal static class MixedProviderUiChecks
             && ((Button)flyout.FindName("ClaudeUsagePageButton")).Visibility == Visibility.Visible,
             "Waiting profile lacks shared quota meaning or access to current usage.");
         Check(((ItemsControl)flyout.FindName("CodexRows")).Items.Count == 0, "Waiting connection invented quota numbers.");
+        var waitingText = ((TextBlock)flyout.FindName("CodexStatusText")).Text;
+        Check(waitingText.Contains(UiText.T("terminal", "터미널")) && waitingText.Contains(UiText.T("Desktop Code", "데스크톱 Code")),
+            "Awaiting usage omits the terminal source and Desktop Code limitation.");
+
         manager.Bind([first, connected, second], connected.Profile.Id);
         Check(((Button)((StackPanel)managed.Items[1]).Children[0]).IsEnabled, "Connected waiting account cannot be selected.");
 

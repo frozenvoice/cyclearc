@@ -12,15 +12,15 @@ Codex 계정 카드에는 제공된 한도별 사용률·잔여 비율을, 상�
 
 ## Claude Code 연결
 
-**Claude 구독 사용량은 Web·Desktop·Code가 공유하는 한도입니다.** CycleArc는 Claude Code를 통해 마지막으로 받은 공유 한도를 표시합니다. Web·Desktop에서 쓴 양도 같은 한도에 반영되므로 현재 계정 사용량은 수신값과 달라졌을 수 있습니다. [공식 사용 한도 안내](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work).
+**Claude 구독 사용량은 Web·Desktop·Code가 공유하는 한도입니다.** CycleArc는 연결된 Claude Code 터미널을 통해 마지막으로 받은 공유 한도를 표시합니다. Web·Desktop에서 쓴 양도 같은 한도에 반영되므로 현재 계정 사용량은 수신값과 달라졌을 수 있습니다. [공식 사용 한도 안내](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work).
 
-Code를 사용하지 않고 현재 한도를 보려면 Claude 상세 카드나 연결 창의 **사용량 페이지 열기**를 누르세요. 브라우저의 [Claude 설정 → 사용량](https://claude.ai/settings/usage)이 열립니다. 확인할 계정으로 로그인되어 있는지 확인하세요. 페이지를 열어도 CycleArc 값은 갱신되지 않습니다. 공식 API·CLI·SDK 문서 검토에서 개인 구독의 현재 공유 한도를 별도로 조회하는 지원 방법은 찾지 못했습니다. [조사 근거와 결정](CLAUDE-USAGE-RESEARCH.md).
+터미널 CLI를 사용하지 않고 현재 한도를 보려면 Claude 상세 카드나 연결 창의 **사용량 페이지 열기**를 누르세요. 브라우저의 [Claude 설정 → 사용량](https://claude.ai/settings/usage)이 열립니다. 확인할 계정으로 로그인되어 있는지 확인하세요. 페이지를 열어도 CycleArc 값은 갱신되지 않습니다. 공식 API·CLI·SDK 문서 검토에서 개인 구독의 현재 공유 한도를 별도로 조회하는 지원 방법은 찾지 못했습니다. [조사 근거와 결정](CLAUDE-USAGE-RESEARCH.md).
 
 1. **계정 관리 → 계정 추가 → Claude 연결**을 여세요. 별명은 선택 사항입니다.
 2. 이미 Claude CLI에 로그인했다면 **현재 로그인 연결**을 누르세요. 새로 로그인하려면 **Claude 로그인**을 누르고 공식 브라우저에서 로그인하세요. 이미 로그인한 상태에서는 **다른 계정으로 로그인**으로 표시됩니다. CycleArc가 공식 로그인 상태를 확인하고 사용량 수신을 자동으로 설정합니다. 다른 설정과 기존 상태 표시줄을 보존하며, JSON을 직접 복사할 필요가 없습니다.
-3. 평소 **Claude Code** 사용 중 응답을 받으면 공유 구독 사용량을 수신할 수 있습니다. CycleArc에서 별도로 로그인한 계정은 **Claude Code 열기…**에서 작업 폴더를 선택하면 해당 계정의 설정으로 시작합니다. 공식 `rate_limits.five_hour` / `seven_day`의 `used_percentage`와 `resets_at`만 사용하며, 없는 구간은 0으로 표시하지 않습니다.
+3. 평소 **Claude Code 터미널(CLI)** 사용 중 응답을 받으면 공유 구독 사용량을 수신할 수 있습니다. **Claude Code 터미널 열기…**에서 작업 폴더를 선택하면 해당 계정의 설정으로 시작합니다. 첫 수신을 기다리고 있거나 CycleArc에서 별도로 로그인했다면 이 버튼으로 실행하세요. 공식 `rate_limits.five_hour` / `seven_day`의 `used_percentage`와 `resets_at`만 사용하며, 없는 구간은 0으로 표시하지 않습니다.
 
-**Web·Desktop은 CycleArc로 업데이트를 보내지 않습니다.** 연결과 사용량 수신은 별개입니다. 연결된 계정은 첫 데이터가 없어도 메인에 **수신 대기**로 표시합니다. **현재 로그인 연결**을 반복하면 같은 로그인·설정의 기존 연결을 재사용하며 별명과 사용량 이력을 유지합니다. 새 연결을 완료하기 전에 취소하거나 창을 닫으면 빈 임시 프로필은 목록에서 정리합니다.
+**CycleArc는 연결된 Claude Code 터미널에서 사용량을 받습니다. Web과 데스크톱 앱의 Code 탭에서 받는 기능은 지원하지 않습니다.** 연결과 사용량 수신은 별개입니다. 연결된 계정은 첫 데이터가 없어도 메인에 **수신 대기**로 표시합니다. **현재 로그인 연결**을 반복하면 같은 로그인·설정의 기존 연결을 재사용하며 별명과 사용량 이력을 유지합니다. 새 연결을 완료하기 전에 취소하거나 창을 닫으면 빈 임시 프로필은 목록에서 정리합니다.
 
 <details>
 <summary><strong>연결 완료·사용량 수신 대기 · 다크와 라이트</strong></summary>
@@ -32,7 +32,7 @@ Code를 사용하지 않고 현재 한도를 보려면 Claude 상세 카드나 �
 <table>
   <tr><td align="center"><strong>자동 연결 · 다크</strong></td><td align="center"><strong>자동 연결 · 라이트</strong></td></tr>
   <tr>
-    <td><img src="images/claude-connection-ko-dark.png" alt="가상 로그인 정보와 현재 로그인 연결·다른 계정으로 로그인·Claude Code 열기 버튼을 보여주는 한국어 자동 연결 화면" width="530"></td>
+    <td><img src="images/claude-connection-ko-dark.png" alt="가상 로그인 정보와 현재 로그인 연결·다른 계정으로 로그인·Claude Code 터미널 열기 버튼을 보여주는 한국어 자동 연결 화면" width="530"></td>
     <td><img src="images/claude-connection-ko-light.png" alt="JSON 입력 없이 같은 자동 연결 기능을 보여주는 한국어 라이트 화면" width="530"></td>
   </tr>
 </table>
@@ -92,7 +92,7 @@ ChatGPT Pro/Sol 기록 추정 기능은 종료했습니다. Edge/Chrome 확장, 
 
 [최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 디버그 심볼을 제외한 **Release · Windows x64** 실행 파일을 다운로드하세요.
 
-Codex 조회에는 이 PC에 설치된 **Codex CLI**, 구독 한도를 제공하는 ChatGPT 계정으로의 CLI 로그인과 네트워크 연결이 필요합니다. Claude 조회에는 공식 statusLine 한도 필드를 제공하는 **Claude Code**와 Windows PowerShell이 필요하며 Codex 로그인은 필요하지 않습니다. 두 서비스 모두 CycleArc에서 공식 로그인을 시작할 수 있습니다.
+Codex 조회에는 이 PC에 설치된 **Codex CLI**, 구독 한도를 제공하는 ChatGPT 계정으로의 CLI 로그인과 네트워크 연결이 필요합니다. Claude 조회에는 공식 statusLine 한도 필드를 제공하는 **Claude Code 터미널 CLI**와 Windows PowerShell이 필요하며 Codex 로그인은 필요하지 않습니다. 두 서비스 모두 CycleArc에서 공식 로그인을 시작할 수 있습니다.
 앱은 `codex.exe` 또는 `codex.cmd`를 PATH와 일반 설치 위치에서 찾습니다.
 자동으로 찾지 못하면 트레이 메뉴 → 설정에서 실행 파일의 절대 경로를 지정하세요.
 Codex CLI 자체는 이 배포 파일에 포함하지 않습니다.
@@ -141,7 +141,7 @@ Codex가 설치되지 않았다면 [공식 Codex CLI 안내](https://developers.
 - 새로고침: Codex App Server에서 한도를 조회하고 Claude가 전달한 최신 로컬 사용량을 확인
 - 카드 상단 톱니바퀴: 설정 열기
 - 작업표시줄: Windows 알림 영역의 사용률 아이콘을 사용하며 다른 앱 아이콘 위에 겹치지 않습니다
-- 자동 확인: Codex는 설정 → 연결에서 1·2·5·10·30·60분 선택 (기본값 5분), Claude는 Claude Code 사용 중 전달되는 statusLine으로 갱신
+- 자동 확인: Codex는 설정 → 연결에서 1·2·5·10·30·60분 선택 (기본값 5분), Claude는 연결된 Claude Code 터미널 사용 중 전달되는 statusLine으로 갱신
 - 선택 기능: 플로팅 위젯, Windows 시작 시 실행
 - 첫 실행은 화면을 표시하고 이후에는 트레이로 시작합니다. `--show`로 화면을 열며 시작할 수 있습니다.
 
@@ -197,7 +197,7 @@ GitHub Actions 배포물은 `CycleArc-win-x64`이며 `CycleArc.exe`만 포함합
 
 ## 데이터와 구현
 
-Codex는 공식 App Server로 계정·사용 한도를 조회합니다. Claude는 공식 CLI로 로그인을 확인하고 statusLine으로 사용량을 받습니다. 사용량 측정을 위한 모델 요청은 실행하지 않습니다.
+Codex는 공식 App Server로 계정·사용 한도를 조회합니다. Claude는 공식 CLI로 로그인을 확인하고 연결된 터미널의 statusLine으로 사용량을 받습니다. 사용량 측정을 위한 모델 요청은 실행하지 않습니다.
 인증 파일·토큰·쿠키·프롬프트·응답·대화 기록을 직접 읽거나 저장하지 않습니다.
 공식 계정·로그인 조회로 받은 이메일은 화면 표시를 위해 메모리에만 유지합니다. 설정, 계정 홈·이름, Claude 연결 경로, 식별 정보 해시와 사용 한도 메타데이터 캐시는 로컬에 저장하며 외부 텔레메트리는 없습니다.
 기존 `codex-snapshot.json`과 설정은 유지하고, 추가 계정의 캐시와 상태는 각각 분리합니다. `codex-accounts.json`은 원자적으로 저장하며 이전 정상 버전으로 복구할 수 있습니다.

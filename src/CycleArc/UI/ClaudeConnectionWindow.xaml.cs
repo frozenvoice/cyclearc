@@ -28,13 +28,13 @@ public partial class ClaudeConnectionWindow : Window
         Title = UiText.ProductName + " · Claude";
         Heading.Text = UiText.T("Connect Claude usage", "Claude 사용량 연결");
         ProfileName.Text = new CodexAccountView(profile, CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable)).DisplayName;
-        SetupSteps.Text = UiText.T("View the subscription quota shared by Web, Desktop and Code. Connect your current Claude login, or sign in through the official browser flow.",
-            "Web·Desktop·Code가 공유하는 구독 한도를 표시합니다. 현재 Claude 로그인을 연결하거나 공식 브라우저에서 로그인하세요.");
+        SetupSteps.Text = UiText.T("Connect a Claude Code terminal login to receive the subscription quota shared by Web, Desktop and Code.",
+            "Claude Code 터미널 로그인을 연결해 Web·Desktop·Code가 공유하는 구독 한도를 받습니다.");
         ConnectExistingButton.Content = UiText.T("Connect current login", "현재 로그인 연결");
         LoginButton.Content = UiText.T("Sign in to Claude", "Claude 로그인");
-        OpenClaudeButton.Content = UiText.T("Open Claude Code…", "Claude Code 열기…");
-        FreshnessHint.Text = UiText.T("Last shared-quota sample via Claude Code; Web/Desktop do not send updates here. Limits are unknown until received. After 5 minutes without new input, saved values are marked stale.",
-            "Claude Code를 통해 마지막으로 받은 공유 한도입니다. Web·Desktop은 이 앱으로 업데이트를 보내지 않습니다. 첫 수신 전에는 미확인, 5분간 새 수신이 없으면 오래됨으로 표시합니다.");
+        OpenClaudeButton.Content = UiText.T("Open Claude Code terminal…", "Claude Code 터미널 열기…");
+        FreshnessHint.Text = UiText.T("Use Claude Code in the connected terminal to receive usage after a response. CycleArc does not support receiving usage from the Desktop Code tab or Web. Limits stay unknown until received; saved values retain their original receipt time while idle.",
+            "연결된 터미널에서 Claude Code를 사용하면 응답 후 사용량을 받을 수 있습니다. CycleArc는 데스크톱 Code 탭이나 Web에서 사용량을 받는 기능을 지원하지 않습니다. 첫 수신 전에는 미확인이며, 이후 새 수신이 없어도 기존 값과 원래 수신 시각을 유지합니다.");
         UsagePageButton.Content = ClaudeUsagePresentation.UsagePageLabel;
         UsagePageHint.Text = ClaudeUsagePresentation.UsagePageHint;
         AdvancedDetails.Header = UiText.T("Connection details", "연결 상세 설정");
@@ -82,7 +82,7 @@ public partial class ClaudeConnectionWindow : Window
         DisconnectButton.Visibility = _overview.Binding is { Disconnected: false } ? Visibility.Visible : Visibility.Collapsed;
         LoginButton.Content = auth.Status == ClaudeAuthStatus.SignedIn
             ? UiText.T("Sign in to another account", "다른 계정으로 로그인") : UiText.T("Sign in to Claude", "Claude 로그인");
-        OperationStatus.Text = linked ? UiText.T("Connected. Subscription usage is received via Claude Code.", "연결됨. Claude Code를 통해 구독 사용량을 받습니다.") : "";
+        OperationStatus.Text = linked ? UiText.T("Connected. Use Open Claude Code terminal to receive usage during normal use.", "연결됨. Claude Code 터미널 열기로 실행해 사용하면 사용량을 받을 수 있습니다.") : "";
     }
 
     private void Begin(Func<CancellationToken, Task> action, string progress)
@@ -124,8 +124,8 @@ public partial class ClaudeConnectionWindow : Window
             await Dispatcher.InvokeAsync(() =>
             {
                 if (_overview?.Installed == true && _overview.Authentication.Fingerprint == result.Binding?.IdentityFingerprint)
-                    OperationStatus.Text = UiText.T("Connected. Claude Code responses can supply shared subscription usage.",
-                        "연결했습니다. Claude Code 응답을 통해 공유 구독 사용량을 받을 수 있습니다.");
+                    OperationStatus.Text = UiText.T("Connected. Use Open Claude Code terminal to receive usage during normal use.",
+                        "연결됨. Claude Code 터미널 열기로 실행해 사용하면 사용량을 받을 수 있습니다.");
             });
         }
         else await Dispatcher.InvokeAsync(() => OperationStatus.Text = result.Failure is { } failure ? FailureText(failure) : AuthText(result.Authentication.Status));
