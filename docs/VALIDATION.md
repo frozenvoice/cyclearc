@@ -2,7 +2,7 @@
 
 ## Current release — Codex and Claude Code
 
-- Audit corrections against `756d946` (2026-09-14):
+- Release 0.5.6 audit corrections against `756d946` (2026-09-14):
   - CA-01: present malformed Codex windows fail as protocol mismatches, preserving the last
     verified sample and success time. Null/absent optional windows and unknown percentages
     retain their existing behavior.
