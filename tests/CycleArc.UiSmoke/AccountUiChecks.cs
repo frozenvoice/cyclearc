@@ -26,6 +26,7 @@ internal static class AccountUiChecks
         {
             UiText.SetLanguage(language);
             applyTheme.Invoke(null, [theme]);
+            CheckCodexIdentityRecovery(directory, language, theme);
             widgetIdentityCount += CheckWidgetAccountIdentity(directory, language, theme);
             foreach (var size in new[] { 0, 1, 3, 8 })
             {
@@ -338,6 +339,66 @@ internal static class AccountUiChecks
             }
         }
         finally { window.Close(); }
+    }
+
+
+    private static void CheckCodexIdentityRecovery(string? directory, UiLanguage language, AppTheme theme)
+    {
+        foreach (var detail in new[] { "codex-identity-mismatch", "codex-identity-conflict", "codex-identity-binding-unavailable" })
+        {
+            var account = Fixtures(1)[0] with
+            {
+                Profile = Fixtures(1)[0].Profile with { IsManaged = false },
+                Snapshot = CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable, detail),
+                Email = null,
+                HasMatchingIdentity = detail == "codex-identity-conflict"
+            };
+            var window = new AccountsWindow();
+            var flyout = new FlyoutWindow();
+            var widget = new FloatingWidget();
+            var release = new TaskCompletionSource<CodexLoginResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            string? requestedId = null;
+            var calls = 0;
+            CancellationToken requestedToken = default;
+            window.SignIn = (id, _, token) => { requestedId = id; requestedToken = token; calls++; return release.Task; };
+            try
+            {
+                window.Bind([account], account.Profile.Id);
+                if (((Expander)window.FindName("ConnectionOptions")).IsExpanded)
+                    throw new InvalidOperationException("Existing connection repair must show the profile before new-account setup.");
+                flyout.BindAccounts([account], account.Profile.Id, false);
+                widget.BindAccount(account);
+                var stem = detail == "codex-identity-conflict" && directory is not null
+                    ? Path.Combine(directory, $"codex-reconnect-{language}-{theme}") : null;
+                Render(window, 700, 800, stem is null ? null : stem + "-manage.png");
+                Render(flyout, 440, null, stem is null ? null : stem + "-flyout.png");
+                Render(widget, 245, null, null);
+                var texts = Descendants<TextBlock>((FrameworkElement)flyout.Content).Where(t => t.Visibility == Visibility.Visible).Select(t => t.Text).ToArray();
+                if (!texts.Contains(CodexDisplayFormatting.StatusText(account.Snapshot))
+                    || CodexRingPresentation.From(account.Snapshot).IsAvailable
+                    || CodexDisplayFormatting.Rows(account.Snapshot).Count != 0)
+                    throw new InvalidOperationException("An unverified Codex identity must show reconnection guidance without quota.");
+                var row = (StackPanel)((ItemsControl)window.FindName("AccountRows")).Items[0];
+                var reconnect = row.Children.OfType<DockPanel>().Single().Children.OfType<Button>()
+                    .Single(b => b.Tag as string == "ReconnectCodex");
+                reconnect.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                reconnect.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (calls != 1 || requestedId != account.Profile.Id
+                    || ((ProgressBar)window.FindName("OperationProgress")).Visibility != Visibility.Visible)
+                    throw new InvalidOperationException("Linked Codex recovery must target the existing profile and remain single-flight.");
+                ((Button)window.FindName("CancelOperationButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (!requestedToken.IsCancellationRequested) throw new InvalidOperationException("Codex recovery cannot be cancelled.");
+                release.TrySetResult(new(CodexQuotaStatus.Cancelled));
+                PumpUntil(window.ActiveOperation);
+                if (((ProgressBar)window.FindName("OperationProgress")).Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("Codex recovery did not release progress after cancellation.");
+            }
+            finally
+            {
+                release.TrySetResult(new(CodexQuotaStatus.Cancelled));
+                window.Close(); flyout.Close(); widget.Close();
+            }
+        }
     }
 
     private static void CheckLoginCancellation()

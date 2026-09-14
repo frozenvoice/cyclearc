@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace CycleArc.Codex;
 
-public sealed record CodexLoginResult(CodexQuotaStatus Status, CodexAccountIdentity? Identity = null);
+public sealed record CodexLoginResult(CodexQuotaStatus Status, CodexAccountIdentity? Identity = null, string? Detail = null);
 
 public static class CodexLoginUrl
 {

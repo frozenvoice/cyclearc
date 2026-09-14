@@ -52,6 +52,8 @@ CycleArc discovers `codex.exe` or `codex.cmd` through PATH and supported install
 
 **Manage accounts** is available in the popup and **Settings → Connection → Manage Codex and Claude accounts**. **Add an account** offers Codex login/discovery and Claude connection. It opens automatically when there is no previously checked account; existing users see their account list first. Accounts retain separate percentages, reset windows and refresh states; values are never added together. Reset credits belong only to the selected Codex account.
 
+**Codex connections keep their verified account identity.** If a linked Codex login changes, CycleArc shows **Login changed** and stops displaying quota under the old nickname. A linked profile that reports the same identity as a separately signed-in profile shows **Check connection**. In **Manage accounts → Reconnect**, choose the intended account in the official browser login. CycleArc verifies usage before replacing the link with an independent login, retaining its nickname, position and selection. Cancelling, choosing an already connected account or a failed usage check keeps the existing link. The official identity projection cannot distinguish workspaces that share a login email.
+
 **Connected Claude accounts remain visible while awaiting usage.** They show **Awaiting usage** and unknown limits, without increasing the attention count. Unconnected profiles stay in **Manage accounts** and do not increase the main account count. Previously received values remain visible as stale during a temporary update failure. Popup, tray and widget share the same visible selection; if none is available, the widget stays hidden and the popup shows a connection hint.
 
 <table>

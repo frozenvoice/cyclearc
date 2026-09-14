@@ -47,7 +47,8 @@ public static class CodexDisplayFormatting
 
     public static string SectionTitle => "CODEX";
 
-    public static string StatusText(CodexQuotaSnapshot snapshot) => snapshot.Provider == UsageProviderId.Claude
+    public static string StatusText(CodexQuotaSnapshot snapshot) => CodexIdentityPresentation.NeedsReconnection(snapshot)
+        ? CodexIdentityPresentation.Explanation(snapshot) : snapshot.Provider == UsageProviderId.Claude
         ? ClaudeUsagePresentation.StatusText(snapshot) : snapshot.Status switch
     {
         CodexQuotaStatus.Refreshing when !snapshot.HasUsablePercentages => UiText.CodexRefreshing,

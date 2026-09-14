@@ -2,6 +2,28 @@
 
 ## Current release — Codex and Claude Code
 
+- Release 0.5.5 Codex account identity isolation (2026-09-14):
+  - On the reporting PC, separate official App Server reads for the imported default home and
+    the managed second profile returned the same projected identity, weekly usage and zero
+    reset credits. Removing inherited Codex host environment variables did not change that result.
+    The prior service accepted a changed login while retaining the old nickname.
+  - A separate hash-only binding now rejects passive account changes, validates cached identity
+    after restart, preserves last-good data on cancellation/sign-out, and prevents cross-account
+    stale fallback after an explicit login. Binding transactions are locked; verified login repairs
+    damaged binding metadata without reading credentials. Startup failures before account/read retain
+    already verified data as stale; missing or malformed account identity still hides quota.
+  - Imported/managed identity conflicts remain visible with unknown quota and blocked reset-credit
+    actions. Reconnection verifies official login and quota in an isolated home before replacing
+    the registered link; failed, cancelled and duplicate-login attempts preserve it.
+  - Full local gate passed: 1,210 unit tests, 15 installer scenarios, production WPF checks across
+    Korean/English and all themes, native widget/popup checks, self-contained win-x64 single EXE,
+    and built/published Claude receiver checks. New coverage includes 22 unit cases and 18 WPF
+    identity/reconnection scenarios. Inspected the affected account-management and popup renders.
+  - Live recovery through the production account manager and official browser login succeeded:
+    the main profile reported 39% used / 61% remaining and three reset credits; the two Codex
+    profiles had distinct projected identities. Nickname, list position, logical selection and all
+    other profiles were preserved. No authentication file, token, prompt or conversation was inspected.
+
 - Release 0.5.4 Claude authentication recovery (2026-09-14):
   - On the reporting PC, official local authentication status reported signed in with the
     connected identity, while actual requests from the installed npm 2.1.105 and Desktop-bundled

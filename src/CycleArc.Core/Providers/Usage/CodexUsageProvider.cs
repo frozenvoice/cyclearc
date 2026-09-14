@@ -19,7 +19,7 @@ public sealed class CodexUsageProvider(
     {
         public CodexQuotaSnapshot Snapshot => service.Snapshot;
         public string? Email => service.Identity?.Email;
-        public string? IdentityFingerprint => service.Identity?.Fingerprint;
+        public string? IdentityFingerprint => service.ValidatedIdentityFingerprint;
         public bool IsRefreshing => service.IsRefreshing;
         public bool ReceivesPassiveUpdates => false;
         public bool ShouldRefresh(DateTimeOffset now, TimeSpan interval) =>

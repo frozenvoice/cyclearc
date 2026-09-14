@@ -74,6 +74,31 @@ public sealed class CodexAccountStore
         ? Path.Combine(_root, "codex-snapshot.json")
         : Path.Combine(_root, "accounts", RequireId(profile.Id), "quota.json");
 
+
+    // A detected linked-account conflict requires explicit recovery, even if another profile
+    // is later removed. Presence is deliberately fail-closed; no account data goes in this marker.
+    public bool HasIdentityConflict(CodexAccountProfile profile)
+    {
+        var path = SnapshotPath(profile) + ".identity-conflict";
+        return File.Exists(path) || Directory.Exists(path);
+    }
+
+    public bool RememberIdentityConflict(CodexAccountProfile profile)
+    {
+        var path = SnapshotPath(profile) + ".identity-conflict";
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using var marker = new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
+            marker.Flush(true);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return HasIdentityConflict(profile);
+        }
+    }
+
     public void Save(CodexAccountConfiguration state)
     {
         if (!IsValid(state)) throw new InvalidDataException("Invalid account registry.");

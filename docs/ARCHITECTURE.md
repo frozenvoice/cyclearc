@@ -137,6 +137,21 @@
   Each new profile receives its own home and cache. Emails are protocol-projected and memory-only;
   an identity hash binds quota caches and detects reported identity changes before stale fallback.
   Unavailable/signed-out identities never inherit another account's cached percentages.
+- Codex profiles keep a separate, atomic, hash-only account binding. Legacy cached email/plan hashes
+  must match the first official account read before migration to a normalized email hash; cached quota
+  stays hidden until that verification. Plan changes after migration do not change the binding.
+  Passive refresh never replaces a bound identity. A changed/missing identity hides quota and credits
+  while preserving the binding; only explicit successful login may replace it.
+- An imported Codex profile that matches a managed profile is projected as a connection conflict
+  without percentages or credits. This also gates credit actions. Matching metadata does not prove
+  workspace identity: account/read does not expose a stable workspace identifier.
+  A data-free conflict marker keeps recovery required across restarts and removal of the matching
+  managed profile; changes to another profile cannot make ambiguous cached quota trustworthy.
+- Reconnecting an imported profile signs in to an unregistered, isolated managed home and verifies
+  quota before atomically replacing the old reference at its current list position. The replacement
+  has a new local ID required by the managed-home path contract; the same logical selection and
+  current nickname are preserved, and the old home is ignored by discovery. Cancellation, duplicate
+  login, failed quota and registry-write failure preserve the old registered profile and its data.
 - Generated protocol 0.147.0 `Account` exposes email/plan, not a stable workspace ID. Matching
   reported identities are indicated without merging profiles or claiming distinct workspaces.
   Reset actions capture the selected local profile before confirmation and re-check reported identity

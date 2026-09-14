@@ -6,6 +6,32 @@ namespace CycleArc.Tests;
 
 public class UsageAccountOverviewTests
 {
+
+    [Theory]
+    [InlineData("codex-identity-mismatch")]
+    [InlineData("codex-identity-conflict")]
+    [InlineData("codex-identity-binding-unavailable")]
+    public void CodexIdentityProblemsKeepTheSelectedProfileWithoutAnotherAccountsQuota(string detail)
+    {
+        var problem = Account("main", UsageProviderId.Codex, CodexQuotaStatus.Unavailable, null) with
+        {
+            Snapshot = CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable, detail),
+            IsConnected = false
+        };
+        var other = Account("other", UsageProviderId.Codex, CodexQuotaStatus.Available, 36);
+        var overview = UsageAccountOverview.Create([problem, other], problem.Profile.Id);
+        Assert.Equal(problem, overview.Selected);
+        Assert.Equal(2, overview.Accounts.Count);
+        Assert.Empty(overview.Snapshot.Windows);
+        Assert.Null(overview.Snapshot.ResetCreditsAvailable);
+        Assert.False(CodexRingPresentation.From(overview.Snapshot).IsAvailable);
+        Assert.Empty(CodexDisplayFormatting.Rows(overview.Snapshot));
+        Assert.DoesNotContain("36%", overview.Tooltip);
+        Assert.DoesNotContain("64%", overview.Tooltip);
+        Assert.Contains(CodexIdentityPresentation.Label(problem.Snapshot), overview.Tooltip);
+        Assert.InRange(overview.Tooltip.Length, 1, 127);
+    }
+
     [Fact]
     public void ConnectedWaitingAccountKeepsItsPlaceAndSelectedProviderWithoutUsage()
     {

@@ -72,8 +72,10 @@ public class CodexAccountManagerTests
         Assert.Empty(manager.Selected.Snapshot.Windows);
         var restarted = new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable);
         Assert.Equal(second.Id, restarted.SelectedId);
+        Assert.All(restarted.Accounts, account => Assert.Empty(account.Snapshot.Windows));
+        await restarted.RefreshManuallyAsync(CancellationToken.None);
         Assert.Equal(CodexQuotaStatus.SignedOut, restarted.Snapshot.Status);
-        Assert.Equal(CodexQuotaStatus.Stale, restarted.Accounts[0].Snapshot.Status);
+        Assert.Equal(CodexQuotaStatus.Available, restarted.Accounts[0].Snapshot.Status);
     }
 
     [Fact]
@@ -153,14 +155,17 @@ public class CodexAccountManagerTests
     }
 
     [Fact]
-    public async Task ImportedProfileCannotBeReauthenticatedByMeter()
+    public async Task FailedImportedRecoveryOnlyAttemptsLoginInAnIsolatedHome()
     {
         using var data = new AccountTestDirectory();
         var factory = new ScriptedCodexProcessFactory { Responder = AccountTestProtocol.Standard };
         var manager = new CodexAccountManager(new(data.Root), data.Home("existing"), profile => data.Service(profile, factory), () => AccountTestDirectory.Executable);
         var result = await manager.LoginAsync("default", "", (_, _) => throw new InvalidOperationException("Must not open browser"), CancellationToken.None);
-        Assert.Equal(CodexQuotaStatus.Unavailable, result.Status);
-        Assert.Equal(0, factory.StartCount);
+        Assert.NotEqual(CodexQuotaStatus.Available, result.Status);
+        Assert.Equal(1, factory.StartCount);
+        Assert.True(factory.LastCommand!.ManagedHome);
+        Assert.NotEqual(manager.Accounts.Single().Profile.HomePath, factory.LastCommand.CodexHome);
+        Assert.Equal("default", manager.Accounts.Single().Profile.Id);
     }
 
     [Fact]
@@ -197,6 +202,8 @@ public class CodexAccountManagerTests
             new ScriptedCodexProcessFactory { Responder = line =>
             {
                 Interlocked.Increment(ref requests);
+                if (JsonNode.Parse(line)?["method"]?.ToString() == "account/read")
+                    return [AccountTestProtocol.Account(profile.Id + "@example.invalid")];
                 var responses = AccountTestProtocol.Standard(line);
                 if (JsonNode.Parse(line)?["method"]?.ToString() != "account/rateLimits/read") return responses;
                 var response = JsonNode.Parse(responses.Single())!;
@@ -220,6 +227,8 @@ public class CodexAccountManagerTests
         var restarted = new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable);
         Assert.Equal(expected, restarted.Accounts.Select(a => a.Profile.Id));
         Assert.Equal(profiles[1].Id, restarted.SelectedId);
+        Assert.All(restarted.Accounts, account => Assert.Empty(account.Snapshot.Windows));
+        await restarted.RefreshManuallyAsync(CancellationToken.None);
         Assert.Equal(new double?[] { 20, 30, 10 }, restarted.Accounts.Select(a => a.Snapshot.Windows.Single().UsedPercent));
     }
 

@@ -8,6 +8,7 @@ public static class CycleArcPresentation
 {
     public static string StatusLabel(CodexQuotaSnapshot snapshot)
     {
+        if (CodexIdentityPresentation.NeedsReconnection(snapshot)) return CodexIdentityPresentation.Label(snapshot);
         if (snapshot.Provider == UsageProviderId.Claude && ClaudeUsagePresentation.FailureLabel(snapshot.TechnicalDetail) is { } failure)
             return failure;
         return snapshot.Status switch
@@ -53,6 +54,10 @@ public static class CycleArcPresentation
 
     public static string TrayTooltip(CodexQuotaSnapshot snapshot, string? accountName = null)
     {
+        if (CodexIdentityPresentation.NeedsReconnection(snapshot))
+            return NotifyIconText.Safe((accountName is null ? "" : accountName + Environment.NewLine)
+                + "Codex · " + CodexIdentityPresentation.Label(snapshot) + Environment.NewLine
+                + CodexIdentityPresentation.Explanation(snapshot));
         if (snapshot.Provider != UsageProviderId.Claude)
             return NotifyIconText.Safe((accountName is null ? "" : accountName + Environment.NewLine) + Tooltip(snapshot));
 

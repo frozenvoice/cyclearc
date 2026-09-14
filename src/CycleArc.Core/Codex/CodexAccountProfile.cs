@@ -32,6 +32,10 @@ public sealed record CodexAccountIdentity(CodexQuotaStatus Status, string? Email
     public string? Fingerprint => Email is null ? null
         : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Email + "\n" + PlanType)));
 
+    // Stable account identity is normalized email only; subscription plan changes do not rebind it.
+    public string? StableAccountFingerprint => Email is null ? null
+        : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Email.Trim().ToLowerInvariant())));
+
     public static CodexAccountIdentity Parse(JsonNode? response)
     {
         if (response is not JsonObject envelope || CodexProtocol.HasError(envelope)

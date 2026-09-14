@@ -16,6 +16,8 @@ public sealed class CodexSnapshotStore
 
     private readonly string _path;
 
+    public string StoragePath => _path;
+
     public CodexSnapshotStore(string? path = null)
     {
         _path = path ?? Services.AppPaths.CodexSnapshot;

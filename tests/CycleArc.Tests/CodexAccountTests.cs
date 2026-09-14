@@ -153,7 +153,8 @@ public class CodexAccountTests
         await service.RefreshAsync(AccountTestDirectory.Executable, CancellationToken.None);
         Assert.Empty(service.Snapshot.Windows);
         Assert.Null(service.Snapshot.LastSuccessfulRefresh);
-        Assert.Equal(currentEmail, service.Identity?.Email);
+        // A foreign account must not be exposed under the existing profile.
+        Assert.Null(service.Identity);
         var reloaded = data.Service(profile, factory);
         Assert.Empty(reloaded.Snapshot.Windows);
         var cache = File.ReadAllText(new CodexAccountStore(data.Root).SnapshotPath(profile));
@@ -170,7 +171,9 @@ public class CodexAccountTests
         await service.RefreshAsync(AccountTestDirectory.Executable, CancellationToken.None);
         var timestamp = service.Snapshot.LastSuccessfulRefresh;
         service = data.Service(profile, factory);
-        Assert.Equal(CodexQuotaStatus.Stale, service.Snapshot.Status);
+        // Restart keeps the verified cache on disk, but hides it until the same identity is validated again.
+        Assert.Equal(CodexQuotaStatus.Unavailable, service.Snapshot.Status);
+        Assert.Empty(service.Snapshot.Windows);
         factory.Responder = line => JsonNode.Parse(line)?["method"]?.ToString() == "account/rateLimits/read"
             ? ["""{"id":3,"error":{"code":-1}}"""] : AccountTestProtocol.Standard(line);
         await service.RefreshAsync(AccountTestDirectory.Executable, CancellationToken.None);

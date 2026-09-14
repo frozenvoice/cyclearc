@@ -14,6 +14,11 @@ public sealed class CodexQuotaService
     private readonly CodexAccountProfile? _profile;
     private CodexAccountIdentity? _identity;
     private bool _discardCachedIdentity;
+    private readonly CodexIdentityBindingStore? _identityBindings;
+    private CodexQuotaSnapshot? _boundCache;
+    private bool _identityMismatch;
+    private bool _identityBindingUnavailable;
+    private bool _identityVerified;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private CodexQuotaSnapshot _snapshot = CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable);
     private string? _lastFailureSignature;
@@ -35,7 +40,24 @@ public sealed class CodexQuotaService
         _clock = clock ?? Services.SystemClock.Instance;
         _profile = profile;
         _snapshot = store.Load() ?? _snapshot;
-        if (profile is not null && _snapshot.Status is CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing)
+        if (profile is not null)
+        {
+            _boundCache = _snapshot.HasUsablePercentages ? _snapshot : null;
+            _identityBindings = new CodexIdentityBindingStore(store, profile.Id);
+            CodexIdentityBindingRead binding;
+            try { binding = _identityBindings.ReadOrSeedLegacy(_snapshot.IdentityFingerprint); }
+            catch (IOException) { binding = new(null, true); }
+            catch (UnauthorizedAccessException) { binding = new(null, true); }
+            _identityBindingUnavailable = binding.Unavailable;
+            if (binding.Unavailable || binding.State is not null)
+            {
+                var expected = binding.State?.AccountFingerprint ?? _snapshot.IdentityFingerprint;
+                _snapshot = CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable,
+                    binding.Unavailable ? "codex-identity-binding-unavailable" : "codex-identity-pending")
+                    with { IdentityFingerprint = expected };
+            }
+        }
+        else if (_snapshot.Status is CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing)
             _snapshot = _snapshot with { Status = CodexQuotaStatus.Stale, RedeemableCredits = [] };
     }
 
@@ -43,7 +65,26 @@ public sealed class CodexQuotaService
     public bool IsRefreshing { get; private set; }
     public bool IsSigningIn { get; private set; }
     public CodexAccountIdentity? Identity => _identity;
+    // Manager uses only the expected, validated profile identity for duplicate detection.
+    public string? ValidatedIdentityFingerprint
+    {
+        get
+        {
+            if (_identityBindings is not null)
+            {
+                try
+                {
+                    var read = _identityBindings.Read();
+                    if (read.Unavailable) return null;
+                    return read.State?.AccountFingerprint;
+                }
+                catch (IOException) { return null; }
+                catch (UnauthorizedAccessException) { return null; }
+            }
 
+            return _identityVerified ? _identity?.StableAccountFingerprint : null;
+        }
+    }
     public event Action<CodexQuotaSnapshot>? Changed;
 
     public static bool ShouldRefreshOnFlyoutOpen(CodexQuotaSnapshot snapshot, DateTimeOffset now, TimeSpan? refreshInterval = null)
@@ -80,15 +121,29 @@ public sealed class CodexQuotaService
             }
 
             var session = await _client.ReadQuotaAsync(command, _clientVersion, cancellationToken).ConfigureAwait(false);
-            if (_profile is not null && session.AccountResult is not null)
+            if (_profile is not null)
             {
-                var identity = CodexAccountIdentity.Parse(session.AccountResult);
-                if (identity.Status != CodexQuotaStatus.Available)
+                // An initialize/startup failure has no account result by design. Keep a
+                // previously verified cache eligible for a normal transient fallback;
+                // only account/read responses can establish a missing or malformed identity.
+                var accountReadWasSent = session.SentMethods.Any(method =>
+                    string.Equals(method, "account/read", StringComparison.Ordinal));
+                if (session.AccountResult is not null || accountReadWasSent)
                 {
-                    if (identity.Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.Unavailable) ForgetIdentity();
-                    return PersistFailure(identity.Status, attempted, "account-unavailable", "account/read");
+                    var identity = session.AccountResult is null
+                        ? new CodexAccountIdentity(CodexQuotaStatus.ProtocolMismatch)
+                        : CodexAccountIdentity.Parse(session.AccountResult);
+                    if (identity.Status != CodexQuotaStatus.Available)
+                    {
+                        // A bound profile must not keep presenting quota when account identity is missing or malformed.
+                        ForgetIdentity();
+                        return PersistFailure(identity.Status, attempted, session.Detail ?? "account-unavailable", "account/read");
+                    }
+                    var identityMatch = ValidateProfileIdentity(identity);
+                    if (identityMatch is not (CodexIdentityBindingMatch.Matched or CodexIdentityBindingMatch.FirstSeen))
+                        return PersistIdentityFailure(identityMatch, attempted);
+                    ApplyIdentity(identity);
                 }
-                ApplyIdentity(identity);
             }
             if (session.Status == CodexQuotaStatus.Available)
             {
@@ -107,8 +162,9 @@ public sealed class CodexQuotaService
                         SafeDetail(session, parsed.Detail),
                         parsed.ResetCreditExpirations) {
                             RedeemableCredits = CodexRateLimitParser.ReadRedeemableCredits(session.RateLimitsResult),
-                            IdentityFingerprint = _identity?.Fingerprint };
+                            IdentityFingerprint = _identity?.StableAccountFingerprint };
                     _store.Save(success);
+                    _boundCache = success;
                     _discardCachedIdentity = false;
                     Publish(success);
                     _lastFailureSignature = null;
@@ -173,60 +229,158 @@ public sealed class CodexQuotaService
         finally { _gate.Release(); }
     }
 
+    private CodexIdentityBindingMatch ValidateProfileIdentity(CodexAccountIdentity identity)
+    {
+        if (_identityBindings is null) return CodexIdentityBindingMatch.Matched;
+        CodexIdentityBindingMatch result;
+        try { result = _identityBindings.Match(identity); }
+        catch (IOException) { result = CodexIdentityBindingMatch.Unavailable; }
+        catch (UnauthorizedAccessException) { result = CodexIdentityBindingMatch.Unavailable; }
+        _identityMismatch = result == CodexIdentityBindingMatch.Mismatch;
+        _identityBindingUnavailable = result == CodexIdentityBindingMatch.Unavailable;
+        if (result is CodexIdentityBindingMatch.Mismatch or CodexIdentityBindingMatch.Unavailable)
+            _identity = null;
+        if (result is CodexIdentityBindingMatch.Matched or CodexIdentityBindingMatch.FirstSeen)
+        {
+            _identityVerified = true;
+            if (_boundCache is null && _snapshot.HasUsablePercentages) _boundCache = _snapshot;
+        }
+        return result;
+    }
+
+    private CodexRefreshResult PersistIdentityFailure(CodexIdentityBindingMatch match, DateTimeOffset attempted)
+    {
+        _identityVerified = false;
+        _identityMismatch = match == CodexIdentityBindingMatch.Mismatch;
+        _identityBindingUnavailable = match == CodexIdentityBindingMatch.Unavailable;
+        var detail = match == CodexIdentityBindingMatch.Unavailable
+            ? "codex-identity-binding-unavailable" : "codex-identity-mismatch";
+        string? expected = null;
+        try
+        {
+            var read = _identityBindings?.Read();
+            if (read is { Unavailable: true }) _identityBindingUnavailable = true;
+            expected = read?.State?.AccountFingerprint;
+        }
+        catch (IOException) { _identityBindingUnavailable = true; }
+        catch (UnauthorizedAccessException) { _identityBindingUnavailable = true; }
+        if (_identityBindingUnavailable) detail = "codex-identity-binding-unavailable";
+        var next = CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable, detail) with
+        {
+            LastAttemptedRefresh = attempted, IdentityFingerprint = expected
+        };
+        Publish(next);
+        LogFailure(CodexQuotaStatus.Unavailable, "account/read", detail);
+        return new CodexRefreshResult(next, UsedCache: false, detail);
+    }
     private CodexRefreshResult PersistFailure(
         CodexQuotaStatus status,
         DateTimeOffset attempted,
         string? detail,
         string stage)
     {
-        var cached = _discardCachedIdentity ? _snapshot : _store.Load() ?? _snapshot;
-        CodexQuotaSnapshot next;
-        if (cached.HasUsablePercentages
-            && status is not CodexQuotaStatus.SignedOut and not CodexQuotaStatus.CodexNotFound)
-        {
-            next = cached.AsStale(attempted, detail);
-        }
-        else if (status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound)
-        {
-            next = new CodexQuotaSnapshot(
-                status,
-                cached.PlanType,
-                cached.LastSuccessfulRefresh,
-                attempted,
-                cached.OrdinaryUsageAllowed,
-                cached.RateLimitReachedType,
-                cached.ResetCreditsAvailable,
-                cached.HasUsablePercentages ? cached.Windows : [],
-                detail,
-                cached.ResetCreditExpirations);
-        }
-        else
-        {
-            next = new CodexQuotaSnapshot(
-                status,
-                cached.PlanType,
-                cached.LastSuccessfulRefresh,
-                attempted,
-                null,
-                null,
-                cached.ResetCreditsAvailable,
-                cached.HasUsablePercentages ? cached.Windows : [],
-                detail,
-                cached.ResetCreditExpirations);
-        }
+        if (_profile is not null && RequiresBoundIdentity())
+            return PersistBoundFailure(status, attempted, stage, detail);
 
-        next = next with { IdentityFingerprint = cached.IdentityFingerprint, RedeemableCredits = [] };
+        var cached = _discardCachedIdentity ? _snapshot : _store.Load() ?? _snapshot;
+        if (_profile is not null && _identityVerified && !CacheMatchesVerifiedIdentity(cached))
+        {
+            _identityMismatch = true;
+            return PersistBoundFailure(status, attempted, stage, "codex-identity-mismatch");
+        }
+        var preserve = cached.HasUsablePercentages
+            && status is not CodexQuotaStatus.SignedOut and not CodexQuotaStatus.CodexNotFound;
+        var next = preserve
+            ? cached.AsStale(attempted, detail)
+            : CodexQuotaSnapshot.Empty(status, detail) with { LastAttemptedRefresh = attempted };
+        next = next with
+        {
+            Status = preserve ? CodexQuotaStatus.Stale : status,
+            // A failed refresh must never keep reset-credit actions actionable.
+            RedeemableCredits = [],
+            IdentityFingerprint = cached.IdentityFingerprint,
+        };
 
         if (_discardCachedIdentity || next.HasUsablePercentages || next.LastSuccessfulRefresh is not null)
-        {
             _store.Save(next);
-        }
-
         LogFailure(status, stage, detail);
         Publish(next);
-        return new CodexRefreshResult(next, UsedCache: cached.HasUsablePercentages, detail);
+        return new CodexRefreshResult(next, UsedCache: preserve, detail);
     }
 
+    private bool CacheMatchesVerifiedIdentity(CodexQuotaSnapshot cached)
+    {
+        var fingerprint = cached.IdentityFingerprint;
+        if (fingerprint is null || _identity is null) return false;
+        return string.Equals(fingerprint, _identity.StableAccountFingerprint, StringComparison.Ordinal)
+            || string.Equals(fingerprint, _identity.Fingerprint, StringComparison.Ordinal);
+    }
+    private bool RequiresBoundIdentity()
+    {
+        if (_profile is null)
+            return false;
+
+        if (_identityMismatch || _identityBindingUnavailable)
+            return true;
+
+        if (_identityVerified)
+            return false;
+
+        try
+        {
+            var binding = _identityBindings?.Read();
+            return binding is { Unavailable: true } || binding?.State is not null || _boundCache is not null;
+        }
+        catch (IOException)
+        {
+            _identityBindingUnavailable = true;
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _identityBindingUnavailable = true;
+            return true;
+        }
+    }
+
+    private CodexRefreshResult PersistBoundFailure(
+        CodexQuotaStatus status,
+        DateTimeOffset attempted,
+        string stage,
+        string? detail)
+    {
+        CodexIdentityBindingRead? binding = null;
+        try
+        {
+            binding = _identityBindings?.Read();
+        }
+        catch (IOException)
+        {
+            _identityBindingUnavailable = true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _identityBindingUnavailable = true;
+        }
+
+        var effectiveStatus = status == CodexQuotaStatus.SignedOut
+            ? CodexQuotaStatus.SignedOut
+            : CodexQuotaStatus.Unavailable;
+        var effectiveDetail = _identityBindingUnavailable || binding?.Unavailable == true
+            ? "codex-identity-binding-unavailable"
+            : _identityMismatch
+                ? "codex-identity-mismatch"
+                : detail ?? "account-unavailable";
+        var next = CodexQuotaSnapshot.Empty(effectiveStatus, effectiveDetail) with
+        {
+            LastAttemptedRefresh = attempted,
+            IdentityFingerprint = binding?.State?.AccountFingerprint,
+            RedeemableCredits = [],
+        };
+        LogFailure(next.Status, stage, effectiveDetail);
+        Publish(next);
+        return new CodexRefreshResult(next, UsedCache: false, effectiveDetail);
+    }
     private CodexLaunchCommand? Locate(string? configuredPath)
     {
         var command = _locator.Locate(configuredPath);
@@ -236,17 +390,62 @@ public sealed class CodexQuotaService
 
     private void ApplyIdentity(CodexAccountIdentity identity)
     {
-        if (_snapshot.IdentityFingerprint != identity.Fingerprint || _snapshot.IdentityFingerprint is null)
-            ForgetIdentity();
+        if (_profile is null)
+        {
+            if (_snapshot.IdentityFingerprint is not null
+                && _snapshot.IdentityFingerprint != identity.Fingerprint)
+            {
+                ForgetIdentity();
+            }
+
+            _identity = identity;
+            return;
+        }
+
         _identity = identity;
+        _identityVerified = true;
+        _identityMismatch = false;
+        _identityBindingUnavailable = false;
+        _discardCachedIdentity = false;
     }
 
     private void ForgetIdentity()
     {
         _discardCachedIdentity = true;
         _identity = null;
+        _identityVerified = false;
         _redemptionKeys.Clear();
-        Publish(CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable));
+
+        if (_profile is null)
+        {
+            Publish(CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable));
+            return;
+        }
+
+        CodexIdentityBindingRead? binding = null;
+        try
+        {
+            binding = _identityBindings?.Read();
+        }
+        catch (IOException)
+        {
+            _identityBindingUnavailable = true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _identityBindingUnavailable = true;
+        }
+
+        var detail = _identityBindingUnavailable || binding?.Unavailable == true
+            ? "codex-identity-binding-unavailable"
+            : _identityMismatch
+                ? "codex-identity-mismatch"
+                : binding?.State is not null ? "codex-identity-pending" : null;
+        var next = CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable, detail) with
+        {
+            IdentityFingerprint = binding?.State?.AccountFingerprint,
+        };
+        Publish(next);
     }
 
     public async Task<CodexAccountIdentity> ProbeAccountAsync(string? configuredPath, CancellationToken cancellationToken)
@@ -259,7 +458,24 @@ public sealed class CodexQuotaService
             var session = await _client.ReadAccountAsync(command, _clientVersion, cancellationToken).ConfigureAwait(false);
             var identity = session.Status == CodexQuotaStatus.Available
                 ? CodexAccountIdentity.Parse(session.AccountResult) : new CodexAccountIdentity(session.Status);
-            if (identity.Status == CodexQuotaStatus.Available) ApplyIdentity(identity);
+            if (identity.Status == CodexQuotaStatus.Available)
+            {
+                if (_profile is not null)
+                {
+                    var match = ValidateProfileIdentity(identity);
+                    if (match is not (CodexIdentityBindingMatch.Matched or CodexIdentityBindingMatch.FirstSeen))
+                    {
+                        return new CodexAccountIdentity(CodexQuotaStatus.Unavailable);
+                    }
+                }
+
+                ApplyIdentity(identity);
+            }
+            else if (_profile is not null)
+            {
+                // Missing or malformed account identity cannot validate a bound cache.
+                ForgetIdentity();
+            }
             return identity;
         }
         finally { _gate.Release(); }
@@ -274,19 +490,26 @@ public sealed class CodexQuotaService
         IsSigningIn = true;
         try
         {
+            // Keep the expected binding and the last verified cache on disk until an explicit login succeeds.
             ForgetIdentity();
-            _store.Save(_snapshot); // An abandoned re-login must not resurrect another identity after restart.
             Directory.CreateDirectory(_profile.HomePath);
             var command = Locate(configuredPath);
             if (command is null) return new(CodexQuotaStatus.CodexNotFound);
             var result = await _client.LoginAsync(command, _clientVersion, openBrowser, cancellationToken).ConfigureAwait(false);
-            if (result.Identity is { Status: CodexQuotaStatus.Available } identity) ApplyIdentity(identity);
+            if (result.Identity is { Status: CodexQuotaStatus.Available } identity)
+            {
+                _identityBindings?.Reset(identity);
+                _boundCache = null;
+                _identityMismatch = false;
+                _identityBindingUnavailable = false;
+                ApplyIdentity(identity);
+            }
+
             Publish(_snapshot with { Status = result.Status == CodexQuotaStatus.Available ? CodexQuotaStatus.Unavailable : result.Status });
             return result;
         }
         finally { IsSigningIn = false; _gate.Release(); Changed?.Invoke(_snapshot); }
     }
-
     private void LogFailure(CodexQuotaStatus status, string stage, string? detail)
     {
         var line = $"codex refresh status={status} stage={SanitizeStage(stage)} detail={CodexProtocol.SanitizeDiagnostic(detail, 120)}";

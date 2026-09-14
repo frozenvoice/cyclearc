@@ -11,7 +11,8 @@ public sealed record UsageAccountOverview(IReadOnlyList<CodexAccountView> Accoun
     public string Tooltip => Selected is null
         ? UiText.ProductName + Environment.NewLine + UiText.T("No usage yet. Connect an account in Manage accounts.", "사용량 대기 중 · 계정 관리에서 연결 상태를 확인하세요.")
         : CycleArcPresentation.TrayTooltip(Selected.Snapshot, Accounts.Count > 1 ? Selected.DisplayName : null);
-    public static bool CanDisplay(CodexAccountView account) => (account.IsConnected || account.Snapshot.HasUsablePercentages)
+    public static bool CanDisplay(CodexAccountView account) => CodexIdentityPresentation.NeedsReconnection(account.Snapshot)
+        || (account.IsConnected || account.Snapshot.HasUsablePercentages)
         && account.Snapshot.Status is not (CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound);
 
     public static UsageAccountOverview Create(IReadOnlyList<CodexAccountView> accounts, string selectedId)

@@ -12,12 +12,15 @@ public sealed class CodexAccountManager
     private readonly CodexAccountStore _store;
     private readonly Func<CodexAccountProfile, IUsageAccountService> _createService;
     private readonly Dictionary<string, IUsageAccountService> _services = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Action<CodexQuotaSnapshot>> _serviceHandlers = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _processSlots = new(2, 2);
     private readonly SemaphoreSlim _loginGate = new(1, 1);
     private readonly SemaphoreSlim _discoveryGate = new(1, 1);
     private readonly SemaphoreSlim _passiveGate = new(1, 1);
     private CodexAccountConfiguration _configuration;
     private string? _loginProfile;
+    private readonly HashSet<string> _identityConflicts = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _refreshingProfiles = new(StringComparer.Ordinal);
 
     public CodexAccountManager(CodexAccountStore store, string defaultHome,
         Func<CodexAccountProfile, CodexQuotaService> createService, Func<string?> configuredPath)
@@ -30,7 +33,13 @@ public sealed class CodexAccountManager
         var registered = providers.ToDictionary(provider => provider.Id);
         _createService = profile => registered.TryGetValue(profile.Provider, out var provider)
             ? provider.Create(profile) : throw new InvalidDataException("Account provider is unavailable.");
-        foreach (var profile in _configuration.Profiles) AddService(profile);
+        foreach (var profile in _configuration.Profiles)
+        {
+            AddService(profile);
+            if (profile.Provider == UsageProviderId.Codex && !profile.IsManaged && store.HasIdentityConflict(profile))
+                _identityConflicts.Add(profile.Id);
+        }
+        _ = Accounts; // Preserve legacy duplicate conflicts before asynchronous identity migration.
         Refresh = new CodexRefreshCoordinator(RefreshAllAsync);
         Refresh.StateChanged += () => Changed?.Invoke();
     }
@@ -45,15 +54,37 @@ public sealed class CodexAccountManager
         {
             lock (_gate)
             {
-                var repeated = _services.Values.Select(s => s.IdentityFingerprint).OfType<string>()
-                    .GroupBy(value => value, StringComparer.Ordinal).Where(group => group.Count() > 1)
+                var identities = _configuration.Profiles
+                    .Where(profile => profile.Provider == UsageProviderId.Codex)
+                    .Select(profile => (profile, service: _services[profile.Id]))
+                    .Select(item => (item.profile, fingerprint: IdentityOf(item.service)))
+                    .Where(item => item.fingerprint is not null)
+                    .ToArray();
+                var repeated = identities.Where(item => _services[item.profile.Id].Snapshot.Status
+                        is not (CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound))
+                    .GroupBy(item => item.fingerprint!, StringComparer.Ordinal)
+                    .Where(group => group.Count() > 1)
                     .Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+                var managed = identities.Where(item => item.profile.IsManaged)
+                    .Select(item => item.fingerprint!)
+                    .ToHashSet(StringComparer.Ordinal);
+                foreach (var item in identities.Where(item => !item.profile.IsManaged && managed.Contains(item.fingerprint!)))
+                    _identityConflicts.Add(item.profile.Id);
+                foreach (var profile in _configuration.Profiles.Where(profile => _identityConflicts.Contains(profile.Id)))
+                    if (!_store.HasIdentityConflict(profile)) _store.RememberIdentityConflict(profile);
                 return _configuration.Profiles.Select(profile =>
                 {
                     var service = _services[profile.Id];
-                    return new CodexAccountView(profile, service.Snapshot, service.Email, _loginProfile == profile.Id,
-                        service.IdentityFingerprint is { } fingerprint && repeated.Contains(fingerprint))
-                        { IsConnected = service.IsConnected };
+                    var fingerprint = IdentityOf(service);
+                    var identityConflict = _identityConflicts.Contains(profile.Id);
+                    var snapshot = identityConflict
+                        ? CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable, "codex-identity-conflict")
+                        : service.Snapshot;
+                    var email = identityConflict ? null : service.Email;
+                    var hasMatchingIdentity = profile.Provider == UsageProviderId.Codex
+                        && fingerprint is not null && repeated.Contains(fingerprint) && !identityConflict;
+                    return new CodexAccountView(profile, snapshot, email, _loginProfile == profile.Id, hasMatchingIdentity)
+                        { IsConnected = !identityConflict && service.IsConnected };
                 }).ToArray();
             }
         }
@@ -145,6 +176,8 @@ public sealed class CodexAccountManager
                 IgnoredHomes = profile.Provider == UsageProviderId.Codex
                     ? _configuration.IgnoredHomes.Append(profile.HomePath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                     : _configuration.IgnoredHomes });
+            if (_serviceHandlers.Remove(id, out var handler)) service.Changed -= handler;
+            _identityConflicts.Remove(id);
             _services.Remove(id);
         }
         Changed?.Invoke();
@@ -206,11 +239,16 @@ public sealed class CodexAccountManager
                 lock (_gate)
                 {
                     if (profile.Id == _loginProfile || !_services.TryGetValue(profile.Id, out service)) return;
+                    if (interval is { } age && !service.ShouldRefresh(DateTimeOffset.Now, age)) return;
+                    _refreshingProfiles.Add(profile.Id);
                 }
-                if (interval is { } age && !service.ShouldRefresh(DateTimeOffset.Now, age)) return;
                 await service.RefreshAsync(token).ConfigureAwait(false);
             }
-            finally { _processSlots.Release(); }
+            finally
+            {
+                lock (_gate) _refreshingProfiles.Remove(profile.Id);
+                _processSlots.Release();
+            }
         })).ConfigureAwait(false);
         return new(Snapshot, Snapshot.Status != CodexQuotaStatus.Available, null);
     }
@@ -263,8 +301,12 @@ public sealed class CodexAccountManager
         if (!await _loginGate.WaitAsync(0, token).ConfigureAwait(false)) return new(CodexQuotaStatus.Unavailable);
         try
         {
+            if (profileId is not null && IsImportedCodex(profileId))
+                return await RecoverImportedAsync(profileId, openBrowser, token).ConfigureAwait(false);
+
             IUsageAccountService service;
             ICodexAccountOperations operations;
+            token.ThrowIfCancellationRequested();
             lock (_gate)
             {
                 if (profileId is null)
@@ -306,21 +348,117 @@ public sealed class CodexAccountManager
         }
     }
 
+    private async Task<CodexLoginResult> RecoverImportedAsync(string profileId,
+        Func<Uri, CancellationToken, Task> openBrowser, CancellationToken token)
+    {
+        CodexAccountProfile original;
+        IUsageAccountService originalService;
+        lock (_gate)
+        {
+            if (_loginProfile is not null || !_services.TryGetValue(profileId, out originalService!)
+                || originalService.IsRefreshing || _refreshingProfiles.Contains(profileId))
+                return new(CodexQuotaStatus.Unavailable, Detail: "codex-reconnect-busy");
+            original = _configuration.Profiles.FirstOrDefault(profile => profile.Id == profileId
+                && profile.Provider == UsageProviderId.Codex && !profile.IsManaged)
+                ?? throw new InvalidOperationException("Imported Codex profile is unavailable.");
+            _loginProfile = profileId;
+        }
+        Changed?.Invoke();
+
+        try
+        {
+            var candidate = _store.NewManaged(original.Label);
+            var candidateService = _createService(candidate);
+            if (candidateService is not ICodexAccountOperations candidateOperations)
+                return new(CodexQuotaStatus.Unavailable, Detail: "codex-reconnect-unavailable");
+
+            var login = await candidateOperations.LoginAsync(openBrowser, token).ConfigureAwait(false);
+            if (login.Status != CodexQuotaStatus.Available) return login;
+            if (login.Identity is not { Status: CodexQuotaStatus.Available, StableAccountFingerprint: not null })
+                return new(CodexQuotaStatus.Unavailable, login.Identity, "codex-reconnect-identity-failed");
+
+            await _processSlots.WaitAsync(token).ConfigureAwait(false);
+            CodexRefreshResult refresh;
+            try { refresh = await candidateService.RefreshAsync(token).ConfigureAwait(false); }
+            finally { _processSlots.Release(); }
+            var snapshot = refresh.Snapshot;
+            var candidateFingerprint = candidateService.IdentityFingerprint ?? snapshot.IdentityFingerprint;
+            if (snapshot.Status != CodexQuotaStatus.Available || !CodexRingPresentation.From(snapshot).IsAvailable
+                || candidateFingerprint is null || candidateFingerprint != login.Identity.StableAccountFingerprint)
+            {
+                var status = snapshot.Status == CodexQuotaStatus.Available ? CodexQuotaStatus.Unavailable : snapshot.Status;
+                return new(status, login.Identity, "codex-reconnect-quota-failed");
+            }
+
+            token.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                if (!_services.ContainsKey(profileId)) return new(CodexQuotaStatus.Unavailable, Detail: "codex-reconnect-unavailable");
+                var current = _configuration;
+                var currentProfiles = current.Profiles.ToArray();
+                var currentIndex = Array.FindIndex(currentProfiles, profile => profile.Id == profileId);
+                if (currentIndex < 0) return new(CodexQuotaStatus.Unavailable, Detail: "codex-reconnect-unavailable");
+                var duplicate = currentProfiles
+                    .Where(profile => profile.Provider == UsageProviderId.Codex && profile.Id != profileId)
+                    .Any(profile => _services.TryGetValue(profile.Id, out var service)
+                        && (IdentityOf(service) == candidateFingerprint
+                            || IdentityOf(service) == login.Identity.Fingerprint));
+                if (duplicate) return new(CodexQuotaStatus.Unavailable, login.Identity, "codex-identity-conflict");
+
+                var currentProfile = currentProfiles[currentIndex];
+                var replacement = candidate with { Label = currentProfile.Label };
+                currentProfiles[currentIndex] = replacement;
+                var ignoredHomes = current.IgnoredHomes.Append(currentProfile.HomePath)
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                var selected = string.Equals(current.SelectedId, profileId, StringComparison.Ordinal)
+                    ? replacement.Id : current.SelectedId;
+                token.ThrowIfCancellationRequested();
+                Save(current with { Profiles = currentProfiles, SelectedId = selected, IgnoredHomes = ignoredHomes });
+                if (_serviceHandlers.Remove(profileId, out var handler)) originalService.Changed -= handler;
+                _services.Remove(profileId);
+                _identityConflicts.Remove(profileId);
+                AddService(replacement, candidateService);
+            }
+            Changed?.Invoke();
+            return new(CodexQuotaStatus.Available, login.Identity);
+        }
+        catch (OperationCanceledException) { return new(CodexQuotaStatus.Cancelled); }
+        catch (Exception) { return new(CodexQuotaStatus.Unavailable, Detail: "codex-reconnect-unavailable"); }
+    }
     public Task<CreditRedemptionOutcome> ConsumeCreditAsync(string profileId, string creditId, CancellationToken token)
     {
-        lock (_gate) return profileId != _loginProfile && _services.TryGetValue(profileId, out var service)
-            && service is ICodexAccountOperations operations
-            ? operations.ConsumeCreditAsync(creditId, token)
-            : Task.FromResult(CreditRedemptionOutcome.Unavailable);
+        lock (_gate)
+        {
+            var projected = Accounts.FirstOrDefault(account => account.Profile.Id == profileId);
+            if (projected is null || projected.Profile.Provider != UsageProviderId.Codex
+                || !projected.IsConnected || projected.Snapshot.Status != CodexQuotaStatus.Available
+                || !CodexRingPresentation.From(projected.Snapshot).IsAvailable
+                || profileId == _loginProfile || !_services.TryGetValue(profileId, out var service)
+                || service is not ICodexAccountOperations operations)
+                return Task.FromResult(CreditRedemptionOutcome.Unavailable);
+            return operations.ConsumeCreditAsync(creditId, token);
+        }
     }
-
     private IUsageAccountService AddService(CodexAccountProfile profile, IUsageAccountService? service = null)
     {
         service ??= _createService(profile);
         _services.Add(profile.Id, service);
-        service.Changed += _ => Changed?.Invoke();
+        Action<CodexQuotaSnapshot> handler = _ => Changed?.Invoke();
+        _serviceHandlers.Add(profile.Id, handler);
+        service.Changed += handler;
         return service;
     }
+
+    private static string? IdentityOf(IUsageAccountService service) =>
+        service.IdentityFingerprint ?? service.Snapshot.IdentityFingerprint;
+
+    private bool IsImportedCodex(string profileId)
+    {
+        lock (_gate) return _configuration.Profiles.Any(profile => profile.Id == profileId
+            && profile.Provider == UsageProviderId.Codex && !profile.IsManaged);
+    }
+
+
 
     private void Save(CodexAccountConfiguration configuration)
     {

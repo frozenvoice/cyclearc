@@ -65,8 +65,8 @@ public partial class AccountsWindow : Window
         AccountHelp.Header = UiText.T("Nicknames, icons and account actions", "별명·아이콘과 버튼 사용 안내");
         ProfileHelp.Text = UiText.T("Set a nickname for CycleArc; leaving it empty shows the reported email or a provider/profile label. Claude email is verified through the official CLI login status. Circular icons are made locally from the first two characters. Names and icons do not change your provider profile.",
             "별명을 저장하면 CycleArc에서 그 이름을 표시합니다. 비워 두면 제공된 이메일이나 provider·프로필 이름을 표시합니다. Claude 이메일은 공식 CLI 로그인 상태에서 확인합니다. 원형 아이콘은 이름의 앞 두 글자로 이 앱에서 만들며, 이름과 아이콘은 서비스의 프로필을 변경하지 않습니다.");
-        ActionsHelp.Text = UiText.T("Select a card: use this account for the detail card, tray and widget. All accounts continue to refresh.\nOrder ↑ / ↓: move the account in this list and the usage popup. The order is saved immediately; the selected account stays the same.\nSign in again: renew or change the login in a profile added here. For a linked Codex account, sign in again in Codex itself.\nRemove from list: stop showing and checking this profile. Its Codex login and saved data are kept; it is not automatically added back.",
-            "카드 선택: 상세 카드·트레이·위젯에 표시할 계정을 정합니다. 다른 계정도 계속 새로고침합니다.\n순서 ↑ / ↓: 이 목록과 사용량 팝업의 계정 순서를 바꿉니다. 즉시 저장되며 선택한 계정은 유지됩니다.\n다시 로그인: 여기서 추가한 계정의 로그인을 갱신하거나 변경합니다. 기존 Codex에서 연결한 계정은 원래 Codex에서 다시 로그인하세요.\n목록에서 제거: 이 프로필의 표시와 조회를 중단합니다. Codex 로그인과 저장된 데이터는 남으며, 자동으로 다시 추가되지 않습니다.");
+        ActionsHelp.Text = UiText.T("Select a card: use this account for the detail card, tray and widget. All accounts continue to refresh.\nOrder ↑ / ↓: move the account in this list and the usage popup. The order is saved immediately; the selected account stays the same.\nSign in again: renew or change the login in a profile added here. Reconnect: give a linked Codex profile its own login while keeping its nickname and position. Select the intended account in the browser.\nRemove from list: stop showing and checking this profile. Its Codex login and saved data are kept; it is not automatically added back.",
+            "카드 선택: 상세 카드·트레이·위젯에 표시할 계정을 정합니다. 다른 계정도 계속 새로고침합니다.\n순서 ↑ / ↓: 이 목록과 사용량 팝업의 계정 순서를 바꿉니다. 즉시 저장되며 선택한 계정은 유지됩니다.\n다시 로그인: 여기서 추가한 계정의 로그인을 갱신하거나 변경합니다. 다시 연결: 기존 Codex에서 연결한 프로필에 독립된 로그인을 연결합니다. 별명과 순서는 유지되며 브라우저에서 사용할 계정을 선택하세요.\n목록에서 제거: 이 프로필의 표시와 조회를 중단합니다. Codex 로그인과 저장된 데이터는 남으며, 자동으로 다시 추가되지 않습니다.");
         SelectionHint.Text = UiText.T("Select a card for the tray and widget. Save a nickname below to make accounts easier to recognize.",
             "카드를 누르면 트레이와 위젯에 표시됩니다. 아래 별명을 저장하면 계정을 더 쉽게 구분할 수 있습니다.");
         EmptyAccountsHint.Text = UiText.T("No accounts are connected yet. Start with New account sign-in above.",
@@ -96,7 +96,8 @@ public partial class AccountsWindow : Window
         // Countdown/age ticks must not replace an editor and discard its focus or selection.
         if (_bound && _rowsBusy == busy && _selected == selected && _accounts.SequenceEqual(accounts)) return;
         if (!_bound) ConnectionOptions.IsExpanded = accounts.Count == 0
-            || accounts.All(account => account.Snapshot.LastSuccessfulRefresh is null && account.Snapshot.Status != CodexQuotaStatus.Available);
+            || accounts.All(account => account.Snapshot.LastSuccessfulRefresh is null && account.Snapshot.Status != CodexQuotaStatus.Available
+                && !CodexIdentityPresentation.NeedsReconnection(account.Snapshot));
         _bound = true;
         _rowsBusy = busy;
         _accounts = accounts;
@@ -155,10 +156,15 @@ public partial class AccountsWindow : Window
                 connection.Tag = "ConfigureClaude";
                 DockPanel.SetDock(connection, Dock.Right); actions.Children.Add(connection);
             }
-            else if (account.Profile.IsManaged)
+            else
             {
-                var login = ActionButton(UiText.T("Sign in again", "다시 로그인"), () => StartLogin(id, account.Profile.Label));
-                login.ToolTip = UiText.T("Renew or change this profile's login in your browser.", "브라우저에서 이 프로필의 로그인을 갱신하거나 변경합니다.");
+                var login = ActionButton(account.Profile.IsManaged ? UiText.T("Sign in again", "다시 로그인")
+                    : UiText.T("Reconnect", "다시 연결"), () => StartLogin(id, account.Profile.Label));
+                login.Tag = "ReconnectCodex";
+                login.ToolTip = account.Profile.IsManaged
+                    ? UiText.T("Renew or change this profile's login in your browser.", "브라우저에서 이 프로필의 로그인을 갱신하거나 변경합니다.")
+                    : UiText.T("Sign in to the intended account. After verification, this profile uses its own login and keeps its nickname and position.",
+                        "사용할 계정으로 로그인하세요. 확인 후 별명과 순서를 유지하며 이 프로필에 독립된 로그인을 연결합니다.");
                 DockPanel.SetDock(login, Dock.Right); actions.Children.Add(login);
             }
             var rename = ActionButton(UiText.T("Save name", "별명 저장"), () =>
@@ -242,6 +248,10 @@ public partial class AccountsWindow : Window
             var result = await SignIn(id, label, token);
             var message = result.Status switch
             {
+                _ when result.Detail == "codex-identity-conflict" => UiText.T("This login is already connected to another profile. Try again and choose the intended account in the browser. The existing connection was kept.",
+                    "다른 프로필에 이미 연결된 로그인입니다. 다시 시도해 브라우저에서 원래 계정을 선택하세요. 기존 연결은 유지했습니다."),
+                _ when result.Detail == "codex-reconnect-quota-failed" => UiText.T("Signed in, but the quota check failed. The existing connection was kept; try reconnecting again.",
+                    "로그인했지만 사용량 조회에 실패했습니다. 기존 연결은 유지했으니 다시 연결해 주세요."),
                 CodexQuotaStatus.Available => UiText.T("Signed in. Each account's card shows its quota-check result.", "로그인했습니다. 사용량 조회 결과는 각 계정 카드에서 확인하세요."),
                 CodexQuotaStatus.Cancelled => UiText.T("Sign-in cancelled. You can try again.", "로그인을 취소했습니다. 다시 시도할 수 있습니다."),
                 CodexQuotaStatus.TimedOut => UiText.T("Sign-in timed out. Try again.", "로그인 시간이 초과됐습니다. 다시 시도하세요."),

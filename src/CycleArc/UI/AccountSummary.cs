@@ -68,9 +68,9 @@ internal static class AccountSummary
             receipt.Margin = new Thickness(0, 5, 0, 0);
             content.Children.Add(receipt);
         }
-        if (account.HasMatchingIdentity)
+        if (account.HasMatchingIdentity && !CodexIdentityPresentation.NeedsReconnection(account.Snapshot))
         {
-            var duplicate = Text(UiText.T("Same sign-in details as another profile", "다른 프로필과 동일한 로그인 정보"), 11, "MutedBrush");
+            var duplicate = Text(UiText.T("Same reported login email as another profile", "다른 프로필과 같은 로그인 이메일으로 조회됨"), 11, "MutedBrush");
             duplicate.TextWrapping = TextWrapping.Wrap;
             duplicate.Margin = new Thickness(0, 5, 0, 0);
             content.Children.Add(duplicate);
