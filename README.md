@@ -52,7 +52,7 @@ CycleArc discovers `codex.exe` or `codex.cmd` through PATH and supported install
 
 **Manage accounts** is available in the popup and **Settings → Connection → Manage Codex and Claude accounts**. **Add an account** offers Codex login/discovery and Claude connection. It opens automatically when there is no previously checked account; existing users see their account list first. Accounts retain separate percentages, reset windows and refresh states; values are never added together. Reset credits belong only to the selected Codex account.
 
-**Codex connections keep their verified account identity.** If a linked Codex login changes, CycleArc shows **Login changed** and stops displaying quota under the old nickname. A linked profile that reports the same identity as a separately signed-in profile shows **Check connection**. In **Manage accounts → Reconnect**, choose the intended account in the official browser login. CycleArc verifies usage before replacing the link with an independent login, retaining its nickname, position and selection. Cancelling, choosing an already connected account or a failed usage check keeps the existing link. The official identity projection cannot distinguish workspaces that share a login email.
+**Codex profiles keep their verified login.** Profiles marked **Login changed** or **Check connection** stay visible with quota and reset credits hidden. If the affected profile is selected, the detail card, tray and widget retain that selection. Follow [Codex connection recovery](#codex-connection-recovery) to restore it.
 
 **Connected Claude accounts remain visible while awaiting usage.** They show **Awaiting usage** and unknown limits, without increasing the attention count. Unconnected profiles stay in **Manage accounts** and do not increase the main account count. Previously received values remain visible as stale during a temporary update failure. Popup, tray and widget share the same visible selection; if none is available, the widget stays hidden and the popup shows a connection hint.
 
@@ -87,7 +87,7 @@ To connect an account, choose the option that matches your setup:
 
 Set a **Nickname in CycleArc** to recognize an account; leaving it empty shows the reported email, or a provider/profile label when email is unavailable. Codex supplies email/plan through its account API; Claude supplies login metadata through its official CLI. Circular icons are generated locally from the displayed name and a stable account color. They are not synced web avatars; saving a nickname does not change the provider profile. The widget shows this name even when only one account is connected. Expand **Nicknames, icons and account actions** for details.
 
-Use **Order ↑ / ↓** beside each account's nickname to move it. The popup follows the same order among visible accounts, which is saved immediately and retained after restart. Reordering keeps the selected tray/widget account and does not initiate a quota refresh. Select a card with usage to change which account drives the tray/widget. **Sign in again** changes the login for a Codex profile added in CycleArc; **Connect** opens a Claude profile's connection window. **Remove** forgets the profile from this list.
+Use **Order ↑ / ↓** beside each account's nickname to move it. The popup follows the same order among visible accounts, which is saved immediately and retained after restart. Reordering keeps the selected tray/widget account and does not initiate a quota refresh. Select a card with usage to change which account drives the tray/widget. **Reconnect** gives a linked Codex profile an independent login; **Sign in again** renews or changes a Codex login already managed by CycleArc. **Connect** opens a Claude profile's connection window. **Remove** forgets the profile from this list.
 
 <details>
 <summary><strong>Account manager · Dark preview</strong></summary>
@@ -104,13 +104,23 @@ Use **Order ↑ / ↓** beside each account's nickname to move it. The popup fol
 
 </details>
 
-**Find accounts on this PC** checks `CODEX_HOME` from the process/user/machine environment and the default `~/.codex` directory through `account/read`. It cannot discover an account signed in only on the ChatGPT website. **Advanced · Connect a specific Codex folder → Choose Codex home folder** connects another known home; choose the home, not the executable or a project folder. It does not search the disk for credentials or copy an existing login. Imported homes stay linked to their original Codex installation; reauthenticate those in Codex itself.
+**Find accounts on this PC** checks `CODEX_HOME` from the process/user/machine environment and the default `~/.codex` directory through `account/read`. It cannot discover an account signed in only on the ChatGPT website. **Advanced · Connect a specific Codex folder → Choose Codex home folder** connects another known home; choose the home, not the executable or a project folder. It does not search the disk for credentials or copy an existing login. Imported homes stay linked to their original Codex installation until **Reconnect** creates an independent login for that CycleArc profile.
 
-New Codex profiles receive separate homes under `%LOCALAPPDATA%\ProMeter\accounts\<local-id>\codex-home`. Only the installed Codex process stores and renews credentials there. Browser sign-in has a five-minute deadline and can be cancelled. Choose the intended email account in the browser; if two profiles report the same email and plan, both display a matching-login notice. The protocol does not expose a stable workspace identifier, so that notice does not establish whether workspaces are identical.
+New and reconnected Codex profiles receive separate homes under `%LOCALAPPDATA%\ProMeter\accounts\<local-id>\codex-home`. Only the installed Codex process stores and renews credentials there. One browser login can run alongside usage checks for other accounts.
 
 Removing a profile forgets its reference without logging out or deleting its Codex home. It will not be automatically re-added. A custom home can be connected again with the folder picker.
 
 The first launch opens the detail card. Later launches start in the tray; `CycleArc.exe --show` opens the card at startup. If Windows hides the tray icon, move it out of the notification-area overflow. Starting with Windows and showing the desktop widget are optional settings.
+
+#### Codex connection recovery
+
+Nicknames are local display names. **Same reported login email as another profile** means that the profiles report the same login email; the official protocol cannot distinguish workspaces sharing that email. When a profile linked from an existing Codex home matches a profile signed in separately through CycleArc, the linked profile instead shows **Check connection** and hides its quota and reset credits. That conflict remains until reconnection, including after restart or removal of the matching profile. **Check connection** also appears when the saved account binding cannot be verified.
+
+1. Open **Manage accounts** and find the affected Codex profile. Choose **Reconnect** for a linked profile, or **Sign in again** for a login managed by CycleArc.
+2. Complete the official browser login with the intended account.
+3. **Reconnect** verifies login and usage before replacing the old link. It preserves the nickname, list position and selection. Cancelling, choosing an already connected account or failing the usage check keeps the existing link.
+
+Browser sign-in has a five-minute deadline and can be cancelled. If it times out and the browser later cannot connect to the localhost callback, start sign-in again from the same profile button to open a new session.
 
 ### Claude Code connection
 
@@ -192,7 +202,7 @@ With **Show widget** enabled and a displayable account, CycleArc checks the nati
 
 CycleArc starts a bounded, short-lived **Codex App Server** process per account and requests account/rate-limit metadata. Every UI entry point shares the same refresh batch, with at most two simultaneous reads. One interactive login may run alongside reads for other accounts. It does not run a model turn to measure usage.
 
-Percentages come from the reported limit windows. CycleArc does **not** turn them into invented request counts or combine unrelated reset periods. When a refresh fails, the last valid snapshot may remain visible with a stale label. Opening the card immediately after a failed check does not trigger repeated automatic retries; manual refresh remains available. Claude uses an independent passive provider and receives stdin through a headless mode of the same executable. Its projected inbox is checked every two seconds without starting Codex or Claude.
+Percentages come from the reported limit windows. CycleArc does **not** turn them into invented request counts or combine unrelated reset periods. A temporary refresh failure can leave the last verified snapshot visible with a stale label. After restart, Codex must verify the profile's login before cached values can be shown; a changed or unverifiable identity has no displayed quota or usable reset credits. Opening the card immediately after a failed check does not trigger repeated automatic retries; manual refresh remains available. Claude uses an independent passive provider and receives stdin through a headless mode of the same executable. Its projected inbox is checked every two seconds without starting Codex or Claude.
 
 Countdowns and “last checked” ages update locally once a minute without another server request.
 
@@ -204,7 +214,7 @@ Countdowns and “last checked” ages update locally once a minute without anot
 - Only local preferences, profile references/labels, projected quota metadata, connection paths/identity fingerprints and safe diagnostic logs are retained. Reported emails stay in memory for display. Authentication is handled by the installed Codex or Claude CLI.
 
 Settings and quota cache remain under `%LOCALAPPDATA%\ProMeter` for upgrade compatibility. Settings use atomic replacement with a previous-good backup and recovery if the primary file is damaged.
-The account registry (`codex-accounts.json`) also uses atomic writes and a previous-good backup. The original account continues using `codex-snapshot.json`; additional profiles have separate quota caches. Existing preferences and historical files are preserved.
+The account registry (`codex-accounts.json`) also uses atomic writes and a previous-good backup. The legacy default profile uses `codex-snapshot.json`; new profiles and profiles replaced through **Reconnect** have separate quota caches. Reconnection preserves the old home and cache. Existing preferences and historical files are preserved.
 
 CycleArc is an independent project and is not affiliated with or endorsed by OpenAI or Anthropic. Compatibility depends on the installed Codex App Server or Claude CLI/statusLine protocol and the metadata available to your account.
 
