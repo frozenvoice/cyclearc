@@ -64,6 +64,9 @@ public sealed class CodexAccountStore
     public string ClaudeConnectionPath(string id) =>
         Path.Combine(_root, "accounts", RequireId(id), "claude-connection.json");
 
+    public string ClaudeFailurePath(string id) =>
+        Path.Combine(_root, "accounts", RequireId(id), "claude-failure.json");
+
     public string ManagedClaudeDirectory(string id) =>
         Path.Combine(_root, "accounts", RequireId(id), "claude-home");
 

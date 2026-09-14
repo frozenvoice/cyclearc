@@ -49,7 +49,7 @@
   effective existing folder and preserves whether that environment variable was originally unset.
   CLI-owned credentials are never opened by CycleArc. Email is held only
   in memory; paths, identity fingerprint and connection time use a separate provider metadata file.
-- `ClaudeStatusLineInstaller` edits only `settings.json`'s statusLine, with validation, a local backup,
+- `ClaudeStatusLineInstaller` updates statusLine and one owned `hooks.StopFailure` command, with validation, a local backup,
   an exclusive lock and atomic replacement that checks for concurrent changes. The encoded wrapper
   preserves an existing command's stdin/output; reconnect is idempotent and disconnect restores the
   previous entry only while the active command is still owned by this profile.
@@ -59,6 +59,14 @@
   check cannot authenticate an already-running session's emitter; users must restart sessions after
   external login changes. The old manual receiver cannot bypass an automatic binding's checks.
   Passive polls never invoke authentication. Details are in [CLAUDE.md](CLAUDE.md).
+- Official StopFailure events carry request-error classifications through a separate bounded headless
+  receiver in the same executable. Only projected failure kind, binding generation and observation
+  time are persisted in `claude-failure.json`; no raw hook metadata is stored. Local signed-in
+  metadata does not prove remote authentication validity. A matching authentication failure shows
+  Sign-in required, preserving any quota sample as stale with its original receipt. Authentication
+  failure persists until explicit sign-in recovery; repeated cached quota is not proof of repair. Existing-profile reauthentication uses the same CLI/configuration,
+  preserves identity and quota history, and rotates a generation to reject earlier failure callbacks.
+  Connection inspection upgrades exact owned settings only; user replacements remain untouched.
 - A new Claude connection uses a draft profile and removes it on modal completion only if no
   connection or usage record exists. Repeated current-login setup resolves the existing profile
   for the same verified identity, configuration path and implicit/explicit directory mode.

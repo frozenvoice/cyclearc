@@ -237,6 +237,46 @@ internal static class MixedProviderUiChecks
                     && receiptHint.Contains(UiText.T("original receipt time", "원래 수신 시각")),
                     "Connection guide fails to distinguish terminal delivery from Desktop Code sessions.");
 
+                // A real StopFailure must surface a recovery action on the bound profile.
+                connection.FailureKind = ClaudeFailureKind.AuthRequired;
+                guide.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                AccountUiChecks.PumpUntil(guide.ActiveOperation);
+                var reauthenticate = (Button)guide.FindName("ReauthenticateButton");
+                Check(reauthenticate.Visibility == Visibility.Visible && reauthenticate.IsEnabled,
+                    "Claude authentication failure did not offer same-account reauthentication.");
+                var failureText = ((TextBlock)guide.FindName("ConnectionState")).Text;
+                Check(failureText == ClaudeUsagePresentation.FailureLabel("claude-auth-required")
+                    && ((TextBlock)guide.FindName("OperationStatus")).Text.Contains(UiText.T("last received", "마지막 수신값"), StringComparison.OrdinalIgnoreCase),
+                    "Claude authentication failure did not explain recovery while preserving the last receipt.");
+                var connectCallsBeforeReauth = connection.Calls;
+                reauthenticate.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                AccountUiChecks.PumpUntil(guide.ActiveOperation);
+                Check(connection.ReauthenticateCalls == 1 && connection.Calls == connectCallsBeforeReauth && !connection.LastLogin,
+                    "Same-account reauthentication started a new account login flow.");
+                Check(reauthenticate.Visibility == Visibility.Collapsed
+                    && ((TextBlock)guide.FindName("ConnectionState")).Text == UiText.T("Connected", "연결됨"),
+                    "Successful same-account reauthentication did not clear the connection failure.");
+                // A reauthentication attempt is single-flight and cancellation leaves the
+                // concrete authentication failure available for recovery.
+                connection.FailureKind = ClaudeFailureKind.AuthRequired;
+                guide.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                AccountUiChecks.PumpUntil(guide.ActiveOperation);
+                connection.DelayReauthenticate = true;
+                var connectCallsBeforeCancelledReauth = connection.Calls;
+                reauthenticate.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var cancelledReauth = guide.ActiveOperation;
+                reauthenticate.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Check(ReferenceEquals(cancelledReauth, guide.ActiveOperation), "Duplicate Claude reauthentication replaced the busy operation.");
+                Check(((ProgressBar)guide.FindName("OperationProgress")).Visibility == Visibility.Visible
+                    && !reauthenticate.IsEnabled, "Claude reauthentication lacks visible single-flight feedback.");
+                guide.CancelOperation();
+                AccountUiChecks.PumpUntil(cancelledReauth);
+                Check(((ProgressBar)guide.FindName("OperationProgress")).Visibility == Visibility.Collapsed
+                    && reauthenticate.Visibility == Visibility.Visible
+                    && connection.Calls == connectCallsBeforeCancelledReauth
+                    && connection.FailureKind == ClaudeFailureKind.AuthRequired,
+                    "Cancelled Claude reauthentication lost the recovery action or started a new account connection.");
+                connection.DelayReauthenticate = false;
                 Check(((TextBlock)guide.FindName("AccountIdentity")).Text.Contains("person@example.invalid"), "Verified identity is missing.");
                 string? guideOpened = null;
                 typeof(ClaudeConnectionWindow).GetProperty("OpenExternalForTest", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -274,6 +314,7 @@ internal static class MixedProviderUiChecks
                 AccountUiChecks.PumpUntil(guide.ActiveOperation);
                 Check(connection.LastDisconnectedId == connection.RedirectId, "Disconnect targeted the discarded draft.");
                 CheckPendingAccounts(flyout, manager, accounts, directory, language, theme);
+                count += CheckFailureAccounts(flyout, widget, accounts[0], accounts[1], directory, language, theme);
                 count += 5;
             }
             finally { flyout.Close(); widget.Close(); manager.Close(); guide.Close(); }
@@ -281,6 +322,41 @@ internal static class MixedProviderUiChecks
         Console.WriteLine($"PASS: {count} mixed Codex/Claude WPF renders; account/selection/widget badges, aliases, stale state, provider-scoped credits and compact connection guide in both languages/all themes.");
     }
 
+
+    private static int CheckFailureAccounts(FlyoutWindow flyout, FloatingWidget widget, CodexAccountView other, CodexAccountView fixture,
+        string? directory, UiLanguage language, AppTheme theme)
+    {
+        var label = ClaudeUsagePresentation.FailureLabel("claude-auth-required")!;
+        foreach (var cached in new[] { false, true })
+        {
+            var snapshot = fixture.Snapshot with
+            {
+                Status = cached ? CodexQuotaStatus.Stale : CodexQuotaStatus.Unavailable,
+                TechnicalDetail = "claude-auth-required",
+                Windows = cached ? fixture.Snapshot.Windows : [],
+                LastSuccessfulRefresh = cached ? fixture.Snapshot.LastSuccessfulRefresh : null
+            };
+            var account = fixture with { Snapshot = snapshot, IsConnected = true };
+            flyout.BindAccounts([other, account], account.Profile.Id, false);
+            var path = directory is null ? null : Path.Combine(directory, $"claude-auth-{(cached ? "cached" : "empty")}-{language}-{theme}.png");
+            AccountUiChecks.Render(flyout, 440, null, path);
+            Check(((ItemsControl)flyout.FindName("AccountOverview")).Items.Count == 2 && flyout.SelectedProfileId == account.Profile.Id,
+                "A bound authentication failure disappeared from the account list.");
+            Check(!account.IsAwaitingUsage && ((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("1 need attention", "1개 확인 필요"),
+                "Authentication failure was reported as benign awaiting usage.");
+            Check(((TextBlock)flyout.FindName("CodexStatusText")).Text.StartsWith(label, StringComparison.Ordinal),
+                "Selected details did not name the authentication failure.");
+            Check(snapshot.HasUsablePercentages == cached, "Unknown failed usage was converted into zero.");
+            widget.BindAccount(account);
+            AccountUiChecks.Render(widget, 245, null, null);
+            Check(((TextBlock)widget.FindName("HistoryValue")).Text == label,
+                "Widget authentication status disagrees with the account/details.");
+            if (cached)
+                Check(((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(fixture.Snapshot),
+                    "Authentication failure changed the displayed last receipt.");
+        }
+        return 4;
+    }
     private static void CheckPendingAccounts(FlyoutWindow flyout, AccountsWindow manager, CodexAccountView[] fixtures,
         string? directory, UiLanguage language, AppTheme theme)
     {
@@ -344,13 +420,16 @@ internal static class MixedProviderUiChecks
         public bool LastLogin { get; private set; }
         public int Calls { get; private set; }
         public bool DelayLogin { get; set; }
+        public bool DelayReauthenticate { get; set; }
         public string? RedirectId { get; set; }
         public string? LastInspectedId { get; private set; }
         public string? LastDisconnectedId { get; private set; }
+        public int ReauthenticateCalls { get; private set; }
+        public ClaudeFailureKind FailureKind { get; set; }
         public Task<ClaudeConnectionOverview> InspectAsync(string id, CancellationToken token)
         {
             LastInspectedId = id;
-            return Task.FromResult(new ClaudeConnectionOverview(_binding, _auth, _binding is not null, @"C:\Synthetic Claude"));
+            return Task.FromResult(new ClaudeConnectionOverview(_binding, _auth, _binding is not null, @"C:\Synthetic Claude", FailureKind));
         }
         public async Task<ClaudeConnectionResult> ConnectAsync(string id, string executable, bool login, string? directory, CancellationToken token)
         {
@@ -358,6 +437,13 @@ internal static class MixedProviderUiChecks
             if (DelayLogin) await Task.Delay(Timeout.Infinite, token);
             _binding = new(1, RedirectId ?? profileId, @"C:\Synthetic Claude", @"C:\Synthetic Claude\claude.cmd", false, _auth.Fingerprint!, DateTimeOffset.UtcNow);
             return new(true, _auth, _binding);
+        }
+        public async Task<ClaudeConnectionResult> ReauthenticateAsync(string id, string executable, CancellationToken token)
+        {
+            ReauthenticateCalls++;
+            if (DelayReauthenticate) await Task.Delay(Timeout.Infinite, token);
+            FailureKind = ClaudeFailureKind.None;
+            return new ClaudeConnectionResult(true, _auth, _binding);
         }
         public Task DisconnectAsync(string id, CancellationToken token) { LastDisconnectedId = id; _binding = null; return Task.CompletedTask; }
         public void OpenClaude(string id, string workingDirectory) => throw new InvalidOperationException("Offline tests cannot open a live session.");

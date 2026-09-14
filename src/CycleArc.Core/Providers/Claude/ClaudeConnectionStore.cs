@@ -20,7 +20,7 @@ public static class ClaudeConnectionPaths
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ClaudeConnectionBinding(int Version, string ProfileId, string ConfigDirectory,
     string CliExecutable, bool Managed, string IdentityFingerprint, DateTimeOffset ConnectedAt, bool UseDefaultConfig = false,
-    bool Disconnected = false);
+    bool Disconnected = false, string? BindingGeneration = null);
 
 public sealed record ClaudeConnectionRead(ClaudeConnectionBinding? Binding, bool Unavailable = false);
 
@@ -62,5 +62,6 @@ public sealed class ClaudeConnectionStore(CodexAccountStore accounts, string pro
         && directory == binding.ConfigDirectory
         && (!binding.UseDefaultConfig || string.Equals(directory, ClaudeConnectionPaths.ImplicitDirectory, StringComparison.OrdinalIgnoreCase))
         && ClaudeCli.IsExecutablePath(binding.CliExecutable) && binding.ConnectedAt > DateTimeOffset.UnixEpoch
-        && binding.IdentityFingerprint is { Length: 64 } hash && hash.All(Uri.IsHexDigit);
+        && binding.IdentityFingerprint is { Length: 64 } hash && hash.All(Uri.IsHexDigit)
+        && (binding.BindingGeneration is null || Guid.TryParseExact(binding.BindingGeneration, "N", out _));
 }

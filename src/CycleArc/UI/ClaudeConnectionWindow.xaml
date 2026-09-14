@@ -33,6 +33,7 @@
                             <TextBlock x:Name="ConnectionState" FontWeight="SemiBold" FontSize="16" TextWrapping="Wrap"/>
                             <TextBlock x:Name="AccountIdentity" Style="{StaticResource GuideText}"/>
                             <WrapPanel Margin="0,14,0,0">
+                                <Button x:Name="ReauthenticateButton" Style="{StaticResource CreditUseButton}" Click="OnReauthenticate" Margin="0,0,8,8" Visibility="Collapsed"/>
                                 <Button x:Name="ConnectExistingButton" Style="{StaticResource CreditUseButton}" Click="OnConnectExisting" Margin="0,0,8,8"/>
                                 <Button x:Name="LoginButton" Style="{StaticResource CreditUseButton}" Click="OnLogin" Margin="0,0,0,8"/>
                             </WrapPanel>

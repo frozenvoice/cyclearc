@@ -9,7 +9,8 @@ namespace CycleArc.Providers.Claude;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ClaudeBridgeOptions(int Version, string ProfileId, string ConfigDirectory,
-    string CycleArcExecutable, string DataRoot, bool HadStatusLine, JsonObject? PreviousStatusLine);
+    string CycleArcExecutable, string DataRoot, bool HadStatusLine, JsonObject? PreviousStatusLine,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BindingGeneration = null);
 
 public enum ClaudeSetupFailure { InvalidSettings, SettingsChanged, AlreadyLinked, ConnectionUnavailable }
 public sealed class ClaudeSetupException(ClaudeSetupFailure failure) : Exception("Claude connection settings could not be updated.")
@@ -130,13 +131,44 @@ public static class ClaudeStatusLineInstaller
             }
             else previous = obj.DeepClone().AsObject();
         }
-        var options = new ClaudeBridgeOptions(1, profileId, directory, Path.GetFullPath(executable), accounts.RootDirectory, had, previous);
+
+        var binding = new ClaudeConnectionStore(accounts, profileId).Read().Binding;
+        var generation = binding is { Disconnected: false }
+            && string.Equals(binding.ConfigDirectory, directory, StringComparison.OrdinalIgnoreCase)
+            && binding.BindingGeneration is not null ? binding.BindingGeneration : null;
+        var options = new ClaudeBridgeOptions(1, profileId, directory, Path.GetFullPath(executable),
+            accounts.RootDirectory, had, previous, generation);
         var replacement = (settings["statusLine"] as JsonObject)?.DeepClone().AsObject() ?? new JsonObject { ["type"] = "command" };
         replacement["command"] = Command(options);
         settings["statusLine"] = replacement;
+
+        // The failure hook is installed only for a verified binding. Direct legacy/statusLine
+        // installation remains compatible and cannot create a callback that bypasses binding checks.
+        if (binding is { Disconnected: false, BindingGeneration: not null }
+            && string.Equals(binding.ConfigDirectory, directory, StringComparison.OrdinalIgnoreCase))
+        {
+            AddFailureHook(settings, accounts, profileId, directory, Path.GetFullPath(executable), binding);
+        }
         beforeCommit?.Invoke();
         WriteIfChanged(file, original, settings, token);
         return options;
+    }
+    public static bool TryReadOwnedStatusLine(string directory, string profileId, out ClaudeBridgeOptions? options)
+    {
+        options = null;
+        try
+        {
+            if (ClaudeConnectionPaths.Normalize(directory) is not { } normalized
+                || !Guid.TryParseExact(profileId, "N", out _)) return false;
+            var settings = ParseSettings(ReadBytes(Path.Combine(RequireDirectory(normalized), "settings.json")));
+            if (settings["statusLine"] is not JsonObject obj || !ValidStatusLine(obj)) return false;
+            if (!TryRead(obj["command"]!.GetValue<string>(), out var parsed) || parsed is null) return false;
+            if (parsed.ProfileId != profileId || !string.Equals(parsed.ConfigDirectory, normalized, StringComparison.OrdinalIgnoreCase)) return false;
+            options = parsed;
+            return true;
+        }
+        catch (Exception ex) when (ex is ClaudeSetupException or IOException or UnauthorizedAccessException or InvalidOperationException)
+        { return false; }
     }
 
     public static bool IsInstalled(string directory, string profileId)
@@ -159,20 +191,112 @@ public static class ClaudeStatusLineInstaller
         var file = Path.Combine(directory, "settings.json");
         var original = ReadBytes(file);
         var settings = ParseSettings(original);
-        if (settings["statusLine"] is not JsonObject obj || !ValidStatusLine(obj)
-            || !TryRead(obj["command"]!.GetValue<string>(), out var installed) || installed!.ProfileId != profileId) return;
-        if (installed.HadStatusLine) settings["statusLine"] = installed.PreviousStatusLine?.DeepClone();
-        else settings.Remove("statusLine");
-        WriteIfChanged(file, original, settings, token);
+        ClaudeBridgeOptions? installed = null;
+        var ownsStatusLine = settings["statusLine"] is JsonObject obj && ValidStatusLine(obj)
+            && TryRead(obj["command"]!.GetValue<string>(), out installed) && installed!.ProfileId == profileId;
+        var hadOwnedFailureHook = HasOwnedFailureHook(settings, profileId);
+        if (ownsStatusLine)
+        {
+            if (installed!.HadStatusLine) settings["statusLine"] = installed.PreviousStatusLine?.DeepClone();
+            else settings.Remove("statusLine");
+        }
+        RemoveOwnedFailureHook(settings, profileId);
+        if (ownsStatusLine || hadOwnedFailureHook)
+            WriteIfChanged(file, original, settings, token);
     }
-
     private static bool Valid(ClaudeBridgeOptions o) => o.Version == 1 && Guid.TryParseExact(o.ProfileId, "N", out _)
         && ClaudeConnectionPaths.Normalize(o.ConfigDirectory) is { } directory && directory == o.ConfigDirectory
         && ClaudeConnectionPaths.Normalize(o.CycleArcExecutable) is { } executable && executable == o.CycleArcExecutable
         && Path.GetFileName(o.CycleArcExecutable).Equals("CycleArc.exe", StringComparison.OrdinalIgnoreCase)
         && ClaudeConnectionPaths.Normalize(o.DataRoot) is { } root && root == o.DataRoot
-        && (o.PreviousStatusLine is null || o.HadStatusLine && ValidStatusLine(o.PreviousStatusLine, 8192));
+        && (o.PreviousStatusLine is null || o.HadStatusLine && ValidStatusLine(o.PreviousStatusLine, 8192))
+        && (o.BindingGeneration is null || Guid.TryParseExact(o.BindingGeneration, "N", out _));
 
+    private static void AddFailureHook(JsonObject settings, CodexAccountStore accounts, string profileId,
+        string directory, string executable, ClaudeConnectionBinding binding)
+    {
+        var createdHooks = !settings.ContainsKey("hooks");
+        var hooks = settings.ContainsKey("hooks")
+            ? settings["hooks"] as JsonObject ?? throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings)
+            : new JsonObject();
+        settings["hooks"] = hooks;
+        var createdStop = !hooks.ContainsKey("StopFailure");
+        var stop = hooks.ContainsKey("StopFailure")
+            ? hooks["StopFailure"] as JsonArray ?? throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings)
+            : new JsonArray();
+        hooks["StopFailure"] = stop;
+        JsonObject? owned = null;
+        foreach (var entry in stop)
+        {
+            if (entry is not JsonObject item) continue;
+            if (!TryReadOwnedFailureHook(item, out var existing)) continue;
+            if (owned is not null) throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings);
+            if (existing!.ProfileId != profileId && accounts.ContainsClaude(existing.ProfileId))
+                throw new ClaudeSetupException(ClaudeSetupFailure.AlreadyLinked);
+            owned = item;
+            createdHooks = existing.CreatedHooks;
+            createdStop = existing.CreatedStopFailure;
+        }
+        var failureOptions = new ClaudeFailureBridgeOptions(1, profileId, directory, executable,
+            accounts.RootDirectory, binding.IdentityFingerprint, binding.BindingGeneration!, createdHooks, createdStop);
+        var command = ClaudeFailureCommand.Command(failureOptions);
+        var replacement = new JsonObject
+        {
+            ["hooks"] = new JsonArray(new JsonObject { ["type"] = "command", ["command"] = command })
+        };
+        if (owned is null) stop.Add(replacement);
+        else
+        {
+            // Replace only the exact CycleArc-owned item. Keep any future hook properties
+            // and unrelated matchers untouched by refusing ambiguous shapes above.
+            var index = stop.IndexOf(owned);
+            stop[index] = replacement;
+        }
+    }
+
+    private static bool HasOwnedFailureHook(JsonObject settings, string profileId)
+    {
+        if (settings["hooks"] is not JsonObject hooks || hooks["StopFailure"] is not JsonArray stop) return false;
+        foreach (var entry in stop)
+            if (entry is JsonObject item && TryReadOwnedFailureHook(item, out var options) && options!.ProfileId == profileId) return true;
+        return false;
+    }
+
+    private static void RemoveOwnedFailureHook(JsonObject settings, string profileId)
+    {
+        if (settings["hooks"] is null) return;
+        if (settings["hooks"] is not JsonObject hooks) throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings);
+        if (hooks["StopFailure"] is null) return;
+        if (hooks["StopFailure"] is not JsonArray stop) throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings);
+        var owned = new List<JsonNode>();
+        ClaudeFailureBridgeOptions? original = null;
+        foreach (var entry in stop)
+        {
+            if (entry is not JsonObject item) continue;
+            if (TryReadOwnedFailureHook(item, out var options) && options!.ProfileId == profileId)
+            {
+                owned.Add(item); original = options;
+            }
+        }
+        if (owned.Count == 0) return;
+        if (owned.Count > 1) throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings);
+        stop.Remove(owned[0]);
+        // Remove only containers this exact owned hook created, and only while still empty.
+        if (stop.Count == 0 && original!.CreatedStopFailure) hooks.Remove("StopFailure");
+        if (hooks.Count == 0 && original!.CreatedHooks) settings.Remove("hooks");
+    }
+
+    private static bool TryReadOwnedFailureHook(JsonObject item, out ClaudeFailureBridgeOptions? options)
+    {
+        options = null;
+        if (item.Count != 1 || item["hooks"] is not JsonArray hooks || hooks.Count != 1
+            || hooks[0] is not JsonObject command || command.Count != 2
+            || command["type"] is not JsonValue type || !type.TryGetValue<string>(out var typeText) || typeText != "command"
+            || command["command"] is not JsonValue commandValue || !commandValue.TryGetValue<string>(out var text)) return false;
+        if (!ClaudeFailureCommand.TryRead(text, out options) || options is null) return false;
+        try { return string.Equals(ClaudeFailureCommand.Command(options), text, StringComparison.Ordinal); }
+        catch (Exception ex) when (ex is ArgumentException or InvalidDataException) { options = null; return false; }
+    }
     private static bool ValidStatusLine(JsonObject obj, int maxLength = 28000) => obj["type"] is JsonValue type && type.TryGetValue<string>(out var value)
         && value == "command" && obj["command"] is JsonValue command && command.TryGetValue<string>(out var text)
         && !string.IsNullOrWhiteSpace(text) && text.Length <= maxLength && !text.Contains('\0');

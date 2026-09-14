@@ -22,18 +22,30 @@ public static class ClaudeStatusLineBridge
         var previous = oldCommand is null ? Task.FromResult<string?>(null) : ForwardAsync(oldCommand, bytes, bounded.Token);
         var text = "Claude | CycleArc unavailable";
         var exit = 1;
+        ClaudeConnectionBinding? observedBinding = null;
         try
         {
             if (accounts.ContainsClaude(options.ProfileId))
             {
                 var connections = new ClaudeConnectionStore(accounts, options.ProfileId);
-                var binding = connections.Read().Binding;
-                if (binding is { Disconnected: false } && string.Equals(binding.ConfigDirectory, options.ConfigDirectory, StringComparison.OrdinalIgnoreCase))
+                observedBinding = connections.Read().Binding;
+                if (observedBinding is { Disconnected: false } binding
+                    && string.Equals(binding.ConfigDirectory, options.ConfigDirectory, StringComparison.OrdinalIgnoreCase))
                 {
                     var auth = await (cli ?? new ClaudeCli()).AuthenticateAsync(binding.CliExecutable,
                         binding.UseDefaultConfig ? null : binding.ConfigDirectory, false, bounded.Token).ConfigureAwait(false);
+                    var generationMatches = string.Equals(binding.BindingGeneration, options.BindingGeneration, StringComparison.Ordinal);
                     var matches = auth.Status == ClaudeAuthStatus.SignedIn && auth.Fingerprint == binding.IdentityFingerprint
-                        && connections.Read().Binding == binding && accounts.ContainsClaude(options.ProfileId);
+                        && generationMatches && connections.Read().Binding == binding && accounts.ContainsClaude(options.ProfileId);
+                    if (!matches)
+                    {
+                        // Keep the quota receipt/cache unchanged while recording why this
+                        // verified binding cannot receive a new sample.
+                        var kind = auth.Status == ClaudeAuthStatus.SignedOut ? ClaudeFailureKind.AuthRequired
+                            : auth.Status == ClaudeAuthStatus.SignedIn ? ClaudeFailureKind.IdentityMismatch
+                            : ClaudeFailureKind.BridgeUnavailable;
+                        await RecordFailureAsync(accounts, options, binding, kind, receivedAt, bounded.Token).ConfigureAwait(false);
+                    }
                     var parsed = matches ? ClaudeStatusLineParser.Parse(bytes) : new ClaudeStatusLineResult(ClaudeInputStatus.Missing);
                     await new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(options.ProfileId), options.ProfileId)
                         .RecordAsync(parsed, receivedAt, bounded.Token).ConfigureAwait(false);
@@ -43,7 +55,13 @@ public static class ClaudeStatusLineBridge
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
-        { /* Preserve the previous command's output even when quota collection is unavailable. */ }
+        {
+            if (observedBinding is { Disconnected: false } binding)
+            {
+                try { await RecordFailureAsync(accounts, options, binding, ClaudeFailureKind.BridgeUnavailable, receivedAt, bounded.Token).ConfigureAwait(false); }
+                catch (Exception recordEx) when (recordEx is IOException or UnauthorizedAccessException or OperationCanceledException or InvalidDataException) { }
+            }
+        }
         try
         {
             var previousOutput = await previous.ConfigureAwait(false);
@@ -54,6 +72,14 @@ public static class ClaudeStatusLineBridge
         return exit;
     }
 
+    private static async Task RecordFailureAsync(CodexAccountStore accounts, ClaudeBridgeOptions options,
+        ClaudeConnectionBinding binding, ClaudeFailureKind kind, DateTimeOffset observedAt, CancellationToken token)
+    {
+        if (binding.BindingGeneration is null || options.BindingGeneration is null
+            || !string.Equals(binding.BindingGeneration, options.BindingGeneration, StringComparison.Ordinal)) return;
+        await new ClaudeFailureStore(accounts).RecordAsync(options.ProfileId, binding.BindingGeneration,
+            kind, observedAt, token).ConfigureAwait(false);
+    }
     private static async Task<string?> ForwardAsync(string command, byte[] bytes, CancellationToken token)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);

@@ -32,6 +32,7 @@ public partial class ClaudeConnectionWindow : Window
             "Claude Code 터미널 로그인을 연결해 Web·Desktop·Code가 공유하는 구독 한도를 받습니다.");
         ConnectExistingButton.Content = UiText.T("Connect current login", "현재 로그인 연결");
         LoginButton.Content = UiText.T("Sign in to Claude", "Claude 로그인");
+        ReauthenticateButton.Content = UiText.T("Sign in again", "다시 로그인");
         OpenClaudeButton.Content = UiText.T("Open Claude Code terminal…", "Claude Code 터미널 열기…");
         FreshnessHint.Text = UiText.T("Use Claude Code in the connected terminal to receive usage after a response. CycleArc does not support receiving usage from the Desktop Code tab or Web. Limits stay unknown until received; saved values retain their original receipt time while idle.",
             "연결된 터미널에서 Claude Code를 사용하면 응답 후 사용량을 받을 수 있습니다. CycleArc는 데스크톱 Code 탭이나 Web에서 사용량을 받는 기능을 지원하지 않습니다. 첫 수신 전에는 미확인이며, 이후 새 수신이 없어도 기존 값과 원래 수신 시각을 유지합니다.");
@@ -71,20 +72,29 @@ public partial class ClaudeConnectionWindow : Window
     private void ApplyOverview(ClaudeConnectionOverview overview)
     {
         _overview = overview;
-        var auth = _overview.Authentication;
-        var linked = _overview.Installed && auth.Status == ClaudeAuthStatus.SignedIn
-            && auth.Fingerprint == _overview.Binding?.IdentityFingerprint;
-        ConnectionState.Text = linked ? UiText.T("Connected", "연결됨") : AuthText(auth.Status);
+        var auth = overview.Authentication;
+        var binding = overview.Binding;
+        var linked = overview.Installed && auth.Status == ClaudeAuthStatus.SignedIn
+            && auth.Fingerprint == binding?.IdentityFingerprint;
+        var failure = overview.FailureKind;
+        var reauthenticate = binding is { Disconnected: false } && failure is
+            ClaudeFailureKind.AuthRequired or ClaudeFailureKind.IdentityMismatch;
+        ConnectionState.Text = failure == ClaudeFailureKind.None
+            ? linked ? UiText.T("Connected", "연결됨") : AuthText(auth.Status)
+            : ClaudeUsagePresentation.FailureLabel(ClaudeFailureClassification.TechnicalDetail(failure)) ?? FailureText(failure);
         AccountIdentity.Text = auth.Status == ClaudeAuthStatus.SignedIn
             ? auth.Email + (auth.Plan is { Length: > 0 } plan ? " · " + plan : "") : "";
-        ConfigPath.Text = UiText.T("Claude settings: ", "Claude 설정 위치: ") + _overview.ConfigDirectory;
+        ConfigPath.Text = UiText.T("Claude settings: ", "Claude 설정 위치: ") + overview.ConfigDirectory;
         OpenClaudeButton.Visibility = linked ? Visibility.Visible : Visibility.Collapsed;
-        DisconnectButton.Visibility = _overview.Binding is { Disconnected: false } ? Visibility.Visible : Visibility.Collapsed;
+        ReauthenticateButton.Visibility = reauthenticate ? Visibility.Visible : Visibility.Collapsed;
+        DisconnectButton.Visibility = binding is { Disconnected: false } ? Visibility.Visible : Visibility.Collapsed;
         LoginButton.Content = auth.Status == ClaudeAuthStatus.SignedIn
             ? UiText.T("Sign in to another account", "다른 계정으로 로그인") : UiText.T("Sign in to Claude", "Claude 로그인");
-        OperationStatus.Text = linked ? UiText.T("Connected. Use Open Claude Code terminal to receive usage during normal use.", "연결됨. Claude Code 터미널 열기로 실행해 사용하면 사용량을 받을 수 있습니다.") : "";
+        OperationStatus.Text = failure != ClaudeFailureKind.None
+            ? FailureText(failure)
+            : linked ? UiText.T("Connected. Use Open Claude Code terminal to receive usage during normal use.", "연결됨. Claude Code 터미널 열기로 실행해 사용하면 사용량이 수신됩니다.") : "";
+        UpdateButtons();
     }
-
     private void Begin(Func<CancellationToken, Task> action, string progress)
     {
         if (_closed || _operation is not null || _connections is null) return;
@@ -110,6 +120,20 @@ public partial class ClaudeConnectionWindow : Window
         }
     }
 
+    private async Task ReauthenticateAsync(CancellationToken token)
+    {
+        var result = await Task.Run(() => _connections!.ReauthenticateAsync(_activeProfileId, _executable, token), token).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            await Dispatcher.InvokeAsync(() => OperationStatus.Text = result.Failure is { } failure
+                ? FailureText(failure) : AuthText(result.Authentication.Status));
+            return;
+        }
+        await InspectAsync(token).ConfigureAwait(false);
+        await Dispatcher.InvokeAsync(() =>
+            OperationStatus.Text = UiText.T("Authentication renewed for this Claude settings folder. Use Claude Code and wait for a new response to receive usage; the last received value is kept until then.",
+                "이 Claude 설정의 인증을 갱신했습니다. Claude Code에서 새 응답을 받으면 사용량이 수신되며, 그 전까지 마지막 수신값을 유지합니다."));
+    }
     private async Task ConnectAsync(bool login, CancellationToken token)
     {
         var result = await Task.Run(() => _connections!.ConnectAsync(_activeProfileId, _executable, login, null, token), token).ConfigureAwait(false);
@@ -135,7 +159,7 @@ public partial class ClaudeConnectionWindow : Window
     {
         var busy = _operation is not null;
         ConnectExistingButton.IsEnabled = !busy && _connections is not null && _overview?.Authentication.Status == ClaudeAuthStatus.SignedIn;
-        LoginButton.IsEnabled = OpenClaudeButton.IsEnabled = DisconnectButton.IsEnabled = !busy && _connections is not null;
+        LoginButton.IsEnabled = OpenClaudeButton.IsEnabled = DisconnectButton.IsEnabled = ReauthenticateButton.IsEnabled = !busy && _connections is not null;
         OperationProgress.Visibility = CancelButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -150,6 +174,14 @@ public partial class ClaudeConnectionWindow : Window
         ClaudeAuthStatus.Cancelled => UiText.T("Cancelled", "취소했습니다"),
         _ => UiText.T("Claude login failed. Try again.", "Claude 로그인에 실패했습니다. 다시 시도하세요.")
     };
+    private static string FailureText(ClaudeFailureKind failure) => failure switch
+    {
+        ClaudeFailureKind.AuthRequired => UiText.T("Sign-in required. Claude authentication expired or was rejected. Sign in again with this Claude settings folder. The last received value is kept until a new Code response arrives.", "로그인 필요. Claude 인증이 만료되었거나 거부되었습니다. 이 Claude 설정에서 다시 로그인하세요. 새 Code 응답을 받을 때까지 마지막 수신값을 유지합니다."),
+        ClaudeFailureKind.IdentityMismatch => UiText.T("The Claude account no longer matches this connection. Sign in again with the bound account or connect a different account separately.", "Claude 계정이 이 연결과 일치하지 않습니다. 연결된 계정으로 다시 로그인하거나 다른 계정을 별도로 연결하세요."),
+        ClaudeFailureKind.RequestFailed => UiText.T("Claude Code reported a failed request. Try the terminal again; the last received value is kept until a new response arrives.", "Claude Code 요청이 실패했습니다. 터미널에서 다시 시도하세요. 새 응답을 받을 때까지 마지막 수신값을 유지합니다."),
+        ClaudeFailureKind.BridgeUnavailable => UiText.T("Claude Code could not deliver usage to CycleArc. Check the Claude Code installation and try again. The last received value is kept until a new response arrives.", "Claude Code가 CycleArc로 사용량을 전달하지 못했습니다. Claude Code 설치를 확인한 뒤 다시 시도하세요. 새 응답을 받을 때까지 마지막 수신값을 유지합니다."),
+        _ => UiText.T("Claude connection needs attention. Use Claude Code again or sign in again.", "Claude 연결을 확인해야 합니다. Claude Code를 다시 사용하거나 다시 로그인하세요.")
+    };
     private static string FailureText(ClaudeSetupFailure failure) => failure switch
     {
         ClaudeSetupFailure.AlreadyLinked => UiText.T("This Claude settings folder is linked to another profile. Open that profile or sign in separately.", "이 Claude 설정은 다른 프로필에 연결되어 있습니다. 해당 프로필을 열거나 별도로 로그인하세요."),
@@ -159,6 +191,7 @@ public partial class ClaudeConnectionWindow : Window
     };
 
     public void CancelOperation() => _operation?.Cancel();
+    private void OnReauthenticate(object sender, RoutedEventArgs e) => Begin(token => ReauthenticateAsync(token), UiText.T("Renewing Claude authentication…", "Claude 인증 갱신 중…"));
     private void OnConnectExisting(object sender, RoutedEventArgs e) => Begin(token => ConnectAsync(false, token), UiText.T("Connecting current login…", "현재 로그인 연결 중…"));
     private void OnLogin(object sender, RoutedEventArgs e) => Begin(token => ConnectAsync(true, token), UiText.T("Finish signing in in your browser. Settings will be applied automatically.", "브라우저에서 로그인을 완료하세요. 설정은 자동으로 적용됩니다."));
     private void OnDisconnect(object sender, RoutedEventArgs e) => Begin(async token =>

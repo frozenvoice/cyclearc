@@ -62,6 +62,7 @@ internal static class ClaudeStatusLineProcessChecks
             Check(result.Code == 1, "Production stdin deadline did not exit.");
             Check(!File.Exists(Path.Combine(root, "settings.json")), "Collector initialized desktop settings.");
             CheckAuthenticatedBridge(executable, accounts, profile, root, json);
+            CheckStopFailureBridge(executable, accounts, profile, root, json);
             Console.WriteLine("PASS: production Claude stdin receiver, held desktop mutex, isolated registry, malformed-input retention, deadline, PowerShell"
                 + (checkedBash ? " and Git Bash" : " (Git Bash not installed)") + "; no live account access.");
         }
@@ -108,6 +109,73 @@ internal static class ClaudeStatusLineProcessChecks
         Console.WriteLine("PASS: automatic Claude bridge in production executable; official auth adapter, quoted paths, preserved statusLine stdin/output, signed-out rejection, PowerShell/Git Bash, isolated synthetic data.");
     }
 
+
+    private static void CheckStopFailureBridge(string executable, CodexAccountStore accounts,
+        CodexAccountProfile profile, string root, string quotaJson)
+    {
+        var connection = new ClaudeConnectionStore(accounts, profile.Id);
+        var binding = connection.Read().Binding! with { BindingGeneration = Guid.NewGuid().ToString("N") };
+        connection.Save(binding);
+        // Local auth metadata can remain signed in while a real request fails. The official
+        // failure event, not a second local auth-status check, must drive the visible state.
+        File.WriteAllText(binding.CliExecutable, "@echo off\r\necho {\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"apiProvider\":\"firstParty\",\"email\":\"person@example.invalid\",\"orgId\":\"synthetic-org\",\"subscriptionType\":\"pro\"}\r\nexit /b 0\r\n");
+        ClaudeStatusLineInstaller.InstallAsync(accounts, profile.Id, binding.ConfigDirectory, executable, default).GetAwaiter().GetResult();
+        using var settings = JsonDocument.Parse(File.ReadAllText(Path.Combine(binding.ConfigDirectory, "settings.json")));
+        var commands = settings.RootElement.GetProperty("hooks").GetProperty("StopFailure").EnumerateArray()
+            .SelectMany(group => group.GetProperty("hooks").EnumerateArray())
+            .Select(hook => hook.GetProperty("command").GetString()!)
+            .Where(command => ClaudeFailureCommand.TryRead(command, out _)).ToArray();
+        Check(commands.Length == 1, "Setup must install exactly one owned failure receiver.");
+        var command = commands.Single();
+        Check(ClaudeFailureCommand.TryRead(command, out var options), "Installed failure command cannot be decoded.");
+        var failureJson = """{"hook_event_name":"StopFailure","error":"authentication_failed","error_details":"never-save-synthetic-detail","last_assistant_message":"never-save-synthetic-response","transcript_path":"never-read-synthetic-path","session_id":"never-save-synthetic-session"}""";
+        var quotaPath = accounts.ClaudeStatusLinePath(profile.Id);
+        var before = File.ReadAllBytes(quotaPath);
+        var result = RunProcess("powershell.exe",
+            ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command.Split(' ')[^1]], failureJson);
+        var failures = new ClaudeFailureStore(accounts);
+        Check(result.Code == 0 && string.IsNullOrWhiteSpace(result.Output), "Installed failure receiver did not exit silently.");
+        Check(failures.Read(profile.Id).State is { Kind: ClaudeFailureKind.AuthRequired },
+            "Actual request authentication failure was hidden by signed-in local metadata.");
+        Check(File.ReadAllBytes(quotaPath).SequenceEqual(before), "Failure receiver rewrote the last usage receipt.");
+        var saved = File.ReadAllBytes(accounts.ClaudeFailurePath(profile.Id));
+        Check(!Encoding.UTF8.GetString(saved).Contains("never-", StringComparison.Ordinal),
+            "Failure receiver persisted raw message or session metadata.");
+
+        result = RunProcess(executable, [ClaudeFailureCommand.Argument, ClaudeFailureCommand.Payload(options!)],
+            """{"hook_event_name":"Stop","error":"authentication_failed"}""");
+        Check(result.Code == 1 && File.ReadAllBytes(accounts.ClaudeFailurePath(profile.Id)).SequenceEqual(saved),
+            "Wrong hook event overwrote a verified failure.");
+        result = RunProcess(executable, [ClaudeFailureCommand.Argument, ClaudeFailureCommand.Payload(options!)],
+            """{"hook_event_name":"StopFailure","error":"authentication_failed","error":"server_error"}""");
+        Check(result.Code == 1 && File.ReadAllBytes(accounts.ClaudeFailurePath(profile.Id)).SequenceEqual(saved),
+            "Duplicate error metadata was accepted.");
+
+        connection.Save(binding with { BindingGeneration = Guid.NewGuid().ToString("N") });
+        result = RunProcess(executable, [ClaudeFailureCommand.Argument, ClaudeFailureCommand.Payload(options!)], failureJson);
+        Check(result.Code == 1 && File.ReadAllBytes(accounts.ClaudeFailurePath(profile.Id)).SequenceEqual(saved),
+            "An old session's failure overwrote a new binding generation.");
+        connection.Save(binding with { Disconnected = true });
+        result = RunProcess(executable, [ClaudeFailureCommand.Argument, ClaudeFailureCommand.Payload(options!)], failureJson);
+        Check(result.Code == 1 && File.ReadAllBytes(accounts.ClaudeFailurePath(profile.Id)).SequenceEqual(saved),
+            "Disconnected failure callback changed account state.");
+        connection.Save(binding);
+
+        result = RunProcess(executable, [ClaudeFailureCommand.Argument, ClaudeFailureCommand.Payload(options!)], null);
+        Check(result.Code == 1, "Missing failure stdin did not respect the receiver deadline.");
+        Check(File.ReadAllBytes(quotaPath).SequenceEqual(before), "Failure validation altered quota values or timestamps.");
+
+        // A statusLine refresh can repeat cached percentages after an API failure; it is
+        // receipt metadata, not proof that remote authentication has recovered.
+        var statusOptions = ClaudeStatusLineInstaller.InstallAsync(accounts, profile.Id, binding.ConfigDirectory, executable, default).GetAwaiter().GetResult();
+        result = RunProcess(executable, [ClaudeStatusLineBridge.Argument, ClaudeStatusLineInstaller.Payload(statusOptions)], quotaJson);
+        Check(result.Code == 0, "Synthetic signed-in statusLine callback did not complete.");
+        var quota = new ClaudeStatusLineStore(quotaPath, profile.Id).Read().State;
+        Check(ClaudeFailureClassification.IsActive(failures.Read(profile.Id).State, binding, quota?.LastGood),
+            "A repeated cached statusLine value hid an authentication failure.");
+
+        Console.WriteLine("PASS: production StopFailure hook beside desktop mutex; signed-in metadata/authentication failure, preserved quota receipt, metadata privacy, wrong/duplicate event, old generation, disconnection and stdin deadline.");
+    }
     private static (int Code, string Output) RunProcess(string executable, string[] args, string? input)
     {
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true,

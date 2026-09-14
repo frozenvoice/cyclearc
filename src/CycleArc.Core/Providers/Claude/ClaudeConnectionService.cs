@@ -6,7 +6,7 @@ using CycleArc.Services;
 namespace CycleArc.Providers.Claude;
 
 public sealed record ClaudeConnectionOverview(ClaudeConnectionBinding? Binding, ClaudeAuthentication Authentication,
-    bool Installed, string ConfigDirectory);
+    bool Installed, string ConfigDirectory, ClaudeFailureKind FailureKind = ClaudeFailureKind.None);
 public sealed record ClaudeConnectionResult(bool Success, ClaudeAuthentication Authentication,
     ClaudeConnectionBinding? Binding = null, ClaudeSetupFailure? Failure = null);
 
@@ -14,6 +14,7 @@ public interface IClaudeConnectionActions
 {
     Task<ClaudeConnectionOverview> InspectAsync(string profileId, CancellationToken token);
     Task<ClaudeConnectionResult> ConnectAsync(string profileId, string executable, bool login, string? directory, CancellationToken token);
+    Task<ClaudeConnectionResult> ReauthenticateAsync(string profileId, string executable, CancellationToken token);
     Task DisconnectAsync(string profileId, CancellationToken token);
     void OpenClaude(string profileId, string workingDirectory);
 }
@@ -39,7 +40,8 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
     private async Task<ClaudeConnectionOverview> InspectCoreAsync(string profileId, CancellationToken token)
     {
         RequireProfile(profileId);
-        var read = new ClaudeConnectionStore(accounts, profileId).Read();
+        var store = new ClaudeConnectionStore(accounts, profileId);
+        var read = store.Read();
         if (read.Unavailable) throw new ClaudeSetupException(ClaudeSetupFailure.ConnectionUnavailable);
         var binding = read.Binding;
         var directory = binding?.ConfigDirectory ?? ClaudeConnectionPaths.DefaultDirectory;
@@ -48,9 +50,77 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
         var auth = executable is null ? new ClaudeAuthentication(ClaudeAuthStatus.NotInstalled)
             : await _cli.AuthenticateAsync(executable, useDefault ? null : directory, false, token).ConfigureAwait(false);
         _identities[profileId] = auth;
-        return new(binding, auth, binding is { Disconnected: false } && ClaudeStatusLineInstaller.IsInstalled(directory, profileId), directory);
-    }
 
+        // Upgrade an existing CycleArc wrapper only after the official identity check. A
+        // cancellation or timeout cannot invalidate a still-working legacy callback.
+        if (binding is { Disconnected: false } current
+            && auth.Status == ClaudeAuthStatus.SignedIn
+            && string.Equals(auth.Fingerprint, current.IdentityFingerprint, StringComparison.Ordinal)
+            && ClaudeStatusLineInstaller.TryReadOwnedStatusLine(directory, profileId, out var owned)
+            && owned is not null && File.Exists(owned.CycleArcExecutable)
+            && ClaudeCli.IsExecutablePath(owned.CycleArcExecutable))
+        {
+            var oldBinding = current;
+            var migrated = current.BindingGeneration is null
+                ? current with { BindingGeneration = Guid.NewGuid().ToString("N") } : current;
+            if (current.BindingGeneration is null) store.Save(migrated);
+            try
+            {
+                await ClaudeStatusLineInstaller.InstallAsync(accounts, profileId, directory,
+                    owned.CycleArcExecutable, token).ConfigureAwait(false);
+                binding = migrated;
+            }
+            catch
+            {
+                if (current.BindingGeneration is null) store.Save(oldBinding);
+                throw;
+            }
+        }
+
+        var installed = binding is { Disconnected: false } && ClaudeStatusLineInstaller.IsInstalled(directory, profileId);
+        ClaudeFailureKind failureKind = ClaudeFailureKind.None;
+        if (binding is { Disconnected: false } active
+            && auth.Status is ClaudeAuthStatus.SignedOut or ClaudeAuthStatus.Failed or ClaudeAuthStatus.InvalidResponse or ClaudeAuthStatus.TimedOut or ClaudeAuthStatus.NotInstalled)
+        {
+            // SignedOut is an explicit authentication result even for legacy bindings. Other
+            // legacy failures remain diagnostic-only until a generation already exists.
+            if (active.BindingGeneration is null && auth.Status == ClaudeAuthStatus.SignedOut)
+            {
+                active = active with { BindingGeneration = Guid.NewGuid().ToString("N") };
+                store.Save(active);
+                binding = active;
+            }
+            if (active.BindingGeneration is { } generation)
+            {
+                failureKind = auth.Status == ClaudeAuthStatus.SignedOut ? ClaudeFailureKind.AuthRequired : ClaudeFailureKind.BridgeUnavailable;
+                await new ClaudeFailureStore(accounts).RecordAsync(profileId, generation, failureKind,
+                    _clock.UtcNow, token).ConfigureAwait(false);
+            }
+            else if (auth.Status is ClaudeAuthStatus.Failed or ClaudeAuthStatus.InvalidResponse or ClaudeAuthStatus.TimedOut or ClaudeAuthStatus.NotInstalled)
+            {
+                failureKind = ClaudeFailureKind.BridgeUnavailable;
+            }
+        }
+        else if (binding is { Disconnected: false } activeSignedIn
+                 && auth.Status == ClaudeAuthStatus.SignedIn
+                 && !string.Equals(auth.Fingerprint, activeSignedIn.IdentityFingerprint, StringComparison.Ordinal))
+        {
+            if (activeSignedIn.BindingGeneration is null)
+            {
+                activeSignedIn = activeSignedIn with { BindingGeneration = Guid.NewGuid().ToString("N") };
+                store.Save(activeSignedIn);
+                binding = activeSignedIn;
+            }
+            if (activeSignedIn.BindingGeneration is { } generation)
+            {
+                failureKind = ClaudeFailureKind.IdentityMismatch;
+                await new ClaudeFailureStore(accounts).RecordAsync(profileId, generation,
+                    failureKind, _clock.UtcNow, token).ConfigureAwait(false);
+            }
+        }
+        return new(binding, auth, installed, directory, failureKind == ClaudeFailureKind.None
+            ? ActiveFailure(profileId, binding) : failureKind);
+    }
     public async Task<ClaudeConnectionResult> ConnectAsync(string profileId, string executable, bool login, string? directory, CancellationToken token)
     {
         await _gate.WaitAsync(token).ConfigureAwait(false);
@@ -97,10 +167,12 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
             _identities[profileId] = auth;
             var same = previous is { Disconnected: false } && string.Equals(previous.ConfigDirectory, target, StringComparison.OrdinalIgnoreCase)
                 && previous.IdentityFingerprint == auth.Fingerprint && previous.UseDefaultConfig == useDefault;
+            var generation = same && previous!.BindingGeneration is { } oldGeneration
+                ? oldGeneration : Guid.NewGuid().ToString("N");
             var binding = new ClaudeConnectionBinding(1, profileId, target, cliPath,
                 target.Equals(managedRoot, StringComparison.OrdinalIgnoreCase)
                     || target.StartsWith(managedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
-                auth.Fingerprint!, same ? previous!.ConnectedAt : _clock.UtcNow, useDefault);
+                auth.Fingerprint!, same ? previous!.ConnectedAt : _clock.UtcNow, useDefault, false, generation);
             store.Save(binding);
             try
             {
@@ -117,11 +189,9 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ClaudeSetupException or OperationCanceledException)
                 {
                     // The committed new binding is usable. An old wrapper left in a locked or
-                    // edited settings file still preserves its original output, but the bridge
-                    // rejects its old config directory and can no longer collect for this profile.
+                    // edited settings file still preserves its original output.
                 }
             }
-            // A new binding never reuses a quota sample from the previous account/configuration.
             return new(true, auth, binding);
         }
         catch (ClaudeSetupException ex) { return new(false, new(ClaudeAuthStatus.Failed), Failure: ex.Failure); }
@@ -131,6 +201,59 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
         finally { _gate.Release(); }
     }
 
+    public async Task<ClaudeConnectionResult> ReauthenticateAsync(string profileId, string executable, CancellationToken token)
+    {
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            RequireProfile(profileId);
+            var store = new ClaudeConnectionStore(accounts, profileId);
+            var read = store.Read();
+            if (read.Unavailable || read.Binding is not { Disconnected: false } binding)
+                return new(false, new(ClaudeAuthStatus.Failed), Failure: ClaudeSetupFailure.ConnectionUnavailable);
+            var cliPath = File.Exists(binding.CliExecutable) ? binding.CliExecutable : _cli.FindExecutable();
+            if (cliPath is null || !ClaudeCli.IsExecutablePath(cliPath))
+                return new(false, new(ClaudeAuthStatus.NotInstalled));
+            var auth = await _cli.AuthenticateAsync(cliPath, binding.UseDefaultConfig ? null : binding.ConfigDirectory, true, token).ConfigureAwait(false);
+            _identities[profileId] = auth;
+            if (auth.Status != ClaudeAuthStatus.SignedIn) return new(false, auth);
+            if (!string.Equals(auth.Fingerprint, binding.IdentityFingerprint, StringComparison.Ordinal))
+            {
+                if (binding.BindingGeneration is { } oldGeneration)
+                    await new ClaudeFailureStore(accounts).RecordAsync(profileId, oldGeneration,
+                        ClaudeFailureKind.IdentityMismatch, _clock.UtcNow, token).ConfigureAwait(false);
+                return new(false, new(ClaudeAuthStatus.Failed), Failure: ClaudeSetupFailure.AlreadyLinked);
+            }
+            token.ThrowIfCancellationRequested();
+            var generation = Guid.NewGuid().ToString("N");
+            var updated = binding with { CliExecutable = cliPath, BindingGeneration = generation };
+            store.Save(updated);
+            try
+            {
+                await ClaudeStatusLineInstaller.InstallAsync(accounts, profileId, binding.ConfigDirectory, executable, token).ConfigureAwait(false);
+            }
+            catch
+            {
+                store.Save(binding);
+                throw;
+            }
+            try
+            {
+                await new ClaudeFailureStore(accounts).RecordAsync(profileId, generation,
+                    ClaudeFailureKind.None, _clock.UtcNow, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                // Settings and binding are already committed. A diagnostic clear is best effort.
+            }
+            return new(true, auth, updated);
+        }
+        catch (ClaudeSetupException ex) { return new(false, new(ClaudeAuthStatus.Failed), Failure: ex.Failure); }
+        catch (OperationCanceledException) { return new(false, new(ClaudeAuthStatus.Cancelled)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        { return new(false, new(ClaudeAuthStatus.Failed), Failure: ClaudeSetupFailure.ConnectionUnavailable); }
+        finally { _gate.Release(); }
+    }
     public async Task DisconnectAsync(string profileId, CancellationToken token)
     {
         await _gate.WaitAsync(token).ConfigureAwait(false);
@@ -157,7 +280,6 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
         if (!Directory.Exists(workingDirectory) || !File.Exists(binding.CliExecutable))
             throw new ClaudeSetupException(ClaudeSetupFailure.ConnectionUnavailable);
         var start = ClaudeCli.StartInfo(binding.CliExecutable, binding.UseDefaultConfig ? null : binding.ConfigDirectory, false);
-        // Explicit Open Claude Code action: an interactive terminal in the folder selected by the user.
         start.FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe");
         start.Environment["CYCLEARC_CLAUDE_LAUNCH"] = binding.CliExecutable;
         start.Arguments = "/d /v:off /s /k \"\"%CYCLEARC_CLAUDE_LAUNCH%\"\"";
@@ -168,6 +290,15 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
         Process.Start(start)?.Dispose();
     }
 
+    private ClaudeFailureKind ActiveFailure(string profileId, ClaudeConnectionBinding? binding)
+    {
+        if (binding is not { Disconnected: false, BindingGeneration: not null } current) return ClaudeFailureKind.None;
+        var failureRead = new ClaudeFailureStore(accounts).Read(profileId);
+        if (failureRead.Unavailable) return ClaudeFailureKind.BridgeUnavailable;
+        var lastGood = new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(profileId), profileId).Read().State?.LastGood;
+        return ClaudeFailureClassification.IsActive(failureRead.State, current, lastGood)
+            ? failureRead.State!.Kind : ClaudeFailureKind.None;
+    }
     private void RequireProfile(string profileId)
     {
         if (!accounts.ContainsClaude(profileId)) throw new ClaudeSetupException(ClaudeSetupFailure.ConnectionUnavailable);

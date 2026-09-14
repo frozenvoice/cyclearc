@@ -1,6 +1,6 @@
 using CycleArc.Codex;
-using CycleArc.Services;
 using CycleArc.Providers.Usage;
+using CycleArc.Services;
 using System.Globalization;
 
 namespace CycleArc.Providers.Claude;
@@ -20,8 +20,32 @@ public static class ClaudeUsagePresentation
     public static string UsagePageHint => UiText.T("Check current limits in your browser under the intended Claude account. Opening the page does not update CycleArc.",
         "브라우저에서 확인할 Claude 계정으로 로그인한 뒤 현재 한도를 보세요. 페이지를 열어도 CycleArc 수치는 갱신되지 않습니다.");
 
+    public static string? FailureLabel(string? detail) => detail switch
+    {
+        "claude-auth-required" => UiText.T("Login required", "로그인 필요"),
+        "claude-request-failed" => UiText.T("Request failed", "요청 실패"),
+        "claude-identity-mismatch" => UiText.T("Account changed", "계정 변경됨"),
+        "claude-bridge-unavailable" => UiText.T("Connection error", "연결 오류"),
+        _ => null
+    };
+
     public static string StatusText(CodexQuotaSnapshot snapshot)
     {
+        if (FailureLabel(snapshot.TechnicalDetail) is { } failure)
+        {
+            var action = snapshot.TechnicalDetail switch
+            {
+                "claude-auth-required" or "claude-identity-mismatch" => UiText.T("Reauthenticate this Claude profile, then run Claude Code again to receive a new sample.",
+                    "이 Claude 프로필을 다시 인증한 뒤 Claude Code를 다시 실행해 새 값을 받으세요."),
+                "claude-request-failed" => UiText.T("Retry Claude Code to receive a new sample. Check the Claude Code terminal if the failure continues.",
+                    "Claude Code를 다시 실행해 새 값을 받으세요. 계속 실패하면 Claude Code 터미널을 확인하세요."),
+                _ => UiText.T("Check the Claude connection and run Claude Code again to receive a new sample.",
+                    "Claude 연결을 확인한 뒤 Claude Code를 다시 실행해 새 값을 받으세요.")
+            };
+            return snapshot.HasUsablePercentages
+                ? failure + ". " + UiText.T("Showing the last valid values. ", "마지막 정상값을 표시합니다. ") + action
+                : failure + ". " + action;
+        }
         if (snapshot.Status == CodexQuotaStatus.Available)
             return UiText.T("Last values received via the Claude Code terminal. Account usage may have changed since then.",
                 "Claude Code 터미널에서 마지막으로 받은 값입니다. 이후 계정 사용량은 달라졌을 수 있습니다.");

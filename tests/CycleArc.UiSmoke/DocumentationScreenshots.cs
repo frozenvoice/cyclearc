@@ -57,7 +57,7 @@ internal static class DocumentationScreenshots
         }
         finally { widget.Close(); }
         ExportAccounts(directory, now, applyTheme);
-        Console.WriteLine("Exported 24 production WPF views: Codex usage, unconnected-profile filtering, account management, connected Claude awaiting usage, mixed usage and automatic connection; synthetic data only.");
+        Console.WriteLine("Exported 32 production WPF views: Codex usage, unconnected-profile filtering, account management, connected Claude awaiting usage, Claude authentication failure, mixed usage and automatic connection; synthetic data only.");
     }
 
     private static void ExportAccounts(string directory, DateTimeOffset now, MethodInfo applyTheme, bool claudeUsageOnly = false)
@@ -89,6 +89,19 @@ internal static class DocumentationScreenshots
                         Snapshot = accounts[2].Snapshot with { TechnicalDetail = "claude-connected-waiting" } };
                     flyout.BindAccounts([accounts[0], accounts[1], waiting], waiting.Profile.Id, false);
                     Save(flyout, Path.Combine(directory, $"claude-waiting-{suffix}.png"), 440, null);
+
+                    var authFailure = waiting with
+                    {
+                        Snapshot = waiting.Snapshot with
+                        {
+                            Status = CodexQuotaStatus.Stale,
+                            LastSuccessfulRefresh = null,
+                            Windows = [],
+                            TechnicalDetail = "claude-auth-required"
+                        }
+                    };
+                    flyout.BindAccounts([accounts[0], accounts[1], authFailure], authFailure.Profile.Id, false);
+                    Save(flyout, Path.Combine(directory, $"claude-auth-required-{suffix}.png"), 440, null);
                 }
 
                 var received = accounts[2] with
@@ -109,6 +122,10 @@ internal static class DocumentationScreenshots
                 ((Button)guide.FindName("ConnectExistingButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 AccountUiChecks.PumpUntil(guide.ActiveOperation);
                 Save(guide, Path.Combine(directory, $"claude-connection-{suffix}.png"), 610, 580);
+                connection.FailureKind = ClaudeFailureKind.AuthRequired;
+                guide.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                AccountUiChecks.PumpUntil(guide.ActiveOperation);
+                Save(guide, Path.Combine(directory, $"claude-connection-failure-{suffix}.png"), 610, 580);
             }
             finally { flyout.Close(); manager.Close(); guide.Close(); }
         }
@@ -137,14 +154,17 @@ internal static class DocumentationScreenshots
     {
         private readonly ClaudeAuthentication _auth = new(ClaudeAuthStatus.SignedIn, "research@example.invalid", "Pro", new string('A', 64));
         private ClaudeConnectionBinding? _binding;
+        public ClaudeFailureKind FailureKind { get; set; }
         public Task<ClaudeConnectionOverview> InspectAsync(string id, System.Threading.CancellationToken token) =>
-            Task.FromResult(new ClaudeConnectionOverview(_binding, _auth, _binding is not null, @"C:\CycleArc-Samples\claude"));
+            Task.FromResult(new ClaudeConnectionOverview(_binding, _auth, _binding is not null, @"C:\CycleArc-Samples\claude", FailureKind));
         public Task<ClaudeConnectionResult> ConnectAsync(string id, string executable, bool login, string? directory, System.Threading.CancellationToken token)
         {
             if (login) throw new InvalidOperationException("Documentation previews cannot start browser login.");
             _binding = new(1, profileId, @"C:\CycleArc-Samples\claude", @"C:\CycleArc-Samples\claude.cmd", false, _auth.Fingerprint!, now);
             return Task.FromResult(new ClaudeConnectionResult(true, _auth, _binding));
         }
+        public Task<ClaudeConnectionResult> ReauthenticateAsync(string id, string executable, System.Threading.CancellationToken token) =>
+            throw new InvalidOperationException("Documentation previews cannot change a connection.");
         public Task DisconnectAsync(string id, System.Threading.CancellationToken token) =>
             throw new InvalidOperationException("Documentation previews cannot change a connection.");
         public void OpenClaude(string id, string workingDirectory) =>

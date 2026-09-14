@@ -2,6 +2,34 @@
 
 ## Current release — Codex and Claude Code
 
+- Release 0.5.4 Claude authentication recovery (2026-09-14):
+  - On the reporting PC, official local authentication status reported signed in with the
+    connected identity, while actual requests from the installed npm 2.1.105 and Desktop-bundled
+    native 2.1.270 CLI failed with OAuth expiry. The user completed official browser login;
+    a subsequent native CLI response delivered real five-hour 1% and weekly 4% quota.
+    This verifies that runtime in an interactive terminal, not Desktop's embedded Code transport.
+  - Added the official StopFailure receiver in the same executable. It records only a
+    bounded error category and binding metadata in a separate health file. The existing quota
+    cache, last-good values and receipt timestamps are preserved. Signed-in local metadata
+    cannot override an actual authentication failure.
+  - Authentication and identity errors require explicit recovery; a later statusLine callback
+    can repeat cached percentages and is not proof of repaired authentication. Generic request
+    failures have separate retry guidance. No quota is inferred from an error or missing input.
+  - Same-profile reauthentication uses the existing CLI/configuration mode, rejects a different
+    identity, preserves profile metadata and rotates a binding generation. Existing owned
+    settings are upgraded without replacing another tool's hooks or user-edited statusLine.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed restore, Release build
+    (**0 warnings/errors**), **1,188 unit tests** (including **120 Claude tests**), **15 installer
+    scenarios**, **786 WPF renders**, **4 widget/popup interaction scenarios**, native widget
+    lifecycle/DPI checks on **2 monitors**, and built/published statusLine and StopFailure
+    receiver checks. The win-x64 self-contained artifact contains only `CycleArc.exe`.
+  - Synthetic regressions cover signed-in metadata plus actual authentication failure,
+    cached callback persistence, generation/lock races, old-account quota isolation, corrupt
+    failure-cache recovery, exact command ownership, frozen v0.5.3 setup migration, same-profile
+    login/cancellation/rollback, and preservation of user-edited statusLine and original empty hooks.
+  - Visually inspected authentication-failure main and connection views in English/Korean and
+    Dark/Light themes. The login action and preserved/unknown usage are readable without clipping.
+
 - Release 0.5.3 popup activation (2026-09-14):
   - Widget clicks now explicitly open/activate the popup. An unpinned window covered by
     another app remains visible to WPF, so the former toggle hid it on the first click.

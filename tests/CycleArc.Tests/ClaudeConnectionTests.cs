@@ -213,7 +213,7 @@ public class ClaudeConnectionTests
         Assert.Contains(UiText.T("usage page", "사용량 페이지"), ClaudeUsagePresentation.StatusText(service.Snapshot));
         connection = new ClaudeConnectionService(data.Accounts, cli, data.Clock);
         service = new ClaudeUsageProvider(data.Accounts, data.Clock, connection).Create(data.Profile);
-        Assert.False(service.IsConnected);
+        Assert.True(service.IsConnected); // A persisted verified binding remains visible during startup inspection.
         await connection.InspectAsync(data.Profile.Id, default);
         await service.RefreshAsync(default);
         Assert.True(View().IsAwaitingUsage);
@@ -250,6 +250,9 @@ public class ClaudeConnectionTests
         Assert.True((await connection.ConnectAsync(data.Profile.Id, AppFor(data), false, DirectoryFor(data), default)).Success);
         var provider = new ClaudeUsageProvider(data.Accounts, data.Clock, connection).Create(data.Profile);
         Assert.False(provider.Snapshot.HasUsablePercentages);
+        Assert.Equal(1, await Receive(92)); // A callback from the previous binding cannot populate this account.
+        command = JsonNode.Parse(File.ReadAllText(Settings(data)))!["statusLine"]!["command"]!.GetValue<string>();
+        Assert.True(ClaudeStatusLineInstaller.TryRead(command, out options));
         Assert.Equal(0, await Receive(92));
         await provider.RefreshAsync(default);
         Assert.Equal(92, provider.Snapshot.Windows[0].UsedPercent);
@@ -383,7 +386,11 @@ public class ClaudeConnectionTests
         await service.RefreshAsync(default);
         Assert.False(service.Snapshot.HasUsablePercentages);
         input.Position = 0;
-        Assert.Equal(0, await ClaudeStatusLineBridge.RunAsync(options, input, new StringWriter(), data.Accounts, cli, data.Clock));
+        Assert.Equal(1, await ClaudeStatusLineBridge.RunAsync(options, input, new StringWriter(), data.Accounts, cli, data.Clock));
+        var refreshedCommand = JsonNode.Parse(File.ReadAllText(Settings(data)))!["statusLine"]!["command"]!.GetValue<string>();
+        Assert.True(ClaudeStatusLineInstaller.TryRead(refreshedCommand, out options));
+        input.Position = 0;
+        Assert.Equal(0, await ClaudeStatusLineBridge.RunAsync(options!, input, new StringWriter(), data.Accounts, cli, data.Clock));
         await service.RefreshAsync(default);
         Assert.True(UsageAccountOverview.CanDisplay(new(data.Profile, service.Snapshot)));
     }

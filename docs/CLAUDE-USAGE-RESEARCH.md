@@ -55,9 +55,10 @@ when a callback arrived recently. No additional collector is introduced.
   server quota fetch. CycleArc's receipt time describes **local delivery**, not when
   Anthropic last measured usage. A recent callback must not be presented as a live
   account query.
-- Keep unknown windows unknown. Preserve last-good values as stale after the existing
-  five-minute receipt threshold, expired reset, or missing/malformed input. Polling,
-  Refresh and opening the usage page do not renew a receipt or reset values to zero.
+- Keep unknown windows unknown. Idle time and elapsed reset timestamps preserve the Received
+  state and original receipt. Missing/malformed input or a verified request/authentication failure
+  preserves last-good values as stale. Polling, Refresh and opening the usage page do not renew
+  a receipt or reset values to zero.
 - The usage-page button uses the user's default browser. The user must select the
   intended Claude login there; selecting a CycleArc profile does not switch browser
   accounts. Opening the page does not import values into CycleArc.

@@ -10,6 +10,18 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args.FirstOrDefault() == ClaudeFailureCommand.Argument)
+        {
+            try
+            {
+                if (args is not [ClaudeFailureCommand.Argument, var payload]) return 1;
+                var options = ClaudeFailureCommand.Decode(payload);
+                using var input = Console.OpenStandardInput();
+                using var output = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
+                return ClaudeFailureBridge.RunAsync(options, input, output, new CodexAccountStore(options.DataRoot)).GetAwaiter().GetResult();
+            }
+            catch { return 1; }
+        }
         if (args.FirstOrDefault() == ClaudeStatusLineBridge.Argument)
         {
             try
