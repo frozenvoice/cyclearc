@@ -94,7 +94,7 @@ internal static class MixedProviderUiChecks
                         }
                         count++;
                     }
-                    widget.BindAccount(selected, true);
+                    widget.BindAccount(selected);
                     AccountUiChecks.Render(widget, 245, null, directory is not null && selected == accounts[2]
                         ? Path.Combine(directory, $"claude-widget-{language}-{theme}.png") : null);
                     CheckBadges(widget, [selected.Profile.Provider]);
@@ -131,7 +131,7 @@ internal static class MixedProviderUiChecks
                 var idleCard = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>().Last();
                 CheckStaleText(AccountUiChecks.Descendants<TextBlock>(idleCard).Single(text =>
                     text.Text == CycleArcPresentation.StatusLabel(idle.Snapshot)), idle.Snapshot);
-                widget.BindAccount(idle, true);
+                widget.BindAccount(idle);
                 AccountUiChecks.Render(widget, 245, null, directory is null ? null
                     : Path.Combine(directory, $"claude-idle-widget-{language}-{theme}.png"));
                 CheckStaleText((TextBlock)widget.FindName("HistoryValue"), idle.Snapshot);
@@ -159,7 +159,7 @@ internal static class MixedProviderUiChecks
                     text.Text == CycleArcPresentation.StatusLabel(elapsed.Snapshot)), elapsed.Snapshot);
                 Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(idle.Snapshot).CenterValueText,
                     "Elapsed reset changed the last received percentage.");
-                widget.BindAccount(elapsed, true);
+                widget.BindAccount(elapsed);
                 AccountUiChecks.Render(widget, 245, null, directory is null ? null
                     : Path.Combine(directory, $"claude-reset-elapsed-widget-{language}-{theme}.png"));
                 CheckStaleText((TextBlock)widget.FindName("HistoryValue"), elapsed.Snapshot);
@@ -176,7 +176,7 @@ internal static class MixedProviderUiChecks
                 CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), failed.Snapshot);
                 Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("1 need attention", "1개 확인 필요"),
                     "A real Claude input failure no longer raises attention.");
-                widget.BindAccount(failed, true);
+                widget.BindAccount(failed);
                 AccountUiChecks.Render(widget, 245, null, null);
                 CheckStaleText((TextBlock)widget.FindName("HistoryValue"), failed.Snapshot);
                 count += 2;
@@ -185,7 +185,7 @@ internal static class MixedProviderUiChecks
                 flyout.Bind(renewed.Snapshot);
                 AccountUiChecks.Render(flyout, 440, null, null);
                 CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), renewed.Snapshot);
-                widget.BindAccount(renewed, true);
+                widget.BindAccount(renewed);
                 AccountUiChecks.Render(widget, 245, null, null);
                 CheckStaleText((TextBlock)widget.FindName("HistoryValue"), renewed.Snapshot);
                 Check(((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(renewed.Snapshot),

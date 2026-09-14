@@ -50,7 +50,7 @@ internal static class CodexWindowUiChecks
                         Label = UiText.T("Other account", "다른 계정") },
                         Snapshot = Parse(scenarios[4]) };
                     flyout.BindAccounts([account, other], account.Profile.Id, false);
-                    widget.BindAccount(account, true);
+                    widget.BindAccount(account);
                     foreach (var zoom in new[] { 80, 100, 150 })
                     {
                         flyout.ApplyWindowSettings(new AppSettings { FlyoutZoomPercent = zoom });

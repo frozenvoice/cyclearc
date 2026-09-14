@@ -20,11 +20,13 @@ internal static class AccountUiChecks
         if (directory is not null) Directory.CreateDirectory(directory);
         var applyTheme = typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)!;
         var count = 0;
+        var widgetIdentityCount = 0;
         foreach (var language in Enum.GetValues<UiLanguage>())
         foreach (var theme in Enum.GetValues<AppTheme>())
         {
             UiText.SetLanguage(language);
             applyTheme.Invoke(null, [theme]);
+            widgetIdentityCount += CheckWidgetAccountIdentity(directory, language, theme);
             foreach (var size in new[] { 0, 1, 3, 8 })
             {
                 var accounts = Fixtures(size);
@@ -77,12 +79,12 @@ internal static class AccountUiChecks
                     CheckProviderLabels(window, size);
                     if (size > 0) CheckRenameSurvivesDisplayTick(window, accounts, id);
                     CheckGuidanceAndOrder(window, accounts, directory, language, theme);
-                    widget.BindAccount(accounts.FirstOrDefault(), size > 1);
+                    widget.BindAccount(accounts.FirstOrDefault());
                     Render(widget, 245, null, null);
                     CheckProviderLabels(widget, 1);
                     if (((TextBlock)widget.FindName("ProductTitle")).Text != "CycleArc")
                         throw new InvalidOperationException("Widget product title is incorrect.");
-                    if (((TextBlock)widget.FindName("AccountName")).Visibility != (size > 1 ? Visibility.Visible : Visibility.Collapsed))
+                    if (((TextBlock)widget.FindName("AccountName")).Visibility != (size > 0 ? Visibility.Visible : Visibility.Collapsed))
                         throw new InvalidOperationException("Widget does not identify selected account.");
                     count += 2;
                 }
@@ -93,7 +95,70 @@ internal static class AccountUiChecks
         CheckLoginCancellation();
         CheckCreditAccountCapture();
         CheckLocalIcons();
+        Console.WriteLine($"PASS: {widgetIdentityCount} widget account identity renders; single account, nickname/email fallback, Codex/Claude, quota states, long email and removal.");
         Console.WriteLine($"PASS: {count} multi-account WPF renders; CycleArc branding, Codex badges/contrast/long names, guidance/compact scrolling, local icons, ordering, rename continuity, refresh, login cancellation and credit-account routing.");
+    }
+
+    private static int CheckWidgetAccountIdentity(string? directory, UiLanguage language, AppTheme theme)
+    {
+        var account = Fixtures(1)[0];
+        const string email = "personal@example.invalid";
+        var nickname = UiText.T("Personal", "개인 계정");
+        var unnamed = account with { Profile = account.Profile with { Label = "" }, Email = email };
+        var claude = unnamed with
+        {
+            Profile = unnamed.Profile with { Id = "claude-profile", Provider = UsageProviderId.Claude },
+            Snapshot = unnamed.Snapshot with { Provider = UsageProviderId.Claude }
+        };
+        var longEmail = new string('a', 64) + "@example.invalid";
+        (string Name, CodexAccountView Account, string Expected)[] cases =
+        [
+            ("email", unnamed, email),
+            ("nickname", unnamed with { Profile = unnamed.Profile with { Label = nickname } }, nickname),
+            ("blank-label", unnamed with { Profile = unnamed.Profile with { Label = "  " } }, email),
+            ("refreshing", unnamed with { Snapshot = unnamed.Snapshot with { Status = CodexQuotaStatus.Refreshing } }, email),
+            ("stale", unnamed with { Snapshot = unnamed.Snapshot with { Status = CodexQuotaStatus.Stale } }, email),
+            ("signed-out", unnamed with { Snapshot = CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), Email = null },
+                UiText.T("Existing Codex", "기존 Codex")),
+            ("claude-email", claude, email),
+            ("claude-profile", claude with { Email = null }, "Claude · claude"),
+            ("long-email", unnamed with { Email = longEmail }, longEmail)
+        ];
+        var widget = new FloatingWidget();
+        try
+        {
+            foreach (var item in cases)
+            {
+                widget.BindAccount(item.Account);
+                var name = (TextBlock)widget.FindName("AccountName");
+                if (name.Visibility != Visibility.Visible || name.Text != item.Expected)
+                    throw new InvalidOperationException($"Single-account widget identity missing ({language}/{theme}/{item.Name}).");
+                var content = (FrameworkElement)widget.Content;
+                content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                Render(widget, content.DesiredSize.Width, null, directory is not null
+                    ? Path.Combine(directory, $"widget-{item.Name}-{language}-{theme}.png") : null);
+                var badge = (UsageProviderBadge)widget.FindName("ProviderBadge");
+                var nameBounds = name.TransformToAncestor(content).TransformBounds(new Rect(name.RenderSize));
+                var badgeBounds = badge.TransformToAncestor(content).TransformBounds(new Rect(badge.RenderSize));
+                if (name.ActualWidth <= 0 || name.ActualHeight <= 0
+                    || nameBounds.Left < badgeBounds.Right
+                    || nameBounds.Right > content.ActualWidth + 1
+                    || nameBounds.Bottom > content.ActualHeight + 1)
+                    throw new InvalidOperationException("Widget account identity overlaps or is clipped.");
+                if (name.TextTrimming != TextTrimming.CharacterEllipsis
+                    || widget.ToolTip is not string tooltip
+                    || !tooltip.StartsWith(item.Expected + Environment.NewLine, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Widget must retain the full identity in its tooltip.");
+            }
+            widget.BindAccount(null);
+            var cleared = (TextBlock)widget.FindName("AccountName");
+            if (cleared.Visibility != Visibility.Collapsed || cleared.Text.Length != 0
+                || widget.ToolTip is string clearedTooltip && clearedTooltip.Contains(longEmail, StringComparison.Ordinal))
+                throw new InvalidOperationException("Widget retained a removed account's identity.");
+            Render(widget, 245, null, null);
+        }
+        finally { widget.Close(); }
+        return cases.Length + 1;
     }
 
     private static void CheckProviderLabels(Window window, int expected)
@@ -157,7 +222,7 @@ internal static class AccountUiChecks
                 if (name.TranslatePoint(new Point(name.ActualWidth, 0), header).X
                     > badge.TranslatePoint(new Point(), header).X + 1)
                     throw new InvalidOperationException("Long selected-account name overlaps its provider.");
-                widget.BindAccount(accounts[0], true);
+                widget.BindAccount(accounts[0]);
                 Render(widget, 245, null, null);
                 CheckProviderLabels(widget, 1);
             }
