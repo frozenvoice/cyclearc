@@ -82,6 +82,11 @@
   bounded width; oversized content can scroll within a bounded height. Rich UI content remains
   intact, and live placement targets propagate theme changes to open popups.
 
+- Widget clicks use the explicit popup-open path. An unpinned popup covered by another
+  window can still have `IsVisible == true`; inspecting it activates the existing window
+  instead of toggling it hidden. A minimized popup is restored before activation. Explicit
+  close and the tray toggle retain their behavior.
+
 - Product branding is **CycleArc**. The solution, project paths, namespaces, assemblies,
   shipped executable, window titles, menus, startup entry and App Server identity use CycleArc.
   Saved account/cache data and the shared single-instance mutex retain their existing

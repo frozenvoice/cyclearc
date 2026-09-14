@@ -99,29 +99,49 @@ internal sealed class RealCodexProcess : ICodexProcess
 
     public async Task DrainStderrAsync(System.Text.StringBuilder sink, int maxBytes, CancellationToken cancellationToken)
     {
-        var buffer = new char[256];
+        var captured = maxBytes > 0 ? new byte[maxBytes] : Array.Empty<byte>();
+        var buffer = new byte[4096];
+        var capturedBytes = 0;
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                var read = await _process.StandardError.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
+                // Read raw bytes so pipe consumption stays independent from UTF-8 decoding and
+                // the captured diagnostic budget. Continue consuming after the budget is full.
+                var read = await _process.StandardError.BaseStream.ReadAsync(buffer.AsMemory(), cancellationToken)
                     .ConfigureAwait(false);
                 if (read <= 0)
                 {
-                    return;
+                    break;
                 }
 
-                // Continue draining after the diagnostic budget: a full stderr pipe must not stall login.
-                var remaining = maxBytes - System.Text.Encoding.UTF8.GetByteCount(sink.ToString());
-                var take = Math.Min(read, remaining);
-                while (take > 0 && System.Text.Encoding.UTF8.GetByteCount(buffer, 0, take) > remaining) take--;
-                if (take > 0) sink.Append(buffer, 0, take);
+                if (capturedBytes < captured.Length)
+                {
+                    var take = Math.Min(read, captured.Length - capturedBytes);
+                    Buffer.BlockCopy(buffer, 0, captured, capturedBytes, take);
+                    capturedBytes += take;
+                }
             }
         }
         catch
         {
+            // Diagnostics are best effort; the protocol result must still be returned.
+        }
+
+        if (capturedBytes > 0)
+        {
+            var text = System.Text.Encoding.UTF8.GetString(captured, 0, capturedBytes);
+            // Do not leave a replacement character that expands the bounded byte budget when
+            // the final read ended halfway through a UTF-8 sequence.
+            while (System.Text.Encoding.UTF8.GetByteCount(text) > maxBytes && text.Length > 0)
+            {
+                text = text[..^1];
+            }
+
+            sink.Append(text);
         }
     }
+
     public bool HasExited
     {
         get

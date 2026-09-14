@@ -227,7 +227,12 @@ public partial class App : Application
     private void ShowMain()
     {
         EnsureFlyout();
-        if (_flyout!.IsVisible) { _flyout.Activate(); return; }
+        if (_flyout!.IsVisible)
+        {
+            if (_flyout.WindowState == WindowState.Minimized) _flyout.WindowState = WindowState.Normal;
+            _flyout.Activate();
+            return;
+        }
         ToggleFlyout();
     }
 
@@ -374,7 +379,7 @@ public partial class App : Application
                 }
                 _settingsStore.Save(_settings);
             };
-            widget.FlyoutRequested += ToggleFlyout;
+            widget.FlyoutRequested += ShowMain;
             widget.RefreshRequested += () => _ = RefreshCodexAsync();
             widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu();
         }, _log.Info);

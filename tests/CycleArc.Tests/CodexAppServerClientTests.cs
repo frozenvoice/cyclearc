@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using CycleArc.Codex;
 
 namespace CycleArc.Tests;
@@ -170,6 +171,43 @@ public class CodexAppServerClientTests
         Assert.True(session.ProcessCleanedUp);
         Assert.NotEmpty(session.SanitizedStderr);
         Assert.True(System.Text.Encoding.UTF8.GetByteCount(session.SanitizedStderr) <= CodexProtocol.MaxStderrBytes);
+        Assert.DoesNotContain('\uFFFD', session.SanitizedStderr);
+    }
+
+    [Fact]
+    public async Task CompletionWaitsForStderrDrainBeforeSnapshot()
+    {
+        var factory = new DrainOrderingProcessFactory();
+        var readTask = new CodexAppServerClient(factory)
+            .ReadQuotaAsync(DummyCommand(), "1.0.0", CancellationToken.None);
+        var process = await factory.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await process.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(readTask.IsCompleted);
+
+        process.ReleaseDrain();
+        var session = await readTask.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(CodexQuotaStatus.Available, session.Status);
+        Assert.Contains("after-dispose", session.SanitizedStderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IncompleteStderrDrainDoesNotRaceDiagnosticSnapshot()
+    {
+        var factory = new DrainOrderingProcessFactory();
+        var readTask = new CodexAppServerClient(factory)
+            .ReadQuotaAsync(DummyCommand(), "1.0.0", CancellationToken.None);
+        var process = await factory.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await process.DrainStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var session = await readTask.WaitAsync(
+            TimeSpan.FromMilliseconds(CodexProtocol.GracefulShutdownTimeoutMs + 2000));
+        Assert.Equal(CodexQuotaStatus.Available, session.Status);
+        Assert.Empty(session.SanitizedStderr);
+
+        process.ReleaseDrain();
+        await process.DrainFinished.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Empty(session.SanitizedStderr);
     }
 
     [Fact]
@@ -244,5 +282,95 @@ public class CodexAppServerClientTests
     {
         public ICodexProcess Start(CodexLaunchCommand command) =>
             throw new FileNotFoundException("Codex executable was not found.", command.ResolvedExecutable);
+    }
+
+    private sealed class DrainOrderingProcessFactory : ICodexProcessFactory
+    {
+        public TaskCompletionSource<DrainOrderingProcess> Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ICodexProcess Start(CodexLaunchCommand command)
+        {
+            var process = new DrainOrderingProcess();
+            Started.TrySetResult(process);
+            return process;
+        }
+    }
+
+    private sealed class DrainOrderingProcess : ICodexProcess
+    {
+        private readonly Queue<string> _responses = new();
+        private readonly SemaphoreSlim _responseReady = new(0);
+        private readonly object _gate = new();
+        private readonly TaskCompletionSource<bool> _releaseDrain =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> Disposed { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> DrainStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> DrainFinished { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task WriteLineAsync(string line, CancellationToken cancellationToken)
+        {
+            var request = JsonNode.Parse(line) as JsonObject;
+            var method = request?["method"]?.ToString();
+            var id = request?["id"]?.ToString();
+            var response = method switch
+            {
+                "initialize" => $"{{\"id\":{id},\"result\":{{\"ok\":true}}}}",
+                "initialized" => "{\"method\":\"session/ready\",\"params\":{}}",
+                "account/read" => $"{{\"id\":{id},\"result\":{{\"account\":{{\"planType\":\"plus\"}}}}}}",
+                "account/rateLimits/read" => $"{{\"id\":{id},\"result\":{{\"rateLimits\":{{\"primary\":{{\"usedPercent\":1,\"windowDurationMins\":300}}}}}}}}",
+                _ => null
+            };
+            if (response is not null)
+            {
+                lock (_gate) _responses.Enqueue(response);
+                _responseReady.Release();
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public async Task<string?> ReadLineAsync(int maxBytes, CancellationToken cancellationToken)
+        {
+            await _responseReady.WaitAsync(cancellationToken);
+            lock (_gate) return _responses.Dequeue();
+        }
+
+        public async Task DrainStderrAsync(StringBuilder sink, int maxBytes, CancellationToken cancellationToken)
+        {
+            DrainStarted.TrySetResult(true);
+            await _releaseDrain.Task;
+            sink.Append("after-dispose");
+            DrainFinished.TrySetResult(true);
+        }
+
+        public bool HasExited { get; private set; }
+        public bool KillCalled { get; private set; }
+        public int? ProcessId => null;
+        public string FileName => "drain-ordering";
+        public string Arguments => "";
+        public Task<bool> WaitForExitAsync(TimeSpan timeout, CancellationToken cancellationToken) =>
+            Task.FromResult(HasExited);
+
+        public void KillTree()
+        {
+            KillCalled = true;
+            HasExited = true;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            HasExited = true;
+            Disposed.TrySetResult(true);
+            return ValueTask.CompletedTask;
+        }
+
+        public void ReleaseDrain() => _releaseDrain.TrySetResult(true);
     }
 }

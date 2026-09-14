@@ -68,6 +68,11 @@ internal static class Program
                 AccountUiChecks.Run(accountsDirectory);
                 return 0;
             }
+            if (args is ["--flyout-activation"] or ["--flyout-activation", _])
+            {
+                FlyoutActivationChecks.Run(app, args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--tooltips", var toolTipDirectory])
             {
                 ToolTipUiChecks.Run(toolTipDirectory);
@@ -83,6 +88,7 @@ internal static class Program
             CodexWindowUiChecks.Run();
             MixedProviderUiChecks.Run();
             ToolTipUiChecks.Run();
+            FlyoutActivationChecks.Run(app);
             CheckEnvironmentCallbacks(app);
             CheckWidgetRecovery();
             CheckWidgetRestart();

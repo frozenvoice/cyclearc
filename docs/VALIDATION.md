@@ -2,6 +2,31 @@
 
 ## Current release — Codex and Claude Code
 
+- Release 0.5.3 popup activation (2026-09-14):
+  - Widget clicks now explicitly open/activate the popup. An unpinned window covered by
+    another app remains visible to WPF, so the former toggle hid it on the first click.
+    Minimized popups restore before activation. Explicit close and tray toggle still close.
+  - Four production-event scenarios cover English/Korean and Dark/Light, including the
+    active native HWND, minimized restoration, repeated/pinned clicks, close/reopen and
+    tray toggling. Fixtures use synthetic accounts and verify no quota request or selection
+    change. The old binding failed the covered-popup assertion; all corrected cases pass.
+  - The linked Windows run failed its first attempt in the large-stderr test and passed
+    a retry. Thirty isolated old-code runs also passed locally, so the exact CI timeout
+    cause was not reproduced. Replaced per-chunk character decoding/recounting with bounded
+    byte capture while continuing to drain the pipe. Startup/request deadlines are unchanged.
+  - Added deterministic completion-order and delayed-drain regressions: the old code returned
+    before capture finished; the new client waits within a fixed bound and omits diagnostics
+    if capture is still pending, avoiding a mutable-buffer race. The existing real-process
+    Korean flood test now checks that its bounded text contains no split UTF-8 replacement.
+    All **13 App Server client tests** passed, including the **2-second** delayed-drain case.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed restore, Release build
+    (**0 warnings/errors**), **1,160 unit tests**, **15 installer scenarios**, **762 WPF
+    renders**, the **4 popup interaction scenarios**, native widget/DPI checks on **2 monitors**,
+    and built/published Claude bridge/receiver checks. Win-x64 self-contained publish contains
+    only `CycleArc.exe`.
+  - Visually inspected four reopened-popup previews. Existing documentation images remain
+    representative because the layout is unchanged.
+
 - Release 0.5.2 tooltip and Claude connection guidance (2026-09-14):
   - Reproduced the account tooltip failure in an open WPF popup: the system light background
     (`#F1F2F7`) and app dark-theme text (`#EEF1F6`) had insufficient contrast.

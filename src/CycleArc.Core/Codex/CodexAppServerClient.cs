@@ -39,10 +39,11 @@ public sealed partial class CodexAppServerClient
         var sent = new List<string>();
         var stderr = new StringBuilder();
         ICodexProcess? process = null;
+        Task? stderrDrain = null;
         try
         {
             process = await StartAsync(command, linked.Token).ConfigureAwait(false);
-            _ = process.DrainStderrAsync(stderr, CodexProtocol.MaxStderrBytes, linked.Token);
+            stderrDrain = process.DrainStderrAsync(stderr, CodexProtocol.MaxStderrBytes, linked.Token);
             await SendAsync(process, CodexProtocol.BuildInitialize(clientVersion), "initialize", sent, linked.Token)
                 .ConfigureAwait(false);
             var initialize = await WaitForResponseAsync(
@@ -54,7 +55,7 @@ public sealed partial class CodexAppServerClient
                 || initialize.Node?["result"] is not JsonObject)
             {
                 return await CompleteAsync(initialize.Status == CodexQuotaStatus.Available ? CodexQuotaStatus.ProtocolMismatch : initialize.Status,
-                    null, null, sent, stderr, "initialize-failed", process)
+                    null, null, sent, stderr, "initialize-failed", process, stderrDrain)
                     .ConfigureAwait(false);
             }
 
@@ -69,13 +70,13 @@ public sealed partial class CodexAppServerClient
                 linked.Token).ConfigureAwait(false);
             if (account.Status is CodexQuotaStatus.TimedOut or CodexQuotaStatus.Cancelled or CodexQuotaStatus.ProtocolMismatch)
             {
-                return await CompleteAsync(account.Status, account.Node, null, sent, stderr, account.Detail, process)
+                return await CompleteAsync(account.Status, account.Node, null, sent, stderr, account.Detail, process, stderrDrain)
                     .ConfigureAwait(false);
             }
 
             if (!includeLimits || (command.CodexHome is not null
                 && CodexAccountIdentity.Parse(account.Node).Status != CodexQuotaStatus.Available))
-                return await CompleteAsync(account.Status, account.Node, null, sent, stderr, account.Detail, process)
+                return await CompleteAsync(account.Status, account.Node, null, sent, stderr, account.Detail, process, stderrDrain)
                     .ConfigureAwait(false);
 
             await SendAsync(process, CodexProtocol.BuildRateLimitsRead(), "account/rateLimits/read", sent, linked.Token)
@@ -87,11 +88,11 @@ public sealed partial class CodexAppServerClient
                 linked.Token).ConfigureAwait(false);
             if (limits.Status is CodexQuotaStatus.TimedOut or CodexQuotaStatus.Cancelled or CodexQuotaStatus.ProtocolMismatch)
             {
-                return await CompleteAsync(limits.Status, account.Node, limits.Node, sent, stderr, limits.Detail, process)
+                return await CompleteAsync(limits.Status, account.Node, limits.Node, sent, stderr, limits.Detail, process, stderrDrain)
                     .ConfigureAwait(false);
             }
 
-            return await CompleteAsync(CodexQuotaStatus.Available, account.Node, limits.Node, sent, stderr, null, process)
+            return await CompleteAsync(CodexQuotaStatus.Available, account.Node, limits.Node, sent, stderr, null, process, stderrDrain)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -103,27 +104,27 @@ public sealed partial class CodexAppServerClient
                     sent,
                     stderr,
                     cancellationToken.IsCancellationRequested ? "cancelled" : "timed-out",
-                    process)
+                    process, stderrDrain)
                 .ConfigureAwait(false);
         }
         catch (CodexProtocolException ex)
         {
-            return await CompleteAsync(CodexQuotaStatus.ProtocolMismatch, null, null, sent, stderr, ex.Message, process)
+            return await CompleteAsync(CodexQuotaStatus.ProtocolMismatch, null, null, sent, stderr, ex.Message, process, stderrDrain)
                 .ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
-            return await CompleteAsync(CodexQuotaStatus.TimedOut, null, null, sent, stderr, "startup-timed-out", process)
+            return await CompleteAsync(CodexQuotaStatus.TimedOut, null, null, sent, stderr, "startup-timed-out", process, stderrDrain)
                 .ConfigureAwait(false);
         }
         catch (FileNotFoundException)
         {
-            return await CompleteAsync(CodexQuotaStatus.CodexNotFound, null, null, sent, stderr, "codex-not-found", process)
+            return await CompleteAsync(CodexQuotaStatus.CodexNotFound, null, null, sent, stderr, "codex-not-found", process, stderrDrain)
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            return await CompleteAsync(CodexQuotaStatus.Unavailable, null, null, sent, stderr, SafeException(ex), process)
+            return await CompleteAsync(CodexQuotaStatus.Unavailable, null, null, sent, stderr, SafeException(ex), process, stderrDrain)
                 .ConfigureAwait(false);
         }
     }
@@ -229,7 +230,8 @@ public sealed partial class CodexAppServerClient
         List<string> methods,
         StringBuilder errors,
         string? detail,
-        ICodexProcess? process)
+        ICodexProcess? process,
+        Task? stderrDrain = null)
     {
         var killCalled = false;
         var cleaned = true;
@@ -254,12 +256,30 @@ public sealed partial class CodexAppServerClient
             }
         }
 
+        if (stderrDrain is not null)
+        {
+            try
+            {
+                await stderrDrain.WaitAsync(TimeSpan.FromMilliseconds(CodexProtocol.GracefulShutdownTimeoutMs)).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The process has already been cleaned up; diagnostic capture is best effort.
+            }
+        }
+
+        // A timed-out drain may still be writing to the sink. Only snapshot it after the
+        // task has completed so diagnostics never race with the producer.
+        var sanitizedStderr = stderrDrain is null || stderrDrain.IsCompleted
+            ? CodexProtocol.SanitizeDiagnostic(errors.ToString())
+            : "";
+
         return new CodexProtocolSession(
             status,
             account,
             limits,
             methods,
-            CodexProtocol.SanitizeDiagnostic(errors.ToString()),
+            sanitizedStderr,
             detail,
             cleaned,
             killCalled);

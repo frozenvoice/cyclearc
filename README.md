@@ -33,7 +33,7 @@ The **Codex** or **Claude** label on account cards, selected details, tray toolt
 - **Usage in the tray.** A Windows notification-area icon keeps the meter within reach. Click for the detailed card; pin it to keep it visible.
 - **Clear quota windows.** See usage and remaining percentages, reset times and countdowns for each reported five-hour or weekly window. The ring, tray and widget use the weekly percentage when known, otherwise the five-hour percentage.
 - **Reset credits.** View the available count and expiry times when the server supplies them. Use an individual reset after confirmation. Missing expiry information stays explicitly unknown.
-- **Optional desktop widget.** A compact, draggable meter with adjustable opacity, always-on-top, and click-through options. Off-screen positions recover automatically.
+- **Optional desktop widget.** A compact, draggable meter with adjustable opacity, always-on-top, and click-through options. Click once to open the usage popup or bring it forward when another window covers it. Off-screen positions recover automatically.
 - **Your preferred appearance.** Dark, Light, or live System theme; English and Korean; keyboard zoom from 80% to 150%.
 - **Honest refresh states.** Check Codex at a selectable 1, 2, 5, 10, 30 or 60-minute interval (default: five minutes). Claude shows the last received shared subscription quota, delivered through Claude Code. Previously received values remain visibly stale during a temporary update failure; unconnected profiles stay in account management.
 
