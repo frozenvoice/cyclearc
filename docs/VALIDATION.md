@@ -2,6 +2,21 @@
 
 ## Current release — Codex only
 
+- Development launcher date regression (2026-09-14): reproduced the reported 23 failures
+  in `PrimaryIndexSchemaSignalTests`, `ConversationSchemaHealthTests` and
+  `IsolatedConversationFailureTests`. Their fixed September 6 fixtures were filtered out
+  when the system clock moved into a later quota period. The retained legacy tests now use
+  a fixture-aligned `MutableClock` in both `SyncEngine` and `ConversationParser`, including
+  restarted engines and presentation snapshots. Existing cases remain; added assertions
+  verify body fetches, completion timestamps and deferred failures after restart. Fatal-auth
+  and paused-run checks explicitly advance the clock to keep timestamp-preservation checks meaningful.
+  All 56 affected-class cases passed. The complete `./dev-run.ps1` run passed restore,
+  Release build (0 warnings/errors), all 1,047 unit tests, 15 installer scenarios,
+  120 account WPF renders, 180 widget DPI/layout renders and 36 production WPF renders.
+  Self-contained win-x64 publish produced exactly `CycleArc.exe`; local replacement and
+  startup succeeded. This changes test setup only; live-account quota behavior was not
+  separately revalidated.
+
 - Repository rename and default-branch screenshots (2026-09-12): repository, badge,
   download/issue links, clone instructions and the app's About link use `frozenvoice/cyclearc`.
   The default-branch update includes all 12 previously verified CycleArc production-view
