@@ -134,6 +134,8 @@ To check current usage without using Code, choose **Open usage page** on the Cla
 
 If Claude reports an authentication failure, the profile shows **Sign-in required** instead of waiting indefinitely. **Sign in again** repairs the existing configuration through Claude's official browser login, preserving the profile and its last received usage. A successful local `auth status` check alone does not prove that the server will accept the session. Other reported request failures are shown separately. A repeated statusLine value cannot clear an authentication failure; successful sign-in recovery does.
 
+A Claude plan change keeps the same account when its email and organization match. After sign-in recovery, callbacks from an older connection generation cannot change the latest sample or its receipt time. Older saved bindings are upgraded only after their identity is verified; see [connection compatibility](docs/CLAUDE.md#account-identity-compatibility).
+
 **CycleArc supports usage receipt from the connected Claude Code terminal, not Web or the Desktop Code tab.** Connection and usage receipt are separate: a connected account stays visible with **Awaiting usage** until the connected Claude Code terminal sends a sample. Repeating **Connect current login** reuses the same verified configuration binding and preserves its name and usage history. Closing or cancelling a new connection before it succeeds removes its empty draft from the list.
 
 <details>

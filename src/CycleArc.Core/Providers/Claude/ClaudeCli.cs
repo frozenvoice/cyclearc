@@ -7,10 +7,51 @@ namespace CycleArc.Providers.Claude;
 
 public enum ClaudeAuthStatus { SignedIn, SignedOut, NotInstalled, Unsupported, InvalidResponse, Failed, TimedOut, Cancelled }
 
+/// <summary>
+/// Hashes the non-secret identity metadata returned by Claude's official CLI.
+/// SubscriptionType is deliberately excluded from the stable identity: a plan can
+/// change while the email and organization remain the same account.
+/// </summary>
+public static class ClaudeIdentity
+{
+    // Bounded allowlist for plan metadata that may be persisted or used as
+    // historical migration evidence. Unknown values remain memory-only.
+    public static IReadOnlyList<string?> KnownPlanValues { get; } =
+        [null, "", "free", "pro", "max", "max_5x", "max_20x", "team", "enterprise", "business", "education"];
+
+    public static string StableFingerprint(string email, string? organizationId) =>
+        Hash(NormalizeEmail(email) + "\n" + NormalizeOrganization(organizationId));
+
+    // v1 binding files used this shape. Keep it available only for an evidence-backed
+    // migration; it must never become the current identity comparison again.
+    public static string LegacyFingerprint(string email, string? organizationId, string? plan) =>
+        Hash(email.ToLowerInvariant() + "\n" + organizationId + "\n" + plan);
+
+    public static bool IsFingerprint(string? fingerprint) => fingerprint is { Length: 64 } value
+        && value.All(Uri.IsHexDigit);
+
+    public static bool IsSafePersistedPlan(string? plan) =>
+        KnownPlanValues.Contains(plan, StringComparer.Ordinal);
+
+    public static string? SafePersistedPlan(string? plan) => IsSafePersistedPlan(plan) ? plan : null;
+
+    private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
+    // Organization IDs are opaque; preserving their bytes avoids collapsing two
+    // distinct values during an identity check.
+    private static string NormalizeOrganization(string? organizationId) => organizationId ?? string.Empty;
+    private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+}
+
 // Authentication metadata comes from the official CLI. Credentials never enter CycleArc.
 public sealed record ClaudeAuthentication(ClaudeAuthStatus Status, string? Email = null,
-    string? Plan = null, string? Fingerprint = null)
+    string? Plan = null, string? Fingerprint = null, string? OrganizationId = null,
+    string? LegacyFingerprint = null)
 {
+    // Recompute from the structured fields when they are available. This keeps
+    // identity checks fail-closed even if a caller passes a stale record copy.
+    public string? StableFingerprint => Status == ClaudeAuthStatus.SignedIn
+        && Email is { Length: > 0 } email ? ClaudeIdentity.StableFingerprint(email, OrganizationId) : Fingerprint;
+
     public static ClaudeAuthentication Parse(string json, int exitCode)
     {
         try
@@ -33,8 +74,9 @@ public sealed record ClaudeAuthentication(ClaudeAuthStatus Status, string? Email
             var org = String(root, "orgId", 200, optional: true);
             var plan = String(root, "subscriptionType", 80, optional: true);
             if (string.IsNullOrWhiteSpace(email)) return new(ClaudeAuthStatus.InvalidResponse);
-            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email.ToLowerInvariant() + "\n" + org + "\n" + plan)));
-            return new(ClaudeAuthStatus.SignedIn, email, plan, hash);
+            var stable = ClaudeIdentity.StableFingerprint(email, org);
+            var legacy = ClaudeIdentity.LegacyFingerprint(email, org, plan);
+            return new(ClaudeAuthStatus.SignedIn, email, plan, stable, org, legacy);
         }
         catch (Exception ex) when (ex is JsonException or InvalidDataException or InvalidOperationException)
         { return new(ClaudeAuthStatus.InvalidResponse); }

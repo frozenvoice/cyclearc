@@ -28,15 +28,16 @@ public static class ClaudeStatusLineBridge
             if (accounts.ContainsClaude(options.ProfileId))
             {
                 var connections = new ClaudeConnectionStore(accounts, options.ProfileId);
-                observedBinding = connections.Read().Binding;
-                if (observedBinding is { Disconnected: false } binding
-                    && string.Equals(binding.ConfigDirectory, options.ConfigDirectory, StringComparison.OrdinalIgnoreCase))
+                var connection = connections.Read();
+                observedBinding = connection.Binding;
+                if (!connection.Unavailable && observedBinding is { Disconnected: false } binding
+                    && string.Equals(binding.ConfigDirectory, options.ConfigDirectory, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(binding.BindingGeneration, options.BindingGeneration, StringComparison.Ordinal))
                 {
                     var auth = await (cli ?? new ClaudeCli()).AuthenticateAsync(binding.CliExecutable,
                         binding.UseDefaultConfig ? null : binding.ConfigDirectory, false, bounded.Token).ConfigureAwait(false);
-                    var generationMatches = string.Equals(binding.BindingGeneration, options.BindingGeneration, StringComparison.Ordinal);
-                    var matches = auth.Status == ClaudeAuthStatus.SignedIn && auth.Fingerprint == binding.IdentityFingerprint
-                        && generationMatches && connections.Read().Binding == binding && accounts.ContainsClaude(options.ProfileId);
+                    var matches = ClaudeIdentityBinding.Matches(auth, binding)
+                        && connections.Read().Binding == binding && accounts.ContainsClaude(options.ProfileId);
                     if (!matches)
                     {
                         // Keep the quota receipt/cache unchanged while recording why this
@@ -46,15 +47,19 @@ public static class ClaudeStatusLineBridge
                             : ClaudeFailureKind.BridgeUnavailable;
                         await RecordFailureAsync(accounts, options, binding, kind, receivedAt, bounded.Token).ConfigureAwait(false);
                     }
-                    var parsed = matches ? ClaudeStatusLineParser.Parse(bytes) : new ClaudeStatusLineResult(ClaudeInputStatus.Missing);
-                    await new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(options.ProfileId), options.ProfileId)
-                        .RecordAsync(parsed, receivedAt, bounded.Token).ConfigureAwait(false);
-                    text = matches ? ClaudeStatusLineCommand.Format(parsed) : "Claude | Reconnect in CycleArc";
-                    exit = matches && parsed.Status != ClaudeInputStatus.Malformed ? 0 : 1;
+                    if (matches)
+                    {
+                        var parsed = ClaudeStatusLineParser.Parse(bytes);
+                        await new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(options.ProfileId), options.ProfileId)
+                            .RecordForBindingAsync(parsed, receivedAt, accounts, binding, bounded.Token).ConfigureAwait(false);
+                        text = ClaudeStatusLineCommand.Format(parsed);
+                        exit = parsed.Status != ClaudeInputStatus.Malformed ? 0 : 1;
+                    }
+                    else text = "Claude | Reconnect in CycleArc";
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException or InvalidDataException)
         {
             if (observedBinding is { Disconnected: false } binding)
             {
@@ -76,7 +81,8 @@ public static class ClaudeStatusLineBridge
         ClaudeConnectionBinding binding, ClaudeFailureKind kind, DateTimeOffset observedAt, CancellationToken token)
     {
         if (binding.BindingGeneration is null || options.BindingGeneration is null
-            || !string.Equals(binding.BindingGeneration, options.BindingGeneration, StringComparison.Ordinal)) return;
+            || !string.Equals(binding.BindingGeneration, options.BindingGeneration, StringComparison.Ordinal)
+            || new ClaudeConnectionStore(accounts, options.ProfileId).Read().Binding != binding) return;
         await new ClaudeFailureStore(accounts).RecordAsync(options.ProfileId, binding.BindingGeneration,
             kind, observedAt, token).ConfigureAwait(false);
     }

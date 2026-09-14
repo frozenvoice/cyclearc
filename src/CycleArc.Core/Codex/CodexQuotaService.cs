@@ -65,26 +65,12 @@ public sealed class CodexQuotaService
     public bool IsRefreshing { get; private set; }
     public bool IsSigningIn { get; private set; }
     public CodexAccountIdentity? Identity => _identity;
-    // Manager uses only the expected, validated profile identity for duplicate detection.
-    public string? ValidatedIdentityFingerprint
-    {
-        get
-        {
-            if (_identityBindings is not null)
-            {
-                try
-                {
-                    var read = _identityBindings.Read();
-                    if (read.Unavailable) return null;
-                    return read.State?.AccountFingerprint;
-                }
-                catch (IOException) { return null; }
-                catch (UnauthorizedAccessException) { return null; }
-            }
-
-            return _identityVerified ? _identity?.StableAccountFingerprint : null;
-        }
-    }
+    // Manager uses only the last identity verified by an account/read response.
+    // Binding files are guarded by a cross-process lock and must never be read on
+    // the UI projection path. RefreshAsync/ProbeAccountAsync revalidate the binding
+    // in the background before replacing this cached value.
+    public string? ValidatedIdentityFingerprint =>
+        _identityVerified ? _identity?.StableAccountFingerprint : null;
     public event Action<CodexQuotaSnapshot>? Changed;
 
     public static bool ShouldRefreshOnFlyoutOpen(CodexQuotaSnapshot snapshot, DateTimeOffset now, TimeSpan? refreshInterval = null)

@@ -21,7 +21,13 @@ public sealed class ClaudeSetupException(ClaudeSetupFailure failure) : Exception
 public static class ClaudeStatusLineInstaller
 {
     private const string Prefix = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ";
-    private const string Marker = "# CycleArc automatic statusLine v1\n# ";
+    private const string LegacyMarker = "# CycleArc automatic statusLine v1\n# ";
+    private const string Marker = "# CycleArc automatic statusLine v2\n";
+    private const string OptionsPrefix = "$options='";
+    private const int MaxLegacyCommandLength = 28000;
+    // Git Bash truncates its -c command around 8191 characters. Leave headroom
+    // for the shell boundary so an installed wrapper reaches PowerShell intact.
+    private const int MaxCommandLength = 8000;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     public const int MaxSettingsBytes = 1024 * 1024;
 
@@ -44,13 +50,24 @@ public static class ClaudeStatusLineInstaller
         if (!Valid(options)) throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings);
         var payload = Payload(options);
         var path = options.CycleArcExecutable.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
-        var script = Marker + payload + "\n"
+        var script = Marker + OptionsPrefix + payload + "'; "
+            + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::InputEncoding; "
+            + "$input | & '" + path + "' '" + ClaudeStatusLineBridge.Argument + "' $options"
+            + " | ForEach-Object { $_ }; exit $LASTEXITCODE";
+        var command = Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        if (command.Length > MaxCommandLength) throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings);
+        return command;
+    }
+
+    private static string LegacyCommand(ClaudeBridgeOptions options)
+    {
+        var payload = Payload(options);
+        var path = options.CycleArcExecutable.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
+        var script = LegacyMarker + payload + "\n"
             + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::InputEncoding; "
             + "$input | & '" + path + "' '" + ClaudeStatusLineBridge.Argument + "' '" + payload
             + "' | ForEach-Object { $_ }; exit $LASTEXITCODE";
-        var command = Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-        if (command.Length > 28000) throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings);
-        return command;
+        return Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
     }
 
     public static bool TryRead(string command, out ClaudeBridgeOptions? options)
@@ -58,13 +75,30 @@ public static class ClaudeStatusLineInstaller
         options = null;
         try
         {
-            if (!command.StartsWith(Prefix, StringComparison.Ordinal) || command.Length > 28000) return false;
+            if (!command.StartsWith(Prefix, StringComparison.Ordinal) || command.Length > MaxLegacyCommandLength) return false;
             var script = Encoding.Unicode.GetString(Convert.FromBase64String(command[Prefix.Length..]));
-            if (!script.StartsWith(Marker, StringComparison.Ordinal)) return false;
-            var end = script.IndexOf('\n', Marker.Length);
-            if (end < 0) return false;
-            var parsed = Decode(script[Marker.Length..end]);
-            if (!string.Equals(Command(parsed), command, StringComparison.Ordinal)) return false;
+            string payload;
+            bool legacy;
+            if (script.StartsWith(LegacyMarker, StringComparison.Ordinal))
+            {
+                var end = script.IndexOf('\n', LegacyMarker.Length);
+                if (end < 0) return false;
+                payload = script[LegacyMarker.Length..end];
+                legacy = true;
+            }
+            else
+            {
+                if (!script.StartsWith(Marker + OptionsPrefix, StringComparison.Ordinal)) return false;
+                var payloadStart = Marker.Length + OptionsPrefix.Length;
+                var payloadEnd = script.IndexOf('\'', payloadStart);
+                if (payloadEnd < 0) return false;
+                payload = script[payloadStart..payloadEnd];
+                legacy = false;
+            }
+
+            var parsed = Decode(payload);
+            var expected = legacy ? LegacyCommand(parsed) : Command(parsed);
+            if (!string.Equals(expected, command, StringComparison.Ordinal)) return false;
             options = parsed;
             return true;
         }
@@ -76,7 +110,7 @@ public static class ClaudeStatusLineInstaller
     {
         try
         {
-            if (!command.StartsWith(Prefix, StringComparison.Ordinal) || command.Length > 28000) return null;
+            if (!command.StartsWith(Prefix, StringComparison.Ordinal) || command.Length > MaxLegacyCommandLength) return null;
             var script = Encoding.Unicode.GetString(Convert.FromBase64String(command[Prefix.Length..]));
             const string start = "$input | & '";
             const string middle = "' '--claude-statusline' '";

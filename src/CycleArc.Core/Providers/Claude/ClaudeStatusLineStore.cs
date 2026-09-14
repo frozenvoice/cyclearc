@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CycleArc.Codex;
 
 namespace CycleArc.Providers.Claude;
 
@@ -39,12 +40,40 @@ public sealed class ClaudeStatusLineStore
         return new(null, File.Exists(_path) || File.Exists(_path + ".bak"));
     }
 
-    public async Task<ClaudeStatusLineState> RecordAsync(ClaudeStatusLineResult result, DateTimeOffset receivedAt, CancellationToken token)
+    public Task<ClaudeStatusLineState> RecordAsync(ClaudeStatusLineResult result, DateTimeOffset receivedAt, CancellationToken token) =>
+        RecordCoreAsync(result, receivedAt, token, null, null);
+
+    public Task<ClaudeStatusLineState> RecordForBindingAsync(ClaudeStatusLineResult result, DateTimeOffset receivedAt,
+        CodexAccountStore accounts, ClaudeConnectionBinding expectedBinding, CancellationToken token)
+    {
+        if (expectedBinding.ProfileId != _profileId || expectedBinding.Disconnected)
+            throw new InvalidDataException("Invalid Claude binding.");
+        var connections = new ClaudeConnectionStore(accounts, _profileId);
+        return RecordCoreAsync(result, receivedAt, token, connections, () => accounts.ContainsClaude(_profileId)
+            && connections.Read() is { Unavailable: false } read && read.Binding == expectedBinding);
+    }
+
+    internal Task<ClaudeStatusLineState> RecordForUnboundProfileAsync(ClaudeStatusLineResult result,
+        DateTimeOffset receivedAt, CodexAccountStore accounts, CancellationToken token)
+    {
+        var connections = new ClaudeConnectionStore(accounts, _profileId);
+        return RecordCoreAsync(result, receivedAt, token, connections, () => accounts.ContainsClaude(_profileId)
+            && connections.Read() is { Unavailable: false, Binding: null });
+    }
+
+    private async Task<ClaudeStatusLineState> RecordCoreAsync(ClaudeStatusLineResult result, DateTimeOffset receivedAt,
+        CancellationToken token, ClaudeConnectionStore? connections, Func<bool>? bindingMatches)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
         // Independent statusLine processes can arrive concurrently. Serialize the read/merge/
         // atomic write, with bounded locking and automatic release if a process is cancelled.
         using var lease = await AcquireAsync(token).ConfigureAwait(false);
+        // Connection mutations use this same lease. Keep it through the quota commit so
+        // generation rotation cannot interleave with an authenticated callback's write.
+        using var bindingLease = connections is null ? null : await connections.AcquireLeaseAsync(token).ConfigureAwait(false);
+        // Authentication may have finished before another callback released the quota lock.
+        // Recheck the exact binding after waiting, and again immediately before replacement.
+        EnsureCurrentBinding(bindingMatches);
         var previous = Read().State;
         if (previous is not null && receivedAt < previous.LastReceivedAt) return previous;
         var sample = result.Status == ClaudeInputStatus.Available
@@ -61,11 +90,18 @@ public sealed class ClaudeStatusLineStore
                 stream.Flush(true);
             }
             token.ThrowIfCancellationRequested();
+            EnsureCurrentBinding(bindingMatches);
             if (TryRead(_path, out _)) File.Replace(temp, _path, _path + ".bak", true);
             else File.Move(temp, _path, true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
         return state;
+    }
+
+    private static void EnsureCurrentBinding(Func<bool>? bindingMatches)
+    {
+        if (bindingMatches is not null && !bindingMatches())
+            throw new InvalidDataException("Claude binding changed.");
     }
 
     private async Task<FileStream> AcquireAsync(CancellationToken token)

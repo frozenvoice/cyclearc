@@ -2,6 +2,45 @@
 
 ## Current release — Codex and Claude Code
 
+- Audit corrections against `756d946` (2026-09-14):
+  - CA-01: present malformed Codex windows fail as protocol mismatches, preserving the last
+    verified sample and success time. Null/absent optional windows and unknown percentages
+    retain their existing behavior.
+  - CA-02: Claude v2 identity excludes plan metadata. Tests cover Pro-to-Max changes,
+    deployed v1 files without a Plan field, verified migration, different email/organization
+    rejection, and exact legacy rollback when duplicate-profile setup fails.
+  - CA-03: obsolete automatic/manual callbacks cannot change the current quota receipt.
+    Quota/failure commits share the connection mutation lease; tests cover lock waits,
+    generation rotation, byte-identical quota/failure preservation and previous-command output.
+  - Executable checks exposed an additional Git Bash limit: the old wrapper duplicated its
+    encoded options and could lose the command tail above roughly 8 KiB. The compact wrapper
+    carries options once, bounds generated command length, and still recognizes exact older
+    wrappers for upgrade/restoration. Tests cover the generated command with connection generation
+    and an existing statusLine command in PowerShell and Git Bash.
+  - CA-04: Codex snapshot writes flush a same-directory temporary file before atomic replacement,
+    retaining a valid backup. Tests exercise corruption, bounded/schema-checked loading,
+    injected flush/replace failures and temporary-file cleanup with isolated data.
+  - CA-05: account projection reads only in-memory identity state. File-lock contention does
+    not delay projection; refresh still detects changed bindings. Durable conflict writes run
+    outside the shared projection lock and remain separate from rendering.
+  - The NuGet audit initially found `SQLitePCLRaw.lib.e_sqlite3 2.1.6` affected by
+    [GHSA-2m69-gcr7-jv3q](https://github.com/advisories/GHSA-2m69-gcr7-jv3q).
+    Pinning the compatible native bundle to `2.1.13` removes that resolution. A repeated
+    `dotnet list CycleArc.sln package --vulnerable --include-transitive` reports no known
+    vulnerable packages in all five projects using the configured NuGet source.
+  - Windows CI now uses Node 24 actions: [checkout v5](https://github.com/actions/checkout/tree/v5),
+    [setup-dotnet v5](https://github.com/actions/setup-dotnet/tree/v5), and
+    [upload-artifact v6](https://github.com/actions/upload-artifact/tree/v6).
+    The repository description now reflects Codex/Claude support and reported windows.
+  - Release build passed with 0 warnings/errors; all 1,258 unit tests and 15 isolated installer
+    scenarios passed. These regressions use synthetic identities, callbacks and filesystem
+    failures; no live login, quota request or reset-credit consumption was performed.
+  - The final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` gate also passed production WPF
+    checks in Korean/English across all themes, native widget/popup interaction and lifecycle/DPI
+    checks on three monitors, and built/published Claude statusLine and StopFailure receiver
+    checks in PowerShell and Git Bash. The self-contained win-x64 artifact contains only
+    `CycleArc.exe`.
+
 - Release 0.5.5 Codex account identity isolation (2026-09-14):
   - On the reporting PC, separate official App Server reads for the imported default home and
     the managed second profile returned the same projected identity, weekly usage and zero

@@ -244,7 +244,8 @@ public class ClaudeConnectionTests
         data.Clock.UtcNow = data.Clock.UtcNow.AddSeconds(1);
         Assert.Equal(1, await Receive(92));
         Assert.Equal(23.5, data.Store().Read().State!.LastGood!.FiveHour!.UsedPercentage);
-        Assert.Equal(CodexQuotaStatus.Stale, data.Service().Snapshot.Status);
+        Assert.Equal(CodexQuotaStatus.Stale, new ClaudeUsageProvider(data.Accounts, data.Clock, connection)
+            .Create(data.Profile).Snapshot.Status);
         Assert.Equal(0, (await data.Receive(Payload(99))).Code); // Legacy command is inert once bound.
         Assert.Equal(23.5, data.Store().Read().State!.LastGood!.FiveHour!.UsedPercentage);
         Assert.True((await connection.ConnectAsync(data.Profile.Id, AppFor(data), false, DirectoryFor(data), default)).Success);
