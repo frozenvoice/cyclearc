@@ -108,6 +108,16 @@ public partial class ClaudeConnectionWindow : Window
     {
         try { await action(operation.Token).ConfigureAwait(false); }
         catch (OperationCanceledException) { await Dispatcher.InvokeAsync(() => OperationStatus.Text = AuthText(ClaudeAuthStatus.Cancelled)); }
+        catch (ClaudeDisconnectCleanupException)
+        {
+            // The binding was durably revoked before cleanup started. Refresh the local
+            // view without starting another authentication process during shutdown.
+            await Dispatcher.InvokeAsync(() =>
+            {
+                ApplyDisconnectedView();
+                OperationStatus.Text = UiText.ClaudeDisconnectCleanupIncomplete;
+            });
+        }
         catch (ClaudeSetupException ex) { await Dispatcher.InvokeAsync(() => OperationStatus.Text = FailureText(ex.Failure)); }
         catch { await Dispatcher.InvokeAsync(() => OperationStatus.Text = UiText.T("Could not connect. Try again or check the official guide.", "연결하지 못했습니다. 다시 시도하거나 공식 안내를 확인하세요.")); }
         finally
@@ -155,6 +165,13 @@ public partial class ClaudeConnectionWindow : Window
         else await Dispatcher.InvokeAsync(() => OperationStatus.Text = result.Failure is { } failure ? FailureText(failure) : AuthText(result.Authentication.Status));
     }
 
+    private void ApplyDisconnectedView()
+    {
+        if (_overview is { Binding: { } binding } overview)
+            ApplyOverview(overview with { Binding = binding with { Disconnected = true }, Installed = false,
+                FailureKind = ClaudeFailureKind.None });
+    }
+
     private void UpdateButtons()
     {
         var busy = _operation is not null;
@@ -187,6 +204,8 @@ public partial class ClaudeConnectionWindow : Window
         ClaudeSetupFailure.AlreadyLinked => UiText.T("This Claude settings folder is linked to another profile. Open that profile or sign in separately.", "이 Claude 설정은 다른 프로필에 연결되어 있습니다. 해당 프로필을 열거나 별도로 로그인하세요."),
         ClaudeSetupFailure.InvalidSettings => UiText.T("Claude settings could not be safely updated. Check the settings file in connection details.", "Claude 설정을 수정하지 못했습니다. 연결 상세 설정에 표시된 설정 파일을 확인하세요."),
         ClaudeSetupFailure.SettingsChanged => UiText.T("Claude settings changed during setup. Try again.", "연결 중 Claude 설정이 변경되었습니다. 다시 시도하세요."),
+        ClaudeSetupFailure.CommandTooLong => UiText.ClaudeStatusLineCommandTooLong,
+        ClaudeSetupFailure.DisconnectCleanupIncomplete => UiText.ClaudeDisconnectCleanupIncomplete,
         _ => UiText.T("Connection settings are unavailable. Check file permissions and try again.", "연결 설정에 접근할 수 없습니다. 파일 권한을 확인한 뒤 다시 시도하세요.")
     };
 
@@ -197,8 +216,11 @@ public partial class ClaudeConnectionWindow : Window
     private void OnDisconnect(object sender, RoutedEventArgs e) => Begin(async token =>
     {
         await Task.Run(() => _connections!.DisconnectAsync(_activeProfileId, token), token).ConfigureAwait(false);
-        await InspectAsync(token).ConfigureAwait(false);
-        await Dispatcher.InvokeAsync(() => OperationStatus.Text = UiText.T("Disconnected.", "연결을 해제했습니다."));
+        await Dispatcher.InvokeAsync(() =>
+        {
+            ApplyDisconnectedView();
+            OperationStatus.Text = UiText.ClaudeDisconnected;
+        });
     }, UiText.T("Disconnecting…", "연결 해제 중…"));
     private void OnOpenClaude(object sender, RoutedEventArgs e)
     {

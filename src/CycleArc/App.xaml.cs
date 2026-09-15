@@ -449,31 +449,54 @@ public partial class App : Application
     {
         if (IsExiting) return;
         IsExiting = true;
-        _widgetController?.Dispose();
-        _environment?.Dispose();
-        _codexTimer.Stop();
-        _displayTimer.Stop();
-        _passiveTimer.Stop();
-        _lifetime.Cancel();
-        _accountsWindow?.CancelOperation();
-        _claudeWindow?.CancelOperation();
-        _flyout?.Hide();
-        // Let the existing bounded client stop and reap its app-server process.
-        try { await Task.WhenAll(_refresh.WaitForIdleAsync(), _creditUseTask, _discoveryTask, _passiveTask, _claudeIdentityTask,
-            _claudeWindow?.ActiveOperation ?? Task.CompletedTask,
-            _accountsWindow?.ActiveOperation ?? Task.CompletedTask).WaitAsync(TimeSpan.FromSeconds(15)); }
+        try
+        {
+            RunExitCleanup(() => _widgetController?.Dispose(), "Widget shutdown failed");
+            RunExitCleanup(() => _environment?.Dispose(), "Environment monitor shutdown failed");
+            RunExitCleanup(_codexTimer.Stop, "Codex timer shutdown failed");
+            RunExitCleanup(_displayTimer.Stop, "Display timer shutdown failed");
+            RunExitCleanup(_passiveTimer.Stop, "Passive timer shutdown failed");
+            RunExitCleanup(_lifetime.Cancel, "Lifetime cancellation failed");
+            RunExitCleanup(() => _accountsWindow?.CancelOperation(), "Account cancellation failed");
+            RunExitCleanup(() => _claudeWindow?.CancelOperation(), "Claude cancellation failed");
+            RunExitCleanup(() => _flyout?.Hide(), "Popup shutdown failed");
+            // Let the existing bounded client stop and reap its app-server process.
+            await Task.WhenAll(_refresh.WaitForIdleAsync(), _creditUseTask, _discoveryTask, _passiveTask, _claudeIdentityTask,
+                _claudeWindow?.ActiveOperation ?? Task.CompletedTask,
+                _accountsWindow?.ActiveOperation ?? Task.CompletedTask).WaitAsync(TimeSpan.FromSeconds(15));
+        }
         catch (OperationCanceledException) { }
-        catch (TimeoutException) { _log.Warn("Codex shutdown wait timed out"); }
-        _tray.Dispose();
-        Shutdown();
+        catch (TimeoutException) { LogExitFailure("App shutdown wait timed out"); }
+        catch (Exception ex) { LogExitFailure("App shutdown wait failed", ex); }
+        finally
+        {
+            try { RunExitCleanup(() => _tray?.Dispose(), "Tray shutdown failed"); }
+            finally { Shutdown(); }
+        }
+    }
+
+    private void RunExitCleanup(Action cleanup, string failure)
+    {
+        try { cleanup(); }
+        catch (Exception ex) { LogExitFailure(failure, ex); }
+    }
+
+    private void LogExitFailure(string message, Exception? error = null)
+    {
+        try { _log?.Error(message, error); }
+        catch { /* A log write failure must not prevent process shutdown. */ }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _widgetController?.Dispose();
-        _environment?.Dispose();
-        if (_ownsMutex) _mutex?.ReleaseMutex();
-        _mutex?.Dispose();
+        RunExitCleanup(() => _widgetController?.Dispose(), "Widget shutdown failed");
+        RunExitCleanup(() => _environment?.Dispose(), "Environment monitor shutdown failed");
+        RunExitCleanup(() =>
+        {
+            if (_ownsMutex) _mutex?.ReleaseMutex();
+            _ownsMutex = false;
+        }, "Single-instance mutex release failed");
+        RunExitCleanup(() => _mutex?.Dispose(), "Single-instance mutex disposal failed");
         base.OnExit(e);
     }
 }

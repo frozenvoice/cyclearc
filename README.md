@@ -172,7 +172,9 @@ The last valid sample stays **Received** while idle, including after a reported 
 
 </details>
 
-**Connection details → Disconnect** restores the previous status line and hides the profile from the main view across restarts. The profile stays in account management, with its last good cache and configuration location preserved. Reconnecting shows the account with **Awaiting usage** until a new official sample arrives; it does not log out of Claude.
+**Connection details → Disconnect** first saves the disconnected state, then restores the previous status line and removes CycleArc's own failure hook. The profile stays hidden from the main view across restarts even if the settings file cannot be cleaned up; CycleArc reports that cleanup is incomplete. The profile stays in account management, with its last good cache and configuration location preserved. Reconnecting shows the account with **Awaiting usage** until a new official sample arrives; it does not log out of Claude.
+
+If setup reports that the statusLine command is too long, move the existing inline statusLine into a script file and use a short command to call it, then connect again. The limit applies to the full generated command, including paths and encoded options; failed setup preserves the existing settings.
 
 Only the official statusLine input is used for usage. Authentication uses the official `claude auth login --claudeai` and `claude auth status --json` commands. CycleArc does not parse `/usage`, read Claude auth/token files, launch a model turn, inspect transcripts or call an undocumented usage endpoint. It saves projected quota fields, receipt/status metadata and local connection paths/fingerprint, never the full stdin JSON. See [integration details](docs/CLAUDE.md) and the [official statusLine documentation](https://code.claude.com/docs/en/statusline).
 

@@ -121,6 +121,67 @@ public class ClaudeConnectionTests
     }
 
     [Fact]
+    public async Task DisconnectCommitsRevocationBeforeInvalidSettingsCleanup()
+    {
+        using var data = new ClaudeTestData();
+        Directory.CreateDirectory(DirectoryFor(data)); File.WriteAllText(Settings(data), "{}");
+        var cli = new FakeCli(data.Root);
+        var connection = new ClaudeConnectionService(data.Accounts, cli, data.Clock);
+        Assert.True((await connection.ConnectAsync(data.Profile.Id, AppFor(data), false, DirectoryFor(data), default)).Success);
+        var command = JsonNode.Parse(File.ReadAllText(Settings(data)))!["statusLine"]!["command"]!.GetValue<string>();
+        Assert.True(ClaudeStatusLineInstaller.TryRead(command, out var options));
+        const string invalid = "{\"hooks\":[]}";
+        File.WriteAllText(Settings(data), invalid);
+
+        var failure = await Assert.ThrowsAsync<ClaudeDisconnectCleanupException>(
+            () => connection.DisconnectAsync(data.Profile.Id, default));
+
+        Assert.Equal(ClaudeSetupFailure.DisconnectCleanupIncomplete, failure.Failure);
+        Assert.True(new ClaudeConnectionStore(data.Accounts, data.Profile.Id).Read().Binding!.Disconnected);
+        Assert.Equal(invalid, File.ReadAllText(Settings(data)));
+        using var input = new MemoryStream(Encoding.UTF8.GetBytes(Payload()));
+        Assert.Equal(1, await ClaudeStatusLineBridge.RunAsync(options!, input, new StringWriter(),
+            data.Accounts, cli, data.Clock));
+    }
+
+    [Fact]
+    public async Task DisconnectReportsUsageInboxCleanupFailureAfterRevocation()
+    {
+        using var data = new ClaudeTestData();
+        Directory.CreateDirectory(DirectoryFor(data)); File.WriteAllText(Settings(data), "{}");
+        var connection = new ClaudeConnectionService(data.Accounts, new FakeCli(data.Root), data.Clock);
+        Assert.True((await connection.ConnectAsync(data.Profile.Id, AppFor(data), false, DirectoryFor(data), default)).Success);
+        var store = new ClaudeConnectionStore(data.Accounts, data.Profile.Id);
+        var binding = store.Read().Binding!;
+        using var lease = new FileStream(data.Path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+
+        var failure = await Assert.ThrowsAsync<ClaudeDisconnectCleanupException>(
+            () => connection.DisconnectAsync(data.Profile.Id, default));
+
+        Assert.Equal(ClaudeSetupFailure.DisconnectCleanupIncomplete, failure.Failure);
+        Assert.IsType<IOException>(failure.InnerException);
+        Assert.True(store.Read().Binding!.Disconnected);
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("{}"), JsonNode.Parse(File.ReadAllText(Settings(data)))));
+        Assert.Equal(binding with { Disconnected = true }, store.Read().Binding);
+    }
+
+    [Fact]
+    public async Task DisconnectBindingSaveFailureIsNotReportedAsSuccess()
+    {
+        using var data = new ClaudeTestData();
+        Directory.CreateDirectory(DirectoryFor(data)); File.WriteAllText(Settings(data), "{}");
+        var connection = new ClaudeConnectionService(data.Accounts, new FakeCli(data.Root), data.Clock);
+        Assert.True((await connection.ConnectAsync(data.Profile.Id, AppFor(data), false, DirectoryFor(data), default)).Success);
+        var store = new ClaudeConnectionStore(data.Accounts, data.Profile.Id);
+        var before = store.Read().Binding!;
+        using var lease = new FileStream(store.PathName + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+
+        await Assert.ThrowsAsync<IOException>(() => connection.DisconnectAsync(data.Profile.Id, default));
+
+        Assert.Equal(before, store.Read().Binding);
+    }
+
+    [Fact]
     public async Task ConcurrentUserEditIsDetectedBeforeReplacingSettings()
     {
         using var data = new ClaudeTestData();

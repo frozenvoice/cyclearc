@@ -1,3 +1,4 @@
+using System.Text;
 using CycleArc.Codex;
 
 namespace CycleArc.Tests;
@@ -65,6 +66,19 @@ public class CodexLoginTests
         Assert.Equal(CodexQuotaStatus.TimedOut, result.Status);
         Assert.True(factory.LastProcess!.HasExited);
         Assert.Contains(factory.LastProcess.Received, x => x.Contains("account/login/cancel"));
+    }
+
+    [Fact]
+    public async Task CancellationBeforeResponseWaitIsNotReportedAsTimeout()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var factory = new ImmediateCancellationFactory(cancellation);
+
+        var result = await new CodexAppServerClient(factory).LoginAsync(
+            AccountTestProtocol.Command, "test", (_, _) => Task.CompletedTask, cancellation.Token);
+
+        Assert.Equal(CodexQuotaStatus.Cancelled, result.Status);
+        Assert.True(factory.LastProcess!.HasExited || factory.LastProcess.KillCalled);
     }
 
     [Theory]
@@ -142,6 +156,46 @@ public class CodexLoginTests
         await reaped.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(process.KillCalled);
         Assert.True(process.HasExited);
+    }
+
+    private sealed class ImmediateCancellationFactory(CancellationTokenSource cancellation) : ICodexProcessFactory
+    {
+        public ImmediateCancellationProcess? LastProcess { get; private set; }
+        public ICodexProcess Start(CodexLaunchCommand command)
+        {
+            LastProcess = new ImmediateCancellationProcess(command, cancellation);
+            return LastProcess;
+        }
+    }
+
+    private sealed class ImmediateCancellationProcess(CodexLaunchCommand command, CancellationTokenSource cancellation) : ICodexProcess
+    {
+        public bool HasExited { get; private set; }
+        public bool KillCalled { get; private set; }
+        public int? ProcessId => null;
+        public string FileName => command.FileName;
+        public string Arguments => command.Arguments;
+        public Task WriteLineAsync(string line, CancellationToken cancellationToken)
+        {
+            if (JsonNode.Parse(line)?["method"]?.ToString() == "initialize") cancellation.Cancel();
+            return Task.CompletedTask;
+        }
+        public Task<string?> ReadLineAsync(int maxBytes, CancellationToken cancellationToken)
+            => Task.FromResult<string?>("{\"id\":1,\"result\":{}}");
+        public Task DrainStderrAsync(StringBuilder sink, int maxBytes, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+        public Task<bool> WaitForExitAsync(TimeSpan timeout, CancellationToken cancellationToken)
+            => Task.FromResult(HasExited);
+        public void KillTree()
+        {
+            KillCalled = true;
+            HasExited = true;
+        }
+        public ValueTask DisposeAsync()
+        {
+            KillTree();
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class LateFactory(Func<ICodexProcess> start) : ICodexProcessFactory

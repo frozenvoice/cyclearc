@@ -39,7 +39,7 @@ rl.on("line", (line) => {
   }
 
   if (message.method === "account/rateLimits/read") {
-    write({
+    const response = {
       id: message.id,
       result: {
         ordinaryUsageAllowed: true,
@@ -61,6 +61,11 @@ rl.on("line", (line) => {
         },
         rateLimitResetCredits: { availableCount: 1, credits: null }
       }
-    });
+    };
+    if (process.argv.includes("--flood-stderr")) {
+      process.stdout.write(JSON.stringify(response) + "\n", "utf8", () => process.exit(0));
+    } else {
+      write(response);
+    }
   }
 });

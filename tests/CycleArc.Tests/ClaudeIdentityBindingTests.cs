@@ -102,7 +102,7 @@ public sealed class ClaudeIdentityBindingTests
         File.WriteAllText(settings, original);
         var failure = await Assert.ThrowsAsync<ClaudeSetupException>(() => ClaudeStatusLineInstaller.InstallAsync(
             data.Accounts, data.Profile.Id, directory, Path.Combine(data.Root, "CycleArc.exe"), default));
-        Assert.Equal(ClaudeSetupFailure.InvalidSettings, failure.Failure);
+        Assert.Equal(ClaudeSetupFailure.CommandTooLong, failure.Failure);
         Assert.Equal(original, File.ReadAllText(settings));
     }
 

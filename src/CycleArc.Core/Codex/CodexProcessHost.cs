@@ -80,10 +80,12 @@ public sealed class CodexProcessFactory : ICodexProcessFactory
 internal sealed class RealCodexProcess : ICodexProcess
 {
     private readonly Process _process;
+    private readonly CodexJsonlReader _stdoutReader;
 
     public RealCodexProcess(Process process, CodexLaunchCommand command)
     {
         _process = process;
+        _stdoutReader = new(process.StandardOutput.BaseStream);
         FileName = command.FileName;
         Arguments = command.Arguments;
     }
@@ -95,7 +97,7 @@ internal sealed class RealCodexProcess : ICodexProcess
     }
 
     public Task<string?> ReadLineAsync(int maxBytes, CancellationToken cancellationToken) =>
-        ReadBoundedAsync(_process.StandardOutput, maxBytes, cancellationToken);
+        _stdoutReader.ReadLineAsync(maxBytes, cancellationToken);
 
     public async Task DrainStderrAsync(System.Text.StringBuilder sink, int maxBytes, CancellationToken cancellationToken)
     {
@@ -240,37 +242,4 @@ internal sealed class RealCodexProcess : ICodexProcess
         }
     }
 
-    internal static async Task<string?> ReadBoundedAsync(
-        TextReader reader,
-        int maxBytes,
-        CancellationToken cancellationToken)
-    {
-        var builder = new System.Text.StringBuilder();
-        var one = new char[1];
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var read = await reader.ReadAsync(one.AsMemory(0, 1), cancellationToken).ConfigureAwait(false);
-            if (read == 0)
-            {
-                return builder.Length == 0 ? null : builder.ToString();
-            }
-
-            if (one[0] == '\n')
-            {
-                if (builder.Length > 0 && builder[^1] == '\r')
-                {
-                    builder.Length--;
-                }
-
-                return builder.ToString();
-            }
-
-            builder.Append(one[0]);
-            if (System.Text.Encoding.UTF8.GetByteCount(builder.ToString()) > maxBytes)
-            {
-                throw new CodexProtocolException("JSONL line exceeded the safe maximum size.");
-            }
-        }
-    }
 }

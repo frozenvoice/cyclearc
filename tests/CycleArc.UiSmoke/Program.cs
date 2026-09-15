@@ -21,6 +21,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--shutdown-child", var scenario]) return ShutdownChecks.RunChild(scenario);
+        if (args is ["--shutdown"]) { ShutdownChecks.Run(); return 0; }
         if (args is ["--claude-process", var executable])
         {
             ClaudeStatusLineProcessChecks.Run(executable);
@@ -83,6 +85,7 @@ internal static class Program
                 MixedProviderUiChecks.Run(claudeDirectory);
                 return 0;
             }
+            ShutdownChecks.Run();
             ClaudeStatusLineProcessChecks.Run();
             AccountUiChecks.Run();
             CodexWindowUiChecks.Run();

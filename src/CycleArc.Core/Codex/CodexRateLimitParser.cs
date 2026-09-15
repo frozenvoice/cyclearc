@@ -157,6 +157,10 @@ public static class CodexRateLimitParser
         }
 
         var minutes = ReadPositiveInt(node, "windowDurationMins", "windowDurationMinutes", "window_duration_mins");
+        if (minutes is null && HasNonNullValue(node, "windowDurationMins", "windowDurationMinutes", "window_duration_mins"))
+        {
+            return null;
+        }
         var used = ReadPercent(node, "usedPercent", "used_percent");
         var resetsAt = ReadUnixSeconds(node, "resetsAt", "resets_at");
         var limitId = ReadString(node, "limitId", "limit_id") ?? fallbackLimitId;
@@ -256,6 +260,20 @@ public static class CodexRateLimitParser
         return null;
     }
 
+    private static bool HasNonNullValue(JsonNode node, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var value = node[name];
+            if (value is not null && value.GetValueKind() != JsonValueKind.Null)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static int? ReadPositiveInt(JsonNode node, params string[] names)
     {
         foreach (var name in names)
@@ -266,7 +284,10 @@ public static class CodexRateLimitParser
                 continue;
             }
 
-            if (TryReadDouble(value, out var number) && double.IsFinite(number) && number > 0)
+            if (TryReadDecimal(value, out var number)
+                && number > 0
+                && number <= int.MaxValue
+                && number == decimal.Truncate(number))
             {
                 return (int)number;
             }
@@ -369,6 +390,14 @@ public static class CodexRateLimitParser
         }
 
         return null;
+    }
+
+    private static bool TryReadDecimal(JsonNode value, out decimal number)
+    {
+        var text = value.GetValueKind() == JsonValueKind.String
+            ? value.GetValue<string>()
+            : value.ToString();
+        return decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number);
     }
 
     private static bool TryReadDouble(JsonNode value, out double number)

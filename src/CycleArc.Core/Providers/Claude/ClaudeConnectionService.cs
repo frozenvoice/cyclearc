@@ -291,14 +291,30 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
             var read = store.Read();
             if (read.Unavailable) throw new ClaudeSetupException(ClaudeSetupFailure.ConnectionUnavailable);
             if (read.Binding is not { Disconnected: false } binding) return;
-            await ClaudeStatusLineInstaller.RestoreAsync(binding.ConfigDirectory, profileId, token).ConfigureAwait(false);
-            await new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(profileId), profileId)
-                .RecordAsync(new ClaudeStatusLineResult(ClaudeInputStatus.Missing), _clock.UtcNow, token).ConfigureAwait(false);
+
+            // Revocation is the durable operation. Commit it before touching user-owned
+            // settings or the usage inbox so either cleanup can fail without leaving an
+            // active binding that still accepts callbacks.
             store.Save(binding with { Disconnected = true });
             _identities.TryRemove(profileId, out _);
+
+            Exception? cleanupFailure = null;
+            try { await ClaudeStatusLineInstaller.RestoreAsync(binding.ConfigDirectory, profileId, token).ConfigureAwait(false); }
+            catch (Exception ex) when (IsCleanupFailure(ex)) { cleanupFailure ??= ex; }
+            try
+            {
+                await new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(profileId), profileId)
+                    .RecordAsync(new ClaudeStatusLineResult(ClaudeInputStatus.Missing), _clock.UtcNow, token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsCleanupFailure(ex)) { cleanupFailure ??= ex; }
+            if (cleanupFailure is not null) throw new ClaudeDisconnectCleanupException(cleanupFailure);
         }
         finally { _gate.Release(); }
     }
+
+    private static bool IsCleanupFailure(Exception ex) => ex is IOException or UnauthorizedAccessException
+        or ClaudeSetupException or InvalidDataException or OperationCanceledException;
 
     public void OpenClaude(string profileId, string workingDirectory)
     {

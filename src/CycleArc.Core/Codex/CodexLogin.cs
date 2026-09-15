@@ -40,7 +40,7 @@ public sealed partial class CodexAppServerClient
             _ = process.DrainStderrAsync(new StringBuilder(), CodexProtocol.MaxStderrBytes, bounded.Token);
             await SendAsync(process, CodexProtocol.BuildInitialize(version), "initialize", sent, bounded.Token).ConfigureAwait(false);
             var init = await WaitForResponseAsync(process, "1", CodexProtocol.InitializeTimeoutMs, bounded.Token).ConfigureAwait(false);
-            if (init.Status != CodexQuotaStatus.Available) return new(init.Status);
+            if (init.Status != CodexQuotaStatus.Available) return new(NormalizeCancellation(init.Status, cancellationToken));
             if (CodexProtocol.HasError(init.Node) || init.Node?["result"] is not JsonObject)
                 return new(CodexQuotaStatus.ProtocolMismatch);
             await SendAsync(process, CodexProtocol.BuildInitialized(), "initialized", sent, bounded.Token).ConfigureAwait(false);
@@ -53,7 +53,7 @@ public sealed partial class CodexAppServerClient
                 if (notifications.Count >= 8) throw new CodexProtocolException("Too many login notifications.");
                 notifications.Enqueue(node);
             }).ConfigureAwait(false);
-            if (response.Status != CodexQuotaStatus.Available) return new(response.Status);
+            if (response.Status != CodexQuotaStatus.Available) return new(NormalizeCancellation(response.Status, cancellationToken));
             if (CodexProtocol.HasError(response.Node)) return new(CodexQuotaStatus.Unavailable);
             if (response.Node?["result"] is not JsonObject result || result["type"]?.ToString() != "chatgpt"
                 || result["loginId"] is not JsonValue idValue || !idValue.TryGetValue<string>(out loginId)
@@ -79,7 +79,7 @@ public sealed partial class CodexAppServerClient
                 // A completion notification is insufficient: verify the resulting account.
                 await SendAsync(process, CodexProtocol.BuildAccountRead(), "account/read", sent, bounded.Token).ConfigureAwait(false);
                 var account = await WaitForResponseAsync(process, "2", CodexProtocol.AccountReadTimeoutMs, bounded.Token).ConfigureAwait(false);
-                if (account.Status != CodexQuotaStatus.Available) return new(account.Status);
+                if (account.Status != CodexQuotaStatus.Available) return new(NormalizeCancellation(account.Status, cancellationToken));
                 var identity = CodexAccountIdentity.Parse(account.Node);
                 return new(identity.Status, identity);
             }
@@ -109,4 +109,11 @@ public sealed partial class CodexAppServerClient
             }
         }
     }
+
+    // WaitForResponseAsync receives the linked hard-ceiling token. Use the original caller
+    // token here so an already-cancelled read cannot be reported as a timeout.
+    private static CodexQuotaStatus NormalizeCancellation(CodexQuotaStatus status, CancellationToken cancellationToken) =>
+        status is CodexQuotaStatus.Cancelled or CodexQuotaStatus.TimedOut
+            ? cancellationToken.IsCancellationRequested ? CodexQuotaStatus.Cancelled : CodexQuotaStatus.TimedOut
+            : status;
 }

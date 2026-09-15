@@ -12,10 +12,25 @@ public sealed record ClaudeBridgeOptions(int Version, string ProfileId, string C
     string CycleArcExecutable, string DataRoot, bool HadStatusLine, JsonObject? PreviousStatusLine,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BindingGeneration = null);
 
-public enum ClaudeSetupFailure { InvalidSettings, SettingsChanged, AlreadyLinked, ConnectionUnavailable }
-public sealed class ClaudeSetupException(ClaudeSetupFailure failure) : Exception("Claude connection settings could not be updated.")
+public enum ClaudeSetupFailure
+{
+    InvalidSettings,
+    SettingsChanged,
+    AlreadyLinked,
+    ConnectionUnavailable,
+    CommandTooLong,
+    DisconnectCleanupIncomplete
+}
+
+public class ClaudeSetupException(ClaudeSetupFailure failure, Exception? innerException = null)
+    : Exception("Claude connection settings could not be updated.", innerException)
 {
     public ClaudeSetupFailure Failure { get; } = failure;
+}
+
+public sealed class ClaudeDisconnectCleanupException(Exception innerException)
+    : ClaudeSetupException(ClaudeSetupFailure.DisconnectCleanupIncomplete, innerException)
+{
 }
 
 public static class ClaudeStatusLineInstaller
@@ -55,7 +70,7 @@ public static class ClaudeStatusLineInstaller
             + "$input | & '" + path + "' '" + ClaudeStatusLineBridge.Argument + "' $options"
             + " | ForEach-Object { $_ }; exit $LASTEXITCODE";
         var command = Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-        if (command.Length > MaxCommandLength) throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings);
+        if (command.Length > MaxCommandLength) throw new ClaudeSetupException(ClaudeSetupFailure.CommandTooLong);
         return command;
     }
 

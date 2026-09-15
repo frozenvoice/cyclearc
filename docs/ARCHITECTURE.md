@@ -9,6 +9,8 @@
   five-hour data. Missing windows are omitted, and unknown percentages are never filled with zero.
   A present malformed window/container is a protocol failure and retains the same account's
   last-good sample and success time. Absent/null optional windows remain valid.
+  Reported window durations must be positive whole minutes within the 32-bit integer range;
+  fractional or overflowing durations fail parsing. The existing percentage clamp remains.
   Codex snapshots use flushed temporary files, atomic replacement and valid-backup recovery;
   bounded load validation rejects corrupt or unsupported cache shapes before projecting data.
   Account-list projection uses the service's last verified identity in memory. Binding
@@ -62,7 +64,8 @@
 - `ClaudeStatusLineInstaller` updates statusLine and one owned `hooks.StopFailure` command, with validation, a local backup,
   an exclusive lock and atomic replacement that checks for concurrent changes. The encoded wrapper
   preserves an existing command's stdin/output; reconnect is idempotent and disconnect restores the
-  previous entry only while the active command is still owned by this profile.
+  previous entry only while the active command is still owned by this profile. Disconnect saves
+  revocation before settings/inbox cleanup; cleanup failure is reported without restoring the binding.
 - StatusLine has no identity fields. Each automatic callback verifies the current CLI login against
   its binding before accepting usage; a changed login marks the last sample stale. Old configuration
   callbacks and quota samples predating a new binding cannot populate the new account. A current-login

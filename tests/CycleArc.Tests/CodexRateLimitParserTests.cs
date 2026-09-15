@@ -277,4 +277,29 @@ public class CodexRateLimitParserTests
         Assert.Equal("plus", parsed.PlanType);
         Assert.Null(parsed.OrdinaryUsageAllowed);
     }
+
+    [Theory]
+    [InlineData("300.5")]
+    [InlineData("2147483648")]
+    [InlineData("2147483647.0000001")]
+    [InlineData("-1")]
+    public void InvalidWindowDuration_FailsBeforeIntegerConversion(string duration)
+    {
+        var parsed = CodexRateLimitParser.Parse(
+            null,
+            JsonNode.Parse("""{"rateLimits":{"primary":{"usedPercent":10,"windowDurationMins":""" + duration + """}}}"""));
+
+        Assert.Equal(CodexQuotaStatus.ProtocolMismatch, parsed.Status);
+        Assert.Empty(parsed.Windows);
+    }
+    [Fact]
+    public void MaximumIntWindowDuration_IsAccepted()
+    {
+        var parsed = CodexRateLimitParser.Parse(
+            null,
+            JsonNode.Parse("""{"rateLimits":{"primary":{"usedPercent":10,"windowDurationMins":2147483647}}}"""));
+
+        Assert.Equal(CodexQuotaStatus.Available, parsed.Status);
+        Assert.Equal(int.MaxValue, parsed.Windows[0].WindowDurationMinutes);
+    }
 }

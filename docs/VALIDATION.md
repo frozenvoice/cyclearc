@@ -2,6 +2,42 @@
 
 ## Current release — Codex and Claude Code
 
+- Follow-up review against `a87309c` (2026-09-15):
+  - The original [Windows #123 attempt 1](https://github.com/frozenvoice/cyclearc/actions/runs/34856508275/attempts/1)
+    failed `RealStderrContinuesDrainingAfterUtf8DiagnosticBudget` (Available vs TimedOut)
+    and `ImportedRecoveryCancellationPreservesRegistryProfileSelectionAndCache` (Cancelled vs
+    TimedOut): 1,256 passed and two failed. Its later green attempt did not itself fix either issue.
+  - Shutdown now always reaches tray disposal and WPF shutdown after bounded work waits,
+    even when work, cancellation callbacks, cleanup or logging throws. Isolated WPF child
+    checks exercise the production exit path and verify mutex release before process exit.
+  - Claude disconnection commits revocation before settings/inbox cleanup. Incomplete cleanup
+    has a distinct warning; a failed binding save remains an unsuccessful disconnect.
+    Overlong generated statusLine commands have a separate error with script-file guidance.
+  - Codex JSONL reads buffer bytes and preserve read-ahead across lines. Positive whole-minute
+    duration validation rejects fractional and overflowing values before conversion. Existing
+    percentage clamping and unknown/optional-window behavior remain unchanged.
+  - Codex login now maps cancellation/timeout results using the original caller token at each
+    response stage. Cancellation just before a response wait cannot become a timeout, while
+    the login deadline still reports TimedOut. The imported-profile regression preserves
+    registry, selection, identity binding and last-good cache.
+  - The large-stderr fixture exits after its final response is flushed, so production draining
+    observes EOF before diagnostics are read. It still blocks protocol progress on writing
+    more stderr than the pipe/diagnostic budget, exercising continued drainage. This is
+    synthetic subprocess coverage, not a measurement of live account latency.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed on .NET SDK 8.0.424:
+    Release build (zero warnings/errors), all 1,272 unit tests, 15 isolated installer scenarios,
+    the five shutdown child scenarios, production WPF checks in both languages/all themes,
+    native widget lifecycle/DPI checks on two monitors, single-file win-x64 publish, and
+    built/published Claude statusLine/StopFailure receivers in PowerShell and Git Bash.
+    The artifact contains only `CycleArc.exe`; the installed application was not replaced.
+  - New connection errors were rendered and visually reviewed in English/Korean, Dark/Light/System,
+    at 470x400 and 610x580. The footer remains readable; cleanup warning does not trigger auth,
+    and failed binding persistence never appears as a successful disconnect. Checks use synthetic
+    accounts and isolated data; no live login, model request or credit consumption was performed.
+  - Connection-file backup recovery and legacy dependency separation remain separate design
+    work. A stale identity backup must not revive a revoked binding. Per-callback identity
+    verification and explicit recovery after authentication failure retain their existing policy.
+
 - Release 0.5.6 audit corrections against `756d946` (2026-09-14):
   - CA-01: present malformed Codex windows fail as protocol mismatches, preserving the last
     verified sample and success time. Null/absent optional windows and unknown percentages

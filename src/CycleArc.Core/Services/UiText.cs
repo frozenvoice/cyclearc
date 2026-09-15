@@ -459,6 +459,13 @@ public static class UiText
     public static string RunFirstManualSync => T("Run first manual sync", "첫 수동 동기화 실행");
     public static string SignInConnect => T("Sign in / connect", "로그인 / 연결");
     public static string SignInAgain => T("Sign in again", "다시 로그인");
+    public static string ClaudeStatusLineCommandTooLong => T(
+        "The generated statusLine command is too long. Move the existing inline command to a script file, then reconnect with a short script command.",
+        "생성된 statusLine 명령이 너무 깁니다. 기존 인라인 명령을 스크립트 파일로 옮기고 짧은 호출 명령으로 다시 연결하세요.");
+    public static string ClaudeDisconnected => T("Disconnected.", "연결을 해제했습니다.");
+    public static string ClaudeDisconnectCleanupIncomplete => T(
+        "Disconnected, but cleanup is incomplete. Claude settings may still contain CycleArc commands; check the settings file.",
+        "연결은 해제됐지만 정리를 완료하지 못했습니다. Claude 설정에 CycleArc 명령이 남아 있을 수 있으니 설정 파일을 확인하세요.");
     public static string CompanionConnectedReady => T(
         "Companion connected. Run first manual sync when you are ready, or Finish to configure later.",
         "도우미가 연결되었습니다. 준비되면 첫 수동 동기화를 실행하거나, 마침으로 나중에 설정할 수 있습니다.");

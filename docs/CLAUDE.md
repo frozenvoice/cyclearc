@@ -60,6 +60,10 @@ CycleArc updates the `statusLine` property and one exact owned `hooks.StopFailur
 
 The generated shell-neutral encoded PowerShell command invokes the headless `--claude-statusline-bridge` mode of the same `CycleArc.exe`. It forwards the same stdin to an existing statusLine command, preserving its stdout and settings such as padding. The old command and its restoration data remain in the Claude settings, not in CycleArc's usage cache. Disconnect restores the previous statusLine entry only if the active command is still CycleArc's exact owned wrapper, and removes only its own StopFailure hook; it never overwrites a replacement command or removes another tool's hooks. An old wrapper that cannot be removed after changing configuration folders can still display its previous command, but can no longer collect for the moved profile.
 
+Disconnect saves the revoked binding before touching the Claude settings or usage inbox. If cleanup fails, callbacks remain rejected and the profile remains disconnected after restart; the UI reports incomplete cleanup. Failure to save the binding is an unsuccessful disconnect. Existing user edits remain preserved.
+
+An overlong generated statusLine command has its own setup error. Move an existing inline statusLine into a script file with a short invocation before reconnecting. The limit includes executable/configuration paths and encoded options; rejected setup leaves the original settings intact.
+
 The headless bridge has a ten-second total deadline and a four-second bound for the previous command. It uses Git Bash when available and Windows PowerShell otherwise. No additional executable is distributed. Reconnect if you move `CycleArc.exe`.
 
 The previous manual `--claude-statusline <profile-id>` receiver remains for existing configurations. Automatic setup recognizes its exact generated command and upgrades it without recursively wrapping it. Once a profile has an automatic binding, the old receiver cannot bypass its login checks.

@@ -26,6 +26,7 @@ internal static class MixedProviderUiChecks
             UiText.SetLanguage(language);
             applyTheme.Invoke(null, [theme]);
             var accounts = Fixtures();
+            CheckConnectionErrors(accounts[1].Profile, language, theme, directory);
             var flyout = new FlyoutWindow();
             var widget = new FloatingWidget();
             var manager = new AccountsWindow();
@@ -413,10 +414,70 @@ internal static class MixedProviderUiChecks
             "A recently received Claude sample was presented as a current account query.");
     }
 
+    private static void CheckConnectionErrors(CodexAccountProfile profile, UiLanguage language, AppTheme theme, string? directory)
+    {
+        var connection = new FakeConnection(profile.Id) { ConnectFailure = ClaudeSetupFailure.CommandTooLong };
+        var window = new ClaudeConnectionWindow(profile, @"C:\Synthetic CycleArc\CycleArc.exe", connection);
+        try
+        {
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            AccountUiChecks.PumpUntil(window.ActiveOperation);
+            var connect = (Button)window.FindName("ConnectExistingButton");
+            var disconnect = (Button)window.FindName("DisconnectButton");
+            var status = (TextBlock)window.FindName("OperationStatus");
+            connect.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            AccountUiChecks.PumpUntil(window.ActiveOperation);
+            Check(status.Text == UiText.ClaudeStatusLineCommandTooLong, "Overlong statusLine has no specific recovery guidance.");
+            RenderWarning("command-too-long");
+
+            connection.ConnectFailure = null;
+            connect.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            AccountUiChecks.PumpUntil(window.ActiveOperation);
+            connection.FailDisconnectSave = true;
+            disconnect.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            AccountUiChecks.PumpUntil(window.ActiveOperation);
+            Check(disconnect.Visibility == Visibility.Visible && status.Text != UiText.ClaudeDisconnected
+                && status.Text != UiText.ClaudeDisconnectCleanupIncomplete,
+                "Failed binding save was presented as a successful disconnect.");
+
+            connection.FailDisconnectSave = false;
+            connection.FailDisconnectCleanup = true;
+            var inspected = connection.Inspections;
+            disconnect.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            AccountUiChecks.PumpUntil(window.ActiveOperation);
+            Check(status.Text == UiText.ClaudeDisconnectCleanupIncomplete
+                && disconnect.Visibility == Visibility.Collapsed
+                && ((Button)window.FindName("OpenClaudeButton")).Visibility == Visibility.Collapsed,
+                "Cleanup failure did not retain the disconnected view and warning.");
+            Check(connection.Inspections == inspected, "Cleanup warning started another authentication inspection.");
+            RenderWarning("disconnect-cleanup");
+
+            void RenderWarning(string name)
+            {
+                foreach (var size in new[] { new Size(610, 580), new Size(470, 400) })
+                {
+                    AccountUiChecks.Render(window, size.Width, size.Height, directory is null ? null
+                        : Path.Combine(directory, $"{name}-{language}-{theme}-{size.Width}.png"));
+                    var content = (FrameworkElement)window.Content;
+                    var bottom = status.TranslatePoint(new Point(0, status.ActualHeight), content).Y;
+                    Check(status.ActualWidth > 0 && status.ActualHeight >= status.DesiredSize.Height - 1
+                        && bottom <= content.ActualHeight + 1, "Connection warning is clipped at compact size.");
+                    Check(((ProgressBar)window.FindName("OperationProgress")).Visibility == Visibility.Collapsed,
+                        "Finished connection failure left progress visible.");
+                }
+            }
+        }
+        finally { window.Close(); }
+    }
+
     private sealed class FakeConnection(string profileId) : IClaudeConnectionActions
     {
         private readonly ClaudeAuthentication _auth = new(ClaudeAuthStatus.SignedIn, "person@example.invalid", "Pro", new string('A', 64));
         private ClaudeConnectionBinding? _binding;
+        public int Inspections { get; private set; }
+        public ClaudeSetupFailure? ConnectFailure { get; set; }
+        public bool FailDisconnectSave { get; set; }
+        public bool FailDisconnectCleanup { get; set; }
         public bool LastLogin { get; private set; }
         public int Calls { get; private set; }
         public bool DelayLogin { get; set; }
@@ -428,12 +489,13 @@ internal static class MixedProviderUiChecks
         public ClaudeFailureKind FailureKind { get; set; }
         public Task<ClaudeConnectionOverview> InspectAsync(string id, CancellationToken token)
         {
-            LastInspectedId = id;
+            Inspections++; LastInspectedId = id;
             return Task.FromResult(new ClaudeConnectionOverview(_binding, _auth, _binding is not null, @"C:\Synthetic Claude", FailureKind));
         }
         public async Task<ClaudeConnectionResult> ConnectAsync(string id, string executable, bool login, string? directory, CancellationToken token)
         {
             Calls++; LastLogin = login;
+            if (ConnectFailure is { } failure) return new(false, _auth, Failure: failure);
             if (DelayLogin) await Task.Delay(Timeout.Infinite, token);
             _binding = new(1, RedirectId ?? profileId, @"C:\Synthetic Claude", @"C:\Synthetic Claude\claude.cmd", false, _auth.Fingerprint!, DateTimeOffset.UtcNow);
             return new(true, _auth, _binding);
@@ -445,7 +507,18 @@ internal static class MixedProviderUiChecks
             FailureKind = ClaudeFailureKind.None;
             return new ClaudeConnectionResult(true, _auth, _binding);
         }
-        public Task DisconnectAsync(string id, CancellationToken token) { LastDisconnectedId = id; _binding = null; return Task.CompletedTask; }
+        public Task DisconnectAsync(string id, CancellationToken token)
+        {
+            LastDisconnectedId = id;
+            if (FailDisconnectSave) throw new IOException("Synthetic binding save failure.");
+            if (FailDisconnectCleanup)
+            {
+                _binding = _binding! with { Disconnected = true };
+                throw new ClaudeDisconnectCleanupException(new IOException("Synthetic cleanup failure."));
+            }
+            _binding = null;
+            return Task.CompletedTask;
+        }
         public void OpenClaude(string id, string workingDirectory) => throw new InvalidOperationException("Offline tests cannot open a live session.");
     }
 
