@@ -2,6 +2,23 @@
 
 ## Current release — Codex and Claude Code
 
+- Single development tray installation (2026-09-15):
+  - The duplicate Windows tray-settings rows came from the primary checkout and a linked
+    worktree's separate `publish/local/CycleArc.exe` paths. Only one desktop process was
+    running; the existing mutex and NotifyIcon lifetime were working as intended.
+  - `dev-run.ps1` now resolves the primary Git worktree and shares its existing installation.
+    Build staging stays in the current checkout. After validation, a hash-checked copy to
+    primary staging keeps replacement and rollback on the same volume. A shared lease
+    prevents concurrent installs; only exact current/primary installation paths are stopped.
+    Existing linked-worktree executable files remain available for headless callbacks.
+  - Added isolated primary/linked Git, source-export fallback, malformed metadata, path-boundary,
+    copy, nonempty staging, and lease checks alongside the 15 existing rollback scenarios.
+    The full development run passed with zero build warnings/errors, 1,286 unit tests, all
+    WPF/receiver checks and single-file publish, then launched the primary installation.
+  - Backed up and removed only the obsolete linked-worktree tray registry entry. Confirmed
+    one CycleArc registration and one running primary executable, preserved the primary
+    visibility preference, and compared all unrelated tray entries before/after cleanup.
+
 - CycleArc 0.5.7 release recovery (2026-09-15):
   - Compared all three failed Windows runs before retrying. Runs `34949182820` and
     `34949944075` reached the existing-statusLine output assertion; the second captured

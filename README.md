@@ -236,7 +236,7 @@ cd cyclearc
 .\dev-run.ps1
 ```
 
-The launcher restores dependencies, builds **Release**, runs the tests and WPF checks, then publishes and launches **one self-contained Windows x64 `CycleArc.exe`**, without debug symbols. The installed file is placed in `publish/local`. It retries transient deployment locks and restores the previous local build if replacement or startup fails.
+The launcher restores dependencies, builds **Release**, runs the tests and WPF checks, then publishes and launches **one self-contained Windows x64 `CycleArc.exe`**, without debug symbols. All linked Git worktrees share the primary worktree's `publish/local` installation so Windows keeps one development tray entry. Source exports without Git use their own `publish/local`. Build staging stays in the current checkout; `-NoLaunch` does not replace the installed app. The installer retries transient deployment locks and restores the previous local build if replacement or startup fails.
 
 - `-NoLaunch`: validate the staged executable without replacing the running local app.
 - `-Fast`: skip the unit suite only when it has already passed for the same changes.

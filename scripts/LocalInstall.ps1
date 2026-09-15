@@ -1,4 +1,191 @@
 # Shared by dev-run and the isolated installer regression tests.
+function ConvertTo-InstallAbsolutePath([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { throw 'Install path is empty' }
+    [IO.Path]::GetFullPath($Path)
+}
+
+function Test-InstallPathWithin([string]$Path, [string]$Root) {
+    $pathFull = (ConvertTo-InstallAbsolutePath $Path).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $rootFull = (ConvertTo-InstallAbsolutePath $Root).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $pathFull.Equals($rootFull, [StringComparison]::OrdinalIgnoreCase) -or
+        $pathFull.StartsWith($rootFull + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-InstallPath {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string[]]$AllowedRoots
+    )
+    if ($AllowedRoots.Count -eq 0) { throw 'No allowed install roots were supplied' }
+    $absolute = ConvertTo-InstallAbsolutePath $Path
+    $matchingRoot = $null
+    foreach ($root in $AllowedRoots) {
+        if (Test-InstallPathWithin $absolute $root) {
+            $matchingRoot = (ConvertTo-InstallAbsolutePath $root).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+            break
+        }
+    }
+    if (!$matchingRoot) { throw "Install path is outside the allowed roots: $absolute" }
+
+    # Check every existing ancestor and descendant.  This keeps a junction or
+    # symlink from redirecting a later delete/move outside the selected tree.
+    $cursor = $absolute
+    while ($true) {
+        if (Test-Path -LiteralPath $cursor) {
+            $item = Get-Item -LiteralPath $cursor -Force
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Install path is a reparse point: $cursor" }
+        }
+        if ($cursor.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).Equals($matchingRoot, [StringComparison]::OrdinalIgnoreCase)) { break }
+        $parent = Split-Path -Parent $cursor
+        if (!$parent -or $parent -eq $cursor) { throw "Install path ancestor escaped its allowed root: $absolute" }
+        $cursor = $parent
+    }
+    if (Test-Path -LiteralPath $absolute -PathType Container) {
+        $reparse = @(Get-ChildItem -LiteralPath $absolute -Force -Recurse | Where-Object {
+            $_.Attributes -band [IO.FileAttributes]::ReparsePoint
+        })
+        if ($reparse.Count -gt 0) { throw "Install path contains a reparse point: $($reparse[0].FullName)" }
+    }
+    $absolute
+}
+
+function Assert-InstallSameVolume {
+    param([Parameter(Mandatory)][string[]]$Paths)
+    $volumes = @($Paths | ForEach-Object { [IO.Path]::GetPathRoot((ConvertTo-InstallAbsolutePath $_)).ToUpperInvariant() } | Select-Object -Unique)
+    if ($volumes.Count -gt 1) { throw "Install rollback paths must share one volume: $($volumes -join ', ')" }
+}
+
+function Invoke-InstallGit {
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string[]]$Arguments
+    )
+    $root = ConvertTo-InstallAbsolutePath $RepoRoot
+    $output = @(& git -C $root @Arguments 2>&1 | ForEach-Object { $_.ToString() })
+    $exitCode = [int]$LASTEXITCODE
+    $text = $output -join "`n"
+    if ($exitCode -ne 0) {
+        $detail = if ($text) { ": $text" } else { '' }
+        throw "Git metadata lookup failed for $root$detail"
+    }
+    $text
+}
+
+function Assert-CycleArcTree {
+    param([Parameter(Mandatory)][string]$Root)
+    $rootFull = ConvertTo-InstallAbsolutePath $Root
+    foreach ($relative in @('CycleArc.sln', 'src/CycleArc/CycleArc.csproj')) {
+        $candidate = Join-Path $rootFull $relative
+        if (!(Test-Path -LiteralPath $candidate -PathType Leaf)) { throw "Git primary worktree is not a CycleArc tree: missing $candidate" }
+        Assert-InstallPath -Path $candidate -AllowedRoots @($rootFull) | Out-Null
+    }
+}
+
+function Resolve-InstallLayout {
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $currentRoot = ConvertTo-InstallAbsolutePath $RepoRoot
+    Assert-CycleArcTree -Root $currentRoot
+    $gitMetadata = Join-Path $currentRoot '.git'
+    $gitMetadataItem = Get-Item -LiteralPath $gitMetadata -Force -ErrorAction SilentlyContinue
+    if (!$gitMetadataItem) {
+        return [pscustomobject]@{
+            CurrentRoot = $currentRoot
+            PrimaryRoot = $currentRoot
+            InstallRoot = $currentRoot
+            LocalDir = Join-Path $currentRoot 'publish/local'
+            BackupDir = Join-Path $currentRoot 'publish/local.previous'
+            UsesGitPrimary = $false
+        }
+    }
+    if ($gitMetadataItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Git metadata is a reparse point: $gitMetadata"
+    }
+
+    # A .git file/directory exists, so Git failures are metadata failures, not
+    # permission to silently fall back to a different installation directory.
+    $reportedRoot = (Invoke-InstallGit -RepoRoot $currentRoot -Arguments @('rev-parse', '--show-toplevel')).Trim()
+    if (!$reportedRoot -or !(Test-InstallPathWithin $reportedRoot $currentRoot) -or
+        !(ConvertTo-InstallAbsolutePath $reportedRoot).Equals($currentRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Git reported an unexpected current worktree: '$reportedRoot'"
+    }
+    $commonDirText = (Invoke-InstallGit -RepoRoot $currentRoot -Arguments @('rev-parse', '--path-format=absolute', '--git-common-dir')).Trim()
+    if (!$commonDirText -or $commonDirText -match "`r|`n") { throw 'Git common-dir metadata is malformed' }
+    $commonDir = ConvertTo-InstallAbsolutePath $commonDirText
+    if (!(Test-Path -LiteralPath $commonDir -PathType Container)) { throw "Git common dir is not a directory: $commonDir" }
+    Assert-InstallPath -Path $commonDir -AllowedRoots @($commonDir) | Out-Null
+    if ([IO.Path]::GetFileName($commonDir).ToLowerInvariant() -ne '.git') { throw "Git common dir is not a .git directory: $commonDir" }
+    $primaryRoot = Split-Path -Parent $commonDir
+    if (!$primaryRoot -or !(Test-Path -LiteralPath $primaryRoot -PathType Container)) { throw "Git primary worktree root is invalid: $primaryRoot" }
+    Assert-InstallPath -Path $primaryRoot -AllowedRoots @($primaryRoot) | Out-Null
+    Assert-CycleArcTree -Root $primaryRoot
+
+    [pscustomobject]@{
+        CurrentRoot = $currentRoot
+        PrimaryRoot = $primaryRoot
+        InstallRoot = $primaryRoot
+        LocalDir = Join-Path $primaryRoot 'publish/local'
+        BackupDir = Join-Path $primaryRoot 'publish/local.previous'
+        UsesGitPrimary = $true
+    }
+}
+
+function New-InstallLease {
+    param(
+        [Parameter(Mandatory)][string]$InstallRoot,
+        [Parameter(Mandatory)][string[]]$AllowedRoots
+    )
+    $root = Assert-InstallPath -Path $InstallRoot -AllowedRoots $AllowedRoots
+    $publish = Join-Path $root 'publish'
+    Assert-InstallPath -Path $publish -AllowedRoots $AllowedRoots | Out-Null
+    if (!(Test-Path -LiteralPath $publish -PathType Container)) {
+        New-Item -ItemType Directory -Path $publish -Force | Out-Null
+        Assert-InstallPath -Path $publish -AllowedRoots $AllowedRoots | Out-Null
+    }
+    $leasePath = Join-Path $publish '.dev-run.install.lock'
+    if (Test-Path -LiteralPath $leasePath) { Assert-InstallPath -Path $leasePath -AllowedRoots $AllowedRoots | Out-Null }
+    try {
+        return [IO.File]::Open($leasePath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    }
+    catch [IO.IOException] {
+        throw "Another dev-run installation is using $leasePath"
+    }
+}
+
+function Copy-ValidatedExecutable {
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][string]$DestinationDirectory,
+        [Parameter(Mandatory)][string[]]$SourceRoots,
+        [Parameter(Mandatory)][string[]]$DestinationRoots
+    )
+    $source = Assert-InstallPath -Path $SourcePath -AllowedRoots $SourceRoots
+    if ([IO.Path]::GetFileName($source) -cne 'CycleArc.exe' -or !(Test-Path -LiteralPath $source -PathType Leaf)) {
+        throw "Only the validated CycleArc.exe may be copied: $source"
+    }
+    $sourceItem = Get-Item -LiteralPath $source
+    if ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Executable is a reparse point: $source" }
+    $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+    $destination = Assert-InstallPath -Path $DestinationDirectory -AllowedRoots $DestinationRoots
+    if (!(Test-Path -LiteralPath $destination -PathType Container)) {
+        New-Item -ItemType Directory -Path $destination -Force | Out-Null
+        Assert-InstallPath -Path $destination -AllowedRoots $DestinationRoots | Out-Null
+    }
+    if (@(Get-ChildItem -LiteralPath $destination -Force).Count -ne 0) {
+        throw "Install staging directory must be empty: $destination"
+    }
+    $target = Join-Path $destination 'CycleArc.exe'
+    Copy-Item -LiteralPath $source -Destination $target -Force
+    Assert-InstallPath -Path $target -AllowedRoots $DestinationRoots | Out-Null
+    $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sourceHash -cne $targetHash) { throw "Copied CycleArc.exe hash mismatch ($sourceHash vs $targetHash)" }
+    $files = @(Get-ChildItem -LiteralPath $destination -File -Recurse)
+    $directories = @(Get-ChildItem -LiteralPath $destination -Directory -Recurse)
+    if ($files.Count -ne 1 -or $files[0].Name -cne 'CycleArc.exe' -or $directories.Count -ne 0) {
+        throw "Install staging must contain exactly CycleArc.exe: $destination"
+    }
+    $target
+}
+
 function Invoke-InstallRetry([scriptblock]$Action, [int]$Attempts = 30, [int]$DelayMilliseconds = 500) {
     for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
         try { & $Action; return }
@@ -33,6 +220,10 @@ function Install-StagedApp {
         },
         [int]$Attempts = 30, [int]$DelayMilliseconds = 500
     )
+    $StagingDir = ConvertTo-InstallAbsolutePath $StagingDir
+    $LocalDir = ConvertTo-InstallAbsolutePath $LocalDir
+    $BackupDir = ConvertTo-InstallAbsolutePath $BackupDir
+    Assert-InstallSameVolume -Paths @($StagingDir, $LocalDir, $BackupDir)
     $oldMoved = $false
     $newMoved = $false
     $hadLocal = Test-Path -LiteralPath $LocalDir
@@ -42,10 +233,18 @@ function Install-StagedApp {
             Invoke-InstallRetry { & $Validate $BackupDir; Remove-Item -LiteralPath $BackupDir -Recurse -Force } $Attempts $DelayMilliseconds
         }
         if ($hadLocal) {
-            Invoke-InstallRetry { & $Validate $LocalDir; & $Move $LocalDir $BackupDir } $Attempts $DelayMilliseconds
+            Invoke-InstallRetry {
+                & $Validate $LocalDir
+                & $Validate $BackupDir
+                & $Move $LocalDir $BackupDir
+            } $Attempts $DelayMilliseconds
             $oldMoved = $true
         }
-        Invoke-InstallRetry { & $Validate $StagingDir; & $Move $StagingDir $LocalDir } $Attempts $DelayMilliseconds
+        Invoke-InstallRetry {
+            & $Validate $StagingDir
+            & $Validate $LocalDir
+            & $Move $StagingDir $LocalDir
+        } $Attempts $DelayMilliseconds
         $newMoved = $true
         & $Start $LocalDir
     }
@@ -53,10 +252,18 @@ function Install-StagedApp {
         $failure = $_
         # Never restore a stale backup if moving the current installation failed.
         if ($newMoved) {
-            Invoke-InstallRetry { & $Validate $LocalDir; & $Move $LocalDir $StagingDir } $Attempts $DelayMilliseconds
+            Invoke-InstallRetry {
+                & $Validate $LocalDir
+                & $Validate $StagingDir
+                & $Move $LocalDir $StagingDir
+            } $Attempts $DelayMilliseconds
         }
         if ($oldMoved) {
-            Invoke-InstallRetry { & $Validate $BackupDir; & $Move $BackupDir $LocalDir } $Attempts $DelayMilliseconds
+            Invoke-InstallRetry {
+                & $Validate $BackupDir
+                & $Validate $LocalDir
+                & $Move $BackupDir $LocalDir
+            } $Attempts $DelayMilliseconds
         }
         if ($hadLocal) { & $Start $LocalDir }
         throw $failure
