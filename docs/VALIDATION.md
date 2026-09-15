@@ -11,6 +11,11 @@
     or errors, 1,283 unit tests, 15 installer recovery scenarios, 108 period-selection renders,
     existing WPF/widget/DPI checks, 99 tray renders, win-x64 single-file publish and
     built/published Claude receivers. This release preparation did not replace the running app.
+  - The first release CI (34949182820, commit 60522ba) passed unit tests but failed the
+    synthetic existing-statusLine output check. Its old assertion omitted the child exit
+    code/output/error, so the cause was not established. Added those synthetic diagnostics
+    and the projected failure kind; the affected local production-receiver check passed.
+    Receiver deadlines and runtime behavior were not changed to bypass the failed check.
 
 - Shared usage-period selection (2026-09-15):
   - Added persisted Auto / 5 hours / Weekly selection shared by the detail ring, native

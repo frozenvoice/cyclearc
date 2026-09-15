@@ -94,7 +94,8 @@ internal static class ClaudeStatusLineProcessChecks
         var options = ClaudeStatusLineInstaller.InstallAsync(accounts, profile.Id, directory, executable, default).GetAwaiter().GetResult();
         var command = ClaudeStatusLineInstaller.Command(options);
         var result = RunProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command.Split(' ')[^1]], json);
-        Check(result.Code == 0 && result.Output.Trim() == "Existing line 23.5", "Automatic bridge did not preserve existing output and input.");
+        Check(result.Code == 0 && result.Output.Trim() == "Existing line 23.5",
+            $"Automatic bridge did not preserve existing output and input (exit {result.Code}, output '{result.Output.Trim()}', error '{result.Error.Trim()}', failure '{new ClaudeFailureStore(accounts).Read(profile.Id).State?.Kind}').");
         var store = new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(profile.Id), profile.Id);
         Check(store.Read().State?.LastGood?.FiveHour?.UsedPercentage == 23.5, "Authenticated bridge did not persist official quota fields.");
         var bash = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Git", "bin", "bash.exe");
