@@ -2,6 +2,40 @@
 
 ## Current release — Codex and Claude Code
 
+- Widget visibility and tray readability follow-up (2026-09-15):
+  - On the reporting PC, the widget was enabled at 92% opacity, at physical position
+    (60, 60), with native visible/topmost flags set, no minimization and no DWM cloaking.
+    A read-only capture of its screen rectangle showed the underlying application instead.
+    Walking the actual native window order found nine visible ordinary windows above it.
+    The previous check trusted the topmost style bit and missed this disagreement.
+  - Visibility recovery now also checks native stacking order. Explicit position reset
+    replaces the widget window on save, preserving visibility preferences and account selection.
+    This incident establishes a stacking-order failure; it does not establish a GPU defect.
+  - The native regression moves a synthetic widget below an ordinary window, checks the
+    stacking-order detector independently of the topmost bit, then verifies repair without
+    activation. A healthy topmost sibling remains above on later checks. Windows rejected
+    directly forcing the stale style bit with SetWindowLongPtr, so the test does not claim
+    to recreate that OS corruption; the combined state was observed in the live diagnosis.
+    Explicit reset checks verify HWND replacement, display preferences and input subscriptions.
+  - Number-style tray icons fit bold glyph ink into an opaque rounded square at the Windows
+    small-icon size. Normal refreshes with retained values keep the normal color; stale/error
+    states stay amber, valid 100% is red, and connected Claude awaiting usage is neutral gray.
+    The existing dark-centered ring option remains available. Settings and both guides explain
+    the numeric basis and colors without describing Claude samples as live.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed: Release build with zero
+    warnings/errors, 1,272 unit tests, 15 installer scenarios, production WPF/shutdown checks,
+    native widget lifecycle/DPI checks on two monitors, 66 tray icon renders, win-x64 single-file
+    publish, and built/published Claude receivers. The checks use isolated synthetic accounts;
+    no model turn, live login or reset-credit consumption was used for verification.
+  - Visually reviewed number/ring icons at 16/24/32px on light/dark backgrounds and the
+    affected settings in English/Korean at normal/compact sizes, including the scrolled legend.
+    On the reporting PC, the 144-DPI taskbar uses the expected 24px icon metric.
+  - Installed through the guarded rollback path at `publish/local/CycleArc.exe`; the installed
+    SHA-256 matches the validated artifact (`BDB0394B16C5D2CC9145D2E9C0CD385822333D06685DF94E3AFE27575DFCB0EC`).
+    Read-only screen captures confirmed the installed widget and larger tray digits. Native
+    diagnostics found zero ordinary visible windows above the widget; enabled/opacity/topmost/
+    click-through preferences remained intact. Diagnostic images stay in ignored local artifacts.
+
 - Follow-up review against `a87309c` (2026-09-15):
   - The original [Windows #123 attempt 1](https://github.com/frozenvoice/cyclearc/actions/runs/34856508275/attempts/1)
     failed `RealStderrContinuesDrainingAfterUtf8DiagnosticBudget` (Available vs TimedOut)

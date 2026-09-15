@@ -190,9 +190,11 @@ Only the official statusLine input is used for usage. Authentication uses the of
 | Drag the widget | Move it and save its position |
 | Right-click the widget | Open its menu, including Close widget |
 
-The zoom shortcuts also support the numeric keypad. Widget position can be reset from **Settings → Widget**; the reset takes effect when you save.
+The zoom shortcuts also support the numeric keypad. Widget position can be reset from **Settings → Widget**; saving moves it to the primary screen and recreates its window so a missing widget can recover even when Windows reports it as visible.
 
-With **Show widget** enabled and a displayable account, CycleArc checks the native window every two seconds and restores unexpected hiding, minimization or a lost always-on-top setting without taking keyboard focus. After sleep, unlock or display changes it recreates the widget with the saved position, opacity and interaction settings. Turning the widget off still keeps it hidden. Recovery events are recorded in the local app log.
+With **Show widget** enabled and a displayable account, CycleArc checks the native window every two seconds and restores unexpected hiding, minimization or displacement behind ordinary windows despite an enabled always-on-top setting, without taking keyboard focus. After sleep, unlock or display changes it recreates the widget with the saved position, opacity and interaction settings. Turning the widget off still keeps it hidden. Recovery events are recorded in the local app log.
+
+The **Usage number** tray style uses large, bold digits within the Windows icon slot. The number is the selected account's percentage used, preferring weekly usage when known and otherwise five-hour usage. **Blue** means a valid sample, including a normal refresh with a retained value; **red** means a valid sample at 100% used; **amber** means stale data or a lookup/connection problem; **gray ?** means awaiting usage. Open the detail card for the exact status and receipt time. The **Usage ring** style remains available in Settings.
 
 <details>
 <summary><strong>Settings and compact widget</strong></summary>

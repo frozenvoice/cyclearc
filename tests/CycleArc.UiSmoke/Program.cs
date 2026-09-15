@@ -40,6 +40,11 @@ internal static class Program
             {
                 Source = new Uri("/CycleArc;component/UI/Themes.xaml", UriKind.Relative)
             });
+            if (args is ["--tray-icons", var trayDirectory])
+            {
+                TrayIconChecks.Run(trayDirectory);
+                return 0;
+            }
             if (args is ["--widget-dpi", var dpiDirectory])
             {
                 WidgetDpiChecks.Run(dpiDirectory);
@@ -96,6 +101,7 @@ internal static class Program
             CheckWidgetRecovery();
             CheckWidgetRestart();
             WidgetRecoveryChecks.Run();
+            TrayIconChecks.Run();
             WidgetDpiChecks.Run();
             CheckPositionReset();
             var applyTheme = typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)

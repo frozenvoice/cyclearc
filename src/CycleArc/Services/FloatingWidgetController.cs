@@ -42,6 +42,17 @@ public sealed class FloatingWidgetController(Action<FloatingWidget> configure, A
             log?.Invoke("Widget native visibility restored");
     }
 
+    // Recreate the native widget after an explicit position reset so a stale HWND
+    // cannot retain broken surface or z-order state.
+    public void Recreate(AppSettings settings, UsageAccountOverview overview)
+    {
+        if (_disposed) return;
+        _settings = settings;
+        _overview = overview;
+        CloseCurrentWindow();
+        Update(settings, overview, applySettings: true);
+    }
+
     public void RecoverAfterEnvironmentChange()
     {
         if (!ShouldShow || _recoveryPending || _dispatcher.HasShutdownStarted) return;

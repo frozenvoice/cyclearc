@@ -164,12 +164,13 @@ public partial class FloatingWidget : Window
         if (!IsVisible) { Show(); repaired = true; }
         var hwnd = new WindowInteropHelper(this).Handle;
         if (IsIconic(hwnd)) { ShowWindow(hwnd, 4); repaired = true; } // SHOWNOACTIVATE
-        var nativeTopmost = (GetWindowLong(hwnd, GwlExstyle) & 0x00000008) != 0;
-        if (!IsWindowVisible(hwnd) || nativeTopmost != alwaysOnTop || repaired)
+        var nativeTopmost = (GetWindowLong(hwnd, GwlExstyle) & WsExTopmost) != 0;
+        var displaced = alwaysOnTop && IsDisplacedByOrdinaryWindow(hwnd);
+        if (!IsWindowVisible(hwnd) || nativeTopmost != alwaysOnTop || displaced || repaired)
         {
             // Native flags can disagree with WPF's cached Visibility/Topmost properties.
             SetWindowPos(hwnd, alwaysOnTop ? new IntPtr(-1) : new IntPtr(-2), 0, 0, 0, 0,
-                0x0001 | 0x0002 | 0x0010 | 0x0040); // NOSIZE | NOMOVE | NOACTIVATE | SHOWWINDOW
+                SwpNoSize | SwpNoMove | SwpNoActivate | SwpShowWindow | SwpNoOwnerZOrder);
             repaired = true;
         }
         RecoverPosition();
@@ -237,6 +238,8 @@ public partial class FloatingWidget : Window
     private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll")]
     private static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")]
@@ -323,11 +326,49 @@ public partial class FloatingWidget : Window
     }
 
     private const int GwlExstyle = -20;
+    private const int WsExTopmost = 0x00000008;
     private const int WsExTransparent = 0x00000020;
+    private const uint GwHwndPrev = 3;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpShowWindow = 0x0040;
+    private const uint SwpNoOwnerZOrder = 0x0200;
+    private const int DwmwaCloaked = 14;
+
+    private static bool IsDisplacedByOrdinaryWindow(IntPtr hwnd)
+    {
+        // WS_EX_TOPMOST can remain set after a display/shell transition while the
+        // native z-order leaves the widget below an ordinary visible window. Only
+        // repair that concrete divergence. When all visible predecessors are
+        // topmost, leave their existing order unchanged.
+        var inspected = 0;
+        for (var above = GetWindow(hwnd, GwHwndPrev); above != IntPtr.Zero && inspected++ < 1024;
+             above = GetWindow(above, GwHwndPrev))
+        {
+            if (!IsWindowVisible(above) || IsIconic(above) || IsCloaked(above)) continue;
+            if ((GetWindowLong(above, GwlExstyle) & WsExTopmost) == 0) return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsCloaked(IntPtr hwnd)
+    {
+        try
+        {
+            return DwmGetWindowAttribute(hwnd, DwmwaCloaked, out var cloaked, sizeof(int)) == 0 && cloaked != 0;
+        }
+        catch (DllNotFoundException) { return false; }
+        catch (EntryPointNotFoundException) { return false; }
+    }
 
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hwnd, int index);
 
     [DllImport("user32.dll")]
     private static extern int SetWindowLong(IntPtr hwnd, int index, int value);
+
+    [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
 }

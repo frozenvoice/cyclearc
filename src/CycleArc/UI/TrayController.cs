@@ -80,7 +80,11 @@ public sealed class TrayController : IDisposable
         Application.Current.Dispatcher.Invoke(() =>
         {
             _icon.Text = NotifyIconText.Safe(overview.Tooltip);
-            var next = TrayIconRenderer.Render(overview.Snapshot, style, 32);
+            // Render at the current Windows small-icon metric so the native
+            // notification slot does not resample a 32px icon down to 16px.
+            var size = Math.Max(16, SystemInformation.SmallIconSize.Width);
+            var next = TrayIconRenderer.Render(overview.Snapshot, style, size,
+                claudeAwaitingUsage: overview.Selected?.IsAwaitingUsage == true);
             _icon.Icon = next;
             _current?.Dispose();
             _current = next;

@@ -259,7 +259,8 @@ public partial class App : Application
             StartupConsent.ApplyIfPermitted(new WindowsStartupService(), settings);
             _tray.RebuildMenu(settings.StartWithWindows);
             _flyout?.ApplyWindowSettings(settings);
-            ApplyWidget();
+            if (window.ResetWidgetPositionOnSave) ApplyWidgetWithReset();
+            else ApplyWidget();
             RefreshSnapshot();
             _ = RefreshCodexAsync();
         };
@@ -363,7 +364,10 @@ public partial class App : Application
         ApplyWidget();
     }
 
-    private void ApplyWidget()
+    private void ApplyWidget() => ApplyWidgetCore(false);
+    private void ApplyWidgetWithReset() => ApplyWidgetCore(true);
+
+    private void ApplyWidgetCore(bool recreateWidget)
     {
         _widgetController ??= new FloatingWidgetController(widget =>
         {
@@ -384,7 +388,10 @@ public partial class App : Application
             widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu();
         }, _log.Info);
         var overview = UsageAccountOverview.Create(_codex.Accounts, _codex.SelectedId);
-        _widgetController.Update(_settings, overview, applySettings: true);
+        if (recreateWidget)
+            _widgetController.Recreate(_settings, overview);
+        else
+            _widgetController.Update(_settings, overview, applySettings: true);
     }
 
     private static void ApplyTheme(AppTheme theme)

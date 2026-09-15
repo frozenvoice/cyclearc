@@ -150,6 +150,43 @@ internal static class WidgetRecoveryChecks
             Check((GetWindowLong(hwnd, -20) & 8) == 0, "Native topmost-loss fixture failed.");
             controller.MaintainVisibility();
             Check((GetWindowLong(hwnd, -20) & 8) != 0, "Always-on-top preference was not restored.");
+
+            // Exercise the native-order detector independently of the style bit.
+            // Windows does not reliably allow forcing a stale TOPMOST bit directly.
+            var ordinary = new Window { Title = "CycleArc ordinary z-order fixture", Width = 220, Height = 80,
+                ShowInTaskbar = false, ShowActivated = false, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+            try
+            {
+                ordinary.Show();
+                Pump();
+                var ordinaryHwnd = new WindowInteropHelper(ordinary).Handle;
+                SetWindowPos(ordinaryHwnd, IntPtr.Zero, 0, 0, 0, 0, 0x0053); // TOP | NOSIZE | NOMOVE | NOACTIVATE | SHOWWINDOW
+                SetWindowPos(hwnd, new IntPtr(-2), 0, 0, 0, 0, 0x0013); // HWND_NOTOPMOST
+                SetWindowPos(hwnd, new IntPtr(1), 0, 0, 0, 0, 0x0013); // HWND_BOTTOM
+                var detectDisplacement = typeof(FloatingWidget).GetMethod("IsDisplacedByOrdinaryWindow",
+                    BindingFlags.Static | BindingFlags.NonPublic)!;
+                Check(HasVisiblePredecessor(hwnd, ordinaryHwnd)
+                    && (bool)detectDisplacement.Invoke(null, [hwnd])!,
+                    "The native-order detector missed an ordinary visible window above the widget.");
+                FocusFixture(focusWindow);
+                foreground = GetForegroundWindow();
+                activationStart = activations;
+                controller.MaintainVisibility();
+                Pump();
+                Check(!HasVisiblePredecessor(hwnd, ordinaryHwnd) && (GetWindowLong(hwnd, -20) & 8) != 0,
+                    "Visibility maintenance did not repair stale TOPMOST z-order.");
+                Check(GetForegroundWindow() == foreground && GetActiveWindow() == focusHwnd && activations == activationStart,
+                    "TOPMOST z-order repair took keyboard focus.");
+                // Once the widget is back in the topmost band, a legitimate
+                // topmost sibling must stay above it on ordinary timer checks.
+                SetWindowPos(ordinaryHwnd, new IntPtr(-1), 0, 0, 0, 0, 0x0013);
+                Check(HasVisiblePredecessor(hwnd, ordinaryHwnd), "Topmost sibling fixture was not above the widget.");
+                Check(!(bool)detectDisplacement.Invoke(null, [hwnd])! && !window.EnsureVisible(true),
+                    "A legitimate topmost sibling incorrectly triggered native repair.");
+                controller.MaintainVisibility();
+                Check(HasVisiblePredecessor(hwnd, ordinaryHwnd), "Routine maintenance displaced a legitimate topmost sibling.");
+            }
+            finally { ordinary.Close(); }
             settings.WidgetAlwaysOnTop = false;
             settings.WidgetClickThrough = true;
             controller.Update(settings, overview, applySettings: true);
@@ -200,13 +237,37 @@ internal static class WidgetRecoveryChecks
             Pump();
             Check(Visible(window), "Re-enabling did not show the retained widget.");
 
+            // An explicit settings position reset must replace the HWND while keeping
+            // display preferences, subscriptions, and the current focus untouched.
+            FocusFixture(focusWindow);
+            var previousResetWindow = window;
+            var previousResetHwnd = Handle(previousResetWindow);
+            settings.WidgetPixelLeft = null;
+            settings.WidgetPixelTop = null;
+            settings.WidgetLeft = screen.WorkingArea.Left + 40;
+            settings.WidgetTop = screen.WorkingArea.Top + 40;
+            foreground = GetForegroundWindow();
+            activationStart = activations;
+            controller.Recreate(settings, overview);
+            Pump();
+            window = controller.CurrentWindow!;
+            var resetHwnd = Handle(window);
+            Check(configured == 4 && resetHwnd != previousResetHwnd && !IsWindowVisible(previousResetHwnd)
+                && Visible(window) && Math.Abs(window.Opacity - settings.WidgetOpacity) < .001
+                && !window.Topmost && (GetWindowLong(resetHwnd, -20) & 0x20) != 0,
+                "Position reset did not recreate the widget with its saved display settings.");
+            Check(GetForegroundWindow() == foreground && GetActiveWindow() == focusHwnd && activations == activationStart,
+                "Position reset took keyboard focus.");
+            ((Action?)clickEvent.GetValue(window))?.Invoke();
+            Check(clicks == 2, "Position reset lost the widget input subscription.");
+
             if (directory is not null && screen.Primary)
                 AccountUiChecks.Render(window, 245, null, Path.Combine(directory, $"widget-recovery-{language}-{theme}.png"));
             controller.RecoverAfterEnvironmentChange();
             controller.Dispose();
             Pump();
             controller.MaintainVisibility();
-            Check(controller.CurrentWindow is null && configured == 3, "Recovery recreated a widget after app shutdown.");
+            Check(controller.CurrentWindow is null && configured == 4, "Recovery recreated a widget after app shutdown.");
         }
     }
 
@@ -220,6 +281,12 @@ internal static class WidgetRecoveryChecks
     }
 
     private static IntPtr Handle(FloatingWidget window) => new WindowInteropHelper(window).Handle;
+    private static bool HasVisiblePredecessor(IntPtr hwnd, IntPtr target)
+    {
+        for (var above = GetWindow(hwnd, 3); above != IntPtr.Zero; above = GetWindow(above, 3))
+            if (above == target) return IsWindowVisible(above) && !IsIconic(above);
+        return false;
+    }
     private static bool Visible(FloatingWidget window) => window.IsVisible && IsWindowVisible(Handle(window)) && !IsIconic(Handle(window));
     private static void Check(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
     private static void Pump()
@@ -239,5 +306,6 @@ internal static class WidgetRecoveryChecks
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int command);
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
+    [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
 }
