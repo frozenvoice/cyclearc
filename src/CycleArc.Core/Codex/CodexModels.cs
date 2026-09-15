@@ -1,4 +1,5 @@
 using CycleArc.Providers.Usage;
+using CycleArc.Models;
 
 namespace CycleArc.Codex;
 
@@ -58,19 +59,48 @@ public sealed record CodexQuotaSnapshot(
 
     public bool HasUsablePercentages => Windows.Any(window => window.UsedPercent is not null);
 
-    public CodexQuotaWindow? CompactWindow =>
-        PreferredWindow(Windows.Where(window => window.UsedPercent is { } used && double.IsFinite(used)))
-        ?? PreferredWindow(Windows);
+    public CodexQuotaWindow? CompactWindow => DisplayWindow();
 
-    // An unknown weekly percentage must not hide a usable five-hour limit.
-    private static CodexQuotaWindow? PreferredWindow(IEnumerable<CodexQuotaWindow> windows) =>
-        windows.FirstOrDefault(window => window.Kind == CodexWindowKind.Weekly)
-        ?? windows.FirstOrDefault(window => window.Kind == CodexWindowKind.FiveHour)
-        ?? windows
+    public CodexQuotaWindow? DisplayWindow(UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+    {
+        var order = preference switch
+        {
+            UsagePeriodPreference.Weekly => new[] { CodexWindowKind.Weekly, CodexWindowKind.FiveHour },
+            UsagePeriodPreference.FiveHour => new[] { CodexWindowKind.FiveHour, CodexWindowKind.Weekly },
+            _ => new[] { CodexWindowKind.FiveHour, CodexWindowKind.Weekly }
+        };
+        var unknownOrder = order;
+
+        foreach (var kind in order)
+        {
+            var known = Windows.FirstOrDefault(window => window.Kind == kind && IsKnown(window));
+            if (known is not null) return known;
+        }
+
+        // An unrecognized duration is a fallback only after the standard periods.
+        var otherKnown = Windows
+            .Where(window => window.Kind is not CodexWindowKind.FiveHour and not CodexWindowKind.Weekly && IsKnown(window))
+            .OrderByDescending(window => window.WindowDurationMinutes is > 0 ? window.WindowDurationMinutes : 0)
+            .FirstOrDefault();
+        if (otherKnown is not null) return otherKnown;
+
+        // Preserve the explicitly requested period when it is present but unknown.
+        foreach (var kind in unknownOrder)
+        {
+            var requested = Windows.FirstOrDefault(window => window.Kind == kind);
+            if (requested is not null) return requested;
+        }
+
+        var otherPresent = Windows
+            .Where(window => window.Kind is not CodexWindowKind.FiveHour and not CodexWindowKind.Weekly)
             .Where(window => window.WindowDurationMinutes is > 0)
             .OrderByDescending(window => window.WindowDurationMinutes)
-            .FirstOrDefault()
-        ?? windows.FirstOrDefault();
+            .FirstOrDefault();
+        return otherPresent ?? Windows.FirstOrDefault();
+    }
+
+    private static bool IsKnown(CodexQuotaWindow window) =>
+        window.UsedPercent is double used && double.IsFinite(used);
 
     public CodexQuotaSnapshot AsStale(DateTimeOffset attempted, string? detail)
     {

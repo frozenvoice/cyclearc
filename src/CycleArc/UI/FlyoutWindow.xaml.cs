@@ -13,6 +13,8 @@ public partial class FlyoutWindow : Window
     public event Action? SyncRequested;
     public event Action? AccountsRequested;
     public event Action<string>? AccountSelected;
+    public event Action<UsagePeriodPreference>? UsagePeriodChanged;
+    public UsagePeriodPreference UsagePeriod { get; private set; } = UsagePeriodPreference.Auto;
     public string? SelectedProfileId { get; private set; }
     public Func<string, Task<CreditRedemptionOutcome>>? RedeemCredit { get; set; }
     public Func<string, string, Task<CreditRedemptionOutcome>>? RedeemAccountCredit { get; set; }
@@ -29,6 +31,7 @@ public partial class FlyoutWindow : Window
     public bool Pinned { get; private set; }
     private readonly RefreshIndicatorController _refreshIndicator = new();
     private bool _refreshActive;
+    private bool _bindingUsagePeriod;
     private bool _creditsExpanded = true;
     private System.Windows.Controls.ToolTip? _creditHelpTip;
 
@@ -71,10 +74,11 @@ public partial class FlyoutWindow : Window
         Top = clamped.Top;
     }
 
-    public void Bind(CodexQuotaSnapshot snapshot, bool refreshing = false)
+    public void Bind(CodexQuotaSnapshot snapshot, bool refreshing = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
         SelectedAccountHeader.Visibility = SelectedProviderBadge.Visibility = CodexCard.Visibility = Visibility.Visible;
         _creditSnapshot = snapshot;
+        UsagePeriod = preference;
         _refreshActive = refreshing;
         SelectedProviderBadge.Provider = snapshot.Provider;
         ResetCreditsCard.Visibility = snapshot.Provider == UsageProviderId.Codex ? Visibility.Visible : Visibility.Collapsed;
@@ -88,14 +92,14 @@ public partial class FlyoutWindow : Window
             refreshing ? UiText.CodexRefreshing : ""));
     }
 
-    public void BindAccounts(IReadOnlyList<CodexAccountView> accounts, string selectedId, bool refreshing)
+    public void BindAccounts(IReadOnlyList<CodexAccountView> accounts, string selectedId, bool refreshing, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
-        var overview = UsageAccountOverview.Create(accounts, selectedId);
+        var overview = UsageAccountOverview.Create(accounts, selectedId, preference);
         accounts = overview.Accounts;
         selectedId = overview.SelectedId;
         SelectedProfileId = selectedId.Length == 0 ? null : selectedId;
         var selected = overview.Selected;
-        Bind(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing);
+        Bind(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing, overview.Preference);
         AccountSection.Visibility = Visibility.Visible;
         ManageAccountsButton.Content = UiText.T("Manage accounts", "계정 관리");
         AccountsHeading.Text = UiText.T($"Accounts · {accounts.Count}", $"계정 · {accounts.Count}");
@@ -513,7 +517,8 @@ One credit will be consumed.",
 
     private void ApplyCodexRing(CodexQuotaSnapshot snapshot)
     {
-        var ring = CodexRingPresentation.From(snapshot);
+        var ring = CodexRingPresentation.From(snapshot, UsagePeriod);
+        UpdatePeriodControls(snapshot, ring);
         CodexRingValueText.Text = ring.CenterValueText;
         CodexRingSubLabel.Text = ring.CenterSubLabel;
 
@@ -535,6 +540,71 @@ One credit will be consumed.",
             CodexRingArcSegment.IsLargeArc = arc.IsLargeArc;
         }
 
+    }
+
+    private void UpdatePeriodControls(CodexQuotaSnapshot snapshot, CodexRingPresentation ring)
+    {
+        UsagePeriodLabel.Text = UiText.T("Display period", "표시 기간");
+        AutoPeriodButton.Content = UiText.T("Auto", "자동");
+        FiveHourPeriodButton.Content = UiText.T("5 hours", "5시간");
+        WeeklyPeriodButton.Content = UiText.T("Weekly", "주간");
+        _bindingUsagePeriod = true;
+        try
+        {
+            AutoPeriodButton.IsChecked = UsagePeriod == UsagePeriodPreference.Auto;
+            FiveHourPeriodButton.IsChecked = UsagePeriod == UsagePeriodPreference.FiveHour;
+            WeeklyPeriodButton.IsChecked = UsagePeriod == UsagePeriodPreference.Weekly;
+        }
+        finally { _bindingUsagePeriod = false; }
+        UsagePeriodHint.Text = UsagePeriod == UsagePeriodPreference.Auto
+            ? UiText.T("Auto: 5 hours first · Detail, tray & widget", "자동: 5시간 우선 · 상세·트레이·위젯 공통")
+            : UiText.T("Applies to detail, tray and widget.", "상세·트레이·위젯에 함께 적용됩니다.");
+        var requested = UsagePeriod == UsagePeriodPreference.FiveHour ? CodexWindowKind.FiveHour
+            : UsagePeriod == UsagePeriodPreference.Weekly ? CodexWindowKind.Weekly : (CodexWindowKind?)null;
+        UsagePeriodFallback.Text = requested is not null && ring.IsAvailable && ring.Window?.Kind != requested
+            ? UiText.T(
+                $"{(requested == CodexWindowKind.FiveHour ? "5-hour" : "Weekly")} value unavailable. Showing {ring.CenterSubLabel.ToLowerInvariant()}.",
+                $"{(requested == CodexWindowKind.FiveHour ? "5시간" : "주간")} 값이 없어 {ring.CenterSubLabel}을 표시합니다.")
+            : "";
+        UsagePeriodFallback.Visibility = UsagePeriodFallback.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        CyclePeriodButton.IsEnabled = ring.IsAvailable
+            && HasKnownWindow(snapshot, CodexWindowKind.FiveHour) && HasKnownWindow(snapshot, CodexWindowKind.Weekly);
+        var switchText = ring.Window?.Kind == CodexWindowKind.FiveHour
+            ? UiText.T("Show weekly usage", "주간 사용량 표시") : UiText.T("Show 5-hour usage", "5시간 사용량 표시");
+        CyclePeriodButton.ToolTip = switchText;
+        System.Windows.Automation.AutomationProperties.SetName(CyclePeriodButton,
+            $"{ring.CenterValueText} {ring.CenterSubLabel}. {switchText}");
+    }
+
+    private static bool HasKnownWindow(CodexQuotaSnapshot snapshot, CodexWindowKind kind) =>
+        snapshot.Windows.Any(window => window.Kind == kind && window.UsedPercent is { } used && double.IsFinite(used));
+
+    private void OnUsagePeriodChecked(object sender, RoutedEventArgs e)
+    {
+        if (_bindingUsagePeriod) return;
+        var preference = ReferenceEquals(sender, FiveHourPeriodButton) ? UsagePeriodPreference.FiveHour
+            : ReferenceEquals(sender, WeeklyPeriodButton) ? UsagePeriodPreference.Weekly : UsagePeriodPreference.Auto;
+        SelectUsagePeriod(preference);
+    }
+
+    private void OnCyclePeriodClick(object sender, RoutedEventArgs e)
+    {
+        if (!CyclePeriodButton.IsEnabled || _creditSnapshot is null) return;
+        SelectUsagePeriod(_creditSnapshot.DisplayWindow(UsagePeriod)?.Kind == CodexWindowKind.FiveHour
+            ? UsagePeriodPreference.Weekly : UsagePeriodPreference.FiveHour);
+    }
+
+    private void SelectUsagePeriod(UsagePeriodPreference preference)
+    {
+        if (UsagePeriod == preference || _creditSnapshot is null) return;
+        ApplyUsagePeriod(preference);
+        UsagePeriodChanged?.Invoke(preference);
+    }
+
+    public void ApplyUsagePeriod(UsagePeriodPreference preference)
+    {
+        UsagePeriod = preference;
+        if (_creditSnapshot is not null) ApplyCodexRing(_creditSnapshot);
     }
 
     private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)

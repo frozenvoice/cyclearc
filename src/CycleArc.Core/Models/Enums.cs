@@ -159,6 +159,13 @@ public enum TrayIconStyle
     ProgressRing
 }
 
+public enum UsagePeriodPreference
+{
+    Auto,
+    FiveHour,
+    Weekly
+}
+
 public enum AppTheme
 {
     System,

@@ -4,9 +4,15 @@
 
 - Codex displays the five-hour (300 minutes) and weekly (10,080 minutes) windows supplied by
   the official App Server, regardless of plan name or primary/secondary position. Account
-  cards and details retain all reported windows. Compact surfaces prefer a known weekly
-  percentage, then a known five-hour percentage; an unknown weekly value cannot hide usable
-  five-hour data. Missing windows are omitted, and unknown percentages are never filled with zero.
+  cards and details retain all reported windows. The persisted global `AppSettings.UsagePeriod`
+  (`Auto` / `FiveHour` / `Weekly`) drives the detail ring, tray and widget through
+  `CodexQuotaSnapshot.DisplayWindow` and `UsageAccountOverview.Preference`. Auto prefers a finite
+  five-hour percentage (including zero), then weekly; an explicit preference falls back to another
+  known window when unavailable. Labels always identify the resolved window, and details explain
+  explicit fallbacks. Without a known percentage, a present window remains unknown. The detail
+  selector and ring shortcut save settings and rebind all surfaces without querying a provider,
+  changing the selected account or renewing receipt metadata. Missing settings default to Auto.
+  Missing windows are omitted, and unknown percentages are never filled with zero.
   A present malformed window/container is a protocol failure and retains the same account's
   last-good sample and success time. Absent/null optional windows remain valid.
   Reported window durations must be positive whole minutes within the 32-bit integer range;

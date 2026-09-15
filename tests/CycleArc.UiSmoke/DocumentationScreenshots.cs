@@ -16,7 +16,7 @@ namespace CycleArc.UiSmoke;
 internal static class DocumentationScreenshots
 {
     // Production views, synthetic profiles/quota metadata, no account or local settings access.
-    public static void Export(string directory, bool claudeUsageOnly = false)
+    public static void Export(string directory, bool claudeUsageOnly = false, bool usagePeriodOnly = false)
     {
         Directory.CreateDirectory(directory);
         if (claudeUsageOnly)
@@ -45,6 +45,12 @@ internal static class DocumentationScreenshots
             }
             finally { flyout.Close(); }
         }
+        if (usagePeriodOnly)
+        {
+            ExportAccounts(directory, now, applyTheme, usagePeriodOnly: true);
+            Console.WriteLine("Exported 14 usage-period detail previews; synthetic data only.");
+            return;
+        }
         applyTheme.Invoke(null, [AppTheme.Dark]);
         var settings = new SettingsWindow(new AppSettings { UiLanguage = UiLanguage.English, Theme = AppTheme.Dark });
         try { Save(settings, Path.Combine(directory, "settings.png"), 640, 590); }
@@ -60,7 +66,7 @@ internal static class DocumentationScreenshots
         Console.WriteLine("Exported 32 production WPF views: Codex usage, unconnected-profile filtering, account management, connected Claude awaiting usage, Claude authentication failure, mixed usage and automatic connection; synthetic data only.");
     }
 
-    private static void ExportAccounts(string directory, DateTimeOffset now, MethodInfo applyTheme, bool claudeUsageOnly = false)
+    private static void ExportAccounts(string directory, DateTimeOffset now, MethodInfo applyTheme, bool claudeUsageOnly = false, bool usagePeriodOnly = false)
     {
         foreach (var language in new[] { UiLanguage.English, UiLanguage.Korean })
         foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light })
@@ -81,27 +87,33 @@ internal static class DocumentationScreenshots
                 {
                     flyout.BindAccounts(accounts, selected, false);
                     Save(flyout, Path.Combine(directory, $"accounts-overview-{suffix}.png"), 440, null);
-                    manager.Bind(accounts, selected);
-                    Save(manager, Path.Combine(directory, $"accounts-manage-{suffix}.png"), 700, 800,
-                        () => ((ScrollViewer)manager.FindName("AccountsScroll")).ScrollToBottom());
+                    if (!usagePeriodOnly)
+                    {
+                        manager.Bind(accounts, selected);
+                        Save(manager, Path.Combine(directory, $"accounts-manage-{suffix}.png"), 700, 800,
+                            () => ((ScrollViewer)manager.FindName("AccountsScroll")).ScrollToBottom());
+                    }
 
                     var waiting = accounts[2] with { IsConnected = true, Email = "research@example.invalid",
                         Snapshot = accounts[2].Snapshot with { TechnicalDetail = "claude-connected-waiting" } };
                     flyout.BindAccounts([accounts[0], accounts[1], waiting], waiting.Profile.Id, false);
                     Save(flyout, Path.Combine(directory, $"claude-waiting-{suffix}.png"), 440, null);
 
-                    var authFailure = waiting with
+                    if (!usagePeriodOnly)
                     {
-                        Snapshot = waiting.Snapshot with
+                        var authFailure = waiting with
                         {
-                            Status = CodexQuotaStatus.Stale,
-                            LastSuccessfulRefresh = null,
-                            Windows = [],
-                            TechnicalDetail = "claude-auth-required"
-                        }
-                    };
-                    flyout.BindAccounts([accounts[0], accounts[1], authFailure], authFailure.Profile.Id, false);
-                    Save(flyout, Path.Combine(directory, $"claude-auth-required-{suffix}.png"), 440, null);
+                            Snapshot = waiting.Snapshot with
+                            {
+                                Status = CodexQuotaStatus.Stale,
+                                LastSuccessfulRefresh = null,
+                                Windows = [],
+                                TechnicalDetail = "claude-auth-required"
+                            }
+                        };
+                        flyout.BindAccounts([accounts[0], accounts[1], authFailure], authFailure.Profile.Id, false);
+                        Save(flyout, Path.Combine(directory, $"claude-auth-required-{suffix}.png"), 440, null);
+                    }
                 }
 
                 var received = accounts[2] with
@@ -116,7 +128,7 @@ internal static class DocumentationScreenshots
                 flyout.BindAccounts([accounts[0], accounts[1], received], received.Profile.Id, false);
                 Save(flyout, Path.Combine(directory, $"claude-overview-{suffix}.png"), 440, null);
 
-                if (claudeUsageOnly) continue;
+                if (claudeUsageOnly || usagePeriodOnly) continue;
                 guide.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
                 AccountUiChecks.PumpUntil(guide.ActiveOperation);
                 ((Button)guide.FindName("ConnectExistingButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

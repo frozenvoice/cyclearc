@@ -22,8 +22,8 @@ internal static class CodexWindowUiChecks
         var scenarios = new[]
         {
             new Scenario("five-hour-only", "plus", new(300, 42), null, true),
-            new Scenario("both-windows", "plus", new(300, 42), new(10080, 31), false),
-            new Scenario("reversed-windows", "pro", new(10080, 31), new(300, 42), false),
+            new Scenario("both-windows", "plus", new(300, 42), new(10080, 31), true),
+            new Scenario("reversed-windows", "pro", new(10080, 31), new(300, 42), true),
             new Scenario("unknown-weekly", null, new(10080, null), new(300, 42), true),
             new Scenario("weekly-only", "pro", new(10080, 31), null, false),
             new Scenario("unknown-five-hour", "plus", new(300, null), new(10080, 31), false)

@@ -17,6 +17,13 @@ public sealed class AppSettings
     public string ResetTimeZoneId { get; set; } = TimeZoneInfo.Local.Id;
     public bool ResetAnchorConfigured { get; set; }
     public DisplayMode DisplayMode { get; set; } = DisplayMode.TrayOnly;
+    private UsagePeriodPreference _usagePeriod = UsagePeriodPreference.Auto;
+    public UsagePeriodPreference UsagePeriod
+    {
+        get => _usagePeriod;
+        set => _usagePeriod = value is UsagePeriodPreference.Auto or UsagePeriodPreference.FiveHour or UsagePeriodPreference.Weekly
+            ? value : UsagePeriodPreference.Auto;
+    }
     public AppTheme Theme { get; set; } = AppTheme.System;
     public AuthTransportKind AuthTransport { get; set; } = AuthTransportKind.BrowserCompanion;
     public string? CompanionExtensionId { get; set; }

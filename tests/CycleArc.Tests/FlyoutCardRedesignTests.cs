@@ -88,7 +88,7 @@ public class FlyoutCardRedesignTests
     public void FlyoutCodeBehind_UsesCodexOnlyPresentation()
     {
         var code = File.ReadAllText(Find("src/CycleArc/UI/FlyoutWindow.xaml.cs"));
-        Assert.Contains("CodexRingPresentation.From(snapshot)", code, StringComparison.Ordinal);
+        Assert.Contains("CodexRingPresentation.From(snapshot, UsagePeriod)", code, StringComparison.Ordinal);
         Assert.Contains("RingGeometry.ComputeUsedArc(", code, StringComparison.Ordinal);
         Assert.DoesNotContain("CodexBadge", code, StringComparison.Ordinal);
         Assert.Contains("SettingsRequested?.Invoke()", code, StringComparison.Ordinal);

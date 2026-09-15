@@ -14,7 +14,7 @@ namespace CycleArc.UI;
 
 public static class TrayIconRenderer
 {
-    public static Icon Render(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false, bool lightTaskbar = false)
+    public static Icon Render(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false, bool lightTaskbar = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
         size = Math.Max(8, size);
         using var bitmap = new Bitmap(size, size);
@@ -27,7 +27,7 @@ public static class TrayIconRenderer
         graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
         graphics.Clear(DrawingColor.Transparent);
 
-        var ring = CodexRingPresentation.From(snapshot);
+        var ring = CodexRingPresentation.From(snapshot, preference);
         var exact = ring.IsAvailable;
         var ratio = (ring.UsedPercent ?? 0) / 100;
         var palette = Palette(snapshot, exact, ring.IsDangerLevel, claudeAwaitingUsage);

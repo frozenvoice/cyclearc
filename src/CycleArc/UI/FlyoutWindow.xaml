@@ -52,6 +52,56 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="UsagePeriodChoice" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="PeriodChrome" Padding="12,5" Background="Transparent" BorderThickness="0,0,0,2" BorderBrush="Transparent">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="PeriodChrome" Property="Background" Value="{DynamicResource SelectionBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter TargetName="PeriodChrome" Property="BorderBrush" Value="{DynamicResource TextBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="PeriodChrome" Property="Background" Value="{DynamicResource SelectionBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="UsageRingButton" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="RingChrome" Padding="5" Background="Transparent" BorderThickness="1" BorderBrush="Transparent" CornerRadius="8">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RingChrome" Property="Background" Value="{DynamicResource GhostBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="RingChrome" Property="BorderBrush" Value="{DynamicResource TextBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style TargetType="ScrollBar">
             <Setter Property="Width" Value="8"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -234,23 +284,37 @@
                                 <TextBlock x:Name="ClaudeUsageScope" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0"/>
                             </StackPanel>
                             <TextBlock x:Name="CodexStatusText" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed"/>
+                            <StackPanel Margin="0,0,0,12">
+                                <DockPanel LastChildFill="False">
+                                    <TextBlock x:Name="UsagePeriodLabel" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource TextBrush}" Margin="0,0,12,0"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <RadioButton x:Name="AutoPeriodButton" GroupName="UsagePeriod" Style="{StaticResource UsagePeriodChoice}" Checked="OnUsagePeriodChecked"/>
+                                        <RadioButton x:Name="FiveHourPeriodButton" GroupName="UsagePeriod" Style="{StaticResource UsagePeriodChoice}" Checked="OnUsagePeriodChecked"/>
+                                        <RadioButton x:Name="WeeklyPeriodButton" GroupName="UsagePeriod" Style="{StaticResource UsagePeriodChoice}" Checked="OnUsagePeriodChecked"/>
+                                    </StackPanel>
+                                </DockPanel>
+                                <TextBlock x:Name="UsagePeriodHint" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                <TextBlock x:Name="UsagePeriodFallback" FontSize="11" Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed"/>
+                            </StackPanel>
                             <Grid x:Name="CodexBodyGrid">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="140"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel VerticalAlignment="Center">
-                                    <Grid x:Name="CodexRingHost" Width="112" Height="112">
-                                        <Ellipse x:Name="CodexRingTrack" Width="112" Height="112" StrokeThickness="10" Stroke="{DynamicResource LineBrush}"/>
-                                        <Path x:Name="CodexRingArcPath" StrokeThickness="10" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Stroke="{DynamicResource AccentBrush}" Fill="Transparent" Visibility="Collapsed">
-                                            <Path.Data><PathGeometry><PathFigure x:Name="CodexRingFigure" IsClosed="False"><ArcSegment x:Name="CodexRingArcSegment" SweepDirection="Clockwise"/></PathFigure></PathGeometry></Path.Data>
-                                        </Path>
-                                        <Ellipse x:Name="CodexRingFullCircle" Width="112" Height="112" StrokeThickness="10" Stroke="{DynamicResource AccentBrush}" Visibility="Collapsed"/>
-                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <TextBlock x:Name="CodexRingValueText" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
-                                            <TextBlock x:Name="CodexRingSubLabel" FontSize="11" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="96" Margin="0,4,0,0" Foreground="{DynamicResource MutedBrush}"/>
-                                        </StackPanel>
-                                    </Grid>
+                                    <Button x:Name="CyclePeriodButton" Style="{StaticResource UsageRingButton}" Click="OnCyclePeriodClick" HorizontalAlignment="Center">
+                                        <Grid x:Name="CodexRingHost" Width="112" Height="112">
+                                            <Ellipse x:Name="CodexRingTrack" Width="112" Height="112" StrokeThickness="10" Stroke="{DynamicResource LineBrush}"/>
+                                            <Path x:Name="CodexRingArcPath" StrokeThickness="10" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Stroke="{DynamicResource AccentBrush}" Fill="Transparent" Visibility="Collapsed">
+                                                <Path.Data><PathGeometry><PathFigure x:Name="CodexRingFigure" IsClosed="False"><ArcSegment x:Name="CodexRingArcSegment" SweepDirection="Clockwise"/></PathFigure></PathGeometry></Path.Data>
+                                            </Path>
+                                            <Ellipse x:Name="CodexRingFullCircle" Width="112" Height="112" StrokeThickness="10" Stroke="{DynamicResource AccentBrush}" Visibility="Collapsed"/>
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock x:Name="CodexRingValueText" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+                                                <TextBlock x:Name="CodexRingSubLabel" FontSize="11" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="96" Margin="0,4,0,0" Foreground="{DynamicResource MutedBrush}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
                                 </StackPanel>
                                 <Border Grid.Column="1" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0" Padding="12,0,0,0" Margin="4,0,0,0">
                                     <ItemsControl x:Name="CodexRows" VerticalAlignment="Center"/>

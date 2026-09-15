@@ -313,7 +313,8 @@ public class ClaudeStatusLineTests
             Assert.Equal(UiText.T("Received", "수신됨"), CycleArcPresentation.StatusLabel(snapshot));
             var rows = CodexDisplayFormatting.Rows(snapshot, data.Clock.UtcNow);
             Assert.Contains(rows, row => row.Value == "23.5% / 76.5%");
-            Assert.Equal("41.2%", CodexRingPresentation.From(snapshot).CenterValueText);
+            Assert.Equal("23.5%", CodexRingPresentation.From(snapshot).CenterValueText);
+            Assert.Equal("41.2%", CodexRingPresentation.From(snapshot, UsagePeriodPreference.Weekly).CenterValueText);
             Assert.Contains(rows, row => row.Label == UiText.T("Last received", "마지막 수신"));
             Assert.DoesNotContain(rows, row => row.Label == UiText.ResetCredits);
         }
@@ -380,7 +381,12 @@ public class ClaudeStatusLineTests
             Assert.Contains("Web·Desktop·Code", tooltip);
             Assert.Contains(UiText.T("shared quota", "공유 한도"), tooltip);
             Assert.Contains(UiText.T("Via Code", "Code에서 수신"), tooltip);
-            Assert.Contains("41.2%", tooltip);
+            Assert.Contains("23.5%", tooltip);
+            var weeklyTooltip = UsageAccountOverview.Create([other, account], account.Profile.Id, UsagePeriodPreference.Weekly).Tooltip;
+            Assert.Contains("41.2%", weeklyTooltip);
+            Assert.Contains(stamp, weeklyTooltip);
+            Assert.Contains("Web·Desktop·Code", weeklyTooltip);
+            Assert.True(weeklyTooltip.Length <= NotifyIconText.MaximumLength);
             Assert.False(char.IsHighSurrogate(tooltip[^1]));
             Assert.Equal(Now, snapshot.LastSuccessfulRefresh);
             Assert.Equal(inputFailed ? UiText.T("Saved data", "이전 데이터") : UiText.T("Updated", "업데이트됨"),

@@ -174,9 +174,9 @@ public partial class App : Application
     {
         if (IsExiting || _codex is null || _refresh is null) return;
         var accounts = _codex.Accounts;
-        var overview = UsageAccountOverview.Create(accounts, _codex.SelectedId);
+        var overview = UsageAccountOverview.Create(accounts, _codex.SelectedId, _settings.UsagePeriod);
         _tray.Update(overview, _settings.TrayIconStyle);
-        _flyout?.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing);
+        _flyout?.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing, overview.Preference);
         _accountsWindow?.Bind(accounts, overview.SelectedId);
         _widgetController?.Update(_settings, overview);
     }
@@ -212,6 +212,20 @@ public partial class App : Application
         _flyout.SyncRequested += () => _ = RefreshCodexAsync();
         _flyout.AccountsRequested += () => ShowAccounts();
         _flyout.AccountSelected += id => _codex.Select(id);
+        _flyout.UsagePeriodChanged += preference =>
+        {
+            if (IsExiting || _settings.UsagePeriod == preference) return;
+            var previous = _settings.UsagePeriod;
+            _settings.UsagePeriod = preference;
+            try { _settingsStore.Save(_settings); }
+            catch
+            {
+                _settings.UsagePeriod = previous;
+                _flyout.ApplyUsagePeriod(previous);
+                throw;
+            }
+            RefreshSnapshot();
+        };
         _flyout.SettingsRequested += ShowSettings;
         _flyout.PinChanged += pinned => { _settings.FlyoutPinned = pinned; _settingsStore.Save(_settings); };
         _flyout.ZoomChanged += percent => { _settings.FlyoutZoomPercent = percent; _settingsStore.Save(_settings); };
@@ -332,7 +346,7 @@ public partial class App : Application
             }
             return result;
         };
-        window.Bind(_codex.Accounts, UsageAccountOverview.Create(_codex.Accounts, _codex.SelectedId).SelectedId);
+        window.Bind(_codex.Accounts, UsageAccountOverview.Create(_codex.Accounts, _codex.SelectedId, _settings.UsagePeriod).SelectedId);
         window.Closed += (_, _) => _accountsWindow = null;
         window.ShowDialog();
     }
@@ -387,7 +401,7 @@ public partial class App : Application
             widget.RefreshRequested += () => _ = RefreshCodexAsync();
             widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu();
         }, _log.Info);
-        var overview = UsageAccountOverview.Create(_codex.Accounts, _codex.SelectedId);
+        var overview = UsageAccountOverview.Create(_codex.Accounts, _codex.SelectedId, _settings.UsagePeriod);
         if (recreateWidget)
             _widgetController.Recreate(_settings, overview);
         else

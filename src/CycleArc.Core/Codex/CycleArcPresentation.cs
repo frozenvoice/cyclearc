@@ -1,4 +1,5 @@
 using CycleArc.Services;
+using CycleArc.Models;
 using CycleArc.Providers.Usage;
 using CycleArc.Providers.Claude;
 
@@ -27,9 +28,10 @@ public static class CycleArcPresentation
             _ => UiText.T("Refresh failed", "조회 실패")
         };
     }
-    public static string CompactText(CodexQuotaSnapshot snapshot, TaskbarStripMode mode = TaskbarStripMode.Full)
+    public static string CompactText(CodexQuotaSnapshot snapshot, TaskbarStripMode mode = TaskbarStripMode.Full,
+        UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
-        var ring = CodexRingPresentation.From(snapshot);
+        var ring = CodexRingPresentation.From(snapshot, preference);
         var prefix = mode == TaskbarStripMode.Full ? snapshot.Provider.Name() + " "
             : snapshot.Provider == UsageProviderId.Claude ? "Cl " : "C ";
         if (!ring.IsAvailable) return prefix + "?";
@@ -37,11 +39,11 @@ public static class CycleArcPresentation
         return prefix + CodexDisplayFormatting.PercentText(ring.UsedPercent, snapshot.Provider) + suffix;
     }
 
-    public static string Tooltip(CodexQuotaSnapshot snapshot)
+    public static string Tooltip(CodexQuotaSnapshot snapshot, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
-        var ring = CodexRingPresentation.From(snapshot);
+        var ring = CodexRingPresentation.From(snapshot, preference);
         var usage = ring.IsAvailable
-            ? CodexDisplayFormatting.CompactWindowKindLabel(snapshot.CompactWindow, snapshot.Provider) + " " + ring.CenterValueText
+            ? CodexDisplayFormatting.CompactWindowKindLabel(ring.Window, snapshot.Provider) + " " + ring.CenterValueText
             : CodexDisplayFormatting.StatusText(snapshot);
         var title = snapshot.Provider == UsageProviderId.Claude ? ClaudeUsagePresentation.Title : snapshot.Provider.Name();
         var context = snapshot.Provider == UsageProviderId.Claude
@@ -52,17 +54,18 @@ public static class CycleArcPresentation
             + usage + Environment.NewLine + StatusLabel(snapshot) + context;
     }
 
-    public static string TrayTooltip(CodexQuotaSnapshot snapshot, string? accountName = null)
+    public static string TrayTooltip(CodexQuotaSnapshot snapshot, string? accountName = null,
+        UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
         if (CodexIdentityPresentation.NeedsReconnection(snapshot))
             return NotifyIconText.Safe((accountName is null ? "" : accountName + Environment.NewLine)
                 + "Codex · " + CodexIdentityPresentation.Label(snapshot) + Environment.NewLine
                 + CodexIdentityPresentation.Explanation(snapshot));
         if (snapshot.Provider != UsageProviderId.Claude)
-            return NotifyIconText.Safe((accountName is null ? "" : accountName + Environment.NewLine) + Tooltip(snapshot));
+            return NotifyIconText.Safe((accountName is null ? "" : accountName + Environment.NewLine) + Tooltip(snapshot, preference));
 
         // The native limit is 127 characters: preserve status, receipt and scope before an optional nickname.
-        var ring = CodexRingPresentation.From(snapshot);
+        var ring = CodexRingPresentation.From(snapshot, preference);
         return NotifyIconText.Safe(string.Join("\n",
             "Claude · " + StatusLabel(snapshot),
             ring.CenterSubLabel + " " + ring.CenterValueText,

@@ -2,6 +2,27 @@
 
 ## Current release — Codex and Claude Code
 
+- Shared usage-period selection (2026-09-15):
+  - Added persisted Auto / 5 hours / Weekly selection shared by the detail ring, native
+    tray and widget. Auto prefers a finite five-hour value, including zero, then weekly.
+    Explicit selection falls back to a known window with its actual label and a visible
+    explanation. Unknown values stay unknown; account data and receipt times are untouched.
+  - Detail radio controls and the ring shortcut support native keyboard/accessibility
+    actions. Selection only saves settings and rebinds the three surfaces. A failed save
+    restores the previous selection; isolated tests cover this failure and backup recovery.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed: zero build warnings/errors,
+    1,283 unit tests, 15 installer scenarios, 108 period-selection WPF renders, existing
+    account/Claude/widget recovery/DPI checks, 99 tray renders, single-file win-x64 publish
+    and built/published Claude receivers. Synthetic tests did not access live accounts.
+  - Inspected EN/KO dark/light detail layouts and replaced the 14 affected documentation
+    previews. Installed using the guarded rollback path; SHA-256:
+    `33B2D71DECFA500165203E4FCF793B6701E7F5D793154A4C8F919FC01086E07F`.
+    Read-only native captures confirmed that the currently selected weekly-only Codex
+    account displayed 78% consistently in details, tray digits and widget. The saved widget
+    position (8, 1321), topmost visibility and zero ordinary windows above it were preserved.
+    Period switching was verified with synthetic Codex/Claude accounts, not by changing the
+    user's selected account. Live captures remain ignored local artifacts.
+
 - Maximum-size digits-only tray follow-up (2026-09-15):
   - Removed the percent suffix and its layout path. Number-style icons now fit the
     original Segoe UI Bold glyph proportions to size minus one pixel in both axes,

@@ -25,7 +25,7 @@ Account-management previews scroll to the bottom so all three sets of actions ar
 The waiting view shows Research after connection but before any quota sample. The Claude
 overview then supplies a synthetic sample with 91% five-hour usage and 47%
 seven-day usage, received 12 minutes ago. It remains Received without an idle-time warning,
-with its last receipt date/time and preserved values visible, and selecting
+with Auto selecting the known five-hour value (91%) for the ring. The display-period selector applies to the ring, tray and widget. The last receipt date/time and preserved values remain visible, and selecting
 Claude removes the Codex reset-credit card. Connection previews drive the production
 window through `IClaudeConnectionActions` using `PreviewClaudeConnection`; the adapter
 returns fictional login metadata and only changes in-memory state. It never runs a CLI,
@@ -42,6 +42,12 @@ To export only the four Claude usage previews for review:
 
 ```powershell
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -- --claude-usage-screenshots artifacts/claude-usage
+```
+
+To export only the 14 detail previews affected by the shared display-period selector:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -- --usage-period-screenshots artifacts/period-docs
 ```
 
 The exporter never runs production startup, requests account data, or reads/writes user settings.

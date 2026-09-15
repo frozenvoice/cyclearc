@@ -84,7 +84,7 @@ public sealed class TrayController : IDisposable
             // notification slot does not resample a 32px icon down to 16px.
             var size = Math.Max(16, SystemInformation.SmallIconSize.Width);
             var next = TrayIconRenderer.Render(overview.Snapshot, style, size,
-                claudeAwaitingUsage: overview.Selected?.IsAwaitingUsage == true, lightTaskbar: IsLightTaskbar());
+                claudeAwaitingUsage: overview.Selected?.IsAwaitingUsage == true, lightTaskbar: IsLightTaskbar(), preference: overview.Preference);
             _icon.Icon = next;
             _current?.Dispose();
             _current = next;

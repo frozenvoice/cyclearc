@@ -60,9 +60,19 @@ internal static class Program
                 WidgetRecoveryChecks.Run(recoveryDirectory);
                 return 0;
             }
+            if (args is ["--usage-period-screenshots", var periodScreenshots])
+            {
+                DocumentationScreenshots.Export(periodScreenshots, usagePeriodOnly: true);
+                return 0;
+            }
             if (args is ["--screenshots", var directory])
             {
                 DocumentationScreenshots.Export(directory);
+                return 0;
+            }
+            if (args is ["--usage-periods", var periodDirectory])
+            {
+                UsagePeriodUiChecks.Run(app, periodDirectory);
                 return 0;
             }
             if (args is ["--codex-windows", var codexWindowsDirectory])
@@ -94,6 +104,7 @@ internal static class Program
             ClaudeStatusLineProcessChecks.Run();
             AccountUiChecks.Run();
             CodexWindowUiChecks.Run();
+            UsagePeriodUiChecks.Run(app);
             MixedProviderUiChecks.Run();
             ToolTipUiChecks.Run();
             FlyoutActivationChecks.Run(app);

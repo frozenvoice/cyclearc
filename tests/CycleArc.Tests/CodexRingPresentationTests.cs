@@ -125,7 +125,9 @@ public class CodexRingPresentationTests
         Assert.Same(fiveHour, snapshot.CompactWindow);
 
         snapshot = snapshot with { Windows = [fiveHour, weekly] };
-        Assert.Same(weekly, snapshot.CompactWindow);
+        Assert.Same(fiveHour, snapshot.CompactWindow);
+        Assert.Same(weekly, snapshot.DisplayWindow(UsagePeriodPreference.Weekly));
+        Assert.Same(weekly, CodexRingPresentation.From(snapshot, UsagePeriodPreference.Weekly).Window);
 
         snapshot = snapshot with { Windows = [weekly with { UsedPercent = null }, fiveHour] };
         Assert.Same(fiveHour, snapshot.CompactWindow);

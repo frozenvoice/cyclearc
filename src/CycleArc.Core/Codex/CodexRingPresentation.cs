@@ -1,4 +1,5 @@
 using CycleArc.Services;
+using CycleArc.Models;
 
 namespace CycleArc.Codex;
 
@@ -13,9 +14,11 @@ public sealed record CodexRingPresentation(
     string CenterValueText,
     string CenterSubLabel)
 {
-    public static CodexRingPresentation From(CodexQuotaSnapshot snapshot)
+    public CodexQuotaWindow? Window { get; init; }
+
+    public static CodexRingPresentation From(CodexQuotaSnapshot snapshot, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
-        var window = snapshot.CompactWindow;
+        var window = snapshot.DisplayWindow(preference);
         var used = snapshot.Status is CodexQuotaStatus.Available or CodexQuotaStatus.Stale or CodexQuotaStatus.Refreshing
             ? window?.UsedPercent : null;
         if (used is double raw && !double.IsFinite(raw)) used = null;
@@ -28,6 +31,9 @@ public sealed record CodexRingPresentation(
             CenterSubLabel: window is null ? UiText.CodexLegendUsed :
                 window.Kind == CodexWindowKind.Weekly ? UiText.T("Weekly used", "주간 사용") :
                 UiText.T($"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} used",
-                    $"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} 사용"));
+                    $"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} 사용"))
+        {
+            Window = window
+        };
     }
 }

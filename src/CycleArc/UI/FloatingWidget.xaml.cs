@@ -78,12 +78,12 @@ public partial class FloatingWidget : Window
         private static extern uint GetCurrentThreadId();
     }
 
-    public void Bind(CodexQuotaSnapshot snapshot)
+    public void Bind(CodexQuotaSnapshot snapshot, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
         Title = UiText.WidgetTitle;
         ProviderBadge.Provider = snapshot.Provider;
-        CodexLabel.Text = CodexRingPresentation.From(snapshot).CenterSubLabel;
-        CodexValue.Text = CycleArcPresentation.CompactText(snapshot)[(snapshot.Provider.Name().Length + 1)..];
+        CodexLabel.Text = CodexRingPresentation.From(snapshot, preference).CenterSubLabel;
+        CodexValue.Text = CycleArcPresentation.CompactText(snapshot, preference: preference)[(snapshot.Provider.Name().Length + 1)..];
         var showStatus = snapshot.Provider == UsageProviderId.Claude
             || snapshot.Status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing);
         HistoryValue.Text = showStatus ? CycleArcPresentation.StatusLabel(snapshot) : "";
@@ -95,12 +95,12 @@ public partial class FloatingWidget : Window
         ClaudeReceipt.Text = ClaudeUsagePresentation.LastReceivedText(snapshot);
         ClaudeReceipt.Visibility = snapshot.Provider == UsageProviderId.Claude && snapshot.LastSuccessfulRefresh is not null
             ? Visibility.Visible : Visibility.Collapsed;
-        ToolTip = CycleArcPresentation.Tooltip(snapshot);
+        ToolTip = CycleArcPresentation.Tooltip(snapshot, preference);
     }
 
-    public void BindAccount(CodexAccountView? account)
+    public void BindAccount(CodexAccountView? account, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
-        Bind(account?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut));
+        Bind(account?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), preference);
         AccountName.Text = account?.DisplayName ?? "";
         AccountName.Visibility = account is not null ? Visibility.Visible : Visibility.Collapsed;
         if (account is not null) ToolTip = account.DisplayName + Environment.NewLine + ToolTip;
