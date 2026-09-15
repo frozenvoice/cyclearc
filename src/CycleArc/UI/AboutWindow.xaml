@@ -19,6 +19,9 @@
             </Hyperlink>
         </TextBlock>
         <TextBlock x:Name="SourceText" Margin="0,12,0,0" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"/>
-        <Button x:Name="CloseButton" Style="{StaticResource GhostButton}" Content="Close" Margin="0,20,0,0" HorizontalAlignment="Right" Click="OnClose"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button x:Name="InstallVersionButton" Style="{StaticResource GhostButton}" Content="Install another version…" Margin="0,0,8,0" Click="OnInstallVersion"/>
+            <Button x:Name="CloseButton" Style="{StaticResource GhostButton}" Content="Close" Click="OnClose"/>
+        </StackPanel>
     </StackPanel>
 </Window>

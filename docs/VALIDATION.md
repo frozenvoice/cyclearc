@@ -2,6 +2,32 @@
 
 ## Current release — Codex and Claude Code
 
+- Unified desktop installation and first-instance policy (0.5.8, 2026-09-16):
+  - `dev-run.ps1 -NoLaunch` passed: zero build warnings/errors, 1,318 unit tests,
+    installer recovery checks, production WPF checks, one self-contained executable,
+    and built/published Claude statusLine/StopFailure receiver checks.
+  - Added real child-process races with isolated mutex/pipe names. One owner remains;
+    status, concurrent clients, activation, identity-bound shutdown and replacement pass.
+    No production account data or tray registration is used by these fixtures.
+  - Installer fixtures cover first install, missing directories, pre-stop hash validation,
+    rollback, failed cleanup, exclusive leases, reparse rejection and interrupted journals.
+    A failed cleanup preserves the pending journal and both executables. File retries span
+    the bounded headless receiver lifetime; callbacks are never terminated for replacement.
+  - Cross-process testing exposed Windows pipe authorization failures. The implementation
+    now explicitly grants the current user's SID and checks that same SID on the client;
+    it avoids the token-owner mismatch in [.NET CurrentUserOnly](https://github.com/dotnet/runtime/issues/123903).
+    Unhandled diagnostic exceptions initially caused Windows error dialogs. The smoke
+    harness now reports these failures through stderr/exit codes; temporary probes were removed.
+  - Rendered and inspected the version-install action in Korean/English and light/dark,
+    including complete button bounds and the running version in the flyout.
+  - Actual authorized migration replaced desktop PID 51664 at the former primary worktree
+    path with PID 25648 at `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe`.
+    Three later ordinary/autorun launches preserved its PID and instance nonce. Confirmed
+    one desktop process, one CycleArc tray row and canonical `--autorun` registration.
+    The obsolete tray row was backed up before removal. Installed SHA-256 matched staging:
+    `354B7D0FC326165CEFA88955062577FB12E0EED748E2F1561F35AC3F81E4C886`.
+    The old external executable remains available for existing absolute Claude callbacks.
+
 - Existing desktop instance during installation (2026-09-15):
   - Reproduced a second launch of the installed executable while the first desktop process
     was running: the second process exited with code 0 and the original remained alive.

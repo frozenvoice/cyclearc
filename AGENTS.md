@@ -118,9 +118,11 @@ Repository: `cyclearc`; solution: `CycleArc.sln`; distribution: one self-contain
   failed run's actual failing step before retrying; a new failure is not evidence that an earlier fix failed.
 - Install/restart only when the task calls for a working local executable. Use the validated artifact and
   existing guarded installer/rollback path; confirm the target checkout, running path and file hash.
-  Git worktrees share the primary worktree's `publish/local` installation, resolved by `dev-run.ps1`.
-  Do not launch an additional installation from a linked worktree's `publish/local`: Windows remembers
-  executable paths separately and leaves duplicate CycleArc rows in its tray settings.
+  Downloads and development builds share `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe` on each PC.
+  Ordinary launches preserve the first running desktop and activate it; `--autorun` stays quiet.
+  Explicit installs and `dev-run.ps1` validate before graceful shutdown and use the executable's
+  transactional installer. Preserve the legacy mutex and route Claude callbacks before all of this.
+  Do not restore worktree-specific desktop install paths: Windows remembers them as separate tray entries.
   Documentation-only changes do not require replacing the user's running app.
 - Finish with what changed, verification results and material limitations, using concise Korean for this user.
   Do not stop at a local commit when push/CI or an authorized installation still remains.

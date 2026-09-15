@@ -145,7 +145,10 @@
                             </Canvas>
                         </Viewbox>
                     </Border>
-                    <TextBlock x:Name="TitleText" Text="{x:Static text:UiText.ProductName}" FontWeight="SemiBold" FontSize="16" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="TitleText" Text="{x:Static text:UiText.ProductName}" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextBrush}"/>
+                        <TextBlock x:Name="VersionText" FontSize="9" Foreground="{DynamicResource MutedBrush}"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <Grid Grid.Column="1" Margin="0,0,12,0" MinWidth="0" HorizontalAlignment="Right"><Ellipse x:Name="StatusDot" Width="8" Height="8" HorizontalAlignment="Left" VerticalAlignment="Center" Fill="{DynamicResource OkBrush}"/>

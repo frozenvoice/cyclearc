@@ -56,49 +56,29 @@ public class DevRunScriptGuardTests
     }
 
     [Fact]
-    public void Script_PublishesToStagingBeforeTouchingLocal()
+    public void Script_ValidatesPublishedReceiverBeforeRequestingReplacement()
     {
         var text = File.ReadAllText(DevRunScriptPath);
-        var stagingIndex = text.IndexOf(".dev-staging", StringComparison.Ordinal);
-        var stopProcessIndex = text.IndexOf("Stop-CycleArcDesktopProcess -ProcessRecord", StringComparison.Ordinal);
-
-        Assert.True(stagingIndex >= 0, "dev-run.ps1 does not reference a staging directory.");
-        Assert.True(stopProcessIndex >= 0, "dev-run.ps1 does not stop the running CycleArc process.");
-        Assert.True(stagingIndex < stopProcessIndex, "dev-run.ps1 must publish to staging before it ever stops the running process.");
+        var receiver = text.IndexOf("'--claude-process'", StringComparison.Ordinal);
+        var replacement = text.IndexOf("'--replace'", StringComparison.Ordinal);
+        Assert.True(receiver >= 0 && replacement > receiver);
+        Assert.Contains("'--expected-sha256'", text);
+        Assert.Contains("'--expected-version'", text);
+        Assert.DoesNotContain("Stop-CycleArcDesktopProcess -ProcessRecord", text);
+        Assert.DoesNotContain("Install-StagedApp -StagingDir", text);
     }
 
     [Fact]
-    public void Script_OnlyStopsRunningProcess_AfterPublishIsValidated()
+    public void NoLaunch_ExitsBeforeInstallerStarts()
     {
         var text = File.ReadAllText(DevRunScriptPath);
-        var validatedIndex = text.IndexOf("Publish artifacts verified", StringComparison.Ordinal);
-        var stopProcessIndex = text.IndexOf("Stop-CycleArcDesktopProcess -ProcessRecord", StringComparison.Ordinal);
-
-        Assert.True(validatedIndex >= 0, "dev-run.ps1 does not report publish artifact validation.");
-        Assert.True(stopProcessIndex >= 0, "dev-run.ps1 does not stop the running CycleArc process.");
-        Assert.True(validatedIndex < stopProcessIndex, "dev-run.ps1 must validate the publish output before stopping the running process.");
+        var noLaunch = text.IndexOf("if ($NoLaunch)", StringComparison.Ordinal);
+        var exit = text.IndexOf("exit 0", noLaunch, StringComparison.Ordinal);
+        var start = text.IndexOf("[Diagnostics.Process]::Start", StringComparison.Ordinal);
+        Assert.True(noLaunch >= 0 && exit > noLaunch && start > exit);
+        Assert.DoesNotContain("Resolve-InstallLayout", text);
+        Assert.Contains("'Programs/CycleArc'", text);
     }
-
-    [Fact]
-    public void NoLaunch_ExitsBeforeStoppingOrDeployingAnything()
-    {
-        var text = File.ReadAllText(DevRunScriptPath);
-        var noLaunchExitIndex = text.IndexOf("if ($NoLaunch)", StringComparison.Ordinal);
-        var stopProcessIndex = text.IndexOf("Stop-CycleArcDesktopProcess -ProcessRecord", StringComparison.Ordinal);
-        var moveToLocalIndex = text.IndexOf("Install-StagedApp -StagingDir", StringComparison.Ordinal);
-        var mutexCheckIndex = text.IndexOf("Assert-InstallDesktopMutexAbsent", StringComparison.Ordinal);
-
-        Assert.True(noLaunchExitIndex >= 0, "dev-run.ps1 does not branch on -NoLaunch.");
-        Assert.True(stopProcessIndex >= 0 && moveToLocalIndex >= 0);
-        Assert.True(noLaunchExitIndex < stopProcessIndex, "-NoLaunch must be checked before the process is stopped.");
-        Assert.True(noLaunchExitIndex < moveToLocalIndex, "-NoLaunch must be checked before publish\\local is replaced.");
-        Assert.True(stopProcessIndex < mutexCheckIndex && mutexCheckIndex < moveToLocalIndex,
-            "Existing desktop instances and their mutex must be cleared before installation files move.");
-
-        var noLaunchBlockEnd = text.IndexOf("exit 0", noLaunchExitIndex, StringComparison.Ordinal);
-        Assert.True(noLaunchBlockEnd >= 0 && noLaunchBlockEnd < stopProcessIndex, "-NoLaunch must exit before any deploy/launch step runs.");
-    }
-
     [Fact]
     public void Script_MatchesRunningProcessByExactNameOnly()
     {

@@ -15,13 +15,10 @@ $RepoRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 Set-Location -LiteralPath $RepoRoot
 $localInstallScript = Join-Path $RepoRoot 'scripts/LocalInstall.ps1'
 . $localInstallScript
-$Layout = Resolve-InstallLayout -RepoRoot $RepoRoot
 $StagingDir = Join-Path $RepoRoot 'publish/.dev-staging'
 $CurrentLocalDir = Join-Path $RepoRoot 'publish/local'
-$LocalDir = $Layout.LocalDir
-$BackupDir = $Layout.BackupDir
-$InstallStagingRoot = Join-Path $Layout.InstallRoot 'publish/.dev-install-staging'
-$AllowedRoots = @($RepoRoot, $Layout.InstallRoot | Select-Object -Unique)
+$LocalDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc'
+$AllowedRoots = @($RepoRoot)
 
 function Assert-DevRunPath([string]$Target) {
     Assert-InstallPath -Path $Target -AllowedRoots $AllowedRoots | Out-Null
@@ -31,7 +28,7 @@ function Invoke-Dotnet([string[]]$Arguments) {
     & dotnet @Arguments
     if ($LASTEXITCODE -ne 0) { throw "dotnet $($Arguments[0]) failed (exit $LASTEXITCODE). See the command output above." }
 }
-foreach ($target in @($StagingDir, $CurrentLocalDir, $LocalDir, $BackupDir)) { Assert-DevRunPath $target }
+foreach ($target in @($StagingDir, $CurrentLocalDir)) { Assert-DevRunPath $target }
 $KnownExecutablePaths = @(
     foreach ($directory in @($CurrentLocalDir, $LocalDir)) {
         foreach ($name in @('CycleArc.exe', 'CodexMeter.exe', 'prometer.exe')) {
@@ -76,34 +73,33 @@ Write-Host 'Publish artifacts verified: CycleArc.exe only'
 Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--claude-process', (Join-Path $StagingDir 'CycleArc.exe'))
 if ($NoLaunch) { Write-Host "Staged: $StagingDir"; exit 0 }
 
-Assert-InstallSameVolume -Paths @($InstallStagingRoot, $LocalDir, $BackupDir)
-$lease = New-InstallLease -InstallRoot $Layout.InstallRoot -AllowedRoots @($Layout.InstallRoot)
+# The same executable owns installation for both downloads and development.
+# It stages/hash-checks before graceful shutdown and rolls back failed startup.
+$stagedExecutable = Join-Path $StagingDir 'CycleArc.exe'
+$expectedHash = (Get-FileHash -LiteralPath $stagedExecutable -Algorithm SHA256).Hash
+$expectedVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($stagedExecutable).FileVersion
+$installStart = [Diagnostics.ProcessStartInfo]::new($stagedExecutable)
+$installStart.UseShellExecute = $false
+$installStart.CreateNoWindow = $true
+$installStart.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+$installStart.RedirectStandardOutput = $true
+$installStart.RedirectStandardError = $true
+foreach ($argument in @('--replace', '--expected-sha256', $expectedHash, '--expected-version', $expectedVersion, '--show', '--quiet')) {
+    $installStart.ArgumentList.Add($argument)
+}
+$installer = [Diagnostics.Process]::Start($installStart)
 try {
-    Assert-DevRunPath $InstallStagingRoot
-    New-Item -ItemType Directory -Path $InstallStagingRoot -Force | Out-Null
-    $installStaging = Join-Path $InstallStagingRoot ([guid]::NewGuid().ToString('N'))
-    Assert-DevRunPath $installStaging
-    New-Item -ItemType Directory -Path $installStaging | Out-Null
-    Copy-ValidatedExecutable -SourcePath (Join-Path $StagingDir 'CycleArc.exe') `
-        -DestinationDirectory $installStaging -SourceRoots @($RepoRoot) -DestinationRoots @($Layout.InstallRoot) | Out-Null
-
-    # Re-query after staging is validated so an app started during the build is
-    # handled too. Keep headless Claude callbacks alive; only desktop instances
-    # in the current session are returned by Get-CycleArcDesktopProcess.
-    $desktopProcesses = @(Get-CycleArcDesktopProcess -KnownExecutablePaths $KnownExecutablePaths)
-    try {
-    foreach ($processRecord in $desktopProcesses) {
-        Write-Host "Stopping existing CycleArc desktop PID $($processRecord.ProcessId) path $($processRecord.Path)"
-        if (Stop-CycleArcDesktopProcess -ProcessRecord $processRecord) {
-            Write-Host "Stopped existing CycleArc desktop PID $($processRecord.ProcessId)"
-        }
-    }
-    }
-    finally { foreach ($processRecord in $desktopProcesses) { $processRecord.Process.Dispose() } }
-    Invoke-InstallRetry { Assert-InstallDesktopMutexAbsent } 40 250
-
-    Install-StagedApp -StagingDir $installStaging -LocalDir $LocalDir -BackupDir $BackupDir -Validate ${function:Assert-DevRunPath}
+    $outputTask = $installer.StandardOutput.ReadToEndAsync()
+    $errorTask = $installer.StandardError.ReadToEndAsync()
+    if (!$installer.WaitForExit(180000)) { throw "CycleArc installer did not finish in 180 seconds (PID $($installer.Id)). Inspect this process before retrying." }
+    $output = $outputTask.GetAwaiter().GetResult()
+    $errorText = $errorTask.GetAwaiter().GetResult()
+    if ($output) { Write-Host $output.Trim() }
+    if ($installer.ExitCode -ne 0) { throw "CycleArc installation failed (exit $($installer.ExitCode)): $errorText" }
 }
-finally {
-    $lease.Dispose()
+finally { $installer.Dispose() }
+$installedExecutable = Join-Path $LocalDir 'CycleArc.exe'
+if ((Get-FileHash -LiteralPath $installedExecutable -Algorithm SHA256).Hash -ne $expectedHash) {
+    throw 'Installed CycleArc hash does not match the validated artifact.'
 }
+Write-Host "Running verified CycleArc $expectedVersion at $installedExecutable (SHA256 $expectedHash)"

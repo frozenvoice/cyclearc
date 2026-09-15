@@ -1,0 +1,465 @@
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using CycleArc.Models;
+using CycleArc.Services;
+using CycleArc.UI;
+
+namespace CycleArc.UiSmoke;
+
+internal static class DesktopInstanceProcessChecks
+{
+    private const string ChildArgument = "--desktop-instance-child";
+    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(3);
+
+    public static void Run()
+    {
+        var temporaryRoot = Path.Combine(Path.GetTempPath(), "cyclearc-desktop-instance-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryRoot);
+        var children = new List<Process>();
+
+        try
+        {
+            RunFirstLaunchRace(temporaryRoot, children);
+
+            var key = Guid.NewGuid().ToString("N");
+            var first = StartChild(key, Path.Combine(temporaryRoot, "first.jsonl"));
+            children.Add(first.Process);
+            var ready = WaitForReport(first.ReportPath, report => report.State == "ready", first.Process);
+
+            Check(ready.ProcessId == first.Process.Id, "Desktop instance child reported the wrong process ID.");
+            Check(!string.IsNullOrWhiteSpace(ready.ExecutablePath), "Desktop instance child did not report its executable path.");
+            Check(!string.IsNullOrWhiteSpace(ready.VersionText), "Desktop instance child did not report its version.");
+
+            var pipeName = DesktopInstancePipe.ForTests(key);
+            Check(ready.PipeName == pipeName, "Desktop instance child and parent derived different test pipe names.");
+            var status = Task.WhenAll(
+                DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Status, RequestTimeout),
+                DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Status, RequestTimeout))
+                .GetAwaiter().GetResult();
+            foreach (var response in status)
+            {
+                Check(response.Succeeded, $"Desktop instance status request failed: {response.Error}");
+                Check(response.ProcessId == ready.ProcessId, "Desktop instance status returned a different process ID.");
+                Check(response.ExecutablePath == ready.ExecutablePath, "Desktop instance status returned a different executable path.");
+                Check(response.Version == ready.VersionText, "Desktop instance status returned a different version.");
+                Check(!string.IsNullOrWhiteSpace(response.InstanceId), "Desktop instance status did not return its server nonce.");
+            }
+            var expectedInstance = status[0];
+
+            var activated = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Activate, RequestTimeout)
+                .GetAwaiter().GetResult();
+            Check(activated.Succeeded, $"Desktop instance activation failed: {activated.Error}");
+            WaitForReport(first.ReportPath, report => report.State == "activate" && report.ActivationCount == 1, first.Process);
+
+            var second = StartChild(key, Path.Combine(temporaryRoot, "second.jsonl"));
+            children.Add(second.Process);
+            WaitForReport(second.ReportPath, report => report.State == "busy", second.Process);
+            Check(second.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "Second desktop instance child did not exit after losing the lease.");
+            Check(!first.Process.HasExited, "The first desktop instance child exited when a second instance started.");
+
+            var shutdown = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Shutdown, RequestTimeout,
+                expectedInstance: expectedInstance)
+                .GetAwaiter().GetResult();
+            Check(shutdown.Succeeded, $"Desktop instance shutdown failed: {shutdown.Error}");
+            WaitForReport(first.ReportPath, report => report.State == "shutdown", first.Process);
+            Check(first.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "Desktop instance child did not exit after shutdown.");
+
+            var replacement = StartChild(key, Path.Combine(temporaryRoot, "replacement.jsonl"));
+            children.Add(replacement.Process);
+            var replacementReady = WaitForReport(replacement.ReportPath, report => report.State == "ready", replacement.Process);
+            Check(replacementReady.ProcessId == replacement.Process.Id, "The desktop instance lease was not released after process exit.");
+            var replacementStatus = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Status, RequestTimeout)
+                .GetAwaiter().GetResult();
+            Check(replacementStatus.Succeeded && replacementStatus.ProcessId == replacementReady.ProcessId,
+                "A replacement desktop instance could not become the new owner.");
+            var replacementShutdown = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Shutdown, RequestTimeout,
+                expectedInstance: replacementStatus)
+                .GetAwaiter().GetResult();
+            Check(replacementShutdown.Succeeded, $"Replacement desktop instance shutdown failed: {replacementShutdown.Error}");
+            Check(replacement.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "Replacement desktop instance child did not exit.");
+
+            Console.WriteLine("PASS: desktop instance lease, status, activation, shutdown, and replacement process checks.");
+        }
+        finally
+        {
+            foreach (var child in children)
+            {
+                try
+                {
+                    if (!child.HasExited)
+                    {
+                        child.Kill(entireProcessTree: true);
+                        child.WaitForExit(3000);
+                    }
+                }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { }
+                finally { child.Dispose(); }
+            }
+
+            // This directory was generated above and is the only path this check may remove.
+            try
+            {
+                if (Directory.Exists(temporaryRoot)) Directory.Delete(temporaryRoot, recursive: true);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    public static void RunUiChecks()
+    {
+        var applyTheme = typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException("App.ApplyTheme");
+        var screenshotDirectory = Path.Combine(Directory.GetCurrentDirectory(), ".tmp", "desktop-version-ui");
+        Directory.CreateDirectory(screenshotDirectory);
+        var previousLanguage = UiText.Language;
+
+        try
+        {
+            foreach (var language in new[] { UiLanguage.English, UiLanguage.Korean })
+            foreach (var theme in new[] { AppTheme.Light, AppTheme.Dark })
+            {
+                UiText.SetLanguage(language);
+                applyTheme.Invoke(null, [theme]);
+                string? selectedPath = null;
+                var about = new AboutWindow("9.9.9", "synthetic", path => selectedPath = path);
+                try
+                {
+                    var installButton = (Button)about.FindName("InstallVersionButton")!;
+                    var expectedLabel = UiText.T("Install another version…", "다른 버전 설치…");
+                    Check(installButton.Visibility == Visibility.Visible && installButton.IsEnabled,
+                        "About install-version action is not available when a callback is supplied.");
+                    Check(string.Equals(installButton.Content as string, expectedLabel, StringComparison.Ordinal),
+                        $"About install-version label is incorrect for {language}/{theme}.");
+                    Check(selectedPath is null, "About install-version callback ran during smoke setup.");
+
+                    var content = (FrameworkElement)about.Content;
+                    about.Content = null;
+                    var frame = new Border
+                    {
+                        Width = about.Width,
+                        Background = about.Background ?? (Brush)about.FindResource("BgBrush"),
+                        Child = content,
+                    };
+                    TextElement.SetForeground(frame, about.Foreground ?? (Brush)about.FindResource("TextBrush"));
+                    frame.Measure(new Size(about.Width, double.PositiveInfinity));
+                    frame.Arrange(new Rect(0, 0, about.Width, frame.DesiredSize.Height));
+                    frame.UpdateLayout();
+                    Check(frame.ActualWidth > 0 && frame.ActualHeight > 0,
+                        $"About layout is empty for {language}/{theme}.");
+                    var buttonBounds = installButton.TransformToAncestor(frame).TransformBounds(new Rect(installButton.RenderSize));
+                    Check(buttonBounds.Left >= -0.1 && buttonBounds.Top >= -0.1
+                        && buttonBounds.Right <= frame.ActualWidth + 0.1 && buttonBounds.Bottom <= frame.ActualHeight + 0.1,
+                        $"About install-version button is clipped for {language}/{theme}.");
+                    var bitmap = new RenderTargetBitmap((int)Math.Ceiling(frame.ActualWidth),
+                        (int)Math.Ceiling(frame.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(frame);
+                    var suffix = language == UiLanguage.English ? "en" : "ko";
+                    var outputPath = Path.Combine(screenshotDirectory, $"about-{suffix}-{theme.ToString().ToLowerInvariant()}.png");
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                    using var stream = File.Create(outputPath);
+                    encoder.Save(stream);
+                }
+                finally { about.Close(); }
+            }
+
+            UiText.SetLanguage(UiLanguage.English);
+            applyTheme.Invoke(null, [AppTheme.Light]);
+            var flyout = new FlyoutWindow();
+            try
+            {
+                var versionLabel = (TextBlock)flyout.FindName("VersionText")!;
+                var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+                Check(versionLabel.Text == UiText.VersionPrefix + assemblyVersion,
+                    "Flyout does not expose the current assembly version label.");
+            }
+            finally { flyout.Close(); }
+
+            var withoutCallback = new AboutWindow("9.9.9", "synthetic");
+            try
+            {
+                var hiddenButton = (Button)withoutCallback.FindName("InstallVersionButton")!;
+                Check(hiddenButton.Visibility == Visibility.Collapsed && !hiddenButton.IsEnabled,
+                    "About install-version action is exposed without an installer callback.");
+            }
+            finally { withoutCallback.Close(); }
+            Console.WriteLine($"PASS: version/about UI checks and four screenshots in {screenshotDirectory}.");
+        }
+        finally { UiText.SetLanguage(previousLanguage); }
+    }
+
+    private static void RunFirstLaunchRace(string temporaryRoot, List<Process> children)
+    {
+        var key = Guid.NewGuid().ToString("N");
+        var left = StartChild(key, Path.Combine(temporaryRoot, "race-left.jsonl"));
+        var right = StartChild(key, Path.Combine(temporaryRoot, "race-right.jsonl"));
+        children.Add(left.Process);
+        children.Add(right.Process);
+
+        var deadline = Stopwatch.StartNew();
+        Child? winner = null;
+        Child? loser = null;
+        Report? ready = null;
+        while (deadline.Elapsed < ProcessTimeout)
+        {
+            var leftReports = ReadReports(left.ReportPath);
+            var rightReports = ReadReports(right.ReportPath);
+            var leftReady = leftReports.LastOrDefault(report => report.State == "ready");
+            var rightReady = rightReports.LastOrDefault(report => report.State == "ready");
+            var leftBusy = leftReports.LastOrDefault(report => report.State == "busy");
+            var rightBusy = rightReports.LastOrDefault(report => report.State == "busy");
+            if (leftReady is not null && rightBusy is not null)
+            {
+                winner = left;
+                loser = right;
+                ready = leftReady;
+                break;
+            }
+            if (rightReady is not null && leftBusy is not null)
+            {
+                winner = right;
+                loser = left;
+                ready = rightReady;
+                break;
+            }
+            if ((left.Process.HasExited && leftReports.Length == 0) || (right.Process.HasExited && rightReports.Length == 0))
+                throw new InvalidOperationException("A first-launch desktop instance race child exited without a report.");
+            Thread.Sleep(25);
+        }
+
+        Check(winner is not null && loser is not null && ready is not null,
+            "A first-launch desktop instance race did not produce exactly one owner.");
+        var raceWinner = winner!;
+        var raceLoser = loser!;
+        var raceReady = ready!;
+        Check(raceReady.ProcessId == raceWinner.Process.Id, "The first-launch race winner reported the wrong process ID.");
+
+        var pipeName = DesktopInstancePipe.ForTests(key);
+        Check(raceReady.PipeName == pipeName, "First-launch race child and parent derived different test pipe names.");
+        var status = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Status, RequestTimeout)
+            .GetAwaiter().GetResult();
+        Check(status.Succeeded && status.ProcessId == raceReady.ProcessId && status.Version == raceReady.VersionText,
+            $"The first-launch race winner did not answer status with its own identity (ok={status.Succeeded}, error={status.Error}, pid={status.ProcessId}/{raceReady.ProcessId}, version={status.Version}/{raceReady.VersionText}).");
+        var shutdown = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Shutdown, RequestTimeout,
+            expectedInstance: status)
+            .GetAwaiter().GetResult();
+        Check(shutdown.Succeeded, $"First-launch race winner shutdown failed: {shutdown.Error}");
+        WaitForReport(raceWinner.ReportPath, report => report.State == "shutdown", raceWinner.Process);
+        Check(raceWinner.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "First-launch race winner did not exit.");
+        Check(raceLoser.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "First-launch race loser did not exit.");
+    }
+
+    public static int RunChild(string key, string reportPath)
+    {
+        if (!Guid.TryParseExact(key, "N", out _) || !Path.IsPathFullyQualified(reportPath)) return 2;
+
+        reportPath = Path.GetFullPath(reportPath);
+        var leaseName = @"Local\CycleArc-test-" + key;
+        DesktopInstanceLease? lease;
+        try
+        {
+            lease = DesktopInstanceLease.TryAcquire(leaseName);
+        }
+        catch (Exception)
+        {
+            TryAppendReport(reportPath, new { state = "error" });
+            return 3;
+        }
+
+        if (lease is null)
+        {
+            TryAppendReport(reportPath, new { state = "busy", pid = Environment.ProcessId });
+            return 4;
+        }
+
+        try
+        {
+            var stop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reportGate = new object();
+            var activationTotal = 0;
+            void Report(object value)
+            {
+                lock (reportGate) AppendReport(reportPath, value);
+            }
+
+            var instanceInfo = DesktopInstanceInfo.Current();
+            var server = new DesktopInstanceServer(new DesktopInstanceServerOptions
+            {
+                PipeName = DesktopInstancePipe.ForTests(key),
+                InstanceInfo = instanceInfo,
+            });
+            try
+            {
+                _ = server.StartAsync(
+                    onActivate: () =>
+                    {
+                        var count = Interlocked.Increment(ref activationTotal);
+                        Report(new { state = "activate", activateCount = count });
+                        return Task.CompletedTask;
+                    },
+                    onShutdown: () =>
+                    {
+                        Report(new { state = "shutdown", activateCount = Volatile.Read(ref activationTotal) });
+                        stop.TrySetResult();
+                        return Task.CompletedTask;
+                    });
+                Report(new
+                {
+                    state = "ready",
+                    pid = instanceInfo.ProcessId,
+                    exePath = instanceInfo.ExecutablePath,
+                    versionText = instanceInfo.Version,
+                    pipeName = DesktopInstancePipe.ForTests(key),
+                });
+                stop.Task.GetAwaiter().GetResult();
+                return 0;
+            }
+            catch (Exception)
+            {
+                TryAppendReport(reportPath, new { state = "error" });
+                return 5;
+            }
+            finally
+            {
+                try { server.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+                catch (Exception) { }
+            }
+        }
+        finally
+        {
+            // DesktopInstanceLease requires release on the acquiring thread. This child intentionally
+            // blocks that thread while the named-pipe server runs on its asynchronous worker.
+            lease.Dispose();
+        }
+    }
+
+    public static int RunChildGuarded(string key, string reportPath)
+    {
+        SetErrorMode(SemNoGpFaultErrorBox);
+        try { return RunChild(key, reportPath); }
+        catch (Exception ex)
+        {
+            TryAppendReport(reportPath, new { state = "error", exception = ex.ToString() });
+            Console.Error.WriteLine(ex);
+            return 1;
+        }
+    }
+
+    private static Child StartChild(string key, string reportPath)
+    {
+        var hostPath = Environment.ProcessPath ?? throw new InvalidOperationException("The UiSmoke process has no executable path.");
+        var entryAssemblyPath = Assembly.GetEntryAssembly()?.Location;
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = hostPath,
+            WorkingDirectory = AppContext.BaseDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        if (string.Equals(Path.GetFileNameWithoutExtension(hostPath), "dotnet", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(entryAssemblyPath)
+            && string.Equals(Path.GetExtension(entryAssemblyPath), ".dll", StringComparison.OrdinalIgnoreCase))
+            startInfo.ArgumentList.Add(entryAssemblyPath);
+        startInfo.ArgumentList.Add(ChildArgument);
+        startInfo.ArgumentList.Add(key);
+        startInfo.ArgumentList.Add(Path.GetFullPath(reportPath));
+
+        var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start the desktop instance child process.");
+        return new Child(process, reportPath);
+    }
+
+    private static Report WaitForReport(string reportPath, Func<Report, bool> predicate, Process process)
+    {
+        var deadline = Stopwatch.StartNew();
+        while (deadline.Elapsed < ProcessTimeout)
+        {
+            var reports = ReadReports(reportPath);
+            var match = reports.LastOrDefault(predicate);
+            if (match is not null) return match;
+            if (process.HasExited)
+                throw new InvalidOperationException($"Desktop instance child exited before writing the expected report (exit code {process.ExitCode}).");
+            Thread.Sleep(25);
+        }
+
+        throw new TimeoutException($"Timed out waiting for desktop instance report '{reportPath}'.");
+    }
+
+    private static Report[] ReadReports(string reportPath)
+    {
+        try
+        {
+            var reports = new List<Report>();
+            foreach (var line in File.ReadLines(reportPath))
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(line);
+                    var root = document.RootElement;
+                    if (!root.TryGetProperty("state", out var stateElement)
+                        || stateElement.ValueKind != JsonValueKind.String)
+                        continue;
+                    var state = stateElement.GetString();
+                    if (string.IsNullOrWhiteSpace(state)) continue;
+                    var processId = root.TryGetProperty("pid", out var pidElement) && pidElement.TryGetInt32(out var pid) ? pid : 0;
+                    var executablePath = root.TryGetProperty("exePath", out var pathElement) && pathElement.ValueKind == JsonValueKind.String
+                        ? pathElement.GetString() ?? string.Empty : string.Empty;
+                    var version = root.TryGetProperty("versionText", out var versionElement) && versionElement.ValueKind == JsonValueKind.String
+                        ? versionElement.GetString() ?? string.Empty : string.Empty;
+                    var pipeName = root.TryGetProperty("pipeName", out var pipeElement) && pipeElement.ValueKind == JsonValueKind.String
+                        ? pipeElement.GetString() ?? string.Empty : string.Empty;
+                    var activateCount = root.TryGetProperty("activateCount", out var countElement) && countElement.TryGetInt32(out var count)
+                        ? count : 0;
+                    reports.Add(new Report(state, processId, executablePath, version, activateCount, pipeName));
+                }
+                catch (JsonException) { }
+            }
+            return reports.ToArray();
+        }
+        catch (IOException) { return Array.Empty<Report>(); }
+        catch (UnauthorizedAccessException) { return Array.Empty<Report>(); }
+    }
+
+    private static void AppendReport(string reportPath, object value)
+    {
+        var payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value) + Environment.NewLine);
+        using var stream = new FileStream(reportPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+        stream.Write(payload, 0, payload.Length);
+        stream.Flush(flushToDisk: true);
+    }
+
+    private static void TryAppendReport(string reportPath, object value)
+    {
+        try { AppendReport(reportPath, value); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private static void Check(bool condition, string message)
+    {
+        if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private sealed record Child(Process Process, string ReportPath);
+
+    private sealed record Report(string State, int ProcessId, string ExecutablePath, string VersionText, int ActivationCount, string PipeName);
+
+    private const uint SemNoGpFaultErrorBox = 0x0002;
+
+    [DllImport("kernel32.dll")]
+    private static extern uint SetErrorMode(uint mode);
+}

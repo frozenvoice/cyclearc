@@ -55,8 +55,6 @@ public static class Program
             }
             catch { return 1; } // Never emit raw input, exception text or paths.
         }
-        var app = new App();
-        app.InitializeComponent();
-        return app.Run();
+        return Services.DesktopBootstrap.Run(args);
     }
 }

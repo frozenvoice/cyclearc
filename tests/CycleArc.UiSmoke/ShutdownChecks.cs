@@ -69,8 +69,8 @@ internal static class ShutdownChecks
             var log = new AppLog(root);
             SetField("_log", log);
             if (scenario == "log-fault") Directory.CreateDirectory(log.CurrentFile);
-            SetField("_mutex", new Mutex(true, _mutexName));
-            SetField("_ownsMutex", true);
+            InstanceLease = DesktopInstanceLease.TryAcquire(_mutexName)
+                ?? throw new InvalidOperationException("Could not acquire the isolated shutdown mutex.");
             var lifetime = (CancellationTokenSource)typeof(App).GetField("_lifetime", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(this)!;
             if (scenario == "cancel-callback-fault")
                 lifetime.Token.Register(() => throw new IOException("Synthetic cancellation cleanup failure."));

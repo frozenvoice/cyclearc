@@ -12,8 +12,8 @@ namespace CycleArc;
 
 public partial class App : Application
 {
-    private Mutex? _mutex;
-    private bool _ownsMutex;
+    public DesktopInstanceLease? InstanceLease { get; set; }
+    private DesktopInstanceServer? _instanceServer;
     private AppSettings _settings = AppSettings.CreateDefaults();
     private SettingsStore _settingsStore = null!;
     private AppLog _log = null!;
@@ -40,9 +40,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        // Keep the legacy mutex name so an older executable cannot run beside this one.
-        _mutex = new Mutex(true, LegacyInstallation.SingleInstanceMutexName, out _ownsMutex);
-        if (!_ownsMutex) { Shutdown(); return; }
+        if (InstanceLease is null) { Shutdown(1); return; }
         _settingsStore = new SettingsStore();
         _settings = _settingsStore.Load();
         var firstUse = !_settings.FirstRunCompleted;
@@ -72,7 +70,7 @@ public partial class App : Application
         _tray.OpenLogsRequested += OpenLogs;
         _tray.AboutRequested += () => new AboutWindow(
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0",
-            "Codex App Server · Claude Code statusLine").Show();
+            "Codex App Server · Claude Code statusLine", DesktopBootstrap.InstallSelectedVersion).Show();
         _tray.StartupToggled += enabled =>
         {
             _settings.StartWithWindows = enabled;
@@ -123,7 +121,8 @@ public partial class App : Application
         ApplyWidget();
         _environment = new DesktopEnvironmentMonitor(Dispatcher, OnSystemThemeChanged, OnDisplayChanged,
             desktopRestored: OnDesktopRestored);
-        if (firstUse || e.Args.Contains("--show", StringComparer.Ordinal)) ShowMain();
+        if (!e.Args.Contains("--autorun", StringComparer.Ordinal)
+            && (firstUse || e.Args.Contains("--show", StringComparer.Ordinal))) ShowMain();
         _ = RefreshCodexAsync();
         _discoveryTask = DiscoverStartupAsync();
         var claudeProfiles = _codex.Accounts.Where(account => account.Profile.Provider == UsageProviderId.Claude)
@@ -143,6 +142,25 @@ public partial class App : Application
             }
         });
         if (e.Args.Contains("--accounts", StringComparer.Ordinal)) Dispatcher.BeginInvoke(() => ShowAccounts());
+        // Readiness means settings/accounts/tray and the UI dispatcher are initialized.
+        _instanceServer = new DesktopInstanceServer();
+        _ = _instanceServer.StartAsync(
+            onActivate: () => { Dispatcher.BeginInvoke(() => { if (!IsExiting) ShowMain(); }); return Task.CompletedTask; },
+            onShutdown: () => { Dispatcher.BeginInvoke(ExitApp); return Task.CompletedTask; });
+        _ = MigrateTrayAsync();
+    }
+
+    private async Task MigrateTrayAsync()
+    {
+        if (!string.Equals(Environment.ProcessPath, DesktopBootstrap.ExecutablePath, StringComparison.OrdinalIgnoreCase)) return;
+        var oldPaths = DesktopBootstrap.ReadMigrationPaths();
+        if (oldPaths.Length == 0) return;
+        for (var attempt = 0; attempt < 5 && !IsExiting; attempt++)
+        {
+            if (TrayInstallationMigration.Run(DesktopBootstrap.ExecutablePath, oldPaths, _log.Warn)) return;
+            try { await Task.Delay(1000, _lifetime.Token); }
+            catch (OperationCanceledException) { return; }
+        }
     }
 
     private void ApplyRefreshSchedule()
@@ -513,12 +531,9 @@ public partial class App : Application
     {
         RunExitCleanup(() => _widgetController?.Dispose(), "Widget shutdown failed");
         RunExitCleanup(() => _environment?.Dispose(), "Environment monitor shutdown failed");
-        RunExitCleanup(() =>
-        {
-            if (_ownsMutex) _mutex?.ReleaseMutex();
-            _ownsMutex = false;
-        }, "Single-instance mutex release failed");
-        RunExitCleanup(() => _mutex?.Dispose(), "Single-instance mutex disposal failed");
+        RunExitCleanup(() => _instanceServer?.DisposeAsync().AsTask().GetAwaiter().GetResult(), "Desktop IPC shutdown failed");
+        RunExitCleanup(() => InstanceLease?.Dispose(), "Single-instance mutex release failed");
+        InstanceLease = null;
         base.OnExit(e);
     }
 }

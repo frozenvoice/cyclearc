@@ -2,6 +2,28 @@
 
 ## Active product — Codex and Claude Code (2026-09-12)
 
+### Desktop startup and installation (0.5.8)
+
+`Program.Main` routes all three headless Claude modes before desktop argument parsing, installation,
+IPC and WPF. `DesktopBootstrap` gives the first desktop ownership of the unchanged legacy mutex.
+A later ordinary launch requests activation over a bounded, current-user/session named pipe; autorun
+only probes it. The popup shows the running assembly version. There is no dev/release precedence.
+
+Published downloads and `dev-run.ps1` use `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe`.
+An exclusive install file lease serializes staged SHA-256 verification, explicit shutdown, atomic
+file replacement, readiness verification and rollback. The desktop mutex spans replacement and is
+released before launching the installed executable. New IPC servers become available only after
+WPF startup initializes settings, accounts and the tray. Explicit migration from pre-0.5.8 verifies
+the current-session process, executable metadata and first command-line argument before termination;
+it excludes every Claude headless mode. Ordinary launches never perform that legacy termination.
+
+Settings/account compatibility remains under `ProMeter`. Old external executables are retained for
+absolute Claude callback paths. Tray migration uses only recorded, verified old executable paths;
+it backs up registry values before deleting obsolete path-specific notification entries. It does
+not restart Explorer or rewrite opaque icon caches.
+
+### Provider and presentation contracts
+
 - Codex displays the five-hour (300 minutes) and weekly (10,080 minutes) windows supplied by
   the official App Server, regardless of plan name or primary/secondary position. Account
   cards and details retain all reported windows. The persisted global `AppSettings.UsagePeriod`

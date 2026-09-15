@@ -42,11 +42,19 @@ The **Codex** or **Claude** label on account cards, selected details, tray toolt
 **Requirements:** Windows 10/11 on x64. Codex monitoring requires an installed Codex CLI signed into a ChatGPT account that reports subscription limits, and network access. Claude monitoring requires the Claude Code terminal CLI with official statusLine rate-limit support and Windows PowerShell; it does not require Codex sign-in.
 
 1. Download **`CycleArc.exe`** from the [latest release](https://github.com/frozenvoice/cyclearc/releases/latest).
-2. Put it in a folder you want to keep and run it. The .NET runtime is bundled; there is no separate runtime installer.
+2. Run it. CycleArc installs and runs from `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe` on this PC. The .NET runtime is bundled.
 3. Open the tray icon and **Manage accounts → Add an account**. For Codex, existing CLI sign-ins are discovered automatically; choose **New account sign-in** to add another account. For Claude, choose **Connect Claude**, then connect the current login or sign in through your browser.
 4. Codex appears after a successful quota check; Claude appears after verified connection, with unknown limits until usage arrives. If Codex cannot be found, install the [Codex CLI](https://developers.openai.com/codex/cli/) or open **Settings → Connection** and select its executable path. For Claude setup, follow the [connection steps below](#claude-code-connection).
 
 CycleArc discovers `codex.exe` or `codex.cmd` through PATH and supported installation locations. The Codex CLI itself is not bundled. Sign-in remains managed by Codex.
+
+### Running and switching versions
+
+An ordinary launch keeps the first running instance and opens its popup, which shows the running version. Development builds and releases have equal priority. Windows startup uses the same installed executable and does not bring an already running window forward.
+
+To switch while CycleArc is running, choose **About → Install another version…** and select a downloaded `CycleArc.exe` (0.5.8 or later), or run `dev-run.ps1` for the current source build. Both validate the candidate before stopping the running app, install at the same path, and restore the previous installed executable if startup fails. When no instance is running, opening a downloaded version installs that version. A pre-0.5.8 instance cannot receive activation requests; explicit installation handles its one-time migration.
+
+Settings, accounts and cached usage remain in `%LOCALAPPDATA%\ProMeter`. Existing external executables are retained so older absolute Claude callback paths continue to work; reconnecting Claude updates the callback to the installed path. Verified old tray settings entries are backed up before removal after the installed tray icon is ready.
 
 ### Accounts
 
@@ -236,7 +244,7 @@ cd cyclearc
 .\dev-run.ps1
 ```
 
-The launcher restores dependencies, builds **Release**, runs the tests and WPF checks, then publishes and launches **one self-contained Windows x64 `CycleArc.exe`**, without debug symbols. All linked Git worktrees share the primary worktree's `publish/local` installation so Windows keeps one development tray entry. Source exports without Git use their own `publish/local`. Build staging stays in the current checkout; `-NoLaunch` does not replace the installed app. The installer retries transient deployment locks and restores the previous local build if replacement or startup fails.
+The launcher restores dependencies, builds **Release**, runs the tests and WPF checks, then publishes **one self-contained Windows x64 `CycleArc.exe`**, without debug symbols. The validated executable installs itself at `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe`, shared by downloads, all Git worktrees and source exports on this PC. Build staging stays in the current checkout; `-NoLaunch` does not stop or replace the installed app. The installer retries transient deployment locks and restores the previous installed build if replacement or startup fails.
 
 Preflight reports existing desktop PIDs and executable paths. After validation, the installer stops verified CycleArc desktops in the current Windows session and checks that the single-instance lock is gone before replacing files. If a desktop is running directly from build output, preflight identifies it before cleanup; exit that instance and rerun the script.
 

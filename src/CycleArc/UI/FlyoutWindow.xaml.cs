@@ -2,6 +2,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Reflection;
 using CycleArc.Codex;
 using CycleArc.Providers.Usage;
 using CycleArc.Providers.Claude;
@@ -210,6 +211,8 @@ public partial class FlyoutWindow : Window
     public void ApplyLocalizedTexts()
     {
         Title = UiText.ProductName;
+        VersionText.Text = UiText.VersionPrefix
+            + (Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0");
         ResetCreditsTitle.Text = UiText.ResetCredits;
         ApplyCreditExpansion();
         var helpText = UiText.T("Reset credits can renew your Codex usage limits. Select Use reset beside a credit to redeem it after confirmation.", "리셋권으로 Codex 사용 한도를 갱신할 수 있습니다. 리셋권 옆의 초기화 사용을 누르고 확인하면 해당 리셋권을 사용합니다.");

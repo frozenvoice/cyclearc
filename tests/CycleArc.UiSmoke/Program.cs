@@ -21,6 +21,21 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--desktop-instance-child", var key, var reportPath])
+            return DesktopInstanceProcessChecks.RunChildGuarded(key, reportPath);
+        if (args is ["--desktop-instance"])
+        {
+            try
+            {
+                DesktopInstanceProcessChecks.Run();
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex);
+                return 1;
+            }
+        }
         if (args is ["--shutdown-child", var scenario]) return ShutdownChecks.RunChild(scenario);
         if (args is ["--shutdown"]) { ShutdownChecks.Run(); return 0; }
         if (args is ["--claude-process", var executable])
@@ -30,6 +45,15 @@ internal static class Program
         }
         if (args is ["--live-accounts", "read" or "login" or "relogin"])
             return LiveAccountChecks.RunAsync(args[1]).GetAwaiter().GetResult();
+        if (args.Length == 0)
+        {
+            try { DesktopInstanceProcessChecks.Run(); }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex);
+                return 1;
+            }
+        }
         // Load production WPF views/resources with startup overridden: no account access,
         // settings writes, tray registration or background refresh occurs.
         var app = new OfflineApp();
@@ -40,6 +64,12 @@ internal static class Program
             {
                 Source = new Uri("/CycleArc;component/UI/Themes.xaml", UriKind.Relative)
             });
+            if (args is ["--desktop-version-ui"])
+            {
+                DesktopInstanceProcessChecks.RunUiChecks();
+                return 0;
+            }
+            if (args.Length == 0) DesktopInstanceProcessChecks.RunUiChecks();
             if (args is ["--tray-icons", var trayDirectory])
             {
                 TrayIconChecks.Run(trayDirectory);
