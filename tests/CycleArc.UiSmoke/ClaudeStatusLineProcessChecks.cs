@@ -88,7 +88,13 @@ internal static class ClaudeStatusLineProcessChecks
         var connections = new ClaudeConnectionStore(accounts, profile.Id);
         connections.Save(new(2, profile.Id, directory, cli, false, auth.Fingerprint!, DateTimeOffset.UtcNow,
             BindingGeneration: Guid.NewGuid().ToString("N")));
-        var oldScript = "$data = $input | Out-String | ConvertFrom-Json; Write-Output ('Existing line ' + $data.rate_limits.five_hour.used_percentage)";
+        // Avoid first-use PowerShell module loading inside the existing-command budget.
+        // Still consume stdin through EOF and require this fixture's exact five-hour value.
+        var oldScript = """
+            $raw = [Console]::In.ReadToEnd();
+            if (-not $raw.Contains('"five_hour":{"used_percentage":23.5,')) { exit 7 };
+            [Console]::Out.WriteLine('Existing line 23.5')
+            """;
         var oldCommand = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(oldScript));
         File.WriteAllText(Path.Combine(directory, "settings.json"), JsonSerializer.Serialize(new { theme = "preserve", statusLine = new { type = "command", command = oldCommand, padding = 2 } }));
         var options = ClaudeStatusLineInstaller.InstallAsync(accounts, profile.Id, directory, executable, default).GetAwaiter().GetResult();

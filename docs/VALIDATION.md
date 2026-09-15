@@ -16,6 +16,12 @@
     code/output/error, so the cause was not established. Added those synthetic diagnostics
     and the projected failure kind; the affected local production-receiver check passed.
     Receiver deadlines and runtime behavior were not changed to bypass the failed check.
+  - The diagnostic CI (34949944075) reproduced exit 0 with empty stdout, no projected auth
+    failure and PowerShell's first-use module preparation message. The synthetic previous
+    command used Out-String/ConvertFrom-Json/Write-Output inside the four-second forwarding
+    budget. Replaced those cmdlets with Console stdin/stdout methods and an exact fixture
+    five-hour marker check, retaining EOF/input/output and quota assertions without module
+    initialization. Production receiver behavior and its limits remain unchanged.
 
 - Shared usage-period selection (2026-09-15):
   - Added persisted Auto / 5 hours / Weekly selection shared by the detail ring, native
