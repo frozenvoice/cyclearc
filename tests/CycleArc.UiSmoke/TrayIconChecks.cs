@@ -71,6 +71,7 @@ internal static class TrayIconChecks
         }
 
         CheckUnknownIsNotZero();
+        CheckNaturalProportions();
         if (directory is not null)
             ExportContactSheet(directory);
         Console.WriteLine($"PASS: {count} tray icon renders across sizes, styles, values and states.");
@@ -110,7 +111,9 @@ internal static class TrayIconChecks
 
         if (visible == 0 || maxX < minX || maxY < minY)
             throw new InvalidOperationException($"Tray icon is fully transparent: {style}/{label}/{requestedSize}.");
-        var minimumHeight = bitmap.Height / 2;
+        // A natural-width 100% needs less height than the former condensed glyphs.
+        var minimumHeight = style == TrayIconStyle.RemainingNumber
+            ? Math.Max(5, (int)Math.Ceiling(bitmap.Height * 0.35)) : bitmap.Height / 2;
         var minimumWidth = style == TrayIconStyle.RemainingNumber ? bitmap.Width / 3 : bitmap.Width / 2;
         if (maxX - minX + 1 < minimumWidth || maxY - minY + 1 < minimumHeight)
             throw new InvalidOperationException($"Tray icon bounds are too small: {style}/{label}/{requestedSize}.");
@@ -219,6 +222,33 @@ internal static class TrayIconChecks
     private static bool IsForeground(Color pixel, Color expected) =>
         pixel.A >= 32
             && Math.Max(pixel.R, Math.Max(pixel.G, pixel.B)) - Math.Min(pixel.R, Math.Min(pixel.G, pixel.B)) <= 8;
+
+    private static void CheckNaturalProportions()
+    {
+        // Raster bounds catch a return to tall, horizontally squeezed percentage text.
+        foreach (var (value, minimum, maximum) in new[] { (70d, 1.8, 2.4), (100d, 2.4, 3.1) })
+        {
+            using var icon = TrayIconRenderer.Render(
+                Snapshot(CodexQuotaStatus.Available, value), TrayIconStyle.RemainingNumber, 32);
+            using var bitmap = icon.ToBitmap();
+            var left = bitmap.Width;
+            var top = bitmap.Height;
+            var right = -1;
+            var bottom = -1;
+            for (var y = 0; y < bitmap.Height; y++)
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                if (bitmap.GetPixel(x, y).A < 32) continue;
+                left = Math.Min(left, x);
+                right = Math.Max(right, x);
+                top = Math.Min(top, y);
+                bottom = Math.Max(bottom, y);
+            }
+            var aspect = (right - left + 1d) / (bottom - top + 1d);
+            if (right < left || aspect < minimum || aspect > maximum)
+                throw new InvalidOperationException($"Tray font proportions are distorted: {value}% ({aspect:0.00}).");
+        }
+    }
 
     private static void CheckUnknownIsNotZero()
     {

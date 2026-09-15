@@ -2,6 +2,25 @@
 
 ## Current release — Codex and Claude Code
 
+- Natural tray font proportions follow-up (2026-09-15):
+  - Removed independent horizontal/vertical scaling from the percentage renderer.
+    Segoe UI Bold digits and the smaller baseline-aligned % now keep their original
+    proportions; the number is no longer stretched vertically to fill the icon slot.
+  - Added raster aspect checks for 70% and 100% to catch a return to squeezed text.
+    The existing 99 icon renders still cover both taskbar themes, 16/24/32px, unknown
+    values, transparent monochrome text and the optional ring.
+  - Visually compared the compressed, natural inline and lower-right-unit layouts,
+    then confirmed the selected inline output in production renders. At 100%, the fixed
+    native slot requires smaller text; preserving font shape takes priority over height.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed: zero build warnings/errors,
+    1,272 unit tests, 15 installer scenarios, production WPF/widget/DPI checks, single-file
+    win-x64 publish and built/published Claude receivers, using isolated synthetic data.
+  - Installed through the guarded rollback path; SHA-256:
+    `C4CBA8122E4CD1B82E2F271AFAEF2203E0BF1038E0347F0C18BA8C14610D1837`.
+    Read-only capture of the reporting PC's 24px taskbar confirmed natural-proportioned
+    71% text. The widget stayed visible at its saved (8, 1321) position with no ordinary
+    windows above it. Screenshots remain ignored local artifacts.
+
 - Monochrome percentage tray follow-up (2026-09-15):
   - Replaced the default number icon's colored backing with transparent, monochrome
     digits and a smaller baseline-aligned percent sign. Percentage glyphs preserve their

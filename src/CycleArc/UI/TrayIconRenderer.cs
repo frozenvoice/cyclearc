@@ -118,7 +118,7 @@ public static class TrayIconRenderer
             numberInk.Height - unitInk.Height * unitScale - unitInk.Y * unitScale))
             unit.Transform(placement);
         number.AddPath(unit, false);
-        FillGlyphPath(graphics, number, size, color, size - 1f, size * 0.70f, preserveHeight: true);
+        FillGlyphPath(graphics, number, size, color, size - 1f, size * 0.70f);
     }
 
     private static void DrawGlyph(Graphics graphics, string text, int size, DrawingColor color, bool ringStyle)
@@ -132,21 +132,19 @@ public static class TrayIconRenderer
     }
 
     private static void FillGlyphPath(Graphics graphics, GraphicsPath path, int size, DrawingColor color,
-        float maxWidth, float maxHeight, bool preserveHeight = false)
+        float maxWidth, float maxHeight)
     {
         var ink = path.GetBounds();
-        var scaleY = maxHeight / Math.Max(ink.Height, 0.01f);
-        var scaleX = Math.Min(maxWidth / Math.Max(ink.Width, 0.01f), scaleY);
-        // Condense percentages horizontally so adding the unit never shrinks digit height.
-        if (!preserveHeight) scaleY = scaleX;
-        var x = (size - ink.Width * scaleX) / 2f - ink.X * scaleX;
-        var y = (size - ink.Height * scaleY) / 2f - ink.Y * scaleY;
+        // Preserve the font proportions instead of squeezing the digits horizontally.
+        var scale = Math.Min(maxWidth / Math.Max(ink.Width, 0.01f), maxHeight / Math.Max(ink.Height, 0.01f));
+        var x = (size - ink.Width * scale) / 2f - ink.X * scale;
+        var y = (size - ink.Height * scale) / 2f - ink.Y * scale;
         using var brush = new SolidBrush(color);
         var state = graphics.Save();
         try
         {
             graphics.TranslateTransform(x, y);
-            graphics.ScaleTransform(scaleX, scaleY);
+            graphics.ScaleTransform(scale, scale);
             graphics.FillPath(brush, path);
         }
         finally
