@@ -60,7 +60,7 @@ public class DevRunScriptGuardTests
     {
         var text = File.ReadAllText(DevRunScriptPath);
         var stagingIndex = text.IndexOf(".dev-staging", StringComparison.Ordinal);
-        var stopProcessIndex = text.IndexOf("Stop-Process", StringComparison.Ordinal);
+        var stopProcessIndex = text.IndexOf("Stop-CycleArcDesktopProcess -ProcessRecord", StringComparison.Ordinal);
 
         Assert.True(stagingIndex >= 0, "dev-run.ps1 does not reference a staging directory.");
         Assert.True(stopProcessIndex >= 0, "dev-run.ps1 does not stop the running CycleArc process.");
@@ -72,7 +72,7 @@ public class DevRunScriptGuardTests
     {
         var text = File.ReadAllText(DevRunScriptPath);
         var validatedIndex = text.IndexOf("Publish artifacts verified", StringComparison.Ordinal);
-        var stopProcessIndex = text.IndexOf("Stop-Process", StringComparison.Ordinal);
+        var stopProcessIndex = text.IndexOf("Stop-CycleArcDesktopProcess -ProcessRecord", StringComparison.Ordinal);
 
         Assert.True(validatedIndex >= 0, "dev-run.ps1 does not report publish artifact validation.");
         Assert.True(stopProcessIndex >= 0, "dev-run.ps1 does not stop the running CycleArc process.");
@@ -84,13 +84,16 @@ public class DevRunScriptGuardTests
     {
         var text = File.ReadAllText(DevRunScriptPath);
         var noLaunchExitIndex = text.IndexOf("if ($NoLaunch)", StringComparison.Ordinal);
-        var stopProcessIndex = text.IndexOf("Stop-Process", StringComparison.Ordinal);
+        var stopProcessIndex = text.IndexOf("Stop-CycleArcDesktopProcess -ProcessRecord", StringComparison.Ordinal);
         var moveToLocalIndex = text.IndexOf("Install-StagedApp -StagingDir", StringComparison.Ordinal);
+        var mutexCheckIndex = text.IndexOf("Assert-InstallDesktopMutexAbsent", StringComparison.Ordinal);
 
         Assert.True(noLaunchExitIndex >= 0, "dev-run.ps1 does not branch on -NoLaunch.");
         Assert.True(stopProcessIndex >= 0 && moveToLocalIndex >= 0);
         Assert.True(noLaunchExitIndex < stopProcessIndex, "-NoLaunch must be checked before the process is stopped.");
         Assert.True(noLaunchExitIndex < moveToLocalIndex, "-NoLaunch must be checked before publish\\local is replaced.");
+        Assert.True(stopProcessIndex < mutexCheckIndex && mutexCheckIndex < moveToLocalIndex,
+            "Existing desktop instances and their mutex must be cleared before installation files move.");
 
         var noLaunchBlockEnd = text.IndexOf("exit 0", noLaunchExitIndex, StringComparison.Ordinal);
         Assert.True(noLaunchBlockEnd >= 0 && noLaunchBlockEnd < stopProcessIndex, "-NoLaunch must exit before any deploy/launch step runs.");
@@ -99,7 +102,7 @@ public class DevRunScriptGuardTests
     [Fact]
     public void Script_MatchesRunningProcessByExactNameOnly()
     {
-        var text = File.ReadAllText(DevRunScriptPath);
+        var text = File.ReadAllText(Path.Combine(RepoRoot, "scripts", "LocalInstall.ps1"));
         Assert.Contains("Get-Process -Name 'prometer'", text, StringComparison.Ordinal);
         Assert.DoesNotContain("-Name 'prometer-companion-host'", text, StringComparison.Ordinal);
         Assert.DoesNotContain("-Name \"prometer-companion-host\"", text, StringComparison.Ordinal);

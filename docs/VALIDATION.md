@@ -2,6 +2,31 @@
 
 ## Current release — Codex and Claude Code
 
+- Existing desktop instance during installation (2026-09-15):
+  - Reproduced a second launch of the installed executable while the first desktop process
+    was running: the second process exited with code 0 and the original remained alive.
+    `App.OnStartup` rejected the existing named mutex before application logging initialized;
+    the installer's two-second startup check reported this as a generic startup failure.
+  - The earlier installer stopped only the current and primary `publish/local` executable
+    paths. An existing CycleArc desktop launched from another location could therefore
+    survive replacement and reject the new executable. Passing the synthetic process tests
+    did not establish that this installation scenario was covered.
+  - Preflight now reports the existing desktop PID/path, and final installation rediscovers
+    current-session desktops after validation. Verified CycleArc PE metadata covers other
+    installation paths; exact legacy paths remain supported. The first argument separates
+    headless receivers from desktops. Termination requires the captured process object and
+    a matching executable path, then waits for exit and the disappearance of the named mutex
+    before installation-directory changes. `-NoLaunch` still does not stop an app.
+  - Regression checks cover outside-install identification, unrelated products, other sessions,
+    all three quoted/unquoted callback arguments, misleading path/later-argument text, an
+    unowned existing mutex, and actual test-owned process exit. PID-only and mismatched-path
+    termination requests are rejected. Existing rollback and installation-layout checks passed.
+  - Ran the full `dev-run.ps1` with the existing primary desktop already running. Preflight
+    identified PID 26708; all 1,286 unit tests, WPF/receiver checks and single-file publish
+    passed. The installer then stopped PID 26708 and launched PID 51664 from the same primary
+    path. Confirmed one desktop process and one tray registration. The installed SHA-256
+    `E9DEC5A366BB5EFFEC8AA480E3D27399F084ED8CE841A25C6FF8117E7C77F910` matched validated staging.
+
 - Single development tray installation (2026-09-15):
   - The duplicate Windows tray-settings rows came from the primary checkout and a linked
     worktree's separate `publish/local/CycleArc.exe` paths. Only one desktop process was

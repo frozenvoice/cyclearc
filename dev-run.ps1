@@ -32,6 +32,33 @@ function Invoke-Dotnet([string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "dotnet $($Arguments[0]) failed (exit $LASTEXITCODE). See the command output above." }
 }
 foreach ($target in @($StagingDir, $CurrentLocalDir, $LocalDir, $BackupDir)) { Assert-DevRunPath $target }
+$KnownExecutablePaths = @(
+    foreach ($directory in @($CurrentLocalDir, $LocalDir)) {
+        foreach ($name in @('CycleArc.exe', 'CodexMeter.exe', 'prometer.exe')) {
+            ConvertTo-InstallAbsolutePath (Join-Path $directory $name)
+        }
+    }
+) | Select-Object -Unique
+
+# Identify desktop instances before any build cleanup. A process holding a file
+# under a build output would make the cleanup ambiguous, so stop before touching
+# that output and report the exact PID/path to the caller.
+$earlyDesktopProcesses = @(Get-CycleArcDesktopProcess -KnownExecutablePaths $KnownExecutablePaths)
+try {
+foreach ($processRecord in $earlyDesktopProcesses) {
+    Write-Host "Preflight: CycleArc desktop PID $($processRecord.ProcessId) path $($processRecord.Path)"
+    $buildOutput = @(@(
+        (Join-Path $RepoRoot 'src/CycleArc/bin'),
+        (Join-Path $RepoRoot 'src/CycleArc/obj'),
+        (Join-Path $RepoRoot 'publish/.dev-staging'),
+        (Join-Path $RepoRoot 'publish/win-x64')
+    ) | Where-Object { $processRecord.Path -and (Test-InstallPathWithin $processRecord.Path $_) })
+    if ($buildOutput.Count -gt 0) {
+        throw "Preflight found a running CycleArc desktop process in build output (PID $($processRecord.ProcessId), path $($processRecord.Path)); stop it before running dev-run.ps1."
+    }
+}
+}
+finally { foreach ($processRecord in $earlyDesktopProcesses) { $processRecord.Process.Dispose() } }
 & (Join-Path $RepoRoot 'tests/Release.Tests.ps1')
 if (Test-Path -LiteralPath $StagingDir) {
     Assert-DevRunPath $StagingDir
@@ -60,23 +87,20 @@ try {
     Copy-ValidatedExecutable -SourcePath (Join-Path $StagingDir 'CycleArc.exe') `
         -DestinationDirectory $installStaging -SourceRoots @($RepoRoot) -DestinationRoots @($Layout.InstallRoot) | Out-Null
 
-    # Stop only exact CycleArc/legacy executable paths in this worktree and the
-    # primary worktree installation.  The current linked-worktree installation
-    # remains on disk for existing absolute-path Claude receivers.
-    $knownExecutables = @{}
-    foreach ($directory in @($CurrentLocalDir, $LocalDir)) {
-        foreach ($name in @('CycleArc.exe', 'CodexMeter.exe', 'prometer.exe')) {
-            $knownExecutables[(ConvertTo-InstallAbsolutePath (Join-Path $directory $name))] = $true
+    # Re-query after staging is validated so an app started during the build is
+    # handled too. Keep headless Claude callbacks alive; only desktop instances
+    # in the current session are returned by Get-CycleArcDesktopProcess.
+    $desktopProcesses = @(Get-CycleArcDesktopProcess -KnownExecutablePaths $KnownExecutablePaths)
+    try {
+    foreach ($processRecord in $desktopProcesses) {
+        Write-Host "Stopping existing CycleArc desktop PID $($processRecord.ProcessId) path $($processRecord.Path)"
+        if (Stop-CycleArcDesktopProcess -ProcessRecord $processRecord) {
+            Write-Host "Stopped existing CycleArc desktop PID $($processRecord.ProcessId)"
         }
     }
-    foreach ($process in @(Get-Process -Name 'prometer', 'CodexMeter', 'CycleArc' -ErrorAction SilentlyContinue)) {
-        try { $processPath = ConvertTo-InstallAbsolutePath ([string]$process.Path) } catch { continue }
-        if ($knownExecutables.ContainsKey($processPath)) {
-            try { if (!$process.HasExited) { Stop-Process -InputObject $process -Force -ErrorAction Stop } }
-            catch { if (!$process.HasExited) { throw } } # Already exited between enumeration and stop.
-            if (!$process.WaitForExit(10000)) { throw 'The previous CycleArc process did not exit within 10 seconds' }
-        }
     }
+    finally { foreach ($processRecord in $desktopProcesses) { $processRecord.Process.Dispose() } }
+    Invoke-InstallRetry { Assert-InstallDesktopMutexAbsent } 40 250
 
     Install-StagedApp -StagingDir $installStaging -LocalDir $LocalDir -BackupDir $BackupDir -Validate ${function:Assert-DevRunPath}
 }

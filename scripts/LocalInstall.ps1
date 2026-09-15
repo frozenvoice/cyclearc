@@ -55,6 +55,179 @@ function Assert-InstallSameVolume {
     if ($volumes.Count -gt 1) { throw "Install rollback paths must share one volume: $($volumes -join ', ')" }
 }
 
+function Test-CycleArcHeadlessCommandLine([string]$CommandLine) {
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) { return $false }
+    # Only inspect the first argument after the executable. This prevents a
+    # directory name or a later payload value from looking like a callback.
+    $match = [regex]::Match($CommandLine.Trim(), '^(?:"[^"]*"|\S+)\s+(?:"([^"]+)"|(\S+))')
+    if (!$match.Success) { return $false }
+    $firstArgument = if ($match.Groups[1].Success) { $match.Groups[1].Value } else { $match.Groups[2].Value }
+    foreach ($argument in @('--claude-statusline', '--claude-statusline-bridge', '--claude-stop-failure-bridge')) {
+        if ($firstArgument.Equals($argument, [StringComparison]::Ordinal)) { return $true }
+    }
+    $false
+}
+
+function Get-CycleArcExecutableMetadata([string]$Path) {
+    try {
+        $version = (Get-Item -LiteralPath $Path -Force -ErrorAction Stop).VersionInfo
+        return [pscustomobject]@{
+            ProductName = [string]$version.ProductName
+            OriginalFilename = [string]$version.OriginalFilename
+        }
+    }
+    catch {
+        return [pscustomobject]@{ ProductName = ''; OriginalFilename = '' }
+    }
+}
+
+function Get-CycleArcProcessSnapshots {
+    $currentSession = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    $cimById = @{}
+    $cimAvailable = $true
+    try {
+        foreach ($entry in @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'CycleArc.exe' OR Name = 'CodexMeter.exe' OR Name = 'prometer.exe'" -ErrorAction Stop)) {
+            $cimById[[int]$entry.ProcessId] = $entry
+        }
+    }
+    catch {
+        $cimAvailable = $false
+    }
+
+    foreach ($process in @(Get-Process -Name 'prometer', 'CodexMeter', 'CycleArc' -ErrorAction SilentlyContinue)) {
+        if ($process.SessionId -ne $currentSession) { $process.Dispose(); continue }
+        $path = ''
+        try { $path = ConvertTo-InstallAbsolutePath ([string]$process.Path) } catch { }
+        $cim = $cimById[[int]$process.Id]
+        $handleAvailable = $false
+        try { $null = $process.Handle; $handleAvailable = $true } catch { }
+        $commandLineAvailable = $cimAvailable -and $cim -and ![string]::IsNullOrWhiteSpace([string]$cim.CommandLine)
+        if (!$commandLineAvailable -and $process.ProcessName.Equals('CycleArc', [StringComparison]::OrdinalIgnoreCase)) {
+            if ($process.HasExited) { $process.Dispose(); continue }
+            $unclassifiedId = $process.Id
+            $process.Dispose()
+            throw "Could not inspect CycleArc command lines; refusing to stop PID $unclassifiedId without callback classification."
+        }
+        [pscustomobject]@{
+            Process = $process
+            ProcessId = [int]$process.Id
+            Path = $path
+            CommandLine = if ($cim) { [string]$cim.CommandLine } else { '' }
+            SessionId = if ($cim) { [int]$cim.SessionId } else { [int]$process.SessionId }
+            ProductName = ''
+            OriginalFilename = ''
+            CurrentSession = if ($cim) { [int]$cim.SessionId -eq $currentSession } else { [int]$process.SessionId -eq $currentSession }
+            CommandLineAvailable = [bool]$commandLineAvailable
+            HandleAvailable = $handleAvailable
+        }
+    }
+}
+
+function Get-CycleArcSnapshotValue([object]$Snapshot, [string]$Name) {
+    $property = $Snapshot.PSObject.Properties[$Name]
+    if ($property) { return $property.Value }
+    $null
+}
+
+function Get-CycleArcDesktopProcess {
+    param(
+        [object[]]$ProcessSnapshots,
+        [string[]]$KnownExecutablePaths = @()
+    )
+    $ownsSnapshots = !$PSBoundParameters.ContainsKey('ProcessSnapshots')
+    if ($ownsSnapshots) {
+        $ProcessSnapshots = @(Get-CycleArcProcessSnapshots)
+    }
+    $known = @{}
+    foreach ($path in $KnownExecutablePaths) {
+        try { $known[(ConvertTo-InstallAbsolutePath $path)] = $true } catch { }
+    }
+    $currentSession = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    foreach ($snapshot in @($ProcessSnapshots)) {
+        $selected = $false
+        try {
+        $path = ''
+        try { $path = ConvertTo-InstallAbsolutePath ([string](Get-CycleArcSnapshotValue $snapshot 'Path')) } catch { }
+        $sessionValue = Get-CycleArcSnapshotValue $snapshot 'SessionId'
+        $session = if ($null -ne $sessionValue) { [int]$sessionValue }
+            elseif ([bool](Get-CycleArcSnapshotValue $snapshot 'CurrentSession')) { $currentSession }
+            else { -1 }
+        if ($session -ne $currentSession) { continue }
+        if (Test-CycleArcHeadlessCommandLine ([string](Get-CycleArcSnapshotValue $snapshot 'CommandLine'))) { continue }
+
+        $product = [string](Get-CycleArcSnapshotValue $snapshot 'ProductName')
+        $original = [string](Get-CycleArcSnapshotValue $snapshot 'OriginalFilename')
+        if (!$product -and !$original -and $path) {
+            $metadata = Get-CycleArcExecutableMetadata $path
+            $product = $metadata.ProductName
+            $original = $metadata.OriginalFilename
+        }
+        $knownPath = $known.ContainsKey($path)
+        $commandLineAvailableProperty = $snapshot.PSObject.Properties['CommandLineAvailable']
+        $commandLineAvailable = if ($commandLineAvailableProperty) { [bool]$commandLineAvailableProperty.Value } else { $true }
+        # A CycleArc.exe with an unreadable command line could be a short-lived
+        # Claude callback. Fail closed; the mutex check will produce the clear
+        # preflight error instead of killing an unclassified process.
+        if (!$commandLineAvailable -and [IO.Path]::GetFileName($path).Equals('CycleArc.exe', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $cycleArcMetadata = $product.Equals('CycleArc', [StringComparison]::OrdinalIgnoreCase) -and
+            $original.Equals('CycleArc.dll', [StringComparison]::OrdinalIgnoreCase)
+        if (!$knownPath -and !$cycleArcMetadata) { continue }
+
+        $selected = $true
+        [pscustomobject]@{
+            Process = Get-CycleArcSnapshotValue $snapshot 'Process'
+            ProcessId = [int](Get-CycleArcSnapshotValue $snapshot 'ProcessId')
+            Path = $path
+            CommandLine = [string](Get-CycleArcSnapshotValue $snapshot 'CommandLine')
+            SessionId = $session
+            ProductName = $product
+            OriginalFilename = $original
+            CommandLineAvailable = $commandLineAvailable
+        }
+        }
+        finally {
+            if ($ownsSnapshots -and !$selected) { $snapshot.Process.Dispose() }
+        }
+    }
+}
+
+function Stop-CycleArcDesktopProcess {
+    param(
+        [Parameter(Mandatory)][object]$ProcessRecord,
+        [int]$TimeoutMilliseconds = 10000
+    )
+    $processProperty = $ProcessRecord.PSObject.Properties['Process']
+    $process = if ($processProperty) { $processProperty.Value } else { $null }
+    # A PID alone is insufficient: only stop the captured process object.
+    if (!$process) { return $false }
+    try {
+        # Retaining this handle on the Process object prevents a PID-reuse lookup
+        # from redirecting the stop to a different process.
+        $null = $process.Handle
+        $process.Refresh()
+        if ($process.HasExited) { return $false }
+        $actualPath = ConvertTo-InstallAbsolutePath ([string]$process.Path)
+    }
+    catch { return $false }
+    $expectedPath = ''
+    try { $expectedPath = ConvertTo-InstallAbsolutePath ([string](Get-CycleArcSnapshotValue $ProcessRecord 'Path')) } catch { return $false }
+    if (!$expectedPath -or !$actualPath.Equals($expectedPath, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    try { Stop-Process -InputObject $process -Force -ErrorAction Stop } catch { if (!$process.HasExited) { throw } }
+    if (!$process.WaitForExit($TimeoutMilliseconds)) { throw "CycleArc process $($ProcessRecord.ProcessId) did not exit within $TimeoutMilliseconds ms" }
+    $true
+}
+
+function Assert-InstallDesktopMutexAbsent {
+    param([string]$MutexName = 'Local\ProMeter.SingleInstance')
+    try {
+        $mutex = [Threading.Mutex]::OpenExisting($MutexName)
+        $mutex.Dispose()
+        throw "CycleArc single-instance mutex is still present: $MutexName"
+    }
+    catch [Threading.WaitHandleCannotBeOpenedException] { return }
+    catch [UnauthorizedAccessException] { throw "Could not verify CycleArc single-instance mutex: $MutexName" }
+}
+
 function Invoke-InstallGit {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,

@@ -135,6 +135,65 @@ try {
     Assert-TestDirectory $linkedRoot
     Invoke-TestGit $primaryRoot @('worktree', 'remove', '--force', $linkedRoot) | Out-Null
     Write-Host 'PASS: Git primary/linked-worktree, non-Git fallback, malformed metadata, path-boundary, and install-lease guards.'
+
+    # A desktop outside publish/local must be found without selecting callbacks,
+    # another Windows session, or an unrelated program with the same filename.
+    $session = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    $outsideExe = Join-Path $testRoot 'outside/CycleArc.exe'
+    $legacyExe = Join-Path $testRoot 'known/prometer.exe'
+    $snapshots = @(
+        [pscustomobject]@{ ProcessId=101; Path=$outsideExe; SessionId=$session; CommandLine=('"' + $outsideExe + '" --show'); ProductName='CycleArc'; OriginalFilename='CycleArc.dll' },
+        [pscustomobject]@{ ProcessId=102; Path=$outsideExe; SessionId=($session + 1); CommandLine='CycleArc.exe'; ProductName='CycleArc'; OriginalFilename='CycleArc.dll' },
+        [pscustomobject]@{ ProcessId=103; Path=$outsideExe; SessionId=$session; CommandLine='CycleArc.exe'; ProductName='Unrelated'; OriginalFilename='Other.dll' },
+        [pscustomobject]@{ ProcessId=104; Path=$legacyExe; SessionId=$session; CommandLine='prometer.exe'; ProductName='Legacy'; OriginalFilename='prometer.dll' }
+    )
+    $selected = @(Get-CycleArcDesktopProcess -ProcessSnapshots $snapshots -KnownExecutablePaths @($legacyExe))
+    if (($selected.ProcessId -join ',') -ne '101,104') { throw 'Wrong desktop process selection' }
+    $unclassified = [pscustomobject]@{ ProcessId=106; Path=$outsideExe; SessionId=$session; CommandLine=''; CommandLineAvailable=$false; ProductName='CycleArc'; OriginalFilename='CycleArc.dll' }
+    if (@(Get-CycleArcDesktopProcess -ProcessSnapshots @($unclassified) -KnownExecutablePaths @($outsideExe)).Count) {
+        throw 'A process with an unreadable command line was selected for termination'
+    }
+    foreach ($argument in @('--claude-statusline', '--claude-statusline-bridge', '--claude-stop-failure-bridge')) {
+        foreach ($quoted in @($false, $true)) {
+            $argText = if ($quoted) { '"' + $argument + '"' } else { $argument }
+            $callback = [pscustomobject]@{ ProcessId=105; Path=$outsideExe; SessionId=$session; CommandLine=('"' + $outsideExe + '" ' + $argText + ' synthetic'); ProductName='CycleArc'; OriginalFilename='CycleArc.dll' }
+            if (@(Get-CycleArcDesktopProcess -ProcessSnapshots @($callback) -KnownExecutablePaths @($outsideExe)).Count) {
+                throw "A headless receiver was selected for termination: $argText"
+            }
+        }
+    }
+    foreach ($desktopCommand in @('"C:\--claude-statusline\CycleArc.exe" --show', 'CycleArc.exe --show --claude-statusline')) {
+        if (Test-CycleArcHeadlessCommandLine $desktopCommand) { throw "A desktop command was mistaken for a callback: $desktopCommand" }
+    }
+
+    # App startup uses createdNew, so even an unowned named mutex blocks a new app.
+    # Use only a unique synthetic name; never acquire the user's desktop mutex.
+    $mutexName = 'Local\CycleArc-install-test-' + [guid]::NewGuid().ToString('N')
+    Assert-InstallDesktopMutexAbsent -MutexName $mutexName
+    $held = [Threading.Mutex]::new($false, $mutexName)
+    try { Assert-Throws { Assert-InstallDesktopMutexAbsent -MutexName $mutexName } 'mutex is still present' }
+    finally { $held.Dispose() }
+    Assert-InstallDesktopMutexAbsent -MutexName $mutexName
+
+    # Exercise actual Windows process termination only against this test's child.
+    $child = Start-Process -FilePath (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '[Threading.Thread]::Sleep(60000)') -WindowStyle Hidden -PassThru
+    try {
+        $null = $child.Handle
+        $pidOnly = [pscustomobject]@{ ProcessId=$child.Id; Path=$child.Path }
+        if (Stop-CycleArcDesktopProcess -ProcessRecord $pidOnly) { throw 'A PID without a retained process was stopped' }
+        $wrong = [pscustomobject]@{ Process=$child; ProcessId=$child.Id; Path=$outsideExe }
+        if (Stop-CycleArcDesktopProcess -ProcessRecord $wrong) { throw 'Mismatched process path was stopped' }
+        if ($child.HasExited) { throw 'Path mismatch terminated the child' }
+        $owned = [pscustomobject]@{ Process=$child; ProcessId=$child.Id; Path=$child.Path }
+        if (!(Stop-CycleArcDesktopProcess -ProcessRecord $owned)) { throw 'Owned child was not stopped' }
+        if (!$child.HasExited) { throw 'Process termination returned before exit' }
+        if (Stop-CycleArcDesktopProcess -ProcessRecord $owned) { throw 'Already exited child was treated as running' }
+    }
+    finally {
+        if (!$child.HasExited) { $child.Kill(); $null = $child.WaitForExit(5000) }
+        $child.Dispose()
+    }
+    Write-Host 'PASS: outside-install desktop discovery, legacy paths, session/product isolation, headless routing, mutex conflicts, and actual process termination.'
 }
 finally {
     # All recursive removals are verified against the unique test root.
