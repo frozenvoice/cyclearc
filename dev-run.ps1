@@ -30,10 +30,12 @@ function Assert-OwnedDirectory([string]$Target) {
     }
 }
 function Invoke-Dotnet([string[]]$Arguments) {
+    Write-Host "Running: dotnet $($Arguments -join ' ')"
     & dotnet @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "dotnet failed: $($Arguments[0])" }
+    if ($LASTEXITCODE -ne 0) { throw "dotnet $($Arguments[0]) failed (exit $LASTEXITCODE). See the command output above." }
 }
 foreach ($target in @($StagingDir, $LocalDir, $BackupDir)) { Assert-OwnedDirectory $target }
+& (Join-Path $RepoRoot 'tests/Release.Tests.ps1')
 if (Test-Path -LiteralPath $StagingDir) { Remove-Item -LiteralPath $StagingDir -Recurse -Force }
 Invoke-Dotnet -Arguments @('restore')
 Invoke-Dotnet -Arguments @('build', 'CycleArc.sln', '-c', 'Release')

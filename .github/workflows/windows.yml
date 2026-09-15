@@ -7,6 +7,7 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -19,11 +20,14 @@ jobs:
       - name: Restore
         run: dotnet restore
 
+      - name: Release guard tests
+        run: ./tests/Release.Tests.ps1
+
       - name: Build
         run: dotnet build CycleArc.sln -c Release
 
       - name: Test
-        run: dotnet test CycleArc.sln -c Release --no-build
+        run: dotnet test CycleArc.sln -c Release --no-build --logger trx --results-directory TestResults
 
       - name: Validate desktop resources
         run: dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build
@@ -58,3 +62,11 @@ jobs:
         with:
           name: CycleArc-win-x64
           path: publish/win-x64/CycleArc.exe
+
+      - name: Upload failed test results
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: failed-test-results
+          path: TestResults/*.trx
+          if-no-files-found: ignore

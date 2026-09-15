@@ -112,6 +112,10 @@ Repository: `cyclearc`; solution: `CycleArc.sln`; distribution: one self-contain
   does not prove tracking is configured; this prevents GitHub Desktop showing **Publish branch** after upload.
 - Check the CI run for the pushed SHA. Fix relevant failures and verify the corrected run; report pending,
   passed or failed accurately. If publication is blocked, state the exact blocker and that the commit is local.
+- Publish GitHub releases through `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version>` after the
+  final local gate and successful Windows push CI. The release must use that CI run's executable, with its
+  file version, commit/tag and uploaded SHA-256 verified before the draft becomes public. Diagnose each
+  failed run's actual failing step before retrying; a new failure is not evidence that an earlier fix failed.
 - Install/restart only when the task calls for a working local executable. Use the validated artifact and
   existing guarded installer/rollback path; confirm the target checkout, running path and file hash.
   Documentation-only changes do not require replacing the user's running app.

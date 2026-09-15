@@ -242,6 +242,13 @@ The launcher restores dependencies, builds **Release**, runs the tests and WPF c
 - `-Fast`: skip the unit suite only when it has already passed for the same changes.
 - CI also publishes the single executable as the `CycleArc-win-x64` artifact.
 
+For a GitHub release, commit and push the versioned changes, pass the local `-NoLaunch`
+gate and Windows CI, then run `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7`.
+The script downloads that commit's tested CI executable, checks its version and uploaded
+SHA-256 values, and publishes the draft only after verification. Existing draft notes are
+preserved; a new release requires `-NotesPath <file>`. Public assets and existing tag targets
+are never overwritten.
+
 | Path | Purpose |
 | --- | --- |
 | `src/CycleArc` | Active WPF tray application |

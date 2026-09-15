@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using CycleArc.Codex;
 using CycleArc.Providers.Claude;
@@ -356,9 +357,100 @@ public class ClaudeConnectionTests
         var path = System.IO.Path.Combine(data.Root, "synthetic claude.cmd");
         File.WriteAllText(path, "@echo off\r\necho " + AuthJson + "\r\nexit /b 0\r\n");
         Assert.Equal(ClaudeAuthStatus.SignedIn, (await new ClaudeCli().AuthenticateAsync(path, data.Root, false, default)).Status);
-        File.WriteAllText(path, "@echo off\r\nping -n 30 127.0.0.1 >nul\r\n");
-        using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
-        Assert.Equal(ClaudeAuthStatus.Cancelled, (await new ClaudeCli().AuthenticateAsync(path, data.Root, true, cancel.Token)).Status);
+        var ready = System.IO.Path.Combine(data.Root, "child-ready");
+        File.WriteAllText(System.IO.Path.Combine(data.Root, "child.cmd"),
+            "@echo off\r\necho ready>\"%~dp0child-ready\"\r\nping -n 30 127.0.0.1 >nul\r\n");
+        File.WriteAllText(path, "@echo off\r\ncmd /d /s /c \"\"%~dp0child.cmd\"\"\r\n");
+        using var cancel = new CancellationTokenSource();
+        var login = new ClaudeCli().AuthenticateAsync(path, data.Root, true, cancel.Token);
+        var childStarted = false;
+        try
+        {
+            var deadline = Stopwatch.StartNew();
+            while (!File.Exists(ready) && deadline.Elapsed < TimeSpan.FromSeconds(10))
+                await Task.Delay(25);
+            childStarted = File.Exists(ready);
+        }
+        finally { cancel.Cancel(); }
+        var status = (await login.WaitAsync(TimeSpan.FromSeconds(10))).Status;
+        Assert.True(childStarted, "The cancellation fixture did not start its child process.");
+        Assert.Equal(ClaudeAuthStatus.Cancelled, status);
+        // Process.Kill(entireProcessTree: true) is asynchronous for descendants.
+        // The adapter must not return while ping.exe still holds the Claude home.
+        var cleanup = Record.Exception(() => Directory.Delete(data.Root, true));
+        Assert.Null(cleanup);
+    }
+
+    [Fact]
+    public async Task SuccessfulCommandAdapterLeavesDetachedChildRunning()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var data = new ClaudeTestData();
+        var path = System.IO.Path.Combine(data.Root, "synthetic claude.cmd");
+        var ready = System.IO.Path.Combine(data.Root, "detached-ready");
+        var stop = System.IO.Path.Combine(data.Root, "detached-stop");
+        var done = System.IO.Path.Combine(data.Root, "detached-done");
+        // Avoid first-use PowerShell module loading and publish the PID atomically.
+        var childScript = "$root = [Environment]::CurrentDirectory; "
+            + "$ready = [IO.Path]::Combine($root, 'detached-ready'); "
+            + "[IO.File]::WriteAllText($ready + '.tmp', [string]$PID); [IO.File]::Move($ready + '.tmp', $ready); "
+            + "$stop = [IO.Path]::Combine($root, 'detached-stop'); "
+            + "while (-not [IO.File]::Exists($stop)) { [Threading.Thread]::Sleep(25) }; "
+            + "[IO.File]::WriteAllText([IO.Path]::Combine($root, 'detached-done'), 'done')";
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(childScript));
+        // Shell launch models a login browser: inheriting the parent's stdout
+        // would keep the adapter's EOF wait open, a different lifecycle scenario.
+        var parentScript = "$start = [Diagnostics.ProcessStartInfo]::new('powershell.exe'); "
+            + "$start.UseShellExecute = $true; $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden; "
+            + "$start.Arguments = '-NoLogo -NoProfile -NonInteractive -EncodedCommand " + encoded + "'; "
+            + "$child = [Diagnostics.Process]::Start($start); "
+            + "[Console]::Out.WriteLine('" + AuthJson.Replace("'", "''", StringComparison.Ordinal) + "'); $child.Dispose()";
+        var parentEncoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(parentScript));
+        File.WriteAllText(path, "@echo off\r\npowershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand "
+            + parentEncoded + "\r\nexit /b 0\r\n");
+
+        var childPid = (int?)null;
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var result = await ClaudeCli.RunAsync(ClaudeCli.StartInfo(path, data.Root, false), 16384, deadline.Token);
+            var status = ClaudeAuthentication.Parse(result.Output, result.ExitCode).Status;
+            Assert.Equal(ClaudeAuthStatus.SignedIn, status);
+            Assert.True(await WaitForFileAsync(ready, TimeSpan.FromSeconds(10)), "Detached child did not start.");
+            Assert.True(int.TryParse(File.ReadAllText(ready).Trim(), out var pid));
+            childPid = pid;
+            using var child = Process.GetProcessById(pid);
+            Assert.False(child.HasExited, "Successful completion terminated the detached child.");
+        }
+        finally
+        {
+            File.WriteAllText(stop, string.Empty);
+            await WaitForFileAsync(done, TimeSpan.FromSeconds(10));
+            if (childPid is null && File.Exists(ready)
+                && int.TryParse(File.ReadAllText(ready).Trim(), out var cleanupPid)) childPid = cleanupPid;
+            if (childPid is int pid)
+            {
+                try
+                {
+                    using var child = Process.GetProcessById(pid);
+                    if (!child.HasExited)
+                    {
+                        child.Kill(entireProcessTree: true);
+                        child.WaitForExit(3000);
+                    }
+                }
+                catch (ArgumentException) { }
+                catch (InvalidOperationException) { }
+            }
+        }
+    }
+
+    private static async Task<bool> WaitForFileAsync(string path, TimeSpan timeout)
+    {
+        var watch = Stopwatch.StartNew();
+        while (!File.Exists(path) && watch.Elapsed < timeout)
+            await Task.Delay(25);
+        return File.Exists(path);
     }
 
     [Fact]

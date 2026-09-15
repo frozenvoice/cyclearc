@@ -217,6 +217,12 @@ Release 빌드, 전체 테스트와 화면 검증을 수행하고 디버그 심�
 
 GitHub Actions 배포물은 `CycleArc-win-x64`이며 `CycleArc.exe`만 포함합니다.
 
+GitHub 릴리즈는 버전을 반영한 변경을 커밋·푸시하고 로컬 `-NoLaunch` 검사와 Windows CI를
+통과한 뒤 `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7`로 게시합니다.
+이 명령은 해당 커밋의 CI 실행 파일을 받아 버전과 업로드된 SHA-256을 검사한 뒤 초안을 공개합니다.
+기존 초안 설명은 보존하며, 새 릴리즈에는 `-NotesPath <파일>`이 필요합니다.
+공개된 파일과 기존 태그의 대상 커밋은 덮어쓰지 않습니다.
+
 ## 데이터와 구현
 
 Codex는 공식 App Server로 계정·사용 한도를 조회합니다. Claude는 공식 CLI로 로그인을 확인하고 연결된 터미널의 statusLine으로 사용량을 받습니다. 사용량 측정을 위한 모델 요청은 실행하지 않습니다.

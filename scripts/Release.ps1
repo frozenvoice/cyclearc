@@ -1,0 +1,564 @@
+#Requires -Version 7.0
+<#
+.SYNOPSIS
+    Publish a tested CycleArc Windows artifact as a GitHub draft release.
+
+.DESCRIPTION
+    The script deliberately has a small, linear release gate.  It only creates or
+    changes a release while the release is a draft.  A public release is checked
+    for an exact match and is never edited or overwritten.
+
+    GitHub CLI and Git are the only external tools used.  CI is selected by the
+    exact commit SHA, push event, and Windows workflow; a failed or in-progress
+    run is an error and is never rerun by this script.
+
+.EXAMPLE
+    pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7 -NotesPath ./release-notes/0.5.7.md
+
+    Commit defaults to HEAD. An explicit -Commit must resolve to the checked-out
+    HEAD; check out an older version before releasing it.
+#>
+[CmdletBinding()]
+param(
+    [string]$Version,
+    [string]$Commit = 'HEAD',
+    [string]$NotesPath,
+    [string]$Repository = 'frozenvoice/cyclearc',
+    [string]$Remote = 'origin',
+    [string]$Workflow = '.github/workflows/windows.yml',
+    [switch]$LoadOnly
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Invoke-NativeCommand {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [switch]$AllowFailure
+    )
+
+    $output = @(& $FilePath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
+    $exitCode = [int]$LASTEXITCODE
+    $text = $output -join "`n"
+    if ($exitCode -ne 0 -and !$AllowFailure) {
+        $display = if ($text) { ": $text" } else { '' }
+        throw "$FilePath failed with exit code $exitCode$display"
+    }
+    [pscustomobject]@{
+        ExitCode = $exitCode
+        Output   = $text
+    }
+}
+
+function Invoke-GhJson {
+    param(
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [switch]$AllowNotFound
+    )
+
+    $result = Invoke-NativeCommand -FilePath 'gh' -Arguments $Arguments -AllowFailure
+    if ($result.ExitCode -ne 0) {
+        if ($AllowNotFound -and $result.Output -match '(?i)(not found|404)') {
+            return $null
+        }
+        $display = if ($result.Output) { ": $($result.Output)" } else { '' }
+        throw "gh failed with exit code $($result.ExitCode)$display"
+    }
+    if ([string]::IsNullOrWhiteSpace($result.Output)) { return $null }
+    try {
+        return $result.Output | ConvertFrom-Json -Depth 30
+    }
+    catch {
+        throw "gh returned invalid JSON: $($_.Exception.Message)"
+    }
+}
+
+function Assert-ReleaseVersion {
+    param([Parameter(Mandatory)][string]$Value)
+    if ($Value -notmatch '^\d+\.\d+\.\d+$') {
+        throw "Version must be a plain semantic version such as 0.5.7: '$Value'"
+    }
+    $Value
+}
+
+function Get-ReleaseTagName {
+    param([Parameter(Mandatory)][string]$Value)
+    "v$(Assert-ReleaseVersion $Value)"
+}
+
+function Assert-CleanTrackedTree {
+    $result = Invoke-NativeCommand -FilePath 'git' -Arguments @('status', '--porcelain=v1', '--untracked-files=no')
+    if (![string]::IsNullOrWhiteSpace($result.Output)) {
+        throw "Tracked working-tree changes must be committed before release:`n$($result.Output)"
+    }
+}
+
+function Assert-SourceVersion {
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$Value
+    )
+
+    $propsPath = Join-Path $RepoRoot 'Directory.Build.props'
+    if (!(Test-Path -LiteralPath $propsPath -PathType Leaf)) { return }
+    $text = [IO.File]::ReadAllText($propsPath)
+    $versionMatch = [regex]::Match($text, '<Version>\s*([^<]+?)\s*</Version>')
+    if ($versionMatch.Success -and $versionMatch.Groups[1].Value.Trim() -ne $Value) {
+        throw "Directory.Build.props Version is '$($versionMatch.Groups[1].Value.Trim())', expected '$Value'"
+    }
+    $fileVersionMatch = [regex]::Match($text, '<FileVersion>\s*([^<]+?)\s*</FileVersion>')
+    $expectedFileVersion = "$Value.0"
+    if ($fileVersionMatch.Success -and $fileVersionMatch.Groups[1].Value.Trim() -ne $expectedFileVersion) {
+        throw "Directory.Build.props FileVersion is '$($fileVersionMatch.Groups[1].Value.Trim())', expected '$expectedFileVersion'"
+    }
+}
+
+function Resolve-CommitSha {
+    param([Parameter(Mandatory)][string]$Commitish)
+    $result = Invoke-NativeCommand -FilePath 'git' -Arguments @('rev-parse', '--verify', "$Commitish^{commit}")
+    $sha = $result.Output.Trim()
+    if ($sha -notmatch '^[0-9a-fA-F]{40}$') {
+        throw "Git did not resolve '$Commitish' to a full commit SHA"
+    }
+    $sha.ToLowerInvariant()
+}
+
+function Get-RemoteHeadRecords {
+    param([Parameter(Mandatory)][string]$RemoteName)
+    $result = Invoke-NativeCommand -FilePath 'git' -Arguments @('ls-remote', '--heads', $RemoteName)
+    foreach ($line in ($result.Output -split "`r?`n")) {
+        if ($line -match '^([0-9a-fA-F]{40})\s+(refs/heads/\S+)$') {
+            [pscustomobject]@{ Sha = $Matches[1].ToLowerInvariant(); Ref = $Matches[2] }
+        }
+    }
+}
+
+function Assert-CommitIsRemoteHead {
+    param(
+        [object[]]$RemoteHeads,
+        [Parameter(Mandatory)][string]$CommitSha
+    )
+    $matches = @($RemoteHeads | Where-Object { $_.Sha -ieq $CommitSha })
+    if ($matches.Count -eq 0) {
+        throw "Commit $CommitSha is not the current SHA of any head on the configured remote"
+    }
+    $matches
+}
+
+function Get-RemoteTagRecords {
+    param([Parameter(Mandatory)][string]$RemoteName)
+    $result = Invoke-NativeCommand -FilePath 'git' -Arguments @('ls-remote', '--tags', $RemoteName)
+    foreach ($line in ($result.Output -split "`r?`n")) {
+        if ($line -match '^([0-9a-fA-F]{40})\s+(refs/tags/\S+)$') {
+            [pscustomobject]@{ Sha = $Matches[1].ToLowerInvariant(); Ref = $Matches[2] }
+        }
+    }
+}
+
+function Get-TagTargetFromRecords {
+    param(
+        [object[]]$Records,
+        [Parameter(Mandatory)][string]$TagName
+    )
+    $direct = @($Records | Where-Object { $_.Ref -eq "refs/tags/$TagName" })
+    $peeled = @($Records | Where-Object { $_.Ref -eq "refs/tags/$TagName^{}" })
+    if ($peeled.Count -gt 1 -or $direct.Count -gt 1) { throw "Duplicate remote records for tag '$TagName'" }
+    if ($peeled.Count -eq 1) { return $peeled[0].Sha }
+    if ($direct.Count -eq 1) { return $direct[0].Sha }
+    $null
+}
+
+function Get-LocalTagTarget {
+    param([Parameter(Mandatory)][string]$TagName)
+    $result = Invoke-NativeCommand -FilePath 'git' -Arguments @('rev-parse', '--verify', '--quiet', "refs/tags/$TagName^{}") -AllowFailure
+    if ($result.ExitCode -ne 0) { return $null }
+    $target = $result.Output.Trim()
+    if ($target -notmatch '^[0-9a-fA-F]{40}$') { throw "Local tag '$TagName' did not resolve to a commit" }
+    $target.ToLowerInvariant()
+}
+
+function Assert-TagTargets {
+    param(
+        [Parameter(Mandatory)][string]$TagName,
+        [Parameter(Mandatory)][string]$ExpectedSha,
+        [string]$LocalSha,
+        [string]$RemoteSha
+    )
+    if ($LocalSha -and $LocalSha -ine $ExpectedSha) {
+        throw "Local tag '$TagName' points to $LocalSha, expected $ExpectedSha"
+    }
+    if ($RemoteSha -and $RemoteSha -ine $ExpectedSha) {
+        throw "Remote tag '$TagName' points to $RemoteSha, expected $ExpectedSha"
+    }
+    if ($LocalSha -and $RemoteSha -and $LocalSha -ine $RemoteSha) {
+        throw "Local and remote tag '$TagName' targets differ"
+    }
+}
+
+function Select-SuccessfulWindowsPushRun {
+    param(
+        [object[]]$Runs,
+        [Parameter(Mandatory)][string]$CommitSha
+    )
+
+    $matching = @($Runs | Where-Object {
+        ([string]$_.headSha -ieq $CommitSha) -and ([string]$_.event -ieq 'push')
+    })
+    if ($matching.Count -eq 0) {
+        throw "No Windows push CI run was found for commit $CommitSha"
+    }
+
+    $ordered = @($matching | Sort-Object {
+        try { [DateTimeOffset]::Parse([string]$_.createdAt) }
+        catch { [DateTimeOffset]::MinValue }
+    } -Descending)
+    $run = $ordered[0]
+    $status = [string]$run.status
+    $conclusion = [string]$run.conclusion
+    if ($status -ine 'completed' -or $conclusion -ine 'success') {
+        $state = if ($status -ine 'completed') { $status } else { $conclusion }
+        throw "Latest Windows push CI run for $CommitSha is not a completed success ($state); it will not be rerun"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$run.databaseId)) {
+        throw 'Successful CI run did not include a databaseId'
+    }
+    $run
+}
+
+function Assert-OwnedDirectory {
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$Target
+    )
+    $root = [IO.Path]::GetFullPath($RepoRoot).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $absolute = [IO.Path]::GetFullPath($Target)
+    if (!$absolute.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release staging path is outside the repository: $absolute"
+    }
+    if (Test-Path -LiteralPath $absolute) {
+        $item = Get-Item -LiteralPath $absolute
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Release staging path is a reparse point: $absolute" }
+        $reparse = @(Get-ChildItem -LiteralPath $absolute -Force -Recurse | Where-Object {
+            $_.Attributes -band [IO.FileAttributes]::ReparsePoint
+        })
+        if ($reparse.Count -gt 0) { throw "Release staging path contains a reparse point: $($reparse[0].FullName)" }
+    }
+}
+
+function Assert-SinglePublishedExecutable {
+    param(
+        [Parameter(Mandatory)][string]$StagingDirectory,
+        [Parameter(Mandatory)][string]$ExpectedFileVersion
+    )
+    $files = @(Get-ChildItem -LiteralPath $StagingDirectory -File -Recurse)
+    if ($files.Count -ne 1 -or $files[0].Name -cne 'CycleArc.exe') {
+        $names = ($files | ForEach-Object { $_.FullName }) -join ', '
+        throw "CycleArc-win-x64 must contain exactly CycleArc.exe; found: $names"
+    }
+    $exe = $files[0]
+    $actual = ([string]$exe.VersionInfo.FileVersion).Trim()
+    if ($actual -ne $ExpectedFileVersion) {
+        throw "CycleArc.exe FileVersion is '$actual', expected '$ExpectedFileVersion'"
+    }
+    $exe.FullName
+}
+
+function Normalize-Sha256 {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    $normalized = $Value.Trim()
+    if ($normalized -match '(?i)^sha256:([0-9a-f]{64})$') { $normalized = $Matches[1] }
+    if ($normalized -notmatch '^[0-9a-fA-F]{64}$') { return $null }
+    $normalized.ToLowerInvariant()
+}
+
+function New-ChecksumManifest {
+    param([Parameter(Mandatory)][string]$ExecutablePath)
+    $hash = (Get-FileHash -LiteralPath $ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifestPath = Join-Path (Split-Path -Parent $ExecutablePath) 'SHA256SUMS.txt'
+    $utf8NoBom = [Text.UTF8Encoding]::new($false)
+    [IO.File]::WriteAllText($manifestPath, "$hash  CycleArc.exe`r`n", $utf8NoBom)
+    $manifestPath
+}
+
+function Assert-ChecksumManifest {
+    param(
+        [Parameter(Mandatory)][string]$ManifestPath,
+        [Parameter(Mandatory)][string]$ExecutablePath
+    )
+    $lines = @(Get-Content -LiteralPath $ManifestPath)
+    if ($lines.Count -ne 1 -or $lines[0] -notmatch '^\s*([0-9a-fA-F]{64})\s+\*?CycleArc\.exe\s*$') {
+        throw 'SHA256SUMS.txt must contain one SHA-256 entry for CycleArc.exe'
+    }
+    $expected = $Matches[1].ToLowerInvariant()
+    $actual = (Get-FileHash -LiteralPath $ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($expected -ne $actual) { throw 'SHA256SUMS.txt does not match CycleArc.exe' }
+}
+
+function Get-LocalAssetMap {
+    param([Parameter(Mandatory)][string[]]$Paths)
+    $map = @{}
+    foreach ($path in $Paths) {
+        $item = Get-Item -LiteralPath $path -ErrorAction Stop
+        $hash = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        $map[$item.Name] = [pscustomobject]@{
+            Name   = $item.Name
+            Path   = $item.FullName
+            Size   = [int64]$item.Length
+            Sha256 = $hash
+            Digest = "sha256:$hash"
+        }
+    }
+    $map
+}
+
+function Assert-ReleaseAssetNames {
+    param(
+        [Parameter(Mandatory)][object]$Release,
+        [Parameter(Mandatory)][string[]]$AllowedNames
+    )
+    $assets = @($Release.assets)
+    $names = @($assets | ForEach-Object { [string]$_.name })
+    $duplicates = @($names | Group-Object | Where-Object Count -gt 1)
+    if ($duplicates.Count -gt 0) { throw "Release contains duplicate assets: $($duplicates.Name -join ', ')" }
+    $extra = @($names | Where-Object { $_ -cnotin $AllowedNames })
+    if ($extra.Count -gt 0) {
+        throw "Release contains unexpected assets; refusing to delete them: $($extra -join ', ')"
+    }
+}
+
+function Assert-ReleaseAssets {
+    param(
+        [Parameter(Mandatory)][object]$Release,
+        [Parameter(Mandatory)][hashtable]$ExpectedAssets,
+        [switch]$RequireComplete
+    )
+    $expectedNames = @($ExpectedAssets.Keys | ForEach-Object { [string]$_ })
+    Assert-ReleaseAssetNames -Release $Release -AllowedNames $expectedNames
+    $assets = @($Release.assets)
+    foreach ($name in $expectedNames) {
+        $remote = @($assets | Where-Object { [string]$_.name -ceq $name })
+        if ($remote.Count -gt 1) { throw "Release contains duplicate asset '$name'" }
+        if ($remote.Count -eq 0) {
+            if ($RequireComplete) { throw "Release is missing expected asset '$name'" }
+            continue
+        }
+        $local = $ExpectedAssets[$name]
+        if (!$local -or !($local.PSObject.Properties.Name -contains 'Size') -or $null -eq $local.Size) {
+            throw "Local asset '$name' has no valid size"
+        }
+        if (!($remote[0].PSObject.Properties.Name -contains 'size') -or $null -eq $remote[0].size) {
+            throw "Asset '$name' has no valid size"
+        }
+        $remoteSize = 0L
+        try { $remoteSize = [int64]$remote[0].size } catch { throw "Asset '$name' has no valid size" }
+        if ($remoteSize -ne [int64]$local.Size) {
+            throw "Asset '$name' size is $remoteSize, expected $($local.Size)"
+        }
+        $hasDigest = $remote[0].PSObject.Properties.Name -contains 'digest'
+        $remoteHash = if ($hasDigest) { Normalize-Sha256 ([string]$remote[0].digest) } else { $null }
+        if (!$remoteHash) { throw "Asset '$name' has no GitHub SHA-256 digest" }
+        $localHash = if ($local.PSObject.Properties.Name -contains 'Sha256') {
+            Normalize-Sha256 ([string]$local.Sha256)
+        }
+        elseif ($local.PSObject.Properties.Name -contains 'Digest') {
+            Normalize-Sha256 ([string]$local.Digest)
+        }
+        else {
+            $null
+        }
+        if (!$localHash) { throw "Local asset '$name' has no valid SHA-256 digest" }
+        if ($remoteHash -ine $localHash) {
+            throw "Asset '$name' digest is $remoteHash, expected $localHash"
+        }
+    }
+    $true
+}
+
+function Get-ReleaseSnapshot {
+    param(
+        [Parameter(Mandatory)][string]$RepositoryName,
+        [Parameter(Mandatory)][string]$TagName
+    )
+    $fields = 'isDraft,isPrerelease,isImmutable,tagName,targetCommitish,name,body,assets,createdAt,publishedAt'
+    Invoke-GhJson -Arguments @('release', 'view', $TagName, '--repo', $RepositoryName, '--json', $fields) -AllowNotFound
+}
+
+function Get-LatestReleaseTag {
+    param([Parameter(Mandatory)][string]$RepositoryName)
+    $latest = Invoke-GhJson -Arguments @('api', "repos/$RepositoryName/releases/latest") -AllowNotFound
+    if (!$latest) { return $null }
+    [string]$latest.tag_name
+}
+
+function Ensure-TagPublished {
+    param(
+        [Parameter(Mandatory)][string]$TagName,
+        [Parameter(Mandatory)][string]$CommitSha,
+        [Parameter(Mandatory)][string]$VersionValue,
+        [Parameter(Mandatory)][string]$RemoteName
+    )
+    $remoteRecords = @(Get-RemoteTagRecords -RemoteName $RemoteName)
+    $remoteSha = Get-TagTargetFromRecords -Records $remoteRecords -TagName $TagName
+    $localSha = Get-LocalTagTarget -TagName $TagName
+    Assert-TagTargets -TagName $TagName -ExpectedSha $CommitSha -LocalSha $localSha -RemoteSha $remoteSha
+    if (!$remoteSha) {
+        if (!$localSha) {
+            Invoke-NativeCommand -FilePath 'git' -Arguments @('tag', '--annotate', $TagName, $CommitSha, '--message', "CycleArc $VersionValue") | Out-Null
+            $localSha = Get-LocalTagTarget -TagName $TagName
+            Assert-TagTargets -TagName $TagName -ExpectedSha $CommitSha -LocalSha $localSha
+        }
+        # A plain push is intentional: an existing remote tag can never be moved.
+        Invoke-NativeCommand -FilePath 'git' -Arguments @('push', $RemoteName, "refs/tags/$TagName") | Out-Null
+        $remoteRecords = @(Get-RemoteTagRecords -RemoteName $RemoteName)
+        $remoteSha = Get-TagTargetFromRecords -Records $remoteRecords -TagName $TagName
+        Assert-TagTargets -TagName $TagName -ExpectedSha $CommitSha -LocalSha $localSha -RemoteSha $remoteSha
+    }
+    $remoteSha
+}
+
+function Invoke-Release {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$VersionValue,
+        [string]$Commitish = 'HEAD',
+        [string]$NotesFile,
+        [string]$RepositoryName = 'frozenvoice/cyclearc',
+        [string]$RemoteName = 'origin',
+        [string]$WorkflowFile = '.github/workflows/windows.yml',
+        [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot)
+    )
+
+    $version = Assert-ReleaseVersion $VersionValue
+    $tag = Get-ReleaseTagName $version
+    $expectedFileVersion = "$version.0"
+    $root = [IO.Path]::GetFullPath($RepositoryRoot)
+    Push-Location -LiteralPath $root
+    try {
+        Assert-CleanTrackedTree
+        Assert-SourceVersion -RepoRoot $root -Value $version
+        $commitSha = Resolve-CommitSha -Commitish $Commitish
+        $headSha = Resolve-CommitSha -Commitish 'HEAD'
+        if ($commitSha -ine $headSha) {
+            throw "Selected commit $commitSha is not the checked-out HEAD $headSha; check out the intended commit before releasing"
+        }
+        $remoteHeads = @(Get-RemoteHeadRecords -RemoteName $RemoteName)
+        Assert-CommitIsRemoteHead -RemoteHeads $remoteHeads -CommitSha $commitSha | Out-Null
+
+        $remoteTags = @(Get-RemoteTagRecords -RemoteName $RemoteName)
+        $remoteTagSha = Get-TagTargetFromRecords -Records $remoteTags -TagName $tag
+        $localTagSha = Get-LocalTagTarget -TagName $tag
+        Assert-TagTargets -TagName $tag -ExpectedSha $commitSha -LocalSha $localTagSha -RemoteSha $remoteTagSha
+
+        $release = Get-ReleaseSnapshot -RepositoryName $RepositoryName -TagName $tag
+        if ($release -and ([string]$release.tagName -ne $tag)) {
+            throw "GitHub returned release tag '$($release.tagName)' while querying '$tag'"
+        }
+        $allowedAssets = @('CycleArc.exe', 'SHA256SUMS.txt')
+        if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets }
+        $isPublic = $null -ne $release -and ![bool]$release.isDraft
+        if ($isPublic -and !$remoteTagSha) {
+            throw "Public release '$tag' has no matching remote tag; refusing to repair it"
+        }
+
+        $runJson = Invoke-GhJson -Arguments @(
+            'run', 'list', '--repo', $RepositoryName, '--workflow', $WorkflowFile,
+            '--commit', $commitSha, '--event', 'push', '--limit', '20',
+            '--json', 'databaseId,status,conclusion,headSha,event,workflowName,createdAt,url'
+        )
+        $run = Select-SuccessfulWindowsPushRun -Runs @($runJson) -CommitSha $commitSha
+
+        $stagingRoot = Join-Path $root 'publish/.release-staging'
+        Assert-OwnedDirectory -RepoRoot $root -Target $stagingRoot
+        New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+        $staging = Join-Path $stagingRoot ("$tag-" + [guid]::NewGuid().ToString('N'))
+        Assert-OwnedDirectory -RepoRoot $root -Target $staging
+        New-Item -ItemType Directory -Path $staging | Out-Null
+        Invoke-NativeCommand -FilePath 'gh' -Arguments @(
+            'run', 'download', [string]$run.databaseId, '--repo', $RepositoryName,
+            '--name', 'CycleArc-win-x64', '--dir', $staging
+        ) | Out-Null
+        $exePath = Assert-SinglePublishedExecutable -StagingDirectory $staging -ExpectedFileVersion $expectedFileVersion
+        $manifestPath = New-ChecksumManifest -ExecutablePath $exePath
+        Assert-ChecksumManifest -ManifestPath $manifestPath -ExecutablePath $exePath
+        $assets = Get-LocalAssetMap -Paths @($exePath, $manifestPath)
+
+        if ($isPublic) {
+            Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete
+            $latestTag = Get-LatestReleaseTag -RepositoryName $RepositoryName
+            if ($latestTag -cne $tag) {
+                throw "Public release '$tag' is not GitHub's latest release (latest is '$latestTag')"
+            }
+            Write-Host "Already complete: public release $tag matches commit $commitSha and uploaded asset digests."
+            return [pscustomobject]@{ Status = 'AlreadyComplete'; Tag = $tag; Commit = $commitSha; Staging = $staging }
+        }
+
+        if (!$release) {
+            if ([string]::IsNullOrWhiteSpace($NotesFile)) {
+                throw "A notes file is required when creating a new draft release ($tag)"
+            }
+            $notes = Get-Item -LiteralPath $NotesFile -ErrorAction Stop
+            if (!$notes.PSIsContainer) { $NotesFile = $notes.FullName } else { throw "Notes path is a directory: $NotesFile" }
+        }
+
+        Ensure-TagPublished -TagName $tag -CommitSha $commitSha -VersionValue $version -RemoteName $RemoteName | Out-Null
+
+        if (!$release) {
+            Invoke-NativeCommand -FilePath 'gh' -Arguments @(
+                'release', 'create', $tag, '--repo', $RepositoryName, '--draft',
+                '--title', "CycleArc $version", '--notes-file', $NotesFile,
+                '--target', $commitSha, '--verify-tag'
+            ) | Out-Null
+            $release = Get-ReleaseSnapshot -RepositoryName $RepositoryName -TagName $tag
+            if (!$release -or !$release.isDraft) { throw "New release '$tag' was not created as a draft" }
+            Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets
+        }
+        else {
+            # Draft metadata is repairable.  Pin it to the validated commit while
+            # retaining the existing notes and refusing any public-release edit.
+            Invoke-NativeCommand -FilePath 'gh' -Arguments @(
+                'release', 'edit', $tag, '--repo', $RepositoryName, '--target', $commitSha, '--verify-tag'
+            ) | Out-Null
+        }
+
+        # Re-read immediately before upload so a concurrent draft publication
+        # cannot turn --clobber into a public-release mutation.
+        $release = Get-ReleaseSnapshot -RepositoryName $RepositoryName -TagName $tag
+        if (!$release -or !$release.isDraft) { throw "Release '$tag' is no longer an unpublished draft" }
+        if ([string]$release.targetCommitish -and [string]$release.targetCommitish -ine $commitSha) {
+            throw "Draft release '$tag' target is '$($release.targetCommitish)', expected $commitSha"
+        }
+        Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets
+        Invoke-NativeCommand -FilePath 'gh' -Arguments @(
+            'release', 'upload', $tag, $exePath, $manifestPath,
+            '--repo', $RepositoryName, '--clobber'
+        ) | Out-Null
+        $release = Get-ReleaseSnapshot -RepositoryName $RepositoryName -TagName $tag
+        if (!$release -or !$release.isDraft) { throw "Release '$tag' became public before asset validation" }
+        Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete
+
+        # Publishing is the final mutation, after the exact GitHub digests are verified.
+        Invoke-NativeCommand -FilePath 'gh' -Arguments @(
+            'release', 'edit', $tag, '--repo', $RepositoryName, '--draft=false', '--latest', '--verify-tag'
+        ) | Out-Null
+        $published = Get-ReleaseSnapshot -RepositoryName $RepositoryName -TagName $tag
+        if (!$published -or [bool]$published.isDraft) { throw "Release '$tag' did not become public" }
+        Assert-ReleaseAssets -Release $published -ExpectedAssets $assets -RequireComplete
+        $latestTag = Get-LatestReleaseTag -RepositoryName $RepositoryName
+        if ($latestTag -cne $tag) { throw "Published release '$tag' is not GitHub's latest release (latest is '$latestTag')" }
+        Write-Host "Published $tag for $commitSha with verified CycleArc.exe and SHA256SUMS.txt."
+        [pscustomobject]@{ Status = 'Published'; Tag = $tag; Commit = $commitSha; Staging = $staging }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        throw 'Usage: pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> [-Commit <sha-or-ref>] [-NotesPath <file>]'
+    }
+    Invoke-Release -VersionValue $Version -Commitish $Commit -NotesFile $NotesPath -RepositoryName $Repository -RemoteName $Remote -WorkflowFile $Workflow
+}

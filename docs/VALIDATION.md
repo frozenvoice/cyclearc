@@ -2,6 +2,29 @@
 
 ## Current release — Codex and Claude Code
 
+- CycleArc 0.5.7 release recovery (2026-09-15):
+  - Compared all three failed Windows runs before retrying. Runs `34949182820` and
+    `34949944075` reached the existing-statusLine output assertion; the second captured
+    PowerShell's first-use module preparation. The Console-only fixture correction in
+    `80e34d0` preserves the production four-second forwarding limit.
+  - Run `34950974899` failed earlier, in
+    `OfficialCommandAdapterHandlesWindowsBatchStatusAndCancellation`: the cancelled
+    batch command's descendant still held the temporary working directory during disposal.
+    `Process.Kill(entireProcessTree: true)` followed by the parent's `WaitForExit` does
+    not establish descendant exit, as documented by
+    [Microsoft](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.kill?view=net-8.0).
+  - Added bounded Windows job accounting for cancellation/error cleanup, preserving the
+    existing process-tree kill fallback. Failed native cleanup is reported rather than
+    silently accepted. Normal successful completion does not terminate detached children
+    such as a login browser. Synthetic regressions cover a ready nested command's immediate
+    directory cleanup and a successful command's surviving detached child; the latter is
+    explicitly stopped and reaped by the test.
+  - Release publication now has a dedicated `scripts/Release.ps1` entry point. It requires
+    successful Windows push CI at the intended commit, consumes that run's single-file
+    artifact, and validates executable version, tag target and uploaded digests before
+    publishing a draft. Release guards run locally and in CI; failed unit-test results
+    are retained as a CI artifact.
+
 - CycleArc 0.5.7 release preparation (2026-09-15):
   - Updated application/assembly/file versions, EN/KO period-selection controls and the
     91% five-hour / 47% weekly screenshot example. The 14 current detail previews from the

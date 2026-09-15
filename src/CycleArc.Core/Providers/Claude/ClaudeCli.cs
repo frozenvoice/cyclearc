@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -184,9 +185,15 @@ public sealed class ClaudeCli : IClaudeCli
         CancellationToken token, ReadOnlyMemory<byte>? input = null)
     {
         using var process = Process.Start(start) ?? throw new IOException("Claude process could not start.");
+        // Process.Kill(entireProcessTree: true) does not wait for descendants. A
+        // .cmd/.bat Claude installation commonly starts cmd.exe and a child CLI;
+        // also track attached descendants in a Windows job and wait for them on
+        // cancellation/error. Normal completion must not close a login browser.
+        using var processTree = ClaudeProcessTree.TryAttach(process);
         using var cancel = token.Register(() => Kill(process));
         var stdout = DrainAsync(process.StandardOutput, captureLimit, token);
         var stderr = DrainAsync(process.StandardError, 0, token);
+        var completed = false;
         try
         {
             if (input is { } bytes)
@@ -197,14 +204,18 @@ public sealed class ClaudeCli : IClaudeCli
             await process.WaitForExitAsync(token).ConfigureAwait(false);
             var output = await stdout.WaitAsync(token).ConfigureAwait(false);
             await stderr.WaitAsync(token).ConfigureAwait(false);
+            completed = process.ExitCode == 0 && !token.IsCancellationRequested;
             return (process.ExitCode, output);
         }
         finally
         {
             Kill(process);
+            var treeExited = completed || processTree is null
+                || await processTree.TerminateAndWaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
             try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); } catch { }
             process.StandardInput.Dispose(); process.StandardOutput.Dispose(); process.StandardError.Dispose();
             try { await Task.WhenAll(stdout, stderr).WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); } catch { }
+            if (!treeExited) throw new IOException("Claude process tree cleanup did not complete.");
         }
     }
 
@@ -227,5 +238,90 @@ public sealed class ClaudeCli : IClaudeCli
     private static void Kill(Process process)
     {
         try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+    }
+
+    /// <summary>Owns a Windows process job for bounded, synchronous descendant cleanup.</summary>
+    private sealed class ClaudeProcessTree : IDisposable
+    {
+        private const uint JobObjectBasicAccountingInformationClass = 1;
+        private IntPtr _job;
+
+        private ClaudeProcessTree(IntPtr job) => _job = job;
+
+        public static ClaudeProcessTree? TryAttach(Process process)
+        {
+            if (!OperatingSystem.IsWindows()) return null;
+            var job = CreateJobObject(IntPtr.Zero, null);
+            if (job == IntPtr.Zero) return null;
+            try
+            {
+                if (!AssignProcessToJobObject(job, process.Handle))
+                {
+                    CloseHandle(job);
+                    return null;
+                }
+                return new ClaudeProcessTree(job);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException
+                                       or System.ComponentModel.Win32Exception)
+            {
+                CloseHandle(job);
+                return null;
+            }
+        }
+
+        public async Task<bool> TerminateAndWaitAsync(TimeSpan timeout)
+        {
+            if (_job == IntPtr.Zero) return true;
+            if (!TerminateJobObject(_job, 1)) return false;
+            var watch = Stopwatch.StartNew();
+            while (watch.Elapsed < timeout)
+            {
+                var accounting = new JobObjectBasicAccountingInformation();
+                if (!QueryInformationJobObject(_job, JobObjectBasicAccountingInformationClass,
+                        ref accounting, (uint)Marshal.SizeOf<JobObjectBasicAccountingInformation>(), IntPtr.Zero))
+                    return false;
+                if (accounting.ActiveProcesses == 0) return true;
+                await Task.Delay(25).ConfigureAwait(false);
+            }
+            return false;
+        }
+
+        public void Dispose()
+        {
+            if (_job == IntPtr.Zero) return;
+            CloseHandle(_job);
+            _job = IntPtr.Zero;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateJobObject(IntPtr jobAttributes, string? name);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool QueryInformationJobObject(IntPtr job, uint informationClass,
+            ref JobObjectBasicAccountingInformation information, uint informationLength,
+            IntPtr returnLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JobObjectBasicAccountingInformation
+        {
+            public long TotalUserTime;
+            public long TotalKernelTime;
+            public long ThisPeriodTotalUserTime;
+            public long ThisPeriodTotalKernelTime;
+            public uint TotalPageFaultCount;
+            public uint TotalProcesses;
+            public uint ActiveProcesses;
+            public uint TotalTerminatedProcesses;
+        }
     }
 }
