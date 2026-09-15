@@ -162,7 +162,7 @@ The last valid sample stays **Received** while idle, including after a reported 
 <details>
 <summary><strong>Claude usage after the first sample · Dark and Light</strong></summary>
 
-<p>Research now has received usage, so the same account list includes three accounts. Research is selected: its five-hour usage is 91% and seven-day usage is 47%, with separate reset times. The sample was received 12 minutes ago and remains Received without an idle-time warning; the original receipt time stays visible. The two Codex accounts still show current data.</p>
+<p>Research now has received usage, so the same account list includes three accounts. Research is selected: its five-hour usage is 91% and seven-day usage is 47%, with separate reset times. Auto shows 91% in the ring; choosing Weekly switches the ring, tray and widget to 47%. The sample was received 12 minutes ago and remains Received without an idle-time warning; the original receipt time stays visible. The two Codex accounts still show current data.</p>
 <table>
   <tr>
     <td><img src="docs/images/claude-overview-en-dark.png" alt="Dark mixed-provider popup with Research Claude selected, separate five-hour and weekly limits, its original receipt time and no idle-time warning or Codex reset-credit card" width="440"></td>
@@ -184,6 +184,8 @@ Only the official statusLine input is used for usage. Authentication uses the of
 | --- | --- |
 | Click the tray icon | Open or hide the detail card |
 | Refresh button | Check account limits immediately |
+| Auto / 5 hours / Weekly | Choose the period shared by the detail ring, tray and widget; saved across restarts |
+| Click the usage ring | Switch between five-hour and weekly usage when both values are known |
 | Pin button | Keep the detail card on top |
 | `Ctrl` + `+` / `Ctrl` + `-` | Enlarge or reduce the detail card |
 | `Ctrl` + `0` | Restore 100% zoom |

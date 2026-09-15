@@ -2,6 +2,16 @@
 
 ## Current release — Codex and Claude Code
 
+- CycleArc 0.5.7 release preparation (2026-09-15):
+  - Updated application/assembly/file versions, EN/KO period-selection controls and the
+    91% five-hour / 47% weekly screenshot example. The 14 current detail previews from the
+    shared-period change remain valid. Verified 39 local README document/image targets and
+    corrected the full screenshot export count to 32.
+  - Final versioned `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed: zero build warnings
+    or errors, 1,283 unit tests, 15 installer recovery scenarios, 108 period-selection renders,
+    existing WPF/widget/DPI checks, 99 tray renders, win-x64 single-file publish and
+    built/published Claude receivers. This release preparation did not replace the running app.
+
 - Shared usage-period selection (2026-09-15):
   - Added persisted Auto / 5 hours / Weekly selection shared by the detail ring, native
     tray and widget. Auto prefers a finite five-hour value, including zero, then weekly.

@@ -25,7 +25,9 @@ Account-management previews scroll to the bottom so all three sets of actions ar
 The waiting view shows Research after connection but before any quota sample. The Claude
 overview then supplies a synthetic sample with 91% five-hour usage and 47%
 seven-day usage, received 12 minutes ago. It remains Received without an idle-time warning,
-with Auto selecting the known five-hour value (91%) for the ring. The display-period selector applies to the ring, tray and widget. The last receipt date/time and preserved values remain visible, and selecting
+with Auto selecting the known five-hour value (91%) for the ring. The display-period selector
+applies to the ring, tray and widget. The last receipt date/time and preserved values remain
+visible, and selecting
 Claude removes the Codex reset-credit card. Connection previews drive the production
 window through `IClaudeConnectionActions` using `PreviewClaudeConnection`; the adapter
 returns fictional login metadata and only changes in-memory state. It never runs a CLI,
@@ -51,7 +53,7 @@ dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -
 ```
 
 The exporter never runs production startup, requests account data, or reads/writes user settings.
-It creates 24 PNGs at 2x resolution through WPF `RenderTargetBitmap`, without taking a desktop
+The full export creates 32 PNGs at 2x resolution through WPF `RenderTargetBitmap`, without taking a desktop
 screenshot. It runs under the smoke harness's `OfflineApp`; the live-account diagnostic path
 is not used. Each image must be visually inspected before replacing the checked-in files.
 Export to an `artifacts/` directory for visual review before copying the generated images
