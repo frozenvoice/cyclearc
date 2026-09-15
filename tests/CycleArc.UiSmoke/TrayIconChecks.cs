@@ -41,8 +41,6 @@ internal static class TrayIconChecks
                     {
                         var foreground = lightTaskbar ? Color.FromArgb(24, 24, 24) : Color.White;
                         CheckMonochromeNumber(bitmap, foreground, name, size);
-                        if (CodexRingPresentation.From(snapshot).IsAvailable)
-                            CheckPercentageInk(bitmap, foreground, name, size);
                     }
                     else if (CodexRingPresentation.From(snapshot).IsAvailable)
                     {
@@ -63,7 +61,6 @@ internal static class TrayIconChecks
                     {
                         var foreground = lightTaskbar ? Color.FromArgb(24, 24, 24) : Color.White;
                         CheckMonochromeNumber(bitmap, foreground, value.ToString("0"), size);
-                        CheckPercentageInk(bitmap, foreground, value.ToString("0"), size);
                     }
                     count++;
                 }
@@ -111,14 +108,24 @@ internal static class TrayIconChecks
 
         if (visible == 0 || maxX < minX || maxY < minY)
             throw new InvalidOperationException($"Tray icon is fully transparent: {style}/{label}/{requestedSize}.");
-        // A natural-width 100% needs less height than the former condensed glyphs.
+        // Three natural-width digits use less height than one or two digits.
         var minimumHeight = style == TrayIconStyle.RemainingNumber
-            ? Math.Max(5, (int)Math.Ceiling(bitmap.Height * 0.35)) : bitmap.Height / 2;
+            ? Math.Max(5, (int)Math.Ceiling(bitmap.Height * 0.40)) : bitmap.Height / 2;
         var minimumWidth = style == TrayIconStyle.RemainingNumber ? bitmap.Width / 3 : bitmap.Width / 2;
         if (maxX - minX + 1 < minimumWidth || maxY - minY + 1 < minimumHeight)
             throw new InvalidOperationException($"Tray icon bounds are too small: {style}/{label}/{requestedSize}.");
         if (bitmap.GetPixel(0, 0).A != 0 && style == TrayIconStyle.RemainingNumber)
             throw new InvalidOperationException($"Number icon lost transparent corner: {label}/{requestedSize}.");
+        if (style == TrayIconStyle.RemainingNumber)
+        {
+            // A half-pixel inset allows the antialiased edge, but not a solid clipped stroke.
+            for (var i = 0; i < requestedSize; i++)
+            {
+                if (bitmap.GetPixel(i, 0).A > 160 || bitmap.GetPixel(i, requestedSize - 1).A > 160
+                    || bitmap.GetPixel(0, i).A > 160 || bitmap.GetPixel(requestedSize - 1, i).A > 160)
+                    throw new InvalidOperationException($"Tray digit is clipped at the icon edge: {label}/{requestedSize}.");
+            }
+        }
     }
 
     private static void CheckColor(Bitmap bitmap, Color expected, string label, int size)
@@ -163,50 +170,6 @@ internal static class TrayIconChecks
             throw new InvalidOperationException($"Tray number has an opaque backing: {label}/{size}.");
     }
 
-    private static void CheckPercentageInk(Bitmap bitmap, Color expected, string label, int size)
-    {
-        var minX = bitmap.Width;
-        var minY = bitmap.Height;
-        var maxX = -1;
-        var maxY = -1;
-        for (var y = 0; y < bitmap.Height; y++)
-        for (var x = 0; x < bitmap.Width; x++)
-        {
-            if (!IsForeground(bitmap.GetPixel(x, y), expected)) continue;
-            minX = Math.Min(minX, x);
-            minY = Math.Min(minY, y);
-            maxX = Math.Max(maxX, x);
-            maxY = Math.Max(maxY, y);
-        }
-
-        if (maxX < minX || maxY < minY)
-            throw new InvalidOperationException($"Tray number has no measurable ink: {label}/{size}.");
-
-        var glyphWidth = maxX - minX + 1;
-        var bandStart = Math.Max(minX + 1, maxX - Math.Max(2, (int)Math.Ceiling(size * 0.2)));
-        var rightInk = 0;
-        var lowerRightInk = 0;
-        var rightMinY = bitmap.Height;
-        var rightMaxY = -1;
-        var lowerEdge = minY + (maxY - minY) * 0.45;
-        for (var y = minY; y <= maxY; y++)
-        for (var x = bandStart; x <= maxX; x++)
-        {
-            if (!IsForeground(bitmap.GetPixel(x, y), expected)) continue;
-            rightInk++;
-            rightMinY = Math.Min(rightMinY, y);
-            rightMaxY = Math.Max(rightMaxY, y);
-            if (y >= lowerEdge) lowerRightInk++;
-        }
-
-        var rightHeight = rightMaxY - rightMinY + 1;
-        if (glyphWidth < Math.Max(4, (int)Math.Ceiling(size * 0.52))
-            || rightInk < Math.Max(3, size / 5)
-            || rightHeight < Math.Max(2, (int)Math.Ceiling(size * 0.15))
-            || lowerRightInk < Math.Max(1, size / 10))
-            throw new InvalidOperationException($"Tray number has no visible right-side percent mark: {label}/{size} (width={glyphWidth}, rightInk={rightInk}, rightHeight={rightHeight}, lower={lowerRightInk}).");
-    }
-
     private static bool MatchesForeground(Color pixel, Color expected)
     {
         if (pixel.A < 80) return false;
@@ -219,14 +182,10 @@ internal static class TrayIconChecks
         return pixel.R <= 100 && Math.Abs(pixel.R - pixel.G) <= 8 && Math.Abs(pixel.R - pixel.B) <= 8;
     }
 
-    private static bool IsForeground(Color pixel, Color expected) =>
-        pixel.A >= 32
-            && Math.Max(pixel.R, Math.Max(pixel.G, pixel.B)) - Math.Min(pixel.R, Math.Min(pixel.G, pixel.B)) <= 8;
-
     private static void CheckNaturalProportions()
     {
-        // Raster bounds catch a return to tall, horizontally squeezed percentage text.
-        foreach (var (value, minimum, maximum) in new[] { (70d, 1.8, 2.4), (100d, 2.4, 3.1) })
+        // Bounds catch squeezed digits or a percent suffix taking their space again.
+        foreach (var (value, minimum, maximum) in new[] { (0d, 0.55, 0.85), (9d, 0.55, 0.85), (70d, 1.3, 1.65), (99d, 1.3, 1.65), (100d, 1.95, 2.4) })
         {
             using var icon = TrayIconRenderer.Render(
                 Snapshot(CodexQuotaStatus.Available, value), TrayIconStyle.RemainingNumber, 32);
@@ -245,8 +204,9 @@ internal static class TrayIconChecks
                 bottom = Math.Max(bottom, y);
             }
             var aspect = (right - left + 1d) / (bottom - top + 1d);
-            if (right < left || aspect < minimum || aspect > maximum)
-                throw new InvalidOperationException($"Tray font proportions are distorted: {value}% ({aspect:0.00}).");
+            if (right < left || aspect < minimum || aspect > maximum
+                || Math.Max(right - left + 1, bottom - top + 1) < bitmap.Width - 2)
+                throw new InvalidOperationException($"Tray digits are undersized or distorted: {value} ({aspect:0.00}).");
         }
     }
 

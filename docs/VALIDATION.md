@@ -2,6 +2,25 @@
 
 ## Current release — Codex and Claude Code
 
+- Maximum-size digits-only tray follow-up (2026-09-15):
+  - Removed the percent suffix and its layout path. Number-style icons now fit the
+    original Segoe UI Bold glyph proportions to size minus one pixel in both axes,
+    leaving a half-pixel antialiasing inset. Background and taskbar-aware monochrome
+    contrast remain unchanged, as does the optional ring rendering.
+  - Updated settings and EN/KO guidance: 67 means 67% used. Unknown usage remains ?.
+    Raster regressions cover maximum occupied extent and natural proportions for
+    0/9/70/99/100, and reject solid strokes clipped by an icon edge.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed: zero build warnings/errors,
+    1,272 unit tests, 15 installer scenarios, 99 tray renders, production WPF/widget/DPI
+    checks, single-file win-x64 publish and built/published Claude receivers.
+    Synthetic checks did not access live accounts or make model requests.
+  - Visually inspected 16/24/32px dark/light icons and the affected EN/KO settings at
+    normal/compact sizes. Installed through the guarded rollback path; SHA-256:
+    `BAECDC63A37BA765F854E8E973F8ED14ED97D0D7A8F10F85DBA7D8E446DE0766`.
+    Read-only native capture confirmed large white 73 digits with no suffix on the
+    reporting PC's 24px taskbar. The widget stayed visible at (8, 1321), with no ordinary
+    windows above it. Captures remain ignored local artifacts.
+
 - Natural tray font proportions follow-up (2026-09-15):
   - Removed independent horizontal/vertical scaling from the percentage renderer.
     Segoe UI Bold digits and the smaller baseline-aligned % now keep their original

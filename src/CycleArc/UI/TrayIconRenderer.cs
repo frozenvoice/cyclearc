@@ -7,7 +7,6 @@ using CycleArc.Models;
 using CycleArc.Providers.Usage;
 using CycleArc.Services;
 using DrawingColor = System.Drawing.Color;
-using Matrix = System.Drawing.Drawing2D.Matrix;
 using Pen = System.Drawing.Pen;
 using SolidBrush = System.Drawing.SolidBrush;
 
@@ -55,10 +54,7 @@ public static class TrayIconRenderer
         else
         {
             var foreground = lightTaskbar ? DrawingColor.FromArgb(24, 24, 24) : DrawingColor.White;
-            if (exact)
-                DrawPercentage(graphics, text, size, foreground);
-            else
-                DrawGlyph(graphics, "?", size, foreground, ringStyle: false);
+            DrawGlyph(graphics, text, size, foreground, ringStyle: false);
         }
 
         var handle = bitmap.GetHicon();
@@ -99,28 +95,6 @@ public static class TrayIconRenderer
             DrawingColor.FromArgb(23, 27, 34));
     }
 
-    private static void DrawPercentage(Graphics graphics, string digits, int size, DrawingColor color)
-    {
-        using var family = new System.Drawing.FontFamily("Segoe UI");
-        using var number = new GraphicsPath();
-        number.AddString(digits, family, (int)System.Drawing.FontStyle.Bold, 100, PointF.Empty, StringFormat.GenericTypographic);
-        var numberInk = number.GetBounds();
-        using (var normalize = new Matrix(1, 0, 0, 1, -numberInk.X, -numberInk.Y))
-            number.Transform(normalize);
-
-        // Keep the value prominent while fitting its unit into the native square slot.
-        using var unit = new GraphicsPath();
-        unit.AddString("%", family, (int)System.Drawing.FontStyle.Bold, 100, PointF.Empty, StringFormat.GenericTypographic);
-        var unitInk = unit.GetBounds();
-        var unitScale = numberInk.Height * 0.58f / unitInk.Height;
-        using (var placement = new Matrix(unitScale, 0, 0, unitScale,
-            numberInk.Width + numberInk.Height * 0.06f - unitInk.X * unitScale,
-            numberInk.Height - unitInk.Height * unitScale - unitInk.Y * unitScale))
-            unit.Transform(placement);
-        number.AddPath(unit, false);
-        FillGlyphPath(graphics, number, size, color, size - 1f, size * 0.70f);
-    }
-
     private static void DrawGlyph(Graphics graphics, string text, int size, DrawingColor color, bool ringStyle)
     {
         using var family = new System.Drawing.FontFamily("Segoe UI");
@@ -128,7 +102,7 @@ public static class TrayIconRenderer
         var emSize = size * (ringStyle ? 0.86f : 1.08f);
         path.AddString(text, family, (int)System.Drawing.FontStyle.Bold, emSize, PointF.Empty, StringFormat.GenericTypographic);
         FillGlyphPath(graphics, path, size, color,
-            size * (ringStyle ? 0.62f : 0.86f), size * (ringStyle ? 0.52f : 0.78f));
+            ringStyle ? size * 0.62f : size - 1f, ringStyle ? size * 0.52f : size - 1f);
     }
 
     private static void FillGlyphPath(Graphics graphics, GraphicsPath path, int size, DrawingColor color,
