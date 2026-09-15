@@ -391,21 +391,7 @@ public class ClaudeConnectionTests
 
             // Check process exit independently before allowing a short filesystem rundown.
             // A leaked 30-second child must fail above, not be hidden by a deletion retry.
-            IOException? cleanupError;
-            var cleanup = Stopwatch.StartNew();
-            do
-            {
-                try
-                {
-                    if (Directory.Exists(data.Root)) Directory.Delete(data.Root, true);
-                    cleanupError = null;
-                    break;
-                }
-                catch (IOException ex) { cleanupError = ex; }
-                await Task.Delay(25);
-            } while (cleanup.Elapsed < TimeSpan.FromSeconds(2));
-            Assert.True(cleanupError is null,
-                $"Synthetic child PID {child.Id} exited, but its directory remained locked after {cleanup.Elapsed}: {cleanupError}");
+            await DeleteProcessFixtureAsync(data.Root);
             passed = true;
         }
         finally
@@ -430,18 +416,17 @@ public class ClaudeConnectionTests
     public async Task SuccessfulCommandAdapterLeavesDetachedChildRunning()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var data = new ClaudeTestData();
+        var data = new ClaudeTestData();
         var path = System.IO.Path.Combine(data.Root, "synthetic claude.cmd");
         var ready = System.IO.Path.Combine(data.Root, "detached-ready");
         var stop = System.IO.Path.Combine(data.Root, "detached-stop");
-        var done = System.IO.Path.Combine(data.Root, "detached-done");
         // Avoid first-use PowerShell module loading and publish the PID atomically.
         var childScript = "$root = [Environment]::CurrentDirectory; "
             + "$ready = [IO.Path]::Combine($root, 'detached-ready'); "
             + "[IO.File]::WriteAllText($ready + '.tmp', [string]$PID); [IO.File]::Move($ready + '.tmp', $ready); "
             + "$stop = [IO.Path]::Combine($root, 'detached-stop'); "
-            + "while (-not [IO.File]::Exists($stop)) { [Threading.Thread]::Sleep(25) }; "
-            + "[IO.File]::WriteAllText([IO.Path]::Combine($root, 'detached-done'), 'done')";
+            + "$watch = [Diagnostics.Stopwatch]::StartNew(); "
+            + "while (-not [IO.File]::Exists($stop) -and $watch.Elapsed.TotalSeconds -lt 60) { [Threading.Thread]::Sleep(25) }";
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(childScript));
         // Shell launch models a login browser: inheriting the parent's stdout
         // would keep the adapter's EOF wait open, a different lifecycle scenario.
@@ -451,43 +436,70 @@ public class ClaudeConnectionTests
             + "$child = [Diagnostics.Process]::Start($start); "
             + "[Console]::Out.WriteLine('" + AuthJson.Replace("'", "''", StringComparison.Ordinal) + "'); $child.Dispose()";
         var parentEncoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(parentScript));
-        File.WriteAllText(path, "@echo off\r\npowershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand "
-            + parentEncoded + "\r\nexit /b 0\r\n");
-
-        var childPid = (int?)null;
+        Process? child = null;
+        var assertionsPassed = false;
         try
         {
+            File.WriteAllText(path, "@echo off\r\npowershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand "
+                + parentEncoded + "\r\nexit /b 0\r\n");
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var result = await ClaudeCli.RunAsync(ClaudeCli.StartInfo(path, data.Root, false), 16384, deadline.Token);
             var status = ClaudeAuthentication.Parse(result.Output, result.ExitCode).Status;
             Assert.Equal(ClaudeAuthStatus.SignedIn, status);
             Assert.True(await WaitForFileAsync(ready, TimeSpan.FromSeconds(10)), "Detached child did not start.");
             Assert.True(int.TryParse(File.ReadAllText(ready).Trim(), out var pid));
-            childPid = pid;
-            using var child = Process.GetProcessById(pid);
+            child = Process.GetProcessById(pid);
+            _ = child.Handle;
             Assert.False(child.HasExited, "Successful completion terminated the detached child.");
+            assertionsPassed = true;
         }
         finally
         {
-            File.WriteAllText(stop, string.Empty);
-            await WaitForFileAsync(done, TimeSpan.FromSeconds(10));
-            if (childPid is null && File.Exists(ready)
-                && int.TryParse(File.ReadAllText(ready).Trim(), out var cleanupPid)) childPid = cleanupPid;
-            if (childPid is int pid)
+            try
             {
-                try
+                if (child is null && await WaitForFileAsync(ready, TimeSpan.FromSeconds(10))
+                    && int.TryParse(File.ReadAllText(ready).Trim(), out var cleanupPid))
                 {
-                    using var child = Process.GetProcessById(pid);
-                    if (!child.HasExited)
+                    try { child = Process.GetProcessById(cleanupPid); _ = child.Handle; }
+                    catch (ArgumentException) { } // The fixture has already exited.
+                }
+                File.WriteAllText(stop, string.Empty);
+                if (child is not null)
+                {
+                    // A done-marker is written before process teardown. Wait on the actual
+                    // retained handle instead, and do not ignore a timed-out wait.
+                    try { await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
+                    catch (TimeoutException)
                     {
                         child.Kill(entireProcessTree: true);
-                        child.WaitForExit(3000);
+                        await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
                     }
                 }
-                catch (ArgumentException) { }
-                catch (InvalidOperationException) { }
+                await DeleteProcessFixtureAsync(data.Root);
             }
+            // A cleanup failure must not replace the original authentication/liveness assertion.
+            catch (Exception) when (!assertionsPassed) { }
+            finally { child?.Dispose(); }
         }
+    }
+
+    private static async Task DeleteProcessFixtureAsync(string root)
+    {
+        IOException? cleanupError;
+        var cleanup = Stopwatch.StartNew();
+        do
+        {
+            try
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+                cleanupError = null;
+                break;
+            }
+            catch (IOException ex) { cleanupError = ex; }
+            await Task.Delay(25);
+        } while (cleanup.Elapsed < TimeSpan.FromSeconds(2));
+        Assert.True(cleanupError is null,
+            $"Process fixture directory remained locked after {cleanup.Elapsed}: {cleanupError}");
     }
 
     private static async Task<bool> WaitForFileAsync(string path, TimeSpan timeout)

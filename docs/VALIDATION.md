@@ -27,6 +27,14 @@
     within two seconds. Its normal lifetime is 30 seconds, so a leaked child still fails.
     Failure cleanup preserves the original assertion. Application process-launch code is unchanged.
     The corrected cancellation test passed 20 consecutive runs, followed by all 1,286 unit tests.
+  - At `6883b7d`, main CI passed all stages and the branch's cancellation test passed, but
+    [34972951115](https://github.com/frozenvoice/cyclearc/actions/runs/34972951115) exposed
+    the same immediate-disposal assumption in `SuccessfulCommandAdapterLeavesDetachedChildRunning`.
+    Its done-marker preceded actual process exit and its timed wait result was ignored.
+    Teardown now retains the child's process handle, signals stop, awaits exit with a bounded
+    kill fallback, and uses the same bounded directory release check. Its synthetic loop also
+    expires after 60 seconds if setup fails before cleanup can take ownership.
+    Both process fixtures then passed 20 consecutive runs each, followed by all 1,286 unit tests.
 
 - CycleArc 0.5.7 release recovery (2026-09-15):
   - Compared all three failed Windows runs before retrying. Runs `34949182820` and
