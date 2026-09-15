@@ -353,32 +353,77 @@ public class ClaudeConnectionTests
     public async Task OfficialCommandAdapterHandlesWindowsBatchStatusAndCancellation()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var data = new ClaudeTestData();
-        var path = System.IO.Path.Combine(data.Root, "synthetic claude.cmd");
-        File.WriteAllText(path, "@echo off\r\necho " + AuthJson + "\r\nexit /b 0\r\n");
-        Assert.Equal(ClaudeAuthStatus.SignedIn, (await new ClaudeCli().AuthenticateAsync(path, data.Root, false, default)).Status);
-        var ready = System.IO.Path.Combine(data.Root, "child-ready");
-        File.WriteAllText(System.IO.Path.Combine(data.Root, "child.cmd"),
-            "@echo off\r\necho ready>\"%~dp0child-ready\"\r\nping -n 30 127.0.0.1 >nul\r\n");
-        File.WriteAllText(path, "@echo off\r\ncmd /d /s /c \"\"%~dp0child.cmd\"\"\r\n");
-        using var cancel = new CancellationTokenSource();
-        var login = new ClaudeCli().AuthenticateAsync(path, data.Root, true, cancel.Token);
-        var childStarted = false;
+        var data = new ClaudeTestData();
+        Process? child = null;
+        var passed = false;
         try
         {
-            var deadline = Stopwatch.StartNew();
-            while (!File.Exists(ready) && deadline.Elapsed < TimeSpan.FromSeconds(10))
+            var path = System.IO.Path.Combine(data.Root, "synthetic claude.cmd");
+            File.WriteAllText(path, "@echo off\r\necho " + AuthJson + "\r\nexit /b 0\r\n");
+            Assert.Equal(ClaudeAuthStatus.SignedIn, (await new ClaudeCli().AuthenticateAsync(path, data.Root, false, default)).Status);
+            var ready = System.IO.Path.Combine(data.Root, "child-ready");
+            // Publish the actual descendant PID atomically, without PowerShell module loading.
+            // Its 30-second lifetime is longer than either cleanup assertion's deadline.
+            var script = "$ready = [IO.Path]::Combine([Environment]::CurrentDirectory, 'child-ready'); "
+                + "[IO.File]::WriteAllText($ready + '.tmp', [string]$PID); [IO.File]::Move($ready + '.tmp', $ready); "
+                + "[Threading.Thread]::Sleep(30000)";
+            var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+            File.WriteAllText(System.IO.Path.Combine(data.Root, "child.cmd"),
+                "@echo off\r\npowershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + encoded + "\r\n");
+            File.WriteAllText(path, "@echo off\r\ncmd /d /s /c \"\"%~dp0child.cmd\"\"\r\n");
+            using var cancel = new CancellationTokenSource();
+            var login = new ClaudeCli().AuthenticateAsync(path, data.Root, true, cancel.Token);
+            try
+            {
+                Assert.True(await WaitForFileAsync(ready, TimeSpan.FromSeconds(10)),
+                    "The cancellation fixture did not start its child process.");
+                Assert.True(int.TryParse(File.ReadAllText(ready).Trim(), out var pid));
+                child = Process.GetProcessById(pid);
+                _ = child.Handle; // Retain this process identity before cancellation, avoiding PID reuse.
+                Assert.False(child.HasExited, "The cancellation fixture exited before cancellation.");
+            }
+            finally { cancel.Cancel(); }
+            var status = (await login.WaitAsync(TimeSpan.FromSeconds(10))).Status;
+            Assert.Equal(ClaudeAuthStatus.Cancelled, status);
+            try { await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)); }
+            catch (TimeoutException)
+            { Assert.Fail($"Cancelled authentication left synthetic child PID {child.Id} running after two seconds."); }
+
+            // Check process exit independently before allowing a short filesystem rundown.
+            // A leaked 30-second child must fail above, not be hidden by a deletion retry.
+            IOException? cleanupError;
+            var cleanup = Stopwatch.StartNew();
+            do
+            {
+                try
+                {
+                    if (Directory.Exists(data.Root)) Directory.Delete(data.Root, true);
+                    cleanupError = null;
+                    break;
+                }
+                catch (IOException ex) { cleanupError = ex; }
                 await Task.Delay(25);
-            childStarted = File.Exists(ready);
+            } while (cleanup.Elapsed < TimeSpan.FromSeconds(2));
+            Assert.True(cleanupError is null,
+                $"Synthetic child PID {child.Id} exited, but its directory remained locked after {cleanup.Elapsed}: {cleanupError}");
+            passed = true;
         }
-        finally { cancel.Cancel(); }
-        var status = (await login.WaitAsync(TimeSpan.FromSeconds(10))).Status;
-        Assert.True(childStarted, "The cancellation fixture did not start its child process.");
-        Assert.Equal(ClaudeAuthStatus.Cancelled, status);
-        // Process.Kill(entireProcessTree: true) is asynchronous for descendants.
-        // The adapter must not return while ping.exe still holds the Claude home.
-        var cleanup = Record.Exception(() => Directory.Delete(data.Root, true));
-        Assert.Null(cleanup);
+        finally
+        {
+            try
+            {
+                if (child is { HasExited: false })
+                {
+                    child.Kill(entireProcessTree: true);
+                    await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
+                }
+            }
+            catch (Exception ex) when (!passed && ex is InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException) { }
+            finally { child?.Dispose(); }
+            // Preserve the original assertion instead of replacing it with fixture disposal.
+            try { data.Dispose(); }
+            catch (IOException) when (!passed) { }
+        }
     }
 
     [Fact]

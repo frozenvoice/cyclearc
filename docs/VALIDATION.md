@@ -18,6 +18,15 @@
   - Backed up and removed only the obsolete linked-worktree tray registry entry. Confirmed
     one CycleArc registration and one running primary executable, preserved the primary
     visibility preference, and compared all unrelated tray entries before/after cleanup.
+  - At `6e01466`, main CI passed but branch run
+    [34970808842](https://github.com/frozenvoice/cyclearc/actions/runs/34970808842) failed
+    the cancellation fixture's immediate directory deletion. Disposal masked the original
+    assertion, so the log does not establish whether a child survived or filesystem teardown
+    was still finishing. The fixture now captures a synthetic descendant's process handle
+    before cancellation and requires exit within two seconds, followed by directory release
+    within two seconds. Its normal lifetime is 30 seconds, so a leaked child still fails.
+    Failure cleanup preserves the original assertion. Application process-launch code is unchanged.
+    The corrected cancellation test passed 20 consecutive runs, followed by all 1,286 unit tests.
 
 - CycleArc 0.5.7 release recovery (2026-09-15):
   - Compared all three failed Windows runs before retrying. Runs `34949182820` and
@@ -33,7 +42,7 @@
   - Added bounded Windows job accounting for cancellation/error cleanup, preserving the
     existing process-tree kill fallback. Failed native cleanup is reported rather than
     silently accepted. Normal successful completion does not terminate detached children
-    such as a login browser. Synthetic regressions cover a ready nested command's immediate
+    such as a login browser. Synthetic regressions cover a ready nested command's
     directory cleanup and a successful command's surviving detached child; the latter is
     explicitly stopped and reaped by the test.
   - Release publication now has a dedicated `scripts/Release.ps1` entry point. It requires
