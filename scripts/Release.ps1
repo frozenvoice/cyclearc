@@ -210,6 +210,13 @@ function Select-SuccessfulWindowsPushRun {
         throw "No Windows push CI run was found for commit $CommitSha"
     }
 
+    # A successful branch run must not hide a failure of the same commit on main.
+    $incomplete = @($matching | Where-Object { $_.status -ine 'completed' -or $_.conclusion -ine 'success' })
+    if ($incomplete.Count -gt 0) {
+        $states = ($incomplete | ForEach-Object { "$($_.databaseId):$($_.status)/$($_.conclusion)" }) -join ', '
+        throw "Windows push CI for $CommitSha is not a completed success across all matching runs ($states); it will not be rerun"
+    }
+
     $ordered = @($matching | Sort-Object {
         try { [DateTimeOffset]::Parse([string]$_.createdAt) }
         catch { [DateTimeOffset]::MinValue }

@@ -66,12 +66,26 @@ public static class ClaudeStatusLineInstaller
         var payload = Payload(options);
         var path = options.CycleArcExecutable.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
         var script = Marker + OptionsPrefix + payload + "'; "
-            + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::InputEncoding; "
+            // Native pipeline input invokes Out-String internally. Prepare it before
+            // launching the bounded receiver, instead of spending its stdin deadline on module loading.
+            + "Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop; "
+            + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; "
             + "$input | & '" + path + "' '" + ClaudeStatusLineBridge.Argument + "' $options"
-            + " | ForEach-Object { $_ }; exit $LASTEXITCODE";
+            + " | & { process { [Console]::Out.WriteLine($_) } }; exit $LASTEXITCODE";
         var command = Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
         if (command.Length > MaxCommandLength) throw new ClaudeSetupException(ClaudeSetupFailure.CommandTooLong);
         return command;
+    }
+
+    private static string PreviousAutomaticCommand(ClaudeBridgeOptions options)
+    {
+        var payload = Payload(options);
+        var path = options.CycleArcExecutable.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
+        var script = Marker + OptionsPrefix + payload + "'; "
+            + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::InputEncoding; "
+            + "$input | & '" + path + "' '" + ClaudeStatusLineBridge.Argument + "' $options"
+            + " | ForEach-Object { $_ }; exit $LASTEXITCODE";
+        return Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
     }
 
     private static string LegacyCommand(ClaudeBridgeOptions options)
@@ -112,6 +126,14 @@ public static class ClaudeStatusLineInstaller
             }
 
             var parsed = Decode(payload);
+            // Check the previous v2 shape before building the current command. A valid
+            // old wrapper may be below the old 8000-character limit while the added
+            // UTF-8 sink makes the replacement too long to install.
+            if (!legacy && string.Equals(PreviousAutomaticCommand(parsed), command, StringComparison.Ordinal))
+            {
+                options = parsed;
+                return true;
+            }
             var expected = legacy ? LegacyCommand(parsed) : Command(parsed);
             if (!string.Equals(expected, command, StringComparison.Ordinal)) return false;
             options = parsed;
@@ -120,7 +142,7 @@ public static class ClaudeStatusLineInstaller
         catch (Exception ex) when (ex is FormatException or ClaudeSetupException or ArgumentException) { return false; }
     }
 
-    // Recognize only the exact command emitted by the previous manual setup window.
+    // Recognize only exact commands emitted by the current or previous manual setup window.
     private static string? LegacyTarget(string command)
     {
         try
@@ -141,12 +163,13 @@ public static class ClaudeStatusLineInstaller
             var tail = script[(idFrom + 33)..];
             if (tail.StartsWith(rootPrefix, StringComparison.Ordinal))
             {
-                var rootEnd = tail.LastIndexOf("' | ForEach-Object", StringComparison.Ordinal);
+                var rootEnd = tail.IndexOf("' | ", rootPrefix.Length, StringComparison.Ordinal);
                 if (rootEnd < rootPrefix.Length) return null;
                 dataRoot = tail[rootPrefix.Length..rootEnd].Replace("''", "'", StringComparison.Ordinal);
             }
-            var generated = JsonNode.Parse(ClaudeStatusLineCommand.SettingsJson(path, id, dataRoot))!["statusLine"]!["command"]!.GetValue<string>();
-            return generated == command ? id : null;
+            var current = ClaudeStatusLineCommand.SettingsCommand(path, id, dataRoot);
+            var previous = ClaudeStatusLineCommand.SettingsCommand(path, id, dataRoot, legacyOutput: true);
+            return current == command || previous == command ? id : null;
         }
         catch (Exception ex) when (ex is FormatException or ArgumentException or InvalidOperationException) { return null; }
     }

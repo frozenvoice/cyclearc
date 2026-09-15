@@ -85,6 +85,14 @@ $newerFailed.createdAt = '2026-09-15T11:00:00Z'
 Assert-Throws {
     Select-SuccessfulWindowsPushRun -Runs @($successfulRun, $newerFailed) -CommitSha $shaA
 } 'not a completed success'
+$olderFailed = $failedRun.PSObject.Copy()
+$olderFailed.createdAt = '2026-09-15T09:00:00Z'
+Assert-Throws {
+    Select-SuccessfulWindowsPushRun -Runs @($olderFailed, $successfulRun) -CommitSha $shaA
+} 'not a completed success'
+Assert-Throws {
+    Select-SuccessfulWindowsPushRun -Runs @($pendingRun, $successfulRun) -CommitSha $shaA
+} 'not a completed success'
 Assert-Throws { Select-SuccessfulWindowsPushRun -Runs @($successfulRun) -CommitSha $shaB } 'No Windows push CI run'
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-release-tests-' + [guid]::NewGuid().ToString('N'))

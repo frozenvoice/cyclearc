@@ -79,12 +79,56 @@ public sealed class ClaudeIdentityBindingTests
         Assert.Equal(options with { PreviousStatusLine = null }, decoded! with { PreviousStatusLine = null });
         Assert.True(JsonNode.DeepEquals(options.PreviousStatusLine, decoded!.PreviousStatusLine));
 
+        var currentPrefix = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ";
+        var currentScript = Encoding.Unicode.GetString(Convert.FromBase64String(command[currentPrefix.Length..]));
+        var editedCurrent = currentPrefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(
+            currentScript.Replace("[Console]::Out.WriteLine($_)", "[Console]::Out.WriteLine('edited')", StringComparison.Ordinal)));
+        Assert.False(ClaudeStatusLineInstaller.TryRead(editedCurrent, out _));
+
         var legacy = LegacyCommand(options);
         Assert.True(legacy.Length > command.Length);
         Assert.True(legacy.Length > 8191);
         Assert.True(ClaudeStatusLineInstaller.TryRead(legacy, out decoded));
         Assert.Equal(options with { PreviousStatusLine = null }, decoded! with { PreviousStatusLine = null });
         Assert.True(JsonNode.DeepEquals(options.PreviousStatusLine, decoded!.PreviousStatusLine));
+    }
+
+    [Fact]
+    public void FrozenV2WrapperIsStillOwnedWhenTheReplacementWouldExceedTheCommandLimit()
+    {
+        var profileId = Guid.NewGuid().ToString("N");
+        var directory = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "claude-wrapper-test"));
+        var executable = Path.Combine(directory, "CycleArc.exe");
+        var options = new ClaudeBridgeOptions(1, profileId, directory, executable,
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath())), true,
+            new JsonObject { ["type"] = "command", ["command"] = new string('x', 1000) },
+            Guid.NewGuid().ToString("N"));
+
+        string frozen;
+        do
+        {
+            frozen = FrozenV2Command(options);
+            if (frozen.Length >= 7900) break;
+            options = options with
+            {
+                PreviousStatusLine = new JsonObject
+                {
+                    ["type"] = "command",
+                    ["command"] = new string('x', options.PreviousStatusLine!["command"]!.GetValue<string>().Length + 1)
+                }
+            };
+        } while (true);
+
+        Assert.InRange(frozen.Length, 7900, 8000);
+        Assert.Throws<ClaudeSetupException>(() => ClaudeStatusLineInstaller.Command(options));
+        Assert.True(ClaudeStatusLineInstaller.TryRead(frozen, out var decoded));
+        Assert.Equal(options with { PreviousStatusLine = null }, decoded! with { PreviousStatusLine = null });
+
+        var prefix = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ";
+        var script = Encoding.Unicode.GetString(Convert.FromBase64String(frozen[prefix.Length..]));
+        var edited = prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(
+            script.Replace("ForEach-Object", "ForEach-ObjectEdited", StringComparison.Ordinal)));
+        Assert.False(ClaudeStatusLineInstaller.TryRead(edited, out _));
     }
 
     [Fact]
@@ -245,6 +289,18 @@ public sealed class ClaudeIdentityBindingTests
             + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::InputEncoding; "
             + "$input | & '" + path + "' '" + ClaudeStatusLineBridge.Argument + "' '" + payload
             + "' | ForEach-Object { $_ }; exit $LASTEXITCODE";
+        return prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+    }
+
+    private static string FrozenV2Command(ClaudeBridgeOptions options)
+    {
+        const string prefix = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ";
+        var payload = ClaudeStatusLineInstaller.Payload(options);
+        var path = options.CycleArcExecutable.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
+        var script = "# CycleArc automatic statusLine v2\n$options='" + payload + "'; "
+            + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::InputEncoding; "
+            + "$input | & '" + path + "' '" + ClaudeStatusLineBridge.Argument + "' $options"
+            + " | ForEach-Object { $_ }; exit $LASTEXITCODE";
         return prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
     }
 

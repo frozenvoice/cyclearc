@@ -38,20 +38,26 @@ internal static class ClaudeStatusLineProcessChecks
         {
             try { owns = mutex.WaitOne(0); } catch (AbandonedMutexException) { owns = true; }
             var result = RunProcess(executable, [ClaudeStatusLineCommand.Argument, profile.Id, "--data-root", root], json);
-            Check(result.Code == 0 && result.Output.Contains("5h 23.5%", StringComparison.Ordinal), "Production stdin receiver failed.");
+            Check(result.Code == 0 && result.Output.Contains("5h 23.5%", StringComparison.Ordinal), $"Production stdin receiver failed ({Describe(result)}).");
             Check(store.Read().State?.LastGood?.SevenDay?.UsedPercentage == 41.2, "Production receiver lost weekly data.");
 
             using var settings = JsonDocument.Parse(ClaudeStatusLineCommand.SettingsJson(executable, profile.Id, root));
             var command = settings.RootElement.GetProperty("statusLine").GetProperty("command").GetString()!;
             var encoded = command.Split(' ')[^1];
             result = RunProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], json);
-            Check(result.Code == 0 && result.Output.Contains("7d 41.2%", StringComparison.Ordinal), "Generated PowerShell statusLine command failed.");
+            Check(result.Code == 0 && result.Output.Contains("7d 41.2%", StringComparison.Ordinal), $"Generated PowerShell statusLine command failed ({Describe(result)}).");
+            // Generated wrappers must work without first-use PowerShell module imports.
+            var noModules = Convert.ToBase64String(Encoding.Unicode.GetBytes(
+                "$PSModuleAutoLoadingPreference = 'None'; " + Encoding.Unicode.GetString(Convert.FromBase64String(encoded))));
+            result = RunProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", noModules], json);
+            Check(result.Code == 0 && result.Output.Contains("7d 41.2%", StringComparison.Ordinal),
+                $"Generated PowerShell statusLine command required module auto-loading ({Describe(result)}).");
             var bash = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Git", "bin", "bash.exe");
             var checkedBash = File.Exists(bash);
             if (checkedBash)
             {
                 result = RunProcess(bash, ["--noprofile", "--norc", "-c", command], json);
-                Check(result.Code == 0 && result.Output.Contains("7d 41.2%", StringComparison.Ordinal), "Generated Git Bash statusLine command failed.");
+                Check(result.Code == 0 && result.Output.Contains("7d 41.2%", StringComparison.Ordinal), $"Generated Git Bash statusLine command failed ({Describe(result)}).");
             }
             result = RunProcess(executable, [ClaudeStatusLineCommand.Argument, profile.Id, "--data-root", root], "{broken");
             Check(result.Code == 1 && store.Read().State?.LastInputStatus == ClaudeInputStatus.Malformed, "Malformed production input was not rejected.");
@@ -80,6 +86,7 @@ internal static class ClaudeStatusLineProcessChecks
     private static void CheckAuthenticatedBridge(string executable, CodexAccountStore accounts, CodexAccountProfile profile, string root, string json)
     {
         const string authJson = """{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"person@example.invalid","orgId":"synthetic-org","subscriptionType":"pro"}""";
+        const string previousOutput = "Existing line 23.5 한글";
         var directory = Path.Combine(root, "Claude home");
         Directory.CreateDirectory(directory);
         var cli = Path.Combine(directory, "synthetic claude.cmd");
@@ -93,14 +100,15 @@ internal static class ClaudeStatusLineProcessChecks
         var oldScript = """
             $raw = [Console]::In.ReadToEnd();
             if (-not $raw.Contains('"five_hour":{"used_percentage":23.5,')) { exit 7 };
-            [Console]::Out.WriteLine('Existing line 23.5')
+            [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);
+            [Console]::Out.WriteLine('Existing line 23.5 한글')
             """;
         var oldCommand = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(oldScript));
         File.WriteAllText(Path.Combine(directory, "settings.json"), JsonSerializer.Serialize(new { theme = "preserve", statusLine = new { type = "command", command = oldCommand, padding = 2 } }));
         var options = ClaudeStatusLineInstaller.InstallAsync(accounts, profile.Id, directory, executable, default).GetAwaiter().GetResult();
         var command = ClaudeStatusLineInstaller.Command(options);
         var result = RunProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command.Split(' ')[^1]], json);
-        Check(result.Code == 0 && result.Output.Trim() == "Existing line 23.5",
+        Check(result.Code == 0 && result.Output.Trim() == previousOutput,
             $"Automatic bridge did not preserve existing output and input (exit {result.Code}, output '{result.Output.Trim()}', error '{result.Error.Trim()}', failure '{new ClaudeFailureStore(accounts).Read(profile.Id).State?.Kind}').");
         var store = new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(profile.Id), profile.Id);
         Check(store.Read().State?.LastGood?.FiveHour?.UsedPercentage == 23.5, "Authenticated bridge did not persist official quota fields.");
@@ -108,13 +116,13 @@ internal static class ClaudeStatusLineProcessChecks
         if (File.Exists(bash))
         {
             result = RunProcess(bash, ["--noprofile", "--norc", "-c", command], json);
-            Check(result.Code == 0 && result.Output.Trim() == "Existing line 23.5",
+            Check(result.Code == 0 && result.Output.Trim() == previousOutput,
                 $"Automatic bridge failed under Git Bash (exit {result.Code}, output '{result.Output.Trim()}', error '{result.Error.Trim()}').");
         }
         var beforeAuthLoss = File.ReadAllBytes(accounts.ClaudeStatusLinePath(profile.Id));
         File.WriteAllText(cli, "@echo off\r\necho {\"loggedIn\":false}\r\nexit /b 1\r\n");
         result = RunProcess(executable, [ClaudeStatusLineBridge.Argument, ClaudeStatusLineInstaller.Payload(options)], json);
-        Check(result.Code == 1 && result.Output.Trim() == "Existing line 23.5", "Auth loss discarded existing status line output.");
+        Check(result.Code == 1 && result.Output.Trim() == previousOutput, "Auth loss discarded existing status line output.");
         Check(File.ReadAllBytes(accounts.ClaudeStatusLinePath(profile.Id)).SequenceEqual(beforeAuthLoss),
             "Signed-out bridge changed the last quota receipt.");
         Check(new ClaudeFailureStore(accounts).Read(profile.Id).State?.Kind == ClaudeFailureKind.AuthRequired,
@@ -130,7 +138,7 @@ internal static class ClaudeStatusLineProcessChecks
         var currentQuota = File.ReadAllBytes(accounts.ClaudeStatusLinePath(profile.Id));
         var currentFailure = File.ReadAllBytes(accounts.ClaudeFailurePath(profile.Id));
         result = RunProcess(executable, [ClaudeStatusLineBridge.Argument, ClaudeStatusLineInstaller.Payload(options)], json);
-        Check(result.Code == 1 && result.Output.Trim() == "Existing line 23.5", "Old callback lost previous statusLine output.");
+        Check(result.Code == 1 && result.Output.Trim() == previousOutput, "Old callback lost previous statusLine output.");
         Check(File.ReadAllBytes(accounts.ClaudeStatusLinePath(profile.Id)).SequenceEqual(currentQuota)
             && File.ReadAllBytes(accounts.ClaudeFailurePath(profile.Id)).SequenceEqual(currentFailure),
             "An old-generation callback changed the current quota or failure record.");
@@ -217,8 +225,8 @@ internal static class ClaudeStatusLineProcessChecks
         try
         {
             if (input is not null) { process.StandardInput.Write(input); process.StandardInput.Close(); }
-            if (!process.WaitForExit(12000)) throw new TimeoutException("StatusLine receiver did not exit.");
-            Task.WhenAll(output, error).GetAwaiter().GetResult();
+            if (!process.WaitForExit(12000)) throw new TimeoutException($"StatusLine receiver did not exit within 12 seconds ({Path.GetFileName(executable)}).");
+            Task.WhenAll(output, error).WaitAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
             Check(!output.Result.Contains("never-", StringComparison.Ordinal) && !error.Result.Contains("never-", StringComparison.Ordinal),
                 "Raw statusLine data reached process output.");
             return (process.ExitCode, output.Result, error.Result);
@@ -228,6 +236,9 @@ internal static class ClaudeStatusLineProcessChecks
             if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(3000); }
         }
     }
+
+    private static string Describe((int Code, string Output, string Error) result) =>
+        $"exit {result.Code}, output '{result.Output.Trim()}', error '{result.Error.Trim()}'";
 
     private static void Check(bool condition, string message)
     {

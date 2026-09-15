@@ -10,6 +10,9 @@ namespace CycleArc.Providers.Claude;
 public static class ClaudeStatusLineCommand
 {
     public const string Argument = "--claude-statusline";
+    private const string Prefix = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ";
+    private const string LegacyOutput = " | ForEach-Object { $_ }";
+    private const string CurrentOutput = " | & { process { [Console]::Out.WriteLine($_) } }";
     public static readonly TimeSpan Deadline = TimeSpan.FromSeconds(5);
 
     public static async Task<int> RunAsync(string[] args, Stream input, TextWriter output,
@@ -65,6 +68,18 @@ public static class ClaudeStatusLineCommand
 
     public static string SettingsJson(string executable, string profileId, string? dataRoot = null)
     {
+        var command = SettingsCommand(executable, profileId, dataRoot);
+        return JsonSerializer.Serialize(new { statusLine = new { type = "command", command } },
+            new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    // The bool exists only so the installer can recognize commands written by an older
+    // release. Keep that old shape byte-for-byte stable; new commands use the .NET sink
+    // below to avoid PowerShell's formatting/output command path. Native stdin still
+    // uses Out-String internally, so load that module before the receiver starts its deadline.
+    internal static string SettingsCommand(string executable, string profileId, string? dataRoot = null,
+        bool legacyOutput = false)
+    {
         if (!Guid.TryParseExact(profileId, "N", out _) || !Path.IsPathFullyQualified(executable)
             || executable.Any(char.IsControl) || (dataRoot is not null
                 && (!Path.IsPathFullyQualified(dataRoot) || dataRoot.Any(char.IsControl))))
@@ -75,14 +90,13 @@ public static class ClaudeStatusLineCommand
         var path = Path.GetFullPath(executable).Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
         var rootArgument = dataRoot is null ? "" : " '--data-root' '"
             + Path.GetFullPath(dataRoot).Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal) + "'";
-        var script = "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); "
-            + "$OutputEncoding = [Console]::InputEncoding; "
+        var script = (legacyOutput ? "" : "Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop; ")
+            + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); "
+            + (legacyOutput ? "$OutputEncoding = [Console]::InputEncoding; "
+                : "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; ")
             + "$input | & '" + path + "' '" + Argument + "' '" + profileId
-            + "'" + rootArgument + " | ForEach-Object { $_ }; exit $LASTEXITCODE";
-        var command = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand "
-            + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-        return JsonSerializer.Serialize(new { statusLine = new { type = "command", command } },
-            new JsonSerializerOptions { WriteIndented = true });
+            + "'" + rootArgument + (legacyOutput ? LegacyOutput : CurrentOutput) + "; exit $LASTEXITCODE";
+        return Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
     }
 
     private static string Percent(double value) => value.ToString("0.##", CultureInfo.InvariantCulture) + "%";

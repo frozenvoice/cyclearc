@@ -20,10 +20,27 @@
     directory cleanup and a successful command's surviving detached child; the latter is
     explicitly stopped and reaped by the test.
   - Release publication now has a dedicated `scripts/Release.ps1` entry point. It requires
-    successful Windows push CI at the intended commit, consumes that run's single-file
+    successful results across every Windows push CI run at the intended commit, consumes a run's single-file
     artifact, and validates executable version, tag target and uploaded digests before
     publishing a draft. Release guards run locally and in CI; failed unit-test results
     are retained as a CI artifact.
+  - Follow-up run `34965154816` passed all 1,284 unit tests, including the process cleanup
+    regressions, but failed the generated manual PowerShell receiver assertion. A parallel
+    run of the same commit passed; that success was not used to bypass the failed run.
+    The assertion previously omitted exit/stdout/stderr, so this run alone does not prove
+    the underlying cause. A local check with module auto-loading disabled then exposed
+    PowerShell's internal Out-String dependency when piping stdin to a native process.
+    Generated wrappers explicitly prepare Microsoft.PowerShell.Utility before starting
+    the receiver, keeping module preparation outside its stdin deadline. They write UTF-8
+    through Console directly, avoiding implicit output formatting while retaining the
+    pipeline that waits for the GUI executable. Frozen old manual/v2 commands remain recognizable,
+    including an old v2 command near the installation length limit. Process smoke checks
+    cover disabled module auto-loading, Korean forwarded output, bounded stream draining
+    and diagnostic output on failure. Production receiver deadlines are unchanged.
+  - The final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed with zero build
+    warnings/errors, 1,286 unit tests, 15 installer scenarios, all production WPF/widget/DPI
+    checks, single-file publish, and built/published Claude receivers in PowerShell and
+    Git Bash. All receiver fixtures used isolated synthetic data.
 
 - CycleArc 0.5.7 release preparation (2026-09-15):
   - Updated application/assembly/file versions, EN/KO period-selection controls and the

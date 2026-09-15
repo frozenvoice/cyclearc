@@ -453,6 +453,17 @@ public class ClaudeConnectionTests
         return File.Exists(path);
     }
 
+    private static string FrozenManualCommand(string executable, string profileId, string dataRoot)
+    {
+        const string prefix = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ";
+        var path = Path.GetFullPath(executable).Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
+        var root = " '--data-root' '" + Path.GetFullPath(dataRoot).Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal) + "'";
+        var script = "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::InputEncoding; "
+            + "$input | & '" + path + "' '--claude-statusline' '" + profileId + "'"
+            + root + " | ForEach-Object { $_ }; exit $LASTEXITCODE";
+        return prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+    }
+
     [Fact]
     public async Task AnotherLoginUsesANewHomeAndOldRunningSessionCannotWriteToTheNewAccount()
     {
@@ -483,6 +494,33 @@ public class ClaudeConnectionTests
         Assert.False(options.HadStatusLine); Assert.Null(options.PreviousStatusLine);
         await ClaudeStatusLineInstaller.RestoreAsync(DirectoryFor(data), data.Profile.Id, default);
         Assert.False(JsonNode.Parse(File.ReadAllText(Settings(data)))!.AsObject().ContainsKey("statusLine"));
+    }
+
+    [Fact]
+    public async Task FrozenManualCommandIsUpgradedAndRestored()
+    {
+        using var data = new ClaudeTestData();
+        Directory.CreateDirectory(DirectoryFor(data));
+        var frozen = FrozenManualCommand(AppFor(data), data.Profile.Id, data.Root);
+        File.WriteAllText(Settings(data), JsonSerializer.Serialize(new
+        {
+            theme = "preserve",
+            statusLine = new { type = "command", command = frozen, padding = 2 }
+        }));
+
+        var options = await ClaudeStatusLineInstaller.InstallAsync(data.Accounts, data.Profile.Id,
+            DirectoryFor(data), AppFor(data), default);
+        Assert.False(options.HadStatusLine);
+        Assert.Null(options.PreviousStatusLine);
+        var installed = JsonNode.Parse(File.ReadAllText(Settings(data)))!;
+        var replacement = installed["statusLine"]!["command"]!.GetValue<string>();
+        Assert.NotEqual(frozen, replacement);
+        Assert.True(ClaudeStatusLineInstaller.TryRead(replacement, out _));
+
+        await ClaudeStatusLineInstaller.RestoreAsync(DirectoryFor(data), data.Profile.Id, default);
+        var restored = JsonNode.Parse(File.ReadAllText(Settings(data)))!;
+        Assert.Equal("preserve", restored["theme"]!.GetValue<string>());
+        Assert.False(restored.AsObject().ContainsKey("statusLine"));
     }
 
     [Fact]
