@@ -1,5 +1,4 @@
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.IO;
 using CycleArc.Codex;
 using CycleArc.Models;
@@ -31,25 +30,41 @@ internal static class TrayIconChecks
             foreach (var style in Enum.GetValues<TrayIconStyle>())
             {
                 foreach (var (name, snapshot, expected, awaiting) in cases)
+                foreach (var lightTaskbar in style == TrayIconStyle.RemainingNumber ? new[] { false, true } : new[] { false })
                 {
-                    using var icon = TrayIconRenderer.Render(snapshot, style, size, awaiting);
+                    using var icon = TrayIconRenderer.Render(
+                        snapshot, style, size, awaiting, lightTaskbar: lightTaskbar);
                     using var bitmap = icon.ToBitmap();
-                    CheckBitmap(bitmap, size, style, name);
+                    var themeLabel = lightTaskbar ? "light" : "dark";
+                    CheckBitmap(bitmap, size, style, $"{name}/{themeLabel}");
                     if (style == TrayIconStyle.RemainingNumber)
                     {
+                        var foreground = lightTaskbar ? Color.FromArgb(24, 24, 24) : Color.White;
+                        CheckMonochromeNumber(bitmap, foreground, name, size);
+                        if (CodexRingPresentation.From(snapshot).IsAvailable)
+                            CheckPercentageInk(bitmap, foreground, name, size);
+                    }
+                    else if (CodexRingPresentation.From(snapshot).IsAvailable)
+                    {
                         CheckColor(bitmap, expected, name, size);
-                        CheckContrast(bitmap, name, size);
                     }
                     count++;
                 }
 
                 foreach (var value in values)
+                foreach (var lightTaskbar in style == TrayIconStyle.RemainingNumber ? new[] { false, true } : new[] { false })
                 {
-                    using var icon = TrayIconRenderer.Render(Snapshot(CodexQuotaStatus.Available, value), style, size);
+                    using var icon = TrayIconRenderer.Render(
+                        Snapshot(CodexQuotaStatus.Available, value), style, size, lightTaskbar: lightTaskbar);
                     using var bitmap = icon.ToBitmap();
-                    CheckBitmap(bitmap, size, style, value.ToString("0"));
+                    var themeLabel = lightTaskbar ? "light" : "dark";
+                    CheckBitmap(bitmap, size, style, $"{value:0}/{themeLabel}");
                     if (style == TrayIconStyle.RemainingNumber)
-                        CheckGlyph(bitmap, size, value.ToString("0"));
+                    {
+                        var foreground = lightTaskbar ? Color.FromArgb(24, 24, 24) : Color.White;
+                        CheckMonochromeNumber(bitmap, foreground, value.ToString("0"), size);
+                        CheckPercentageInk(bitmap, foreground, value.ToString("0"), size);
+                    }
                     count++;
                 }
             }
@@ -95,7 +110,9 @@ internal static class TrayIconChecks
 
         if (visible == 0 || maxX < minX || maxY < minY)
             throw new InvalidOperationException($"Tray icon is fully transparent: {style}/{label}/{requestedSize}.");
-        if (maxX - minX + 1 < bitmap.Width / 2 || maxY - minY + 1 < bitmap.Height / 2)
+        var minimumHeight = bitmap.Height / 2;
+        var minimumWidth = style == TrayIconStyle.RemainingNumber ? bitmap.Width / 3 : bitmap.Width / 2;
+        if (maxX - minX + 1 < minimumWidth || maxY - minY + 1 < minimumHeight)
             throw new InvalidOperationException($"Tray icon bounds are too small: {style}/{label}/{requestedSize}.");
         if (bitmap.GetPixel(0, 0).A != 0 && style == TrayIconStyle.RemainingNumber)
             throw new InvalidOperationException($"Number icon lost transparent corner: {label}/{requestedSize}.");
@@ -112,56 +129,101 @@ internal static class TrayIconChecks
                 matches++;
         }
 
-        if (matches < Math.Max(4, size * size / 8))
+        if (matches < Math.Max(3, size / 2))
             throw new InvalidOperationException($"Tray icon state color is missing: {label}/{size}.");
     }
 
-    private static void CheckContrast(Bitmap bitmap, string label, int size)
+    private static void CheckMonochromeNumber(Bitmap bitmap, Color expected, string label, int size)
     {
-        var minimum = 255d;
-        var maximum = 0d;
-        for (var y = 1; y < bitmap.Height - 1; y++)
-        for (var x = 1; x < bitmap.Width - 1; x++)
+        var visible = 0;
+        var opaque = 0;
+        var matching = 0;
+        var nonMonochrome = 0;
+        foreach (var y in Enumerable.Range(0, bitmap.Height))
+        foreach (var x in Enumerable.Range(0, bitmap.Width))
         {
             var pixel = bitmap.GetPixel(x, y);
-            if (pixel.A < 160) continue;
-            var luminance = pixel.R * 0.2126 + pixel.G * 0.7152 + pixel.B * 0.0722;
-            minimum = Math.Min(minimum, luminance);
-            maximum = Math.Max(maximum, luminance);
+            if (pixel.A == 0) continue;
+            visible++;
+            if (pixel.A >= 220) opaque++;
+            if (Math.Max(pixel.R, Math.Max(pixel.G, pixel.B)) - Math.Min(pixel.R, Math.Min(pixel.G, pixel.B)) > 8)
+                nonMonochrome++;
+            if (MatchesForeground(pixel, expected))
+                matching++;
         }
 
-        if (maximum - minimum < 80)
-            throw new InvalidOperationException($"Tray icon lacks glyph/background contrast: {label}/{size}.");
+        if (visible == 0 || matching < Math.Max(3, size / 2))
+            throw new InvalidOperationException($"Tray number foreground is missing: {label}/{size} (visible={visible}, matching={matching}, opaque={opaque}, nonMonochrome={nonMonochrome}).");
+        if (nonMonochrome > Math.Max(1, visible / 25))
+            throw new InvalidOperationException($"Tray number contains colored pixels: {label}/{size}.");
+        if (opaque > bitmap.Width * bitmap.Height / 2)
+            throw new InvalidOperationException($"Tray number has an opaque backing: {label}/{size}.");
     }
 
-    private static void CheckGlyph(Bitmap bitmap, int size, string value)
+    private static void CheckPercentageInk(Bitmap bitmap, Color expected, string label, int size)
     {
-        var glyphColor = Color.White;
         var minX = bitmap.Width;
         var minY = bitmap.Height;
         var maxX = -1;
         var maxY = -1;
-        for (var y = 1; y < bitmap.Height - 1; y++)
-        for (var x = 1; x < bitmap.Width - 1; x++)
+        for (var y = 0; y < bitmap.Height; y++)
+        for (var x = 0; x < bitmap.Width; x++)
         {
-            var pixel = bitmap.GetPixel(x, y);
-            if (pixel.A < 160 || Distance(pixel, glyphColor) > 85) continue;
+            if (!IsForeground(bitmap.GetPixel(x, y), expected)) continue;
             minX = Math.Min(minX, x);
             minY = Math.Min(minY, y);
             maxX = Math.Max(maxX, x);
             maxY = Math.Max(maxY, y);
         }
 
-        var width = maxX - minX + 1;
-        var height = maxY - minY + 1;
-        if (maxX < minX || width < Math.Max(2, size / 5) || height < Math.Max(4, Math.Floor(size * (value.Length >= 3 ? 0.34 : 0.55))))
-            throw new InvalidOperationException($"Tray glyph is too small: {value}/{size} ({width}x{height}).");
+        if (maxX < minX || maxY < minY)
+            throw new InvalidOperationException($"Tray number has no measurable ink: {label}/{size}.");
+
+        var glyphWidth = maxX - minX + 1;
+        var bandStart = Math.Max(minX + 1, maxX - Math.Max(2, (int)Math.Ceiling(size * 0.2)));
+        var rightInk = 0;
+        var lowerRightInk = 0;
+        var rightMinY = bitmap.Height;
+        var rightMaxY = -1;
+        var lowerEdge = minY + (maxY - minY) * 0.45;
+        for (var y = minY; y <= maxY; y++)
+        for (var x = bandStart; x <= maxX; x++)
+        {
+            if (!IsForeground(bitmap.GetPixel(x, y), expected)) continue;
+            rightInk++;
+            rightMinY = Math.Min(rightMinY, y);
+            rightMaxY = Math.Max(rightMaxY, y);
+            if (y >= lowerEdge) lowerRightInk++;
+        }
+
+        var rightHeight = rightMaxY - rightMinY + 1;
+        if (glyphWidth < Math.Max(4, (int)Math.Ceiling(size * 0.52))
+            || rightInk < Math.Max(3, size / 5)
+            || rightHeight < Math.Max(2, (int)Math.Ceiling(size * 0.15))
+            || lowerRightInk < Math.Max(1, size / 10))
+            throw new InvalidOperationException($"Tray number has no visible right-side percent mark: {label}/{size} (width={glyphWidth}, rightInk={rightInk}, rightHeight={rightHeight}, lower={lowerRightInk}).");
     }
+
+    private static bool MatchesForeground(Color pixel, Color expected)
+    {
+        if (pixel.A < 80) return false;
+        if (expected == Color.White)
+        {
+            var normalized = pixel.R * 255 / pixel.A;
+            return normalized >= 170 && Math.Abs(pixel.R - pixel.G) <= 8 && Math.Abs(pixel.R - pixel.B) <= 8;
+        }
+
+        return pixel.R <= 100 && Math.Abs(pixel.R - pixel.G) <= 8 && Math.Abs(pixel.R - pixel.B) <= 8;
+    }
+
+    private static bool IsForeground(Color pixel, Color expected) =>
+        pixel.A >= 32
+            && Math.Max(pixel.R, Math.Max(pixel.G, pixel.B)) - Math.Min(pixel.R, Math.Min(pixel.G, pixel.B)) <= 8;
 
     private static void CheckUnknownIsNotZero()
     {
-        using var unknown = TrayIconRenderer.Render(Snapshot(CodexQuotaStatus.Unavailable, null), TrayIconStyle.RemainingNumber, 32);
-        using var zero = TrayIconRenderer.Render(Snapshot(CodexQuotaStatus.Stale, 0), TrayIconStyle.RemainingNumber, 32);
+        using var unknown = TrayIconRenderer.Render(Snapshot(CodexQuotaStatus.Unavailable, null), TrayIconStyle.RemainingNumber, 32, lightTaskbar: false);
+        using var zero = TrayIconRenderer.Render(Snapshot(CodexQuotaStatus.Stale, 0), TrayIconStyle.RemainingNumber, 32, lightTaskbar: false);
         using var unknownBitmap = unknown.ToBitmap();
         using var zeroBitmap = zero.ToBitmap();
         var difference = 0;
@@ -205,7 +267,7 @@ internal static class TrayIconChecks
             for (var i = 0; i < samples.Length; i++)
             {
                 var sample = samples[i];
-                using var icon = TrayIconRenderer.Render(sample.Snapshot, style, size, sample.Awaiting);
+                using var icon = TrayIconRenderer.Render(sample.Snapshot, style, size, sample.Awaiting, lightTaskbar: !dark);
                 using var bitmap = icon.ToBitmap();
                 graphics.DrawImageUnscaled(bitmap, 82 + i * 60 + (32 - size) / 2, y + (52 - size) / 2);
             }

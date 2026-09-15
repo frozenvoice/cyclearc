@@ -420,8 +420,9 @@ public partial class App : Application
 
     private void OnSystemThemeChanged()
     {
-        if (IsExiting || _settings.Theme != AppTheme.System) return;
-        ApplyTheme(AppTheme.System);
+        if (IsExiting) return;
+        // Tray contrast follows Windows even when the app theme is fixed.
+        if (_settings.Theme == AppTheme.System) ApplyTheme(AppTheme.System);
         RefreshSnapshot();
     }
 

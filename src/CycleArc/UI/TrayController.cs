@@ -84,11 +84,25 @@ public sealed class TrayController : IDisposable
             // notification slot does not resample a 32px icon down to 16px.
             var size = Math.Max(16, SystemInformation.SmallIconSize.Width);
             var next = TrayIconRenderer.Render(overview.Snapshot, style, size,
-                claudeAwaitingUsage: overview.Selected?.IsAwaitingUsage == true);
+                claudeAwaitingUsage: overview.Selected?.IsAwaitingUsage == true, lightTaskbar: IsLightTaskbar());
             _icon.Icon = next;
             _current?.Dispose();
             _current = next;
         });
+    }
+
+    private static bool IsLightTaskbar()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("SystemUsesLightTheme") is int value && value != 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public void ShowWidgetContextMenu() => _widgetMenu?.Show(System.Windows.Forms.Control.MousePosition);

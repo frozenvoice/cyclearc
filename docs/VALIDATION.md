@@ -2,6 +2,29 @@
 
 ## Current release — Codex and Claude Code
 
+- Monochrome percentage tray follow-up (2026-09-15):
+  - Replaced the default number icon's colored backing with transparent, monochrome
+    digits and a smaller baseline-aligned percent sign. Percentage glyphs preserve their
+    height while fitting horizontally, including 100%, within the native notification slot.
+    Unknown usage remains ?. The optional progress ring retains its existing rendering.
+  - Text follows Windows SystemUsesLightTheme independently of the app's theme.
+    System preference changes rerender the tray even when the app theme is fixed.
+    The existing Dispatcher routing and icon disposal behavior remain unchanged.
+  - Visually reviewed 16/24/32px number and ring renders on dark/light backgrounds.
+    The initial uniform fit made 100% too small; height-preserving horizontal fitting
+    corrected it. The native 16px slot still limits four-character spacing.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed: zero build warnings/errors,
+    1,272 unit tests, 15 installer scenarios, production WPF/shutdown and widget/DPI checks,
+    99 tray renders, single-file win-x64 publish, and built/published Claude receivers.
+    EN/KO settings were visually checked in light/dark, normal/compact layouts. Tests used
+    isolated synthetic accounts without model calls, live login or reset-credit consumption.
+  - Installed with the guarded rollback path at `publish/local/CycleArc.exe`; SHA-256:
+    `15A74610C426021DCD3F1EC47C6921BB4FAAE6DAA9B01424B7E3C20BB55DC613`.
+    A read-only native screen capture confirmed white 70% text with no colored backing
+    on the reporting PC's dark 24px taskbar. The widget remained visible at its user-saved
+    physical position (8, 1321), with zero ordinary windows above it. Local diagnostic
+    images remain ignored artifacts.
+
 - Widget visibility and tray readability follow-up (2026-09-15):
   - On the reporting PC, the widget was enabled at 92% opacity, at physical position
     (60, 60), with native visible/topmost flags set, no minimization and no DWM cloaking.

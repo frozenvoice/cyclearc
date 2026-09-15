@@ -34,8 +34,8 @@ public partial class SettingsWindow : Window
         StartupLabel.Text = UiText.StartWithWindows;
         StartupBox.IsChecked = settings.StartWithWindows;
         TrayHint.Text = UiText.T(
-            "The tray number is used percent: blue = valid sample, red = valid sample at 100%, yellow = stale or unavailable, gray = Claude connected and waiting for its first sample. A ring shows the same value as progress.",
-            "트레이 숫자는 사용률입니다. 파랑은 정상 수신값, 빨강은 정상 수신값이 100%, 노랑은 오래됐거나 확인할 수 없는 값, 회색은 Claude 연결 후 첫 수신을 기다리는 상태입니다. 링은 같은 값을 진행률로 표시합니다.");
+            "The tray shows used percent (e.g. 67%) with no color background. Text follows your Windows taskbar theme. Unknown usage shows ?. Check the tooltip or detail card for status. The ring style shows usage as progress.",
+            "트레이는 색 배경 없이 사용률(예: 67%)을 표시합니다. 글자색은 Windows 작업표시줄 테마에 맞춰 바뀌며, 알 수 없는 값은 ?로 표시합니다. 상태는 툴팁이나 상세 카드에서 확인하세요. 링은 같은 값을 진행률로 표시합니다.");
         WidgetTitle.Text = UiText.T("Desktop widget", "바탕화면 위젯");
         ResetWidgetPositionButton.Content = UiText.T("Reset widget position", "위젯 위치 초기화");
         ResetWidgetPositionButton.ToolTip = UiText.T("Move the widget to the primary screen when you save.", "저장하면 위젯을 기본 화면으로 이동합니다.");

@@ -7,6 +7,7 @@ using CycleArc.Models;
 using CycleArc.Providers.Usage;
 using CycleArc.Services;
 using DrawingColor = System.Drawing.Color;
+using Matrix = System.Drawing.Drawing2D.Matrix;
 using Pen = System.Drawing.Pen;
 using SolidBrush = System.Drawing.SolidBrush;
 
@@ -14,7 +15,7 @@ namespace CycleArc.UI;
 
 public static class TrayIconRenderer
 {
-    public static Icon Render(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false)
+    public static Icon Render(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false, bool lightTaskbar = false)
     {
         size = Math.Max(8, size);
         using var bitmap = new Bitmap(size, size);
@@ -53,10 +54,11 @@ public static class TrayIconRenderer
         }
         else
         {
-            using var path = RoundedRectangle(size);
-            using var brush = new SolidBrush(palette.Fill);
-            graphics.FillPath(brush, path);
-            DrawGlyph(graphics, text, size, palette.Glyph, ringStyle: false);
+            var foreground = lightTaskbar ? DrawingColor.FromArgb(24, 24, 24) : DrawingColor.White;
+            if (exact)
+                DrawPercentage(graphics, text, size, foreground);
+            else
+                DrawGlyph(graphics, "?", size, foreground, ringStyle: false);
         }
 
         var handle = bitmap.GetHicon();
@@ -97,19 +99,26 @@ public static class TrayIconRenderer
             DrawingColor.FromArgb(23, 27, 34));
     }
 
-    private static GraphicsPath RoundedRectangle(int size)
+    private static void DrawPercentage(Graphics graphics, string digits, int size, DrawingColor color)
     {
-        var inset = Math.Max(0.5f, size * 0.04f);
-        var rect = new RectangleF(inset, inset, size - inset * 2, size - inset * 2);
-        var radius = Math.Max(1f, size * 0.2f);
-        var diameter = radius * 2;
-        var path = new GraphicsPath();
-        path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90);
-        path.AddArc(rect.Right - diameter, rect.Y, diameter, diameter, 270, 90);
-        path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
-        path.AddArc(rect.X, rect.Bottom - diameter, diameter, diameter, 90, 90);
-        path.CloseFigure();
-        return path;
+        using var family = new System.Drawing.FontFamily("Segoe UI");
+        using var number = new GraphicsPath();
+        number.AddString(digits, family, (int)System.Drawing.FontStyle.Bold, 100, PointF.Empty, StringFormat.GenericTypographic);
+        var numberInk = number.GetBounds();
+        using (var normalize = new Matrix(1, 0, 0, 1, -numberInk.X, -numberInk.Y))
+            number.Transform(normalize);
+
+        // Keep the value prominent while fitting its unit into the native square slot.
+        using var unit = new GraphicsPath();
+        unit.AddString("%", family, (int)System.Drawing.FontStyle.Bold, 100, PointF.Empty, StringFormat.GenericTypographic);
+        var unitInk = unit.GetBounds();
+        var unitScale = numberInk.Height * 0.58f / unitInk.Height;
+        using (var placement = new Matrix(unitScale, 0, 0, unitScale,
+            numberInk.Width + numberInk.Height * 0.06f - unitInk.X * unitScale,
+            numberInk.Height - unitInk.Height * unitScale - unitInk.Y * unitScale))
+            unit.Transform(placement);
+        number.AddPath(unit, false);
+        FillGlyphPath(graphics, number, size, color, size - 1f, size * 0.70f, preserveHeight: true);
     }
 
     private static void DrawGlyph(Graphics graphics, string text, int size, DrawingColor color, bool ringStyle)
@@ -118,18 +127,26 @@ public static class TrayIconRenderer
         using var path = new GraphicsPath();
         var emSize = size * (ringStyle ? 0.86f : 1.08f);
         path.AddString(text, family, (int)System.Drawing.FontStyle.Bold, emSize, PointF.Empty, StringFormat.GenericTypographic);
+        FillGlyphPath(graphics, path, size, color,
+            size * (ringStyle ? 0.62f : 0.86f), size * (ringStyle ? 0.52f : 0.78f));
+    }
+
+    private static void FillGlyphPath(Graphics graphics, GraphicsPath path, int size, DrawingColor color,
+        float maxWidth, float maxHeight, bool preserveHeight = false)
+    {
         var ink = path.GetBounds();
-        var maxWidth = size * (ringStyle ? 0.62f : 0.86f);
-        var maxHeight = size * (ringStyle ? 0.52f : 0.78f);
-        var scale = Math.Min(maxWidth / Math.Max(ink.Width, 0.01f), maxHeight / Math.Max(ink.Height, 0.01f));
-        var x = (size - ink.Width * scale) / 2f - ink.X * scale;
-        var y = (size - ink.Height * scale) / 2f - ink.Y * scale;
+        var scaleY = maxHeight / Math.Max(ink.Height, 0.01f);
+        var scaleX = Math.Min(maxWidth / Math.Max(ink.Width, 0.01f), scaleY);
+        // Condense percentages horizontally so adding the unit never shrinks digit height.
+        if (!preserveHeight) scaleY = scaleX;
+        var x = (size - ink.Width * scaleX) / 2f - ink.X * scaleX;
+        var y = (size - ink.Height * scaleY) / 2f - ink.Y * scaleY;
         using var brush = new SolidBrush(color);
         var state = graphics.Save();
         try
         {
             graphics.TranslateTransform(x, y);
-            graphics.ScaleTransform(scale, scale);
+            graphics.ScaleTransform(scaleX, scaleY);
             graphics.FillPath(brush, path);
         }
         finally
