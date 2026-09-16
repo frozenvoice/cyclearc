@@ -30,16 +30,21 @@ Read only the sections relevant to the change:
   Keep unknown percentages/credit expiries unknown and reset-credit IDs in memory; persist expiry timestamps only.
   Identity mismatch/conflict hides cached quota and credits; never inherit another account's cache.
   Only explicit successful login may replace an established binding.
-- Claude shows the shared Web·Desktop·Code subscription quota received through official Code statusLine
-  `rate_limits.five_hour` / `seven_day` (`used_percentage`, `resets_at`) or Claude Desktop's app-owned
-  `plan-usage-history.json` (`t`, `org`, `u.fh`, `u.sd`); preserve fractional percentages.
-  Compare source observation times and display the newer sample; Desktop history has no reset timestamps.
-  Label it Received, with original receipt time and shared scope, never live/current.
-- Idle Claude samples retain last-good values and Received state even after reset times pass. Input/receipt,
-  cache, identity, authentication, request or bridge failures may mark samples stale. Refresh reads the local
-  statusLine inbox and Desktop history; it does not start Desktop or query a quota server. Refresh, polling
-  or opening the usage page must not renew receipts or invent zero. Never scrape usage pages, parse `/usage`,
-  call undocumented quota endpoints or run a model turn to measure limits.
+- Claude manual and configured automatic refresh query the shared Web·Desktop·Code quota using
+  the connected account's existing Claude Desktop OAuth access credential. Read only the bounded
+  Desktop `config.json` token cache and `Local State` protected encryption key; decrypt in memory,
+  verify the server profile against the saved identity binding, then GET the first-party quota.
+  Desktop owns credential renewal. Never write/refresh its credentials, read cookies or conversations,
+  send model requests, follow redirects, or log/persist authentication material. These app-owned
+  formats and OAuth endpoints are observed interfaces, not a public compatibility contract.
+- Keep official Code statusLine `rate_limits.five_hour` / `seven_day` and Desktop
+  `plan-usage-history.json` as passive fallbacks. Preserve fractional percentages and original
+  observation times; Desktop history has no reset timestamps. The two-second passive loop reads
+  local data only. Never represent cache rereads as successful server checks or invent zero.
+- Successful server quota shows Updated/Last checked with its actual response time. Legacy samples
+  show Received with original source time. Failures retain last-good data and success time across
+  restart, while identity mismatch hides all quotas. Keep live failure state through passive polls,
+  respect server retry delays, and guard in-flight responses/cache commits against binding changes.
 - Connection and receipt are separate: connected Claude accounts with unknown limits show Awaiting usage
   without attention counts; disconnected profiles stay in management. Use one projection for popup/tray/widget,
   counts and fallback selection. Reuse verified bindings on reconnect, preserve saved data and disconnection
@@ -49,11 +54,12 @@ Read only the sections relevant to the change:
   and existing statusLine command/output. Change/restore only exact CycleArc-owned hook entries.
   Keep request/authentication failures separate from receipts; callbacks alone do not clear sign-in recovery.
   Bound subprocess startup, requests, cancellation and shutdown; do not orphan children. Authentication is single-flight.
-- Claude receiver storage is limited to projected quota, receipt/source/binding metadata and failure classifications;
-  keep email in memory. The Desktop reader may read only the bounded app-owned `plan-usage-history.json`.
-  Verify the matching signed-in Pro/Max identity and organization before accepting Desktop samples.
-  Never read/copy/monitor CLI credentials, tokens, cookies, prompts, responses or conversation files;
-  never log secrets or add telemetry. Tests/diagnostics use isolated roots and fake adapters, not real account/settings changes.
+- Claude storage is limited to projected quota, receipt/source/binding metadata and failure classifications;
+  keep email in memory. The history reader opens only bounded `plan-usage-history.json`; the separate
+  live credential reader opens only Desktop OAuth config and its protected encryption key. Verify
+  account identity before accepting any source. Never read CLI credentials, cookies, prompts, responses
+  or conversation files, log secrets, or add telemetry. Tests use isolated roots and fake adapters.
+  Real-account compatibility is verified separately with authorized read-only usage requests.
 - Unknown usage is never zero. Failures retain the last valid snapshot and
   last-success time across restart. Keep atomic settings/cache writes with valid backups and preserve
   `LegacyInstallation` data/mutex/registry identifiers through branding changes.

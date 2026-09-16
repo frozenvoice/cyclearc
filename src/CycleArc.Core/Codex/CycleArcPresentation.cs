@@ -18,6 +18,7 @@ public static class CycleArcPresentation
             CodexQuotaStatus.Unavailable when snapshot.Provider == UsageProviderId.Claude => UiText.T("Waiting for data", "데이터 대기 중"),
             CodexQuotaStatus.ProtocolMismatch when snapshot.Provider == UsageProviderId.Claude => UiText.ProviderSchemaMismatch,
             CodexQuotaStatus.SignedOut when snapshot.Provider == UsageProviderId.Claude => UiText.T("Disconnected", "미연결"),
+            CodexQuotaStatus.Available when ClaudeUsagePresentation.IsLive(snapshot) => UiText.T("Updated", "업데이트됨"),
             CodexQuotaStatus.Available when snapshot.Provider == UsageProviderId.Claude => UiText.T("Received", "수신됨"),
             CodexQuotaStatus.Available => UiText.T("Updated", "업데이트됨"),
             CodexQuotaStatus.Refreshing => UiText.T("Refreshing", "새로고침 중"),
@@ -48,8 +49,9 @@ public static class CycleArcPresentation
         var title = snapshot.Provider == UsageProviderId.Claude ? ClaudeUsagePresentation.Title : snapshot.Provider.Name();
         var context = snapshot.Provider == UsageProviderId.Claude
             ? Environment.NewLine + ClaudeUsagePresentation.SharedScope
+                + Environment.NewLine + ClaudeUsagePresentation.SourceText(snapshot)
                 + Environment.NewLine + ClaudeUsagePresentation.LastReceivedText(snapshot)
-                + Environment.NewLine + UiText.T("Last sample via Claude Code", "Claude Code를 통한 마지막 수신값") : "";
+                : "";
         return UiText.ProductName + " · " + title + Environment.NewLine
             + usage + Environment.NewLine + StatusLabel(snapshot) + context;
     }
@@ -71,7 +73,7 @@ public static class CycleArcPresentation
             ring.CenterSubLabel + " " + ring.CenterValueText,
             ClaudeUsagePresentation.LastReceivedText(snapshot),
             UiText.T("Web·Desktop·Code shared quota", "Web·Desktop·Code 공유 한도"),
-            UiText.T("Via Code", "Code에서 수신"))
+            ClaudeUsagePresentation.SourceShortText(snapshot))
             + (accountName is null ? "" : "\n" + accountName));
     }
 }

@@ -4,27 +4,27 @@
 
 Windows 트레이에서 **여러 Codex·Claude 프로필의 사용률, 남은 비율, 리셋 시각**을 함께 확인하는 앱입니다.
 
-계정 카드·선택한 상세 화면·트레이 툴팁·위젯의 **Codex 또는 Claude 표시**로 서비스를 구분합니다. Claude는 현재 로그인을 연결하거나 공식 브라우저 로그인을 시작하면 **CycleArc가 statusLine 연결을 자동으로 설정**하고, 가능할 때 Claude Desktop의 구독 사용량 기록도 읽습니다. Gemini는 지원하지 않습니다. 기존 Codex 계정, 설정과 캐시는 유지합니다.
+계정 카드·선택한 상세 화면·트레이 툴팁·위젯의 **Codex 또는 Claude 표시**로 서비스를 구분합니다. Claude는 현재 로그인을 연결하거나 공식 브라우저 로그인을 시작하면 CycleArc가 Desktop 계정과 바인딩하고, 수동·예약 새로고침에서 공유 한도를 읽기 전용으로 확인합니다. statusLine과 Desktop 구독 사용량 기록은 fallback으로 유지합니다. Gemini는 지원하지 않습니다. 기존 Codex 계정, 설정과 캐시는 유지합니다.
 
-> **Codex:** Plus를 포함해 공식 App Server가 보내는 5시간·주간 한도를 표시합니다. 구독 이름으로 표시를 제한하지 않으며, 없는 구간은 생략하고 알 수 없는 비율은 미확인으로 표시합니다. **Claude:** 공식 statusLine 또는 Claude Desktop의 구독 사용량 기록에서 읽습니다. Desktop 기록에는 리셋 시각이 없어 해당 값은 미확인으로 표시합니다.
+> **Codex:** Plus를 포함해 공식 App Server가 보내는 5시간·주간 한도를 표시합니다. 구독 이름으로 표시를 제한하지 않으며, 없는 구간은 생략하고 알 수 없는 비율은 미확인으로 표시합니다. **Claude:** 수동·예약 새로고침은 연결된 Claude Desktop 로그인으로 공유 한도를 먼저 확인합니다. 성공하면 **업데이트됨**과 마지막 확인 시각을 표시하고, 실패하면 statusLine 또는 Desktop 사용량 기록의 **수신됨** fallback을 유지합니다. Desktop 기록에는 리셋 시각이 없어 해당 값은 미확인으로 표시합니다.
 
 Codex 계정 카드에는 제공된 한도별 사용률·잔여 비율을, 상세 화면에는 리셋 시각도 함께 표시합니다. 링·트레이·위젯은 하나의 표시 기간을 공유합니다. 기본 **자동**은 확인 가능한 5시간 값을 우선하고, 없으면 주간 값을 사용합니다. 상세 원그래프 위의 **자동 / 5시간 / 주간**에서 선택하거나, 두 값이 모두 있으면 원그래프를 눌러 전환할 수 있습니다. 세 화면에 즉시 반영되며 재시작 후에도 선택을 유지합니다. 선택한 기간의 값이 없으면 확인 가능한 다른 기간을 표시하고 상세 카드에 이유를 안내합니다.
 
 ## Claude Code 연결
 
-**Claude 구독 사용량은 Web·Desktop·Code가 공유하는 한도입니다.** CycleArc는 연결된 Claude Code statusLine 또는 Claude Desktop의 구독 사용량 기록에서 관측한 마지막 공유 한도를 표시합니다. Web·Desktop에서 쓴 양도 같은 한도에 반영되므로 현재 계정 사용량은 수신값과 달라졌을 수 있습니다. [공식 사용 한도 안내](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work).
+**Claude 구독 사용량은 Web·Desktop·Code가 공유하는 한도입니다.** CycleArc는 연결된 Claude Desktop 로그인으로 수동·예약 새로고침마다 읽기 전용 live 한도를 먼저 확인합니다. 성공한 서버 결과는 **업데이트됨**과 마지막 확인 시각으로 표시합니다. statusLine과 Desktop 구독 사용량 기록은 **수신됨** fallback으로 유지되며, Web·Desktop에서 쓴 양도 같은 한도에 반영됩니다. [공식 사용 한도 안내](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work).
 
-현재 한도를 직접 확인하려면 Claude 상세 카드나 연결 창의 **사용량 페이지 열기**를 누르세요. 브라우저의 [Claude 설정 → 사용량](https://claude.ai/settings/usage)이 열립니다. 확인할 계정으로 로그인되어 있는지 확인하세요. 페이지를 열어도 CycleArc 값은 갱신되지 않습니다. 공식 API·CLI·SDK 문서에는 개인 구독의 현재 공유 한도를 별도로 조회하는 지원 방법이 없으며, CycleArc는 Claude Desktop이 남긴 로컬 구독 사용량 기록을 가능할 때 수동적으로 읽습니다. [조사 근거와 결정](CLAUDE-USAGE-RESEARCH.md).
+현재 한도를 직접 확인하려면 Claude 상세 카드나 연결 창의 **사용량 페이지 열기**를 누르세요. 브라우저의 [Claude 설정 → 사용량](https://claude.ai/settings/usage)이 열립니다. 페이지를 열어도 CycleArc 값은 갱신되지 않습니다. 공식 API·CLI·SDK 문서에는 개인 구독의 현재 공유 한도를 조회하는 안정적인 공개 방법이 없습니다. CycleArc 0.5.9는 알려진 Desktop 내부 first-party 경로를 호환성 목적으로 사용하며, 이 경로는 공식 공개 API가 아니어서 변경될 수 있습니다. [조사 근거와 결정](CLAUDE-USAGE-RESEARCH.md).
 
 1. **계정 관리 → 계정 추가 → Claude 연결**을 여세요. 별명은 선택 사항입니다.
-2. 이미 Claude CLI에 로그인했다면 **현재 로그인 연결**을 누르세요. 새로 로그인하려면 **Claude 로그인**을 누르고 공식 브라우저에서 로그인하세요. 이미 로그인한 상태에서는 **다른 계정으로 로그인**으로 표시됩니다. CycleArc가 공식 로그인 상태를 확인하고 사용량 수신을 자동으로 설정합니다. 다른 설정과 기존 상태 표시줄을 보존하며, JSON을 직접 복사할 필요가 없습니다.
-3. 평소 **Claude Code 터미널(CLI)** 사용 중 응답을 받으면 statusLine으로 공유 구독 사용량을 받을 수 있고, **Claude Desktop Code**를 사용하면 Desktop이 구독 사용량 기록을 남길 수 있습니다. **Claude Code 터미널 열기…**에서 작업 폴더를 선택하면 해당 계정의 설정으로 시작합니다. 첫 수신을 기다리고 있거나 CycleArc에서 별도로 로그인했다면 이 버튼으로 실행하세요. Desktop 기록은 앱 버전에 따라 기록 시점이 늦을 수 있으며, 두 소스가 있으면 더 최근 관측값을 표시합니다. 공식 statusLine의 `rate_limits.five_hour` / `seven_day`의 `used_percentage`와 `resets_at`을 사용하고, Desktop 기록의 `u.fh` / `u.sd`에는 리셋 시각이 없으며 없는 구간은 0으로 표시하지 않습니다.
+2. 이미 Claude CLI에 로그인했다면 **현재 로그인 연결**을 누르세요. 새로 로그인하려면 **Claude 로그인**을 누르고 공식 브라우저에서 로그인하세요. CycleArc는 CLI 로그인과 live 조회에 사용할 Desktop 프로필을 확인해 연결합니다. 다른 설정과 기존 상태 표시줄을 보존하며, JSON을 직접 복사할 필요가 없습니다.
+3. 평소 **Claude Code 터미널(CLI)** 사용 중 응답을 받으면 statusLine으로 fallback 사용량을 받을 수 있고, **Claude Desktop Code**를 사용하면 Desktop이 기록 fallback을 남길 수 있습니다. 수동·예약 새로고침은 먼저 Desktop live 한도를 확인하며 모델 요청을 실행하지 않습니다. live 조회가 실패하면 두 로컬 소스를 관측 시각으로 비교합니다. Desktop 기록은 앱 버전에 따라 늦을 수 있고 리셋 시각이 없습니다.
 
-Claude가 인증 실패를 보고하면 무기한 **수신 대기** 대신 **로그인 필요**로 표시합니다. 연결 창의 **다시 로그인**은 기존 계정 설정에서 공식 브라우저 인증을 진행하며 별명과 마지막 사용량을 유지합니다. 로컬 로그인 상태 확인이 성공했어도 서버가 세션을 받아들이는지는 별개입니다. 다른 요청 오류도 구분해 표시합니다. 캐시된 사용량이 다시 전달되더라도 인증 오류를 정상으로 오판하지 않으며, 공식 재로그인이 성공하면 인증 오류가 해제됩니다.
+Claude Desktop live 조회가 인증·신원 확인에 실패하면 **로그인 필요** 또는 해당 연결 오류로 표시하고 마지막 정상값을 **오래된 데이터**로 유지합니다. Claude Desktop에서 사용할 계정으로 로그인한 뒤 **새로고침**하세요. 요청·속도 제한 오류도 구분해 표시하며, 확인을 위해 모델 요청을 실행하지 않습니다.
 
 Claude의 이메일과 조직이 같으면 요금제를 바꿔도 같은 계정으로 유지합니다. 재로그인 뒤 이전 연결 세대에서 도착한 콜백은 최신 사용량이나 수신 시각을 바꾸지 않습니다. 이전 형식의 저장된 연결은 신원을 확인한 뒤 전환합니다. 자세한 내용은 [연결 호환성](CLAUDE.md#account-identity-compatibility)을 참고하세요.
 
-**CycleArc는 연결된 Claude Code 터미널과 Claude Desktop의 구독 사용량 기록에서 사용량을 확인합니다.** 연결과 사용량 수신은 별개입니다. 연결된 계정은 첫 데이터가 없어도 메인에 **수신 대기**로 표시합니다. Desktop Code를 사용한 뒤 기록 반영을 기다려 **새로고침**하면 확인할 수 있습니다. **현재 로그인 연결**을 반복하면 같은 로그인·설정의 기존 연결을 재사용하며 별명과 사용량 이력을 유지합니다. 새 연결을 완료하기 전에 취소하거나 창을 닫으면 빈 임시 프로필은 목록에서 정리합니다.
+**CycleArc는 연결된 Claude Desktop 로그인으로 공유 한도를 적극 확인합니다.** Claude Code statusLine과 Claude Desktop 기록은 fallback입니다. live 또는 fallback의 첫 유효 샘플 전에는 **수신 대기**로 표시할 수 있습니다. live 성공은 **업데이트됨**과 서버 확인 시각, fallback은 **수신됨**과 원본 시각을 표시합니다. 여러 fallback이 있으면 더 최근 관측값을 사용합니다. **현재 로그인 연결**을 반복해도 같은 바인딩과 사용량 이력을 유지합니다. 새 연결을 취소하면 빈 임시 프로필만 정리합니다.
 
 <details>
 <summary><strong>연결 완료·사용량 수신 대기 · 다크와 라이트</strong></summary>
@@ -41,16 +41,24 @@ Claude의 이메일과 조직이 같으면 요금제를 바꿔도 같은 계정�
   </tr>
 </table>
 
-*실제 앱 화면에 가상 로그인 응답과 예시 주소를 넣어 만든 이미지입니다. 이미지 생성 중 실제 로그인이나 계정 설정에 접근하지 않습니다.*
+*live 미리보기는 서버 한도 46% (5시간), 11% (주간)와 리셋 시각을 넣은 합성 데이터로 **업데이트됨** 상태를 보여줍니다. 실제 로그인에는 접근하지 않습니다.*
 
-statusLine JSON에는 **계정 이메일·계정 ID가 없고**, Desktop 기록에는 이메일 대신 조직 ID가 있습니다. 로그인 정보는 공식 `claude auth status --json`으로 별도 확인하며, 이메일은 화면 표시를 위해 메모리에만 둡니다. Desktop 기록은 연결된 Claude Pro·Max 계정과 조직이 확인될 때만 받습니다. 각 입력을 받을 때 현재 로그인이 연결 당시와 같은지 검사하고, 달라졌거나 확인할 수 없다면 마지막 정상값을 바꾸지 않습니다. 이미 실행 중인 세션의 발신 신원까지 확인하는 것은 아니므로 CycleArc 밖에서 로그인을 바꿨다면 Claude 세션도 다시 시작하세요. CycleArc에서 시작한 새 로그인은 별도 설정 폴더를 사용합니다. 별명이 우선 표시되며, 비어 있으면 확인된 이메일, 이메일도 없으면 `Claude · <로컬 프로필 ID>`를 표시합니다.
+<table>
+  <tr><td align="center"><strong>Desktop live 한도 · 다크</strong></td><td align="center"><strong>Desktop live 한도 · 라이트</strong></td></tr>
+  <tr>
+    <td><img src="images/claude-live-ko-dark.png" alt="업데이트됨 상태와 5시간 46%, 주간 11%, 리셋 시각을 보여주는 합성 Claude Desktop live 한도" width="530"></td>
+    <td><img src="images/claude-live-ko-light.png" alt="업데이트됨 상태와 리셋 시각을 보여주는 합성 Claude Desktop live 한도 라이트 화면" width="530"></td>
+  </tr>
+</table>
 
-사용하지 않는 동안이나 기록된 리셋 시각이 지난 뒤에도 마지막 정상값은 **수신됨**으로 유지하고, 원래의 **마지막 수신 날짜와 시각**을 표시합니다. 시간이 지났다는 이유로 경고하거나 저장된 사용률을 0으로 바꾸지 않습니다. **입력 누락·오류, Desktop 기록 형식 오류, 수신 시각·캐시·계정 확인 문제**가 있을 때만 마지막 정상값을 **오래된 데이터(stale)**로 표시합니다. 이때 상세 화면·계정 카드·위젯의 문구와 상세 링을 황색으로 강조합니다. 재시작 후에도 마지막 수치와 수신 시각을 보존하고 트레이 툴팁에도 표시합니다. 수신값은 실시간 조회 결과가 아니므로 Web·Desktop·Code 공유 한도 안내도 유지합니다. 같은 기록을 다시 읽으면 수신 시각이 갱신되지 않으며 Claude 서버에 새 조회를 요청하지 않습니다. Desktop 기록에는 리셋 시각이 없으며, statusLine에서 해당 값이 제공될 때만 표시합니다. Claude에는 Codex 리셋권 기능을 표시하지 않습니다.
+statusLine JSON에는 **계정 이메일·계정 ID가 없고**, Desktop 기록에는 이메일 대신 조직 ID가 있습니다. live Desktop reader는 앱 소유 config.json과 Local State에서 필요한 보호 OAuth 토큰을 읽어 메모리에서만 DPAPI/AES-GCM으로 복호화하고, 바인딩된 신원과 profile 응답을 확인한 뒤 사용량을 요청합니다. Desktop 자격 증명을 쓰거나 갱신하지 않고 쿠키를 읽거나 토큰을 저장하지 않습니다. 신원이 다르면 live 한도를 숨기며 마지막 정상값을 대체하지 않습니다. 이메일은 화면 표시를 위해 메모리에만 둡니다.
+
+live 조회가 성공하면 **업데이트됨**과 서버 확인 시각을 표시합니다. statusLine과 Desktop 기록 fallback은 **수신됨**과 원본 시각을 유지합니다. live 인증·신원·속도 제한·요청 실패는 마지막 정상값을 **오래된 데이터**로 유지하고, 신원 불일치는 live 결과를 숨깁니다. 수동·예약 새로고침은 live 조회를 시도하며 2초 passive 확인은 로컬 소스만 읽습니다. 소스에 없는 리셋 시각은 추정하지 않고 사용률을 로컬에서 0으로 되돌리지 않습니다. Claude에는 Codex 리셋권 기능을 표시하지 않습니다.
 
 <details>
 <summary><strong>첫 사용량 수신 후 Claude 화면 · 다크와 라이트</strong></summary>
 
-<p>아래 예시에서는 실험용 Claude의 사용량을 받은 뒤 계정 3개가 표시됩니다. 선택된 실험용의 5시간 사용률은 91%, 주간 사용률은 47%이며 리셋 시각도 따로 표시합니다. 자동에서는 원그래프에 91%가 표시되며, 주간을 선택하면 원그래프·트레이·위젯이 함께 47%로 바뀝니다. 마지막 수신 후 12분이 지났지만 별도 경고 없이 수신됨으로 표시하며, 원래 수신 날짜·시각을 유지합니다. 나머지 Codex 계정 2개는 최신 상태입니다.</p>
+<p>아래 예시에서는 실험용 Claude의 사용량을 받은 뒤 계정 3개가 표시됩니다. 선택된 실험용의 5시간 사용률은 91%, 주간 사용률은 47%이며 리셋 시각도 따로 표시합니다. 자동에서는 원그래프에 91%가 표시되며, 주간을 선택하면 원그래프·트레이·위젯이 함께 47%로 바뀝니다. live 조회가 불가능한 동안 fallback을 12분 전 수신됨으로 표시하며, 원래 수신 날짜·시각을 유지합니다. 나머지 Codex 계정 2개는 최신 상태입니다.</p>
 <table>
   <tr>
     <td><img src="images/claude-overview-ko-dark.png" alt="Codex 2개와 선택한 실험용 Claude가 함께 보이며 시간 경과 경고 없이 5시간·주간 사용률과 원래 수신 시각을 표시하는 다크 화면" width="440"></td>
@@ -60,11 +68,11 @@ statusLine JSON에는 **계정 이메일·계정 ID가 없고**, Desktop 기록�
 
 </details>
 
-**연결 상세 설정 → 연결 해제**는 해제 상태를 먼저 저장한 뒤 기존 상태 표시줄을 복원하고 CycleArc의 오류 수신 훅을 제거합니다. 설정 파일 정리에 실패해도 연결은 해제되며, 정리가 완료되지 않았다는 안내를 표시합니다. 메인 화면의 숨김 상태는 재시작해도 유지됩니다. 계정 관리의 프로필, 마지막 정상 캐시와 설정 위치는 남기며 Claude 자체를 로그아웃하지 않습니다. 다시 연결하면 메인에 **수신 대기**로 표시하고 새 statusLine 또는 Desktop 구독 사용량 기록을 기다립니다.
+**연결 상세 설정 → 연결 해제**는 해제 상태를 먼저 저장한 뒤 기존 상태 표시줄을 복원하고 CycleArc의 오류 수신 훅을 제거합니다. 계정 관리에는 프로필과 마지막 정상 캐시를 남기며 Claude 자체를 로그아웃하지 않습니다. 다시 연결하면 live 또는 fallback 소스가 성공할 때까지 **수신 대기**로 표시합니다.
 
 연결 중 statusLine 명령이 너무 길다는 안내가 나오면 기존 인라인 statusLine을 스크립트 파일로 옮기고 짧은 호출 명령을 사용한 뒤 다시 연결하세요. 제한은 경로와 인코딩된 옵션을 포함한 전체 생성 명령에 적용하며, 설정 실패 시 기존 파일은 보존합니다.
 
-사용량은 공식 statusLine과 Claude Desktop이 관리하는 구독 사용량 기록에서만 받고, 인증은 공식 `claude auth login --claudeai`와 `claude auth status --json`을 사용합니다. `/usage` 화면 파싱, 인증·토큰·쿠키 파일 직접 읽기, 측정을 위한 모델 요청, 대화·트랜스크립트 수집, 비공식 사용량 API 호출은 하지 않습니다. Desktop 원본 기록을 복사하지 않고 한도 수치·소스·수신 상태·연결 경로·로그인 구분용 해시만 저장합니다. [연동 상세](CLAUDE.md) · [Desktop 조사 근거](CLAUDE-USAGE-RESEARCH.md) · [Claude Code 공식 문서](https://code.claude.com/docs/en/statusline)
+사용량은 연결된 Desktop의 읽기 전용 live profile·usage 확인을 먼저 사용하고, 공식 statusLine과 Claude Desktop 사용량 기록을 fallback으로 사용합니다. live reader는 config.json과 Local State의 보호 OAuth 토큰을 메모리에서만 DPAPI/AES-GCM으로 복호화하고, profile 신원을 확인한 뒤 사용량을 요청하고 토큰을 버립니다. Desktop 자격 증명을 쓰거나 갱신하지 않고 쿠키·대화·트랜스크립트를 읽지 않으며 모델 요청을 실행하지 않습니다. 이 first-party 경로는 공개 API가 아닌 내부 호환성 의존성입니다. 원본 기록 대신 한도 수치·소스·상태·연결 경로·신원 구분용 해시만 저장합니다. [연동 상세](CLAUDE.md) · [Desktop 조사 근거](CLAUDE-USAGE-RESEARCH.md) · [Claude Code 공식 문서](https://code.claude.com/docs/en/statusline)
 
 ChatGPT Pro/Sol 기록 추정 기능은 종료했습니다. Edge/Chrome 확장, 별도의 ChatGPT 기록 접근,
 대화 기록 동기화, SQLite 기록 집계, WebView2는 현재 앱에서 사용하지 않습니다.
@@ -100,7 +108,7 @@ ChatGPT Pro/Sol 기록 추정 기능은 종료했습니다. Edge/Chrome 확장, 
 
 [최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 디버그 심볼을 제외한 **Release · Windows x64** 실행 파일을 다운로드하세요.
 
-Codex 조회에는 이 PC에 설치된 **Codex CLI**, 구독 한도를 제공하는 ChatGPT 계정으로의 CLI 로그인과 네트워크 연결이 필요합니다. Claude 조회에는 계정 확인을 위한 공식 Claude CLI, Windows PowerShell, Claude Pro·Max 로그인이 필요하며, 사용량은 Claude Code statusLine 또는 Claude Desktop의 구독 사용량 기록에서 받을 수 있습니다. Codex 로그인은 필요하지 않습니다. 두 서비스 모두 CycleArc에서 공식 로그인을 시작할 수 있습니다.
+Codex 조회에는 이 PC에 설치된 **Codex CLI**, 구독 한도를 제공하는 ChatGPT 계정으로의 CLI 로그인과 네트워크 연결이 필요합니다. Claude live 조회에는 공식 Claude CLI의 연결 확인, Windows PowerShell, 로그인된 Claude Desktop과 Claude Pro·Max 계정이 필요합니다. statusLine과 Claude Desktop 구독 사용량 기록은 fallback으로 사용할 수 있습니다. Codex 로그인은 필요하지 않습니다. 두 서비스 모두 CycleArc에서 공식 로그인을 시작할 수 있습니다.
 앱은 `codex.exe` 또는 `codex.cmd`를 PATH와 일반 설치 위치에서 찾습니다.
 자동으로 찾지 못하면 트레이 메뉴 → 설정에서 실행 파일의 절대 경로를 지정하세요.
 Codex CLI 자체는 이 배포 파일에 포함하지 않습니다.
@@ -146,10 +154,10 @@ Codex CLI 자체는 이 배포 파일에 포함하지 않습니다.
 Codex가 설치되지 않았다면 [공식 Codex CLI 안내](https://developers.openai.com/codex/cli/)에 따라 설치한 뒤 다시 로그인하세요.
 
 - 트레이 아이콘 클릭: 사용량 화면 열기/닫기
-- 새로고침: Codex App Server에서 한도를 조회하고 Claude Code 또는 Claude Desktop이 남긴 최신 로컬 사용량을 확인
+- 새로고침: Codex App Server와 Claude 서버에서 연결된 계정의 한도를 조회하며, Claude는 Desktop의 기존 로그인을 사용합니다
 - 카드 상단 톱니바퀴: 설정 열기
 - 작업표시줄: Windows 알림 영역의 사용률 아이콘을 사용하며 다른 앱 아이콘 위에 겹치지 않습니다
-- 자동 확인: Codex는 설정 → 연결에서 1·2·5·10·30·60분 선택 (기본값 5분), Claude는 statusLine과 Claude Desktop 구독 사용량 기록을 2초 주기로 확인
+- 자동 확인: Codex는 설정 → 연결에서 1·2·5·10·30·60분 선택 (기본값 5분), Claude는 설정한 주기로 Desktop live 공유 한도를 확인하고 2초 주기로 statusLine·Desktop 로컬 fallback을 확인
 - 위젯 클릭: 사용량 화면을 열거나 다른 창 뒤에 있는 화면을 한 번에 앞으로 가져오기
 - 선택 기능: 플로팅 위젯, Windows 시작 시 실행
 - 첫 실행은 화면을 표시하고 이후에는 트레이로 시작합니다. `--show`로 화면을 열며 시작할 수 있습니다.
@@ -170,7 +178,7 @@ Plus를 포함해 서버가 제공하는 한도 기간을 표시하며,
 글자가 겹치지 않도록 팝업 전체가 함께 확대·축소되며, 화면보다 커지지 않게 제한됩니다.
 
 위젯을 드래그하면 위치가 저장되고, 짧게 클릭하면 상세 카드가 열립니다. 우클릭 → 위젯 닫기로 숨기고 설정에서 다시 켤 수 있습니다. 클릭 통과를 켜면 위젯은 마우스 입력을 받지 않습니다.
-Codex 위젯은 정상 상태 문구를 숨기고 조회 실패·로그인 필요·이전 데이터처럼 확인이 필요한 상태를 별도 줄로 표시합니다. Claude 위젯에는 수신됨 또는 오래된 데이터 상태와 마지막 수신 날짜·시각을 표시합니다.
+Codex 위젯은 정상 상태 문구를 숨기고 조회 실패·로그인 필요·이전 데이터처럼 확인이 필요한 상태를 별도 줄로 표시합니다. Claude 위젯에는 live **업데이트됨** 또는 fallback **수신됨**·오래된 데이터 상태와 마지막 확인·수신 시각을 표시합니다.
 설정은 일반·위젯·연결 탭으로 나뉩니다. 기존 작업표시줄 오버레이 설정은 해제됩니다.
 시스템 테마를 선택하면 Windows 테마 변경을 바로 반영합니다.
 화면 밖으로 벗어난 위젯은 연결된 화면 안으로 복구하며, 설정 → 위젯 → 위치 초기화 후 저장하면 기본 화면으로 이동하고 위젯 창도 새로 만듭니다. Windows가 표시 중으로 보고하는데 위젯이 보이지 않는 경우에도 복구할 수 있습니다.
@@ -234,8 +242,8 @@ GitHub 릴리즈는 버전을 반영한 변경을 커밋·푸시하고 로컬 `-
 
 ## 데이터와 구현
 
-Codex는 공식 App Server로 계정·사용 한도를 조회합니다. Claude는 공식 CLI로 로그인을 확인하고 Claude Code statusLine 또는 Claude Desktop의 구독 사용량 기록으로 사용량을 받습니다. 두 소스가 모두 있으면 더 최근 관측값을 표시하며, 사용량 측정을 위한 모델 요청은 실행하지 않습니다. Desktop 기록은 설치된 앱이 관리하는 로컬 형식이므로 변경되거나 기록이 늦어질 때 마지막 정상값을 유지합니다.
-인증 파일·토큰·쿠키·프롬프트·응답·대화 기록을 직접 읽거나 저장하지 않습니다. Claude Desktop이 관리하는 구독 사용량 기록은 필요한 한도 필드만 읽고 CycleArc 캐시에 복사하지 않습니다.
+Codex는 공식 App Server로 계정·사용 한도를 조회합니다. Claude는 연결된 Desktop의 보호 OAuth 토큰을 메모리에서만 복호화해 Anthropic first-party profile·usage를 읽기 전용으로 조회하고, statusLine과 Claude Desktop 기록을 fallback으로 사용합니다. profile email과 바인딩된 신원이 다르면 live 결과를 숨깁니다. 수동·예약 새로고침은 live 조회를 시도하며 모델 요청은 실행하지 않습니다. Desktop live 경로는 공식 공개 API가 아닌 내부 호환성 의존성입니다.
+Desktop live 조회에 필요한 app-owned config.json과 Local State만 읽습니다. 보호 OAuth 토큰은 DPAPI/AES-GCM으로 메모리에서만 복호화하고 쓰거나 갱신하지 않으며, 쿠키·프롬프트·응답·대화 기록·트랜스크립트는 읽거나 저장하지 않습니다. 원본 Desktop 기록도 복사하지 않고 투영된 한도와 소스·상태 메타데이터만 저장합니다.
 공식 계정·로그인 조회로 받은 이메일은 화면 표시를 위해 메모리에만 유지합니다. 설정, 계정 홈·이름, Claude 연결 경로, 식별 정보 해시와 사용 한도 메타데이터 캐시는 로컬에 저장하며 외부 텔레메트리는 없습니다.
 기존 기본 프로필은 `codex-snapshot.json`을 사용하며, 새 프로필과 **다시 연결**로 교체된 프로필은 별도 캐시를 사용합니다. 재연결 시 이전 Codex 홈·캐시와 기존 설정은 보존합니다. `codex-accounts.json`은 원자적으로 저장하며 이전 정상 버전으로 복구할 수 있습니다.
 
@@ -244,4 +252,3 @@ Codex는 공식 App Server로 계정·사용 한도를 조회합니다. Claude�
 이전 ChatGPT 수집 코드와 테스트는 이력 보존을 위해 저장소에 남아 있지만,
 보조 호스트·폐기된 화면은 배포에 포함되지 않습니다. 사용하지 않는 `extension` 소스 폴더와
 확장 전용 CI 검사는 삭제했으며, 이전 확장 소스는 Git 이력에서 확인할 수 있습니다.
-

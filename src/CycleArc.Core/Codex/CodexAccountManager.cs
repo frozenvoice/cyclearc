@@ -238,7 +238,7 @@ public sealed class CodexAccountManager
                     if (interval is { } age && !service.ShouldRefresh(DateTimeOffset.Now, age)) return;
                     _refreshingProfiles.Add(profile.Id);
                 }
-                await service.RefreshAsync(token).ConfigureAwait(false);
+                await RefreshActiveAsync(service, token).ConfigureAwait(false);
             }
             finally
             {
@@ -248,6 +248,11 @@ public sealed class CodexAccountManager
         })).ConfigureAwait(false);
         return new(Snapshot, Snapshot.Status != CodexQuotaStatus.Available, null);
     }
+
+    private static Task<CodexRefreshResult> RefreshActiveAsync(IUsageAccountService service, CancellationToken token) =>
+        service is ILiveUsageAccountService live
+            ? live.RefreshLiveAsync(token)
+            : service.RefreshAsync(token);
 
     public async Task<CodexDiscoveryResult> DiscoverAsync(IEnumerable<string> homes, bool automatic, CancellationToken token)
     {

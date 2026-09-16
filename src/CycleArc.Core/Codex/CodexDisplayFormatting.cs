@@ -104,7 +104,7 @@ public static class CodexDisplayFormatting
             var elapsed = CodexDeadlineFormatting.Elapsed(checkedAt, at);
             var value = elapsed is null ? TimeOfDay(checkedAt) : $"{TimeOfDay(checkedAt)} · {elapsed}";
             rows.Add(snapshot.Provider == UsageProviderId.Claude
-                ? new CodexDisplayRow(ClaudeUsagePresentation.LastReceivedLabel,
+                ? new CodexDisplayRow(ClaudeUsagePresentation.ReceiptLabel(snapshot),
                     checkedAt.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), false, value,
                     ClaudeUsagePresentation.LastReceivedText(snapshot))
                 : new CodexDisplayRow(UiText.LastChecked, value, false));

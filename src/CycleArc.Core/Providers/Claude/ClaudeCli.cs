@@ -43,7 +43,7 @@ public static class ClaudeIdentity
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 }
 
-// Authentication metadata comes from the official CLI. Credentials never enter CycleArc.
+// Authentication metadata comes from the official CLI. This adapter never reads CLI credentials.
 public sealed record ClaudeAuthentication(ClaudeAuthStatus Status, string? Email = null,
     string? Plan = null, string? Fingerprint = null, string? OrganizationId = null,
     string? LegacyFingerprint = null)

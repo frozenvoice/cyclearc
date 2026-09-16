@@ -67,8 +67,8 @@ public partial class SettingsWindow : Window
             minutes == 1 ? UiText.T("1 minute", "1분") : UiText.T($"{minutes} minutes", $"{minutes}분")).ToArray();
         RefreshIntervalBox.SelectedIndex = AppSettings.CodexRefreshIntervals.ToList().IndexOf(settings.CodexRefreshIntervalMinutes);
         SetName(RefreshIntervalBox, RefreshScheduleTitle.Text);
-        RefreshScheduleHint.Text = UiText.T("Check Codex accounts at this interval. Claude receives updates through its statusLine connection while Claude Code is in use.",
-            "Codex 계정의 사용량을 이 간격으로 확인합니다. Claude는 Claude Code 사용 중 statusLine 연결로 업데이트를 받습니다.");
+        RefreshScheduleHint.Text = UiText.T("Actively check Codex and Claude accounts at this interval. Manual refresh checks Claude's shared subscription quota from the signed-in Desktop account too; no Claude Code model request is needed.",
+            "이 간격으로 Codex와 Claude 계정을 적극적으로 확인합니다. 수동 새로고침도 로그인된 Claude Desktop 계정에서 공유 구독 한도를 확인하며, Claude Code 모델 요청은 필요하지 않습니다.");
         LogsButton.Content = UiText.T("Open logs", "로그 열기");
         SaveButton.Content = new System.Windows.Controls.TextBlock
         {

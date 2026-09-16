@@ -169,6 +169,41 @@ internal static class MixedProviderUiChecks
                     "Desktop widget hides the source observation time.");
                 count += 2;
 
+                // A live server receipt is current for the refresh that fetched it.
+                // Keep its wording distinct from a legacy Code/Desktop receipt.
+                var live = idle with { Snapshot = idle.Snapshot with
+                {
+                    Status = CodexQuotaStatus.Available,
+                    TechnicalDetail = ClaudeUsagePresentation.LiveDetail,
+                    LastSuccessfulRefresh = DateTimeOffset.Now,
+                    LastAttemptedRefresh = DateTimeOffset.Now,
+                    Windows = [new("five_hour", 46, 300, DateTimeOffset.Now.AddHours(3), CodexWindowKind.FiveHour),
+                        new("seven_day", 11, 10080, DateTimeOffset.Now.AddDays(4), CodexWindowKind.Weekly)]
+                } };
+                flyout.BindAccounts([accounts[0], live], live.Profile.Id, false);
+                AccountUiChecks.Render(flyout, 440, null, directory is null ? null
+                    : Path.Combine(directory, $"claude-live-{language}-{theme}.png"));
+                Check(((TextBlock)flyout.FindName("CodexStatusText")).Text.Contains(
+                        UiText.T("Updated from the Claude server", "Claude 서버에서"), StringComparison.Ordinal),
+                    "Live Claude receipt does not identify the server fetch.");
+                Check(((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>()
+                    .Select(border => (Grid)border.Child)
+                    .Select(grid => ((TextBlock)grid.Children[0]).Text)
+                    .Contains(ClaudeUsagePresentation.LastCheckedLabel),
+                    "Live Claude receipt is still labeled as last received.");
+                Check(CycleArcPresentation.StatusLabel(live.Snapshot) == UiText.T("Updated", "업데이트됨"),
+                    "Live Claude receipt was labeled as a passive sample.");
+                manager.Bind([accounts[0], live], live.Profile.Id);
+                AccountUiChecks.Render(manager, 700, 800, null);
+                Check(AccountUiChecks.Descendants<TextBlock>((FrameworkElement)manager.Content)
+                    .Any(text => text.Text == UiText.T("Via Claude server refresh", "Claude 서버 새로고침")),
+                    "Live Claude account source is not shown in account management.");
+                widget.BindAccount(live);
+                AccountUiChecks.Render(widget, 245, null, null);
+                Check(((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(live.Snapshot),
+                    "Live Claude widget hides the fetched timestamp.");
+                count += 4;
+
                 var elapsed = idle with { Snapshot = ClaudeQuotaService.ApplyFreshness(idle.Snapshot with
                 {
                     Windows = idle.Snapshot.Windows.Select((window, index) => index == 0

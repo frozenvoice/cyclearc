@@ -2,6 +2,49 @@
 
 ## Current release — Codex and Claude Code
 
+- Claude Desktop live quota refresh (0.5.9, 2026-09-16):
+  - Reproduced why the previous Desktop history fix was incomplete: the installed
+    Desktop 2.110.0.0 normally polled at 15-minute intervals (5 minutes after recent
+    usage-tray interaction), and its history writer also enforces a 4.5-minute minimum
+    append spacing. CycleArc's local reread could not make manual or 5-minute refresh
+    retrieve a newer server sample. The user's 27% / 9% versus cached 23% / 8% was a
+    collection delay, not a model filter or percentage conversion error.
+  - With explicit user approval, verified a read-only Desktop OAuth access credential
+    in memory through the first-party profile endpoint, matched its email/organization
+    fingerprint to the existing binding, then fetched quota. The profile response uses
+    `account.email` and `organization.uuid`. The live endpoints are observed internal
+    interfaces, not an Anthropic public compatibility contract. No Desktop credential
+    was changed or refreshed, no cookies were read, and no model request was created.
+  - The production C# reader/client independently returned 50% / 12% at
+    `2026-09-16T22:09:22.310+09:00`, with reset timestamps, without writing the app's
+    usage cache. This tests the real transport used by manual synchronization;
+    deterministic manager/WPF tests verify manual button routing and single-flight behavior.
+  - The final executable passed 1,388 unit tests, 246 mixed-provider WPF renders,
+    all other WPF checks, 15 installer scenarios and the remaining installer/process
+    checks, built/published Claude receiver checks, and a single-file publish. Build
+    warnings/errors: zero. The first gate found and fixed malformed-response exception
+    handling and binding-rotation stale data; the corrected unit suite passed in full.
+    UI-only harness fixes were then verified with the affected WPF checks, and delivery
+    resumed with `dev-run.ps1 -Fast` because production/unit code was unchanged.
+  - Installed 0.5.9.0 through the transactional installer at
+    `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe`, SHA-256
+    `21A0FAEA260B1FF323926FD65C9EE155BA7ECFF9252E709F554AB5396C146AD3`.
+    The actual installed process fetched 50% / 12% at
+    `2026-09-16T22:06:20.797+09:00`, with resets at 22:30 September 16 and
+    02:00 September 18. Computer Use observed the live Claude usage page and the
+    installed CycleArc card together, both showing 50% / 12%, with CycleArc marked
+    Updated and last checked 22:06.
+  - Without restarting or externally writing its quota cache, the same installed
+    process automatically fetched again at `2026-09-16T22:11:23.824+09:00`:
+    five-hour usage increased to 52%, weekly stayed 12%, and failure was null. The
+    saved automatic interval was 5 minutes. This establishes real unattended automatic
+    server refresh, not a repeated read of Desktop's older history timestamp.
+  - The UI tool still cannot target CycleArc's taskbar-hidden tray window for a direct
+    installed-button click; that exact UI gesture is not claimed as tested. Real source
+    requests, installed startup/automatic refresh, and the production WPF button/manager
+    dispatch are separately verified. Four new live UI documentation previews use
+    synthetic accounts, never real account screenshots or authentication information.
+
 - Claude Desktop quota receipt (2026-09-16):
   - Reproduced the delivery gap: the connected profile's statusLine inbox still held
     5-hour 4% / weekly 3% from September 12, while the actual Claude Desktop Code usage

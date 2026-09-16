@@ -70,7 +70,7 @@ public partial class App : Application
         _tray.OpenLogsRequested += OpenLogs;
         _tray.AboutRequested += () => new AboutWindow(
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0",
-            "Codex App Server · Claude Code statusLine", DesktopBootstrap.InstallSelectedVersion).Show();
+            "Codex App Server · Claude subscription usage", DesktopBootstrap.InstallSelectedVersion).Show();
         _tray.StartupToggled += enabled =>
         {
             _settings.StartWithWindows = enabled;
@@ -89,7 +89,9 @@ public partial class App : Application
                     new CodexSnapshotStore(accounts.SnapshotPath(profile)), version, _log.Info, profile: profile),
                     () => _settings.CodexExePath), new ClaudeUsageProvider(accounts, connections: _claudeConnections,
                         desktopFactory: profile => new ClaudeDesktopUsageCollector(accounts, profile.Id,
-                            _claudeConnections.VerifyUsageIdentityAsync))]);
+                            _claudeConnections.VerifyUsageIdentityAsync),
+                        liveFactory: profile => new ClaudeLiveUsageCollector(accounts, profile.Id,
+                            new ClaudeOAuthUsageClient(new ClaudeDesktopCredentialReader()))) ]);
         }
         catch
         {

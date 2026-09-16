@@ -39,6 +39,15 @@ public interface IUsageAccountService
     Task<CodexRefreshResult> RefreshAsync(CancellationToken token);
 }
 
+/// <summary>
+/// Optional active-refresh capability. Passive providers keep <see cref="IUsageAccountService.RefreshAsync"/>
+/// local-only; an implementation exposes its explicitly requested live/remote read here.
+/// </summary>
+public interface ILiveUsageAccountService
+{
+    Task<CodexRefreshResult> RefreshLiveAsync(CancellationToken token);
+}
+
 /// <summary>Optional capabilities, unavailable to the Claude statusLine provider.</summary>
 public interface ICodexAccountOperations
 {
