@@ -40,7 +40,7 @@ public sealed record DesktopLaunchOptions(bool Replace, bool Autorun, bool Show,
         if (string.IsNullOrEmpty(ReadToken(ref text))) return false;
         var first = ReadToken(ref text);
         return first is not (null or "--claude-statusline" or "--claude-statusline-bridge"
-            or "--claude-stop-failure-bridge" or "--replace" or "--install" or "--desktop-status");
+            or "--claude-stop-failure-bridge" or "--apply-update" or "--replace" or "--install" or "--desktop-status");
     }
 
     private static string? ReadToken(ref ReadOnlySpan<char> text)

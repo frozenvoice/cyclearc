@@ -36,6 +36,7 @@ public class DesktopLaunchOptionsTests
     [InlineData("\"C:\\app path\\CycleArc.exe\" --claude-statusline --show", false)]
     [InlineData("CycleArc.exe \"--claude-statusline-bridge\" payload", false)]
     [InlineData("CycleArc.exe --claude-stop-failure-bridge payload", false)]
+    [InlineData("CycleArc.exe --apply-update job.json", false)]
     [InlineData("CycleArc.exe --install --expected-sha256 value", false)]
     [InlineData("CycleArc.exe --replace --show", false)]
     [InlineData("CycleArc.exe --desktop-status", false)]

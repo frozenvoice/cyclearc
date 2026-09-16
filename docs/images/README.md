@@ -7,6 +7,7 @@ reset times and credits illustrate the layout; they do not promise specific plan
 
 | Files | Contents |
 | --- | --- |
+| `updates-{en,ko}-{dark,light}.png` | Production update window with synthetic 0.6.1 release notes; download and restart require separate approval |
 | `overview-dark.png`, `overview-light.png`, `settings.png`, `widget.png` | English single-account, settings and widget previews |
 | `accounts-overview-{en,ko}-{dark,light}.png` | Two ready Codex accounts, with Work / 업무용 selected; the unconnected Claude profile is absent from the cards and counts |
 | `accounts-manage-{en,ko}-{dark,light}.png` | All three registered profiles, including unconnected Research / 실험용 Claude, with connection, nickname and saved-order controls |
@@ -40,6 +41,12 @@ relative to export time.
 
 Generate on Windows after building the solution. Export to `artifacts/` for visual review
 before copying affected images into `docs/images`.
+
+Update approval and layout checks (exports four screenshots to `artifacts/update-ui`):
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --updates
+```
 
 Full export (36 PNGs, including additional authentication-failure previews):
 

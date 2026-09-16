@@ -10,6 +10,9 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args.FirstOrDefault() == Services.ManagedUpdateSupervisor.Argument)
+            return args is [Services.ManagedUpdateSupervisor.Argument, var jobPath]
+                ? Services.ManagedUpdateSupervisor.Run(jobPath) : 2;
         if (args.FirstOrDefault() == ClaudeFailureCommand.Argument)
         {
             try
@@ -55,6 +58,10 @@ public static class Program
             }
             catch { return 1; } // Never emit raw input, exception text or paths.
         }
+        // Headless callbacks must not run Velopack's package cleanup, log activation
+        // arguments, touch the desktop mutex, or apply a downloaded update. All
+        // Velopack installer hooks still arrive here before any desktop startup.
+        Services.InstalledApp.Initialize(args);
         return Services.DesktopBootstrap.Run(args);
     }
 }

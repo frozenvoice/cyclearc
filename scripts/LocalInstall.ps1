@@ -62,7 +62,7 @@ function Test-CycleArcHeadlessCommandLine([string]$CommandLine) {
     $match = [regex]::Match($CommandLine.Trim(), '^(?:"[^"]*"|\S+)\s+(?:"([^"]+)"|(\S+))')
     if (!$match.Success) { return $false }
     $firstArgument = if ($match.Groups[1].Success) { $match.Groups[1].Value } else { $match.Groups[2].Value }
-    foreach ($argument in @('--claude-statusline', '--claude-statusline-bridge', '--claude-stop-failure-bridge')) {
+    foreach ($argument in @('--claude-statusline', '--claude-statusline-bridge', '--claude-stop-failure-bridge', '--apply-update')) {
         if ($firstArgument.Equals($argument, [StringComparison]::Ordinal)) { return $true }
     }
     $false

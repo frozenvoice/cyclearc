@@ -1,7 +1,7 @@
 # Claude subscription usage via Desktop live quota, statusLine and history
 
 The five-hour and seven-day percentages describe the subscription allowance shared
-across Web, Desktop and Code. In 0.5.9 CycleArc actively checks the shared quota through
+across Web, Desktop and Code. In 0.6.0 CycleArc actively checks the shared quota through
 the connected Claude Desktop login during manual and configured scheduled refresh. A
 successful check is **Updated** and includes its server-fetched time. Claude Code's
 statusLine and Claude Desktop's subscription history remain fallback receipts, shown as
@@ -24,7 +24,7 @@ CycleArc reads the [official Claude Code statusLine JSON](https://code.claude.co
 | Desktop history `samples[].t` | Observation time in Unix milliseconds, used to select the newer source sample |
 | Desktop history `samples[].org` | Organization identity used during binding verification; not displayed |
 | Desktop history `samples[].u.fh` / `samples[].u.sd` | Five-hour / weekly usage percentages; Desktop history has no reset timestamps |
-| Desktop OAuth live profile/usage | The Desktop OAuth access token is used in memory for GET https://api.anthropic.com/api/oauth/profile, identity verification, and GET https://api.anthropic.com/api/oauth/usage; the profile email is checked against the binding | Private/internal 0.5.9 compatibility path, not a stable public API; the separate Desktop Electron organization usage route is not used |
+| Desktop OAuth live profile/usage | The Desktop OAuth access token is used in memory for GET https://api.anthropic.com/api/oauth/profile, identity verification, and GET https://api.anthropic.com/api/oauth/usage; the profile email is checked against the binding | Private/internal 0.6.0 compatibility path, not a stable public API; the separate Desktop Electron organization usage route is not used |
 
 Claude Code may omit each window independently, including before a first response or for an unsupported plan. Missing data stays unknown; a malformed present window is a schema failure rather than a successful partial reading. The model/context-token fields are not used as account quota.
 
@@ -68,13 +68,13 @@ Only a callback or Desktop read belonging to the current configuration and conne
 
 CycleArc updates the `statusLine` property and one exact owned `hooks.StopFailure` command in the connected folder's `settings.json`. It preserves unrelated JSON settings and makes a local `settings.json.cyclearc.bak` backup before replacement. Invalid/ambiguous settings, active bindings owned by another profile, or concurrent edits are reported without replacing that file. Reconnecting updates the executable path without nesting wrappers or resetting status-line presentation properties.
 
-The generated shell-neutral encoded PowerShell command invokes the headless `--claude-statusline-bridge` mode of the same `CycleArc.exe`. It forwards the same stdin to an existing statusLine command, preserving its stdout and settings such as padding. The old command and its restoration data remain in the Claude settings, not in CycleArc's usage cache. Disconnect restores the previous statusLine entry only if the active command is still CycleArc's exact owned wrapper, and removes only its own StopFailure hook; it never overwrites a replacement command or removes another tool's hooks. An old wrapper that cannot be removed after changing configuration folders can still display its previous command, but can no longer collect for the moved profile.
+The generated shell-neutral encoded PowerShell command invokes the headless `--claude-statusline-bridge` mode of the installed `current\CycleArc.exe`. It forwards the same stdin to an existing statusLine command, preserving its stdout and settings such as padding. The stable root `%LOCALAPPDATA%\CycleArc\CycleArc.exe` launcher is used for desktop and autorun forwarding, not for this synchronous callback. The old command and its restoration data remain in the Claude settings, not in CycleArc's usage cache. Disconnect restores the previous statusLine entry only if the active command is still CycleArc's exact owned wrapper, and removes only its own StopFailure hook; it never overwrites a replacement command or removes another tool's hooks. An old wrapper that cannot be removed after changing configuration folders can still display its previous command, but can no longer collect for the moved profile.
 
 Disconnect saves the revoked binding before touching the Claude settings or usage inbox. If cleanup fails, callbacks remain rejected and the profile remains disconnected after restart; the UI reports incomplete cleanup. Failure to save the binding is an unsuccessful disconnect. Existing user edits remain preserved.
 
 An overlong generated statusLine command has its own setup error. Move an existing inline statusLine into a script file with a short invocation before reconnecting. The limit includes executable/configuration paths and encoded options; rejected setup leaves the original settings intact.
 
-The headless bridge has a ten-second total deadline and a four-second bound for the previous command. It uses Git Bash when available and Windows PowerShell otherwise. No additional executable is distributed. Reconnect if you move `CycleArc.exe`.
+The headless bridge has a ten-second total deadline and a four-second bound for the previous command. It uses Git Bash when available and Windows PowerShell otherwise. No separate Claude callback host is distributed; Velopack owns its installer helper files. During inspection after an installation update, exact CycleArc-owned statusLine and StopFailure wrappers are moved to the supplied existing fully-qualified `current\CycleArc.exe` only after successful CLI authentication matches the saved profile binding. The old executable need not still exist. User replacements, unrelated hooks, disconnected profiles and mismatched bindings are left untouched, and previous statusLine data, binding generations and account nicknames remain intact.
 
 The previous manual `--claude-statusline <profile-id>` receiver remains for existing configurations. Automatic setup recognizes its exact generated command and upgrades it without recursively wrapping it. Once a profile has an automatic binding, the old receiver cannot bypass its login checks.
 

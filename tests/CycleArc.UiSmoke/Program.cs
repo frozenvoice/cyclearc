@@ -21,6 +21,12 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--update-package", var releaseDirectory])
+        {
+            PackageUpdateChecks.Run(releaseDirectory);
+            ManagedApplyChecks.Run(releaseDirectory);
+            return 0;
+        }
         if (args is ["--desktop-instance-child", var key, var reportPath])
             return DesktopInstanceProcessChecks.RunChildGuarded(key, reportPath);
         if (args is ["--desktop-instance"])
@@ -69,6 +75,7 @@ internal static class Program
                 DesktopInstanceProcessChecks.RunUiChecks();
                 return 0;
             }
+            if (args is ["--updates"]) { UpdateUiChecks.Run(); return 0; }
             if (args.Length == 0) DesktopInstanceProcessChecks.RunUiChecks();
             if (args is ["--tray-icons", var trayDirectory])
             {
@@ -141,6 +148,7 @@ internal static class Program
                 return 0;
             }
             ShutdownChecks.Run();
+            UpdateUiChecks.Run();
             ClaudeStatusLineProcessChecks.Run();
             AccountUiChecks.Run();
             CodexWindowUiChecks.Run();

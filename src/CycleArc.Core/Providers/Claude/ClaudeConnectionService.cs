@@ -19,10 +19,17 @@ public interface IClaudeConnectionActions
     void OpenClaude(string profileId, string workingDirectory);
 }
 
-public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeCli? cli = null, IClock? clock = null) : IClaudeConnectionActions
+public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeCli? cli = null, IClock? clock = null,
+    string? callbackExecutable = null) : IClaudeConnectionActions
 {
     private readonly IClaudeCli _cli = cli ?? new ClaudeCli();
     private readonly IClock _clock = clock ?? SystemClock.Instance;
+    // The installed app can provide one stable callback path while it inspects an
+    // existing connection. Keep the value only when it is an existing, fully
+    // qualified CycleArc.exe. A supplied but malformed/unavailable value disables
+    // migration for this inspection; an omitted value retains the legacy behavior.
+    private readonly bool _callbackExecutableRequested = callbackExecutable is not null;
+    private readonly string? _callbackExecutable = NormalizeCallbackExecutable(callbackExecutable);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConcurrentDictionary<string, ClaudeAuthentication> _identities = new(StringComparer.Ordinal);
 
@@ -97,9 +104,10 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
         if (binding is { Disconnected: false } current
             && auth.Status == ClaudeAuthStatus.SignedIn
             && ClaudeIdentityBinding.Matches(auth, current)
+            && IsCurrentBinding(store, current)
             && ClaudeStatusLineInstaller.TryReadOwnedStatusLine(directory, profileId, out var owned)
-            && owned is not null && File.Exists(owned.CycleArcExecutable)
-            && ClaudeCli.IsExecutablePath(owned.CycleArcExecutable))
+            && owned is not null
+            && (GetExistingCallbackExecutable(owned.CycleArcExecutable) is { } targetExecutable))
         {
             var oldBinding = current;
             var migrated = current.BindingGeneration is null
@@ -108,12 +116,18 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
             try
             {
                 await ClaudeStatusLineInstaller.InstallAsync(accounts, profileId, directory,
-                    owned.CycleArcExecutable, token).ConfigureAwait(false);
+                    targetExecutable, token,
+                    _callbackExecutable is not null
+                        ? () => EnsureBindingStillMatches(store, migrated)
+                        : null).ConfigureAwait(false);
                 binding = migrated;
             }
             catch
             {
-                store.Save(migrationBackup ?? oldBinding);
+                // Do not overwrite a binding changed by another process while the
+                // settings lease was held. The old rollback is safe only while the
+                // binding is still the one this inspection committed.
+                if (store.Read().Binding == migrated) store.Save(migrationBackup ?? oldBinding);
                 throw;
             }
         }
@@ -365,6 +379,41 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
         return ClaudeFailureClassification.IsActive(failureRead.State, current, lastGood)
             ? failureRead.State!.Kind : ClaudeFailureKind.None;
     }
+
+    private string? GetExistingCallbackExecutable(string oldExecutable)
+    {
+        if (_callbackExecutableRequested) return _callbackExecutable;
+        return File.Exists(oldExecutable) && ClaudeCli.IsExecutablePath(oldExecutable) ? oldExecutable : null;
+    }
+
+    private static void EnsureBindingStillMatches(ClaudeConnectionStore store, ClaudeConnectionBinding expected)
+    {
+        var read = store.Read();
+        if (read.Unavailable || read.Binding != expected)
+            throw new ClaudeSetupException(ClaudeSetupFailure.SettingsChanged);
+    }
+
+    private static bool IsCurrentBinding(ClaudeConnectionStore store, ClaudeConnectionBinding expected)
+    {
+        var read = store.Read();
+        return !read.Unavailable && read.Binding == expected;
+    }
+
+    private static string? NormalizeCallbackExecutable(string? executable)
+    {
+        if (executable is null || !Path.IsPathFullyQualified(executable)) return null;
+        try
+        {
+            var normalized = Path.GetFullPath(executable);
+            return File.Exists(normalized)
+                && Path.GetFileName(normalized).Equals("CycleArc.exe", StringComparison.OrdinalIgnoreCase)
+                && ClaudeCli.IsExecutablePath(normalized)
+                ? normalized : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        { return null; }
+    }
+
     private void RequireProfile(string profileId)
     {
         if (!accounts.ContainsClaude(profileId)) throw new ClaudeSetupException(ClaudeSetupFailure.ConnectionUnavailable);

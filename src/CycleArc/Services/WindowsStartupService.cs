@@ -31,7 +31,7 @@ public sealed class WindowsStartupService : IWindowsStartup
 
         if (enabled)
         {
-            key.SetValue(ValueName, "\"" + DesktopBootstrap.ExecutablePath + "\" --autorun");
+            key.SetValue(ValueName, "\"" + (InstalledApp.LauncherPath ?? DesktopBootstrap.ExecutablePath) + "\" --autorun");
         }
         else if (key.GetValue(ValueName) is not null)
         {

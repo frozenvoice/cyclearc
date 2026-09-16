@@ -7,6 +7,7 @@ using Microsoft.Win32;
 using CycleArc.Codex;
 using CycleArc.Providers.Usage;
 using CycleArc.Providers.Claude;
+using CycleArc.Updates;
 
 namespace CycleArc;
 
@@ -25,6 +26,12 @@ public partial class App : Application
     private readonly DispatcherTimer _codexTimer = new();
     private readonly DispatcherTimer _displayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private readonly DispatcherTimer _passiveTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromHours(6) };
+    private AppUpdateCoordinator? _updates;
+    private UpdateWindow? _updateWindow;
+    private Task _updateTask = Task.CompletedTask;
+    private Task _updateWindowTask = Task.CompletedTask;
+    private string? _notifiedVersion;
     private Task _passiveTask = Task.CompletedTask;
     private Task _creditUseTask = Task.CompletedTask;
     private FlyoutWindow? _flyout;
@@ -68,9 +75,13 @@ public partial class App : Application
         _tray.SyncRequested += () => _ = RefreshCodexAsync();
         _tray.SettingsRequested += ShowSettings;
         _tray.OpenLogsRequested += OpenLogs;
+        _updates = new AppUpdateCoordinator(new VelopackUpdateClient());
+        _updates.Changed += OnUpdateChanged;
+        _tray.UpdatesRequested += ShowUpdates;
         _tray.AboutRequested += () => new AboutWindow(
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0",
-            "Codex App Server · Claude subscription usage", DesktopBootstrap.InstallSelectedVersion).Show();
+            "Codex App Server · Claude subscription usage",
+            InstalledApp.IsManaged ? null : DesktopBootstrap.InstallSelectedVersion, ShowUpdates).Show();
         _tray.StartupToggled += enabled =>
         {
             _settings.StartWithWindows = enabled;
@@ -80,7 +91,7 @@ public partial class App : Application
         _tray.ExitRequested += ExitApp;
         _tray.CloseWidgetRequested += CloseWidget;
         var accounts = new CodexAccountStore();
-        _claudeConnections = new ClaudeConnectionService(accounts);
+        _claudeConnections = new ClaudeConnectionService(accounts, callbackExecutable: InstalledApp.CallbackPath);
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
         try
         {
@@ -126,7 +137,7 @@ public partial class App : Application
         _environment = new DesktopEnvironmentMonitor(Dispatcher, OnSystemThemeChanged, OnDisplayChanged,
             desktopRestored: OnDesktopRestored);
         if (!e.Args.Contains("--autorun", StringComparer.Ordinal)
-            && (firstUse || e.Args.Contains("--show", StringComparer.Ordinal))) ShowMain();
+            && (firstUse || InstalledApp.IsFirstRun || e.Args.Contains("--show", StringComparer.Ordinal))) ShowMain();
         _ = RefreshCodexAsync();
         _discoveryTask = DiscoverStartupAsync();
         var claudeProfiles = _codex.Accounts.Where(account => account.Profile.Provider == UsageProviderId.Claude)
@@ -152,16 +163,62 @@ public partial class App : Application
             onActivate: () => { Dispatcher.BeginInvoke(() => { if (!IsExiting) ShowMain(); }); return Task.CompletedTask; },
             onShutdown: () => { Dispatcher.BeginInvoke(ExitApp); return Task.CompletedTask; });
         _ = MigrateTrayAsync();
+        if (InstalledApp.SupportsUpdates)
+        {
+            _updateTimer.Tick += (_, _) =>
+            {
+                if (!IsExiting && _updateTask.IsCompleted) _updateTask = CheckUpdatesAsync(TimeSpan.Zero);
+            };
+            _updateTimer.Start();
+            _updateTask = CheckUpdatesAsync(TimeSpan.FromSeconds(20));
+        }
+    }
+
+    private async Task CheckUpdatesAsync(TimeSpan delay)
+    {
+        try
+        {
+            await Task.Delay(delay, _lifetime.Token);
+            await Task.Run(ManagedUpdateSupervisor.CleanupCompleted, _lifetime.Token);
+            if (!IsExiting && _updates is not null) await _updates.CheckAsync(_lifetime.Token);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private void OnUpdateChanged()
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(OnUpdateChanged); return; }
+        if (IsExiting || _updates?.State != AppUpdateState.Available || _updates.Release is not { } release
+            || _notifiedVersion == release.Version) return;
+        _notifiedVersion = release.Version;
+        if (_updateWindow is null)
+            _tray.Balloon(UiText.T("CycleArc update available", "CycleArc 새 버전이 있습니다"),
+                UiText.T($"Version {release.Version} is ready to download. Click to review.",
+                    $"{release.Version} 버전을 다운로드할 수 있습니다. 클릭해서 확인하세요."));
+    }
+
+    private void ShowUpdates()
+    {
+        if (IsExiting || _updates is null) return;
+        if (_updateWindow is not null) { _updateWindow.Activate(); return; }
+        _updateWindow = new UpdateWindow(_updates, ExitApp, _lifetime.Token);
+        _updateWindow.OperationStarted += operation => _updateWindowTask = operation;
+        _updateWindow.Closed += (_, _) => _updateWindow = null;
+        _updateWindow.Show();
+        if (_updates.Release is null) _updateTask = _updates.CheckAsync(_lifetime.Token);
     }
 
     private async Task MigrateTrayAsync()
     {
-        if (!string.Equals(Environment.ProcessPath, DesktopBootstrap.ExecutablePath, StringComparison.OrdinalIgnoreCase)) return;
-        var oldPaths = DesktopBootstrap.ReadMigrationPaths();
+        var executable = InstalledApp.CallbackPath ?? DesktopBootstrap.ExecutablePath;
+        if (!string.Equals(Environment.ProcessPath, executable, StringComparison.OrdinalIgnoreCase)) return;
+        var oldPaths = DesktopBootstrap.ReadMigrationPaths()
+            .Concat(InstalledApp.IsManaged ? [DesktopBootstrap.ExecutablePath] : Array.Empty<string>())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (oldPaths.Length == 0) return;
         for (var attempt = 0; attempt < 5 && !IsExiting; attempt++)
         {
-            if (TrayInstallationMigration.Run(DesktopBootstrap.ExecutablePath, oldPaths, _log.Warn)) return;
+            if (TrayInstallationMigration.Run(executable, oldPaths, _log.Warn)) return;
             try { await Task.Delay(1000, _lifetime.Token); }
             catch (OperationCanceledException) { return; }
         }
@@ -500,12 +557,13 @@ public partial class App : Application
             RunExitCleanup(_codexTimer.Stop, "Codex timer shutdown failed");
             RunExitCleanup(_displayTimer.Stop, "Display timer shutdown failed");
             RunExitCleanup(_passiveTimer.Stop, "Passive timer shutdown failed");
+            RunExitCleanup(_updateTimer.Stop, "Update timer shutdown failed");
             RunExitCleanup(_lifetime.Cancel, "Lifetime cancellation failed");
             RunExitCleanup(() => _accountsWindow?.CancelOperation(), "Account cancellation failed");
             RunExitCleanup(() => _claudeWindow?.CancelOperation(), "Claude cancellation failed");
             RunExitCleanup(() => _flyout?.Hide(), "Popup shutdown failed");
             // Let the existing bounded client stop and reap its app-server process.
-            await Task.WhenAll(_refresh.WaitForIdleAsync(), _creditUseTask, _discoveryTask, _passiveTask, _claudeIdentityTask,
+            await Task.WhenAll(_refresh.WaitForIdleAsync(), _creditUseTask, _discoveryTask, _passiveTask, _claudeIdentityTask, _updateTask, _updateWindowTask,
                 _claudeWindow?.ActiveOperation ?? Task.CompletedTask,
                 _accountsWindow?.ActiveOperation ?? Task.CompletedTask).WaitAsync(TimeSpan.FromSeconds(15));
         }

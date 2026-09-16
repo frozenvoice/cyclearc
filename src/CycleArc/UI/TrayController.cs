@@ -18,6 +18,7 @@ public sealed class TrayController : IDisposable
     public event Action? OpenLogsRequested;
     public event Action<bool>? StartupToggled;
     public event Action? AboutRequested;
+    public event Action? UpdatesRequested;
     public event Action? ExitRequested;
     public event Action? CloseWidgetRequested;
 
@@ -35,6 +36,7 @@ public sealed class TrayController : IDisposable
                 LeftClick?.Invoke();
             }
         };
+        _icon.BalloonTipClicked += (_, _) => UpdatesRequested?.Invoke();
         RebuildMenu(startWithWindows: true);
     }
 
@@ -70,6 +72,7 @@ public sealed class TrayController : IDisposable
         };
         menu.Items.Add(startup);
         menu.Items.Add(UiText.About, null, (_, _) => AboutRequested?.Invoke());
+        menu.Items.Add(UiText.T("Check for updates…", "업데이트 확인…"), null, (_, _) => UpdatesRequested?.Invoke());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(UiText.Exit, null, (_, _) => ExitRequested?.Invoke());
         return menu;

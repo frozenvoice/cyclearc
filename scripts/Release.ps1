@@ -26,6 +26,7 @@ param(
     [string]$Repository = 'frozenvoice/cyclearc',
     [string]$Remote = 'origin',
     [string]$Workflow = '.github/workflows/windows.yml',
+    [switch]$DraftOnly,
     [switch]$LoadOnly
 )
 
@@ -272,6 +273,128 @@ function Assert-SinglePublishedExecutable {
     $exe.FullName
 }
 
+function Assert-PackagedChecksumManifest {
+    param(
+        [Parameter(Mandatory)][string]$ManifestPath,
+        [Parameter(Mandatory)][string[]]$AssetPaths
+    )
+    $expectedNames = @($AssetPaths | ForEach-Object { [IO.Path]::GetFileName($_) } | Sort-Object)
+    $lines = @(Get-Content -LiteralPath $ManifestPath)
+    $actualNames = @()
+    foreach ($line in $lines) {
+        if ($line -notmatch '^\s*([0-9a-fA-F]{64})\s+\*?(.+?)\s*$') {
+            throw "SHA256SUMS.txt contains an invalid line: '$line'"
+        }
+        $name = $Matches[2]
+        if ($name -eq 'SHA256SUMS.txt' -or $name -match '[\\/]') {
+            throw "SHA256SUMS.txt contains an invalid asset name: '$name'"
+        }
+        if ($name -in $actualNames) { throw "SHA256SUMS.txt contains duplicate asset '$name'" }
+        $actualNames += $name
+        $path = Join-Path (Split-Path -Parent $ManifestPath) $name
+        if (!(Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "SHA256SUMS.txt references missing asset '$name'"
+        }
+        $actualHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+        if ($actualHash -ine $Matches[1]) {
+            throw "SHA256SUMS.txt does not match '$name'"
+        }
+    }
+    $expectedJoined = ($expectedNames -join "`n")
+    $actualJoined = (@($actualNames | Sort-Object) -join "`n")
+    if ($expectedJoined -cne $actualJoined) {
+        throw "SHA256SUMS.txt must contain one SHA-256 entry for every release asset"
+    }
+    $true
+}
+
+function Assert-PackagedReleaseFeed {
+    param(
+        [Parameter(Mandatory)][string]$FeedPath,
+        [Parameter(Mandatory)][string]$VersionValue,
+        [string]$PackageId = 'CycleArc',
+        [Parameter(Mandatory)][string]$PackageName,
+        [Parameter(Mandatory)][string]$PackagePath
+    )
+    try { $feed = Get-Content -LiteralPath $FeedPath -Raw | ConvertFrom-Json -Depth 30 }
+    catch { throw "releases.win.json is invalid JSON: $($_.Exception.Message)" }
+    $assets = @($feed.Assets)
+    if ($assets.Count -ne 1) { throw "releases.win.json must contain exactly one stable $VersionValue asset" }
+    $full = $assets[0]
+    if ([string]$full.PackageId -cne $PackageId -or
+        [string]$full.Version -cne $VersionValue -or
+        [string]$full.Type -cne 'Full' -or
+        [string]$full.FileName -cne $PackageName) {
+        throw 'Release feed contains an unapproved asset or version'
+    }
+    if ([string]$full.FileName -match '(?i)-delta\.nupkg$') { throw 'Stable CycleArc releases cannot contain delta assets' }
+    $packageItem = Get-Item -LiteralPath $PackagePath -ErrorAction Stop
+    $sha1 = (Get-FileHash -LiteralPath $packageItem.FullName -Algorithm SHA1).Hash.ToUpperInvariant()
+    $sha256 = (Get-FileHash -LiteralPath $packageItem.FullName -Algorithm SHA256).Hash.ToUpperInvariant()
+    if ([int64]$full.Size -ne [int64]$packageItem.Length) { throw 'Release feed package Size does not match the full package' }
+    if ([string]$full.SHA1 -ine $sha1) { throw 'Release feed package SHA1 does not match the full package' }
+    if ([string]::IsNullOrWhiteSpace([string]$full.SHA256) -or [string]$full.SHA256 -ine $sha256) {
+        throw 'Release feed package SHA256 does not match the full package'
+    }
+    $true
+}
+
+function Assert-FullPackageFileVersion {
+    param(
+        [Parameter(Mandatory)][string]$PackagePath,
+        [Parameter(Mandatory)][string]$ExpectedFileVersion
+    )
+    $checkRoot = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-package-check-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $checkRoot -Force | Out-Null
+    $extracted = $null
+    try {
+        $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
+        try {
+            $entry = @($archive.Entries | Where-Object { $_.Name -ceq 'CycleArc.exe' })
+            if ($entry.Count -ne 1) { throw 'Full package does not contain exactly one CycleArc.exe' }
+            $extracted = Join-Path $checkRoot 'CycleArc.exe'
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry[0], $extracted, $true)
+        }
+        finally { $archive.Dispose() }
+        $actual = ([Diagnostics.FileVersionInfo]::GetVersionInfo($extracted).FileVersion ?? '').Trim()
+        if (!$actual) { throw 'Full package CycleArc.exe has no FileVersion metadata' }
+        if ($actual -ne $ExpectedFileVersion) {
+            throw "Full package CycleArc.exe FileVersion is '$actual', expected '$ExpectedFileVersion'"
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $checkRoot) { Remove-Item -LiteralPath $checkRoot -Recurse -Force }
+    }
+}
+
+function Get-PackagedArtifact {
+    param(
+        [Parameter(Mandatory)][string]$StagingDirectory,
+        [Parameter(Mandatory)][string]$VersionValue,
+        [Parameter(Mandatory)][string]$ExpectedFileVersion,
+        [string]$PackageId = 'CycleArc',
+        [string]$Channel = 'win'
+    )
+    $files = @(Get-ChildItem -LiteralPath $StagingDirectory -File -Recurse)
+    if ($files.Count -eq 0) { throw 'CycleArc-win-x64 artifact is empty' }
+    $setup = @($files | Where-Object { $_.Name -ceq "$PackageId-Setup.exe" })
+    $packageName = "$PackageId-$VersionValue-full.nupkg"
+    $full = @($files | Where-Object { $_.Name -ceq $packageName })
+    $feedName = "releases.$Channel.json"
+    $feed = @($files | Where-Object { $_.Name -ceq $feedName })
+    $manifest = @($files | Where-Object { $_.Name -ceq 'SHA256SUMS.txt' })
+    foreach ($record in @(@{ Name = 'Setup'; Items = $setup }, @{ Name = 'full package'; Items = $full }, @{ Name = 'release feed'; Items = $feed }, @{ Name = 'checksum manifest'; Items = $manifest })) {
+        if ($record.Items.Count -ne 1) { throw "Expected exactly one $($record.Name) in CI artifact" }
+    }
+    $deltas = @($files | Where-Object { $_.Name -match '(?i)-delta\.nupkg$' })
+    if ($deltas.Count -gt 0) { throw "CI artifact contains forbidden delta package(s): $($deltas.Name -join ', ')" }
+    Assert-PackagedReleaseFeed -FeedPath $feed[0].FullName -VersionValue $VersionValue -PackageId $PackageId -PackageName $packageName -PackagePath $full[0].FullName | Out-Null
+    $assetPaths = @($files | Where-Object { $_.Name -cne 'SHA256SUMS.txt' } | ForEach-Object { $_.FullName })
+    Assert-PackagedChecksumManifest -ManifestPath $manifest[0].FullName -AssetPaths $assetPaths | Out-Null
+    Assert-FullPackageFileVersion -PackagePath $full[0].FullName -ExpectedFileVersion $ExpectedFileVersion
+    Get-LocalAssetMap -Paths @($files | ForEach-Object { $_.FullName })
+}
+
 function Normalize-Sha256 {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
@@ -435,6 +558,7 @@ function Invoke-Release {
         [string]$RepositoryName = 'frozenvoice/cyclearc',
         [string]$RemoteName = 'origin',
         [string]$WorkflowFile = '.github/workflows/windows.yml',
+        [switch]$DraftOnly,
         [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot)
     )
 
@@ -444,6 +568,10 @@ function Invoke-Release {
     $root = [IO.Path]::GetFullPath($RepositoryRoot)
     Push-Location -LiteralPath $root
     try {
+        if ([string]::IsNullOrWhiteSpace($NotesFile)) {
+            $defaultNotes = Join-Path $root "release-notes/$version.md"
+            if (Test-Path -LiteralPath $defaultNotes -PathType Leaf) { $NotesFile = $defaultNotes }
+        }
         Assert-CleanTrackedTree
         Assert-SourceVersion -RepoRoot $root -Value $version
         $commitSha = Resolve-CommitSha -Commitish $Commitish
@@ -463,8 +591,6 @@ function Invoke-Release {
         if ($release -and ([string]$release.tagName -ne $tag)) {
             throw "GitHub returned release tag '$($release.tagName)' while querying '$tag'"
         }
-        $allowedAssets = @('CycleArc.exe', 'SHA256SUMS.txt')
-        if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets }
         $isPublic = $null -ne $release -and ![bool]$release.isDraft
         if ($isPublic -and !$remoteTagSha) {
             throw "Public release '$tag' has no matching remote tag; refusing to repair it"
@@ -487,10 +613,10 @@ function Invoke-Release {
             'run', 'download', [string]$run.databaseId, '--repo', $RepositoryName,
             '--name', 'CycleArc-win-x64', '--dir', $staging
         ) | Out-Null
-        $exePath = Assert-SinglePublishedExecutable -StagingDirectory $staging -ExpectedFileVersion $expectedFileVersion
-        $manifestPath = New-ChecksumManifest -ExecutablePath $exePath
-        Assert-ChecksumManifest -ManifestPath $manifestPath -ExecutablePath $exePath
-        $assets = Get-LocalAssetMap -Paths @($exePath, $manifestPath)
+        $assets = Get-PackagedArtifact -StagingDirectory $staging -VersionValue $version -ExpectedFileVersion $expectedFileVersion
+        $assetPaths = @($assets.Values | ForEach-Object { $_.Path })
+        $allowedAssets = @($assets.Keys | ForEach-Object { [string]$_ })
+        if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets }
 
         if ($isPublic) {
             Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete
@@ -538,15 +664,19 @@ function Invoke-Release {
             throw "Draft release '$tag' target is '$($release.targetCommitish)', expected $commitSha"
         }
         Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets
-        Invoke-NativeCommand -FilePath 'gh' -Arguments @(
-            'release', 'upload', $tag, $exePath, $manifestPath,
-            '--repo', $RepositoryName, '--clobber'
-        ) | Out-Null
+        Invoke-NativeCommand -FilePath 'gh' -Arguments (@(
+            'release', 'upload', $tag
+        ) + $assetPaths + @('--repo', $RepositoryName, '--clobber')) | Out-Null
         $release = Get-ReleaseSnapshot -RepositoryName $RepositoryName -TagName $tag
         if (!$release -or !$release.isDraft) { throw "Release '$tag' became public before asset validation" }
         Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete
+        if ($DraftOnly) {
+            Write-Host "Draft ready: $tag for $commitSha with verified installer assets."
+            return [pscustomobject]@{ Status = 'DraftReady'; Tag = $tag; Commit = $commitSha; Staging = $staging }
+        }
 
-        # Publishing is the final mutation, after the exact GitHub digests are verified.
+        # Publishing remains the final mutation, after exact GitHub digests are
+        # verified. Callers that need review time can pass -DraftOnly.
         Invoke-NativeCommand -FilePath 'gh' -Arguments @(
             'release', 'edit', $tag, '--repo', $RepositoryName, '--draft=false', '--latest', '--verify-tag'
         ) | Out-Null
@@ -554,8 +684,10 @@ function Invoke-Release {
         if (!$published -or [bool]$published.isDraft) { throw "Release '$tag' did not become public" }
         Assert-ReleaseAssets -Release $published -ExpectedAssets $assets -RequireComplete
         $latestTag = Get-LatestReleaseTag -RepositoryName $RepositoryName
-        if ($latestTag -cne $tag) { throw "Published release '$tag' is not GitHub's latest release (latest is '$latestTag')" }
-        Write-Host "Published $tag for $commitSha with verified CycleArc.exe and SHA256SUMS.txt."
+        if ($latestTag -cne $tag) {
+            throw "Published release '$tag' is not GitHub's latest release (latest is '$latestTag')"
+        }
+        Write-Host "Published $tag for $commitSha with verified installer assets."
         [pscustomobject]@{ Status = 'Published'; Tag = $tag; Commit = $commitSha; Staging = $staging }
     }
     finally {
@@ -567,5 +699,5 @@ if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
     if ([string]::IsNullOrWhiteSpace($Version)) {
         throw 'Usage: pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> [-Commit <sha-or-ref>] [-NotesPath <file>]'
     }
-    Invoke-Release -VersionValue $Version -Commitish $Commit -NotesFile $NotesPath -RepositoryName $Repository -RemoteName $Remote -WorkflowFile $Workflow
+    Invoke-Release -VersionValue $Version -Commitish $Commit -NotesFile $NotesPath -RepositoryName $Repository -RemoteName $Remote -WorkflowFile $Workflow -DraftOnly:$DraftOnly
 }

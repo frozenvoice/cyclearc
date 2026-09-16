@@ -17,6 +17,9 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Restore local tools
+        run: dotnet tool restore
+
       - name: Restore
         run: dotnet restore
 
@@ -57,11 +60,28 @@ jobs:
           dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj
           -c Release --no-build -- --claude-process publish/win-x64/CycleArc.exe
 
-      - name: Upload executable
+      - name: Package stable Windows release
+        shell: pwsh
+        run: |
+          $props = Get-Content -LiteralPath Directory.Build.props -Raw
+          $match = [regex]::Match($props, '<Version>\s*([^<]+?)\s*</Version>')
+          if (!$match.Success) { throw 'Directory.Build.props does not contain a Version' }
+          $version = $match.Groups[1].Value.Trim()
+          $notes = Join-Path $PWD "release-notes/$version.md"
+          $arguments = @{ PublishedDir = 'publish/win-x64'; OutputDir = 'publish/velopack'; Version = $version }
+          if (Test-Path -LiteralPath $notes -PathType Leaf) { $arguments.ReleaseNotesPath = $notes }
+          & ./scripts/Package.ps1 @arguments
+
+      - name: Validate packaged update behavior
+        run: >
+          dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj
+          -c Release --no-build -- --update-package publish/velopack
+
+      - name: Upload Windows installer assets
         uses: actions/upload-artifact@v6
         with:
           name: CycleArc-win-x64
-          path: publish/win-x64/CycleArc.exe
+          path: publish/velopack/*
 
       - name: Upload failed test results
         if: failure()

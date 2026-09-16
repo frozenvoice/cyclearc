@@ -14,7 +14,7 @@ Codex 계정 카드에는 제공된 한도별 사용률·잔여 비율을, 상�
 
 **Claude 구독 사용량은 Web·Desktop·Code가 공유하는 한도입니다.** CycleArc는 연결된 Claude Desktop 로그인으로 수동·예약 새로고침마다 읽기 전용으로 공유 한도를 확인합니다. 성공한 서버 결과는 **업데이트됨**과 마지막 확인 시각으로 표시합니다. statusLine과 Desktop 구독 사용량 기록은 **수신됨** 로컬 기록으로 유지되며, Web·Desktop에서 쓴 양도 같은 한도에 반영됩니다. [공식 사용 한도 안내](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work).
 
-현재 한도를 직접 확인하려면 Claude 상세 카드나 연결 창의 **사용량 페이지 열기**를 누르세요. 브라우저의 [Claude 설정 → 사용량](https://claude.ai/settings/usage)이 열립니다. 페이지를 열어도 CycleArc 값은 갱신되지 않습니다. 공식 API·CLI·SDK 문서에는 개인 구독의 현재 공유 한도를 조회하는 안정적인 공개 방법이 없습니다. CycleArc 0.5.9는 Desktop 로그인으로 Anthropic 내부 조회 경로를 호환성 목적으로 사용하며, 공식 공개 API가 아니어서 변경될 수 있습니다. [조사 근거와 결정](CLAUDE-USAGE-RESEARCH.md).
+현재 한도를 직접 확인하려면 Claude 상세 카드나 연결 창의 **사용량 페이지 열기**를 누르세요. 브라우저의 [Claude 설정 → 사용량](https://claude.ai/settings/usage)이 열립니다. 페이지를 열어도 CycleArc 값은 갱신되지 않습니다. 공식 API·CLI·SDK 문서에는 개인 구독의 현재 공유 한도를 조회하는 안정적인 공개 방법이 없습니다. CycleArc 0.6.0은 Desktop 로그인으로 Anthropic 내부 조회 경로를 호환성 목적으로 사용하며, 공식 공개 API가 아니어서 변경될 수 있습니다. [조사 근거와 결정](CLAUDE-USAGE-RESEARCH.md).
 
 1. **계정 관리 → 계정 추가 → Claude 연결**을 여세요. 별명은 선택 사항입니다.
 2. 이미 Claude CLI에 로그인했다면 **현재 로그인 연결**을 누르세요. 새로 로그인하려면 **Claude 로그인**을 누르고 공식 브라우저에서 로그인하세요. CLI 확인은 연결 설정에 사용하고, 실제 한도 조회는 연결된 Claude Desktop 로그인으로 수행합니다. 다른 설정과 기존 상태 표시줄을 보존하며, JSON을 직접 복사할 필요가 없습니다.
@@ -104,11 +104,29 @@ ChatGPT Pro/Sol 기록 추정 기능은 종료했습니다. Edge/Chrome 확장, 
 2. **자세히 볼 계정을 선택합니다.** 파란 테두리와 점이 있는 업무용이 현재 선택 계정입니다. 큰 링의 **사용 64%**, 오른쪽 행의 **남음 36%**, 아래 리셋권도 모두 업무용 계정의 정보입니다. 다른 카드를 누르면 상세 화면·트레이·위젯의 표시 계정이 바뀝니다. 이 선택으로 다른 Codex 앱의 로그인 계정이 바뀌거나 새로고침이 시작되지는 않습니다.
 3. **미연결 프로필은 계정 관리에 남습니다.** 이전에 등록한 실험용 Claude는 연결되지 않아 이 메인 화면에는 나오지 않습니다. 등록된 프로필은 3개여도 **계정 · 2**, **전체 최신**으로 표시합니다. 연결을 완료하면 첫 사용량이 없어도 메인에 표시됩니다.
 
-## 실행
+## 설치와 실행
 
-배포 파일은 **`CycleArc.exe` 하나**입니다. .NET 런타임이 포함되어 별도 .NET 설치가 필요 없습니다.
+배포 파일은 **`CycleArc-Setup.exe`**입니다. Velopack 1.2.0 기반 설치기가 필요한 앱 파일을 관리하며 .NET 런타임이 포함되어 별도 .NET 설치가 필요 없습니다.
 
-[최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 디버그 심볼을 제외한 **Release · Windows x64** 실행 파일을 다운로드하세요.
+[최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 **Release · Windows x64** 설치 프로그램을 다운로드해 실행하세요. 안정 설치는 `%LOCALAPPDATA%\CycleArc` 아래에 두고, 사용자 설정·계정·사용량 캐시는 기존 `%LOCALAPPDATA%\ProMeter`에 유지합니다.
+
+설치된 정식 버전은 시작 20초 뒤와 이후 6시간마다 GitHub Releases의 정식 채널을 확인합니다. 변경 내용과 함께 새 버전이 표시되며 **업데이트 다운로드**를 누른 뒤 **재시작 후 적용**을 선택해야 적용됩니다. **나중에** 또는 취소를 선택할 수 있으며 시작 시 자동 적용하지 않습니다. 전체 `.nupkg`는 다운로드 직후와 Velopack 적용 직전에 SHA-256을 확인합니다.
+
+교체 전에 이전 앱의 검증된 사본을 설치 폴더 밖에 보관합니다. 파일 교체에 실패하거나 새 앱이 준비 완료 신호를 보내지 못하면 별도 복구 프로세스가 이전 버전을 복원하고 다시 실행합니다. 계정과 설정은 앱 파일과 분리해 유지합니다. 복구까지 막히면 백업을 보존하고 위치를 안내합니다. 이 확인은 시작 단계에 적용되며, 이후 사용 중 발생하는 모든 오류를 감지하는 기능은 아닙니다.
+
+<details>
+<summary><strong>업데이트 화면 예시</strong></summary>
+
+<p><img src="images/updates-ko-dark.png" alt="현재 버전과 새 버전, 변경 내용, 나중에와 업데이트 다운로드 버튼이 있는 CycleArc 화면" width="480"></p>
+<p>가상의 0.6.1 변경 내용으로 렌더링한 실제 WPF 화면입니다. 다운로드가 끝나도 앱은 종료되지 않으며 검증 후 재시작 후 적용 버튼을 눌러야 합니다.</p>
+
+</details>
+
+릴리즈 파이프라인에서 코드 서명을 설정하지 않은 경우 배포 자산은 서명되지 않습니다. 설치 프로그램만으로 Windows SmartScreen 경고가 사라지지는 않습니다.
+
+실제 데스크톱 앱은 `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`에서 실행합니다. `%LOCALAPPDATA%\CycleArc\CycleArc.exe`는 데스크톱과 Windows 시작용 안정 런처이며, Claude statusLine·오류 훅은 stdin/stdout 전달을 보장하기 위해 current 실행 파일을 직접 사용합니다. 기존 CycleArc 소유 콜백은 CLI 신원과 저장된 바인딩이 일치할 때만 새 경로로 옮기며, 이전 실행 파일이 이미 없어도 설정에 있는 정확한 소유 wrapper라면 옮길 수 있습니다. 기존 statusLine, 별명, 계정 연결, 관련 없는 설정과 훅은 보존합니다.
+
+처음 설치할 때 현재 세션의 IPC와 실행 파일을 확인할 수 있으면 예전 표준 설치의 데스크톱을 종료하고 새 설치를 실행합니다. 다른 경로에서 실행 중인 개발 빌드는 먼저 실행된 인스턴스 정책을 유지합니다. 예전 `%LOCALAPPDATA%\Programs\CycleArc` 경로는 개발 호환성을 위해 남아 있지만 GitHub 업데이트 확인 대상이 아닙니다.
 
 Codex 조회에는 이 PC에 설치된 **Codex CLI**, 구독 한도를 제공하는 ChatGPT 계정으로의 CLI 로그인과 네트워크 연결이 필요합니다. Claude 서버 조회에는 공식 Claude CLI의 연결 확인, Windows PowerShell, 로그인된 Claude Desktop과 Claude Pro·Max 계정이 필요합니다. statusLine과 Claude Desktop 구독 사용량 기록은 로컬 기록으로 사용할 수 있습니다. Codex 로그인은 필요하지 않습니다. 두 서비스 모두 CycleArc에서 공식 로그인을 시작할 수 있습니다.
 앱은 `codex.exe` 또는 `codex.cmd`를 PATH와 일반 설치 위치에서 찾습니다.
@@ -206,7 +224,7 @@ Codex 위젯은 정상 상태 문구를 숨기고 조회 실패·로그인 필�
 - 이전 대화 기록 DB는 삭제하거나 열지 않습니다. 기록 동기화는 실행하지 않습니다.
 - 앱 시작 시 이 사용자 데이터 폴더의 manifest를 가리키는 기존 Native Messaging 등록만 해제합니다.
 - 브라우저의 **ProMeter ChatGPT Companion** 확장은 더 이상 필요 없습니다. 브라우저 확장 관리 화면에서 제거하세요.
-- 새 `CycleArc.exe`를 실행하세요.
+- 새 릴리즈의 `CycleArc-Setup.exe`를 실행하세요. 첫 설치는 확인 가능한 예전 표준 데스크톱을 정리하고 `%LOCALAPPDATA%\ProMeter`의 데이터와 기존 Claude 연결을 유지합니다.
 
 ## 개발
 
@@ -220,8 +238,8 @@ Codex 위젯은 정상 상태 문구를 숨기고 조회 실패·로그인 필�
 .\dev-run.ps1
 ```
 
-Release 빌드, 전체 테스트와 화면 검증을 수행하고 디버그 심볼을 제외한 Windows x64 단일 파일을 설치·실행합니다. 개발용과 다운로드한 릴리즈는 각 PC의 `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe`를 함께 사용합니다. Git 작업 폴더나 드라이브에 의존하지 않습니다. 빌드 임시 파일은 현재 작업 폴더에 남으며 `-NoLaunch`는 설치된 앱을 교체하지 않습니다.
-실행 파일 자체의 설치기가 후보 파일의 해시와 버전을 검증한 뒤 기존 앱의 정상 종료를 기다리고 교체합니다. 잠금은 제한된 횟수만 재시도하며, 새 앱 시작 실패 시 이전 설치를 복원하고 다시 실행합니다.
+Release 빌드, 전체 테스트와 화면 검증을 수행하고 디버그 심볼을 제외한 개발용 Windows x64 단일 파일을 게시·실행합니다. 개발용은 각 PC의 `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe`를 사용하며, 안정 Velopack 설치 `%LOCALAPPDATA%\CycleArc`와 분리되어 GitHub 업데이트 대상이 아닙니다. 빌드 임시 파일은 현재 작업 폴더에 남으며 `-NoLaunch`는 설치된 앱을 교체하지 않습니다. 파일 교체가 실패하면 이전 파일을 복원할 수 있지만, 파일 롤백이 새 앱의 시작 상태까지 보장하지는 않습니다.
+CI는 개발용 단일 파일을 검사하고 안정 배포용 Velopack 설치 자산을 패키징합니다. 수동 릴리즈 스크립트는 CI 자산의 버전과 SHA-256을 확인한 뒤 게시합니다.
 시작 시 실행 중인 앱의 PID와 경로를 표시합니다. 빌드 산출물에서 직접 실행 중인 앱은 정리 전에 경로와 PID를 알려주므로, 해당 앱을 종료한 뒤 다시 실행하세요.
 `-NoLaunch`는 검증된 파일을 staging에만 만들고 실행 중인 앱을 건드리지 않습니다.
 
@@ -229,16 +247,16 @@ Release 빌드, 전체 테스트와 화면 검증을 수행하고 디버그 심�
 
 일반 실행은 **먼저 실행된 앱을 유지**하고 해당 창과 실행 중인 버전을 표시합니다. 개발용과 릴리즈 사이에 고정 우선순위는 없습니다. Windows 자동 시작은 공통 설치 경로를 사용하며 기존 창을 앞으로 가져오지 않습니다.
 
-실행 중인 버전을 바꾸려면 트레이의 **정보 → 다른 버전 설치…**에서 다운로드한 `CycleArc.exe`(0.5.8 이상)를 선택하거나, 현재 소스에서 `dev-run.ps1`을 실행하세요. 앱이 꺼져 있으면 다운로드한 버전을 실행하는 것만으로 그 버전을 공통 경로에 설치합니다. 0.5.8 이전 앱은 창 열기 요청을 받을 수 없으며, 명시적 설치 시 실행 파일과 명령줄을 확인한 뒤 최초 전환을 처리합니다.
+안정 버전은 설치된 앱의 업데이트 UI에서 바꿉니다. 현재 소스 빌드는 `dev-run.ps1`을 사용하며, 개발용과 안정 설치 사이에는 고정 우선순위가 없습니다. 이미 실행 중인 개발 빌드는 먼저 실행된 인스턴스 정책을 유지합니다.
 
-설정·계정·캐시는 기존 `%LOCALAPPDATA%\ProMeter`에 유지합니다. 이전 절대 경로를 사용하는 Claude 콜백을 위해 외부 실행 파일을 삭제하지 않으며, Claude를 다시 연결하면 공통 경로로 갱신됩니다. 확인된 이전 트레이 항목은 새 트레이 아이콘이 준비된 뒤 레지스트리 값을 백업하고 정리합니다.
+설정·계정·캐시는 기존 `%LOCALAPPDATA%\ProMeter`에 유지합니다. 안정 설치의 실제 앱은 `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`이며, `%LOCALAPPDATA%\CycleArc\CycleArc.exe`는 데스크톱과 Windows 시작용 안정 런처입니다. Claude 콜백은 stdin/stdout 전달을 위해 current 실행 파일을 직접 사용하며, 일치하는 CLI 신원과 저장된 바인딩을 확인한 뒤 기존 소유 wrapper를 옮깁니다. 확인된 이전 트레이 항목은 새 트레이 아이콘이 준비된 뒤 레지스트리 값을 백업하고 정리합니다.
 `-Fast`는 같은 변경에 대한 전체 테스트를 이미 통과했을 때만 사용하세요.
 
-GitHub Actions 배포물은 `CycleArc-win-x64`이며 `CycleArc.exe`만 포함합니다.
+GitHub Actions는 개발용 단일 파일 검사물과 Velopack 설치 자산을 함께 생성합니다.
 
-GitHub 릴리즈는 버전을 반영한 변경을 커밋·푸시하고 로컬 `-NoLaunch` 검사와 Windows CI를 통과한 뒤 `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.9 -NotesPath "./release-notes/0.5.9.md"`로 게시합니다. 설명 파일 경로는 준비한 파일로 바꾸세요.
+GitHub 릴리즈는 버전을 반영한 변경을 커밋·푸시하고 로컬 `-NoLaunch` 검사와 Windows CI를 통과한 뒤 `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.6.0 -NotesPath "./release-notes/0.6.0.md"`로 게시합니다. 설명 파일 경로는 준비한 파일로 바꾸세요.
 
-이 명령은 해당 커밋의 CI 실행 파일을 받아 버전과 업로드된 SHA-256을 검사한 뒤 초안을 공개합니다.
+이 명령은 해당 커밋의 CI 실행 파일과 설치 자산을 받아 버전과 업로드된 SHA-256을 검사한 뒤 초안을 공개합니다.
 기존 초안 설명은 보존하며, 새 릴리즈에는 `-NotesPath <파일>`이 필요합니다.
 공개된 파일과 기존 태그의 대상 커밋은 덮어쓰지 않습니다.
 

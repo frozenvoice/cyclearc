@@ -29,6 +29,13 @@ public static class DesktopBootstrap
                 return status.Succeeded ? 0 : 1;
             }
 
+            if (InstalledApp.IsManaged)
+            {
+                if (options.Replace)
+                    throw new IOException("Use CycleArc Updates to update this installed application.");
+                return RunManaged(options);
+            }
+
             var source = Environment.ProcessPath ?? throw new IOException("CycleArc executable path is unavailable.");
             if (!options.Replace)
             {
@@ -73,6 +80,28 @@ public static class DesktopBootstrap
             ReportFailure(ex.Message, quiet);
             return 1;
         }
+    }
+
+    private static int RunManaged(DesktopLaunchOptions options)
+    {
+        // A first launch from Setup may hand off the previous standalone installation.
+        // Ordinary launches still preserve the first desktop, including development builds.
+        if (InstalledApp.IsFirstRun)
+        {
+            var status = Request(DesktopInstanceCommand.Status, TimeSpan.FromSeconds(2));
+            if (status.Succeeded && SamePath(status.ExecutablePath, ExecutablePath))
+            {
+                using var previous = OpenVerifiedProcess(status);
+                var ack = Request(DesktopInstanceCommand.Shutdown, TimeSpan.FromSeconds(3), status);
+                if (!ack.Succeeded || ack.ProcessId != previous.Id || !previous.WaitForExit(22000))
+                    throw new IOException("The previous CycleArc is still closing. Close it from the tray and reopen CycleArc.");
+            }
+        }
+        using var lease = DesktopInstanceLease.TryAcquire();
+        if (lease is null) return ActivateExisting(options.Autorun);
+        var app = new App { InstanceLease = lease };
+        app.InitializeComponent();
+        return app.Run();
     }
 
     public static void InstallSelectedVersion(string path)

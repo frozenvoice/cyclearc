@@ -41,20 +41,34 @@ The **Codex** or **Claude** label on account cards, selected details, tray toolt
 
 **Requirements:** Windows 10/11 on x64. Codex monitoring requires an installed Codex CLI signed into a ChatGPT account that reports subscription limits, and network access. Claude monitoring requires the official Claude CLI for connection verification, Windows PowerShell, a signed-in Claude Desktop account for live checks, and a signed-in Claude Pro or Max account. StatusLine and Desktop subscription history remain fallbacks; Codex sign-in is not required.
 
-1. Download **`CycleArc.exe`** from the [latest release](https://github.com/frozenvoice/cyclearc/releases/latest).
-2. Run it. CycleArc installs and runs from `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe` on this PC. The .NET runtime is bundled.
+1. Download **`CycleArc-Setup.exe`** from the [latest release](https://github.com/frozenvoice/cyclearc/releases/latest).
+2. Run the setup program. CycleArc installs under `%LOCALAPPDATA%\CycleArc`; the .NET runtime is bundled. Your settings, accounts and quota cache remain under `%LOCALAPPDATA%\ProMeter`.
 3. Open the tray icon and **Manage accounts → Add an account**. For Codex, existing CLI sign-ins are discovered automatically; choose **New account sign-in** to add another account. For Claude, choose **Connect Claude**, then connect the current login or sign in through your browser.
 4. Codex appears after a successful quota check; Claude appears after verified connection and attempts a Desktop live check, with statusLine/history fallback when needed. If Codex cannot be found, install the [Codex CLI](https://developers.openai.com/codex/cli/) or open **Settings → Connection** and select its executable path. For Claude setup, follow the [connection steps below](#claude-code-connection).
 
 CycleArc discovers `codex.exe` or `codex.cmd` through PATH and supported installation locations. The Codex CLI itself is not bundled. Sign-in remains managed by Codex.
 
-### Running and switching versions
+### Running and updating versions
 
-An ordinary launch keeps the first running instance and opens its popup, which shows the running version. Development builds and releases have equal priority. Windows startup uses the same installed executable and does not bring an already running window forward.
+An ordinary launch keeps the first running instance and opens its popup, which shows the running version. Development builds and releases have equal priority. Windows startup uses the installed launcher and does not bring an already running window forward.
 
-To switch while CycleArc is running, choose **About → Install another version…** and select a downloaded `CycleArc.exe` (0.5.8 or later), or run `dev-run.ps1` for the current source build. Both validate the candidate before stopping the running app, install at the same path, and restore the previous installed executable if startup fails. When no instance is running, opening a downloaded version installs that version. A pre-0.5.8 instance cannot receive activation requests; explicit installation handles its one-time migration.
+The setup installs the stable channel and keeps it current through GitHub Releases. CycleArc checks 20 seconds after startup and then every six hours. A stable release is offered with English/Korean release notes; choose **Download**, then **Restart & update** to apply it, or choose **Later**. Updates are not applied automatically at startup. The complete `.nupkg` is SHA-256 checked after download and again before Velopack applies it.
 
-Settings, accounts and cached usage remain in `%LOCALAPPDATA%\ProMeter`. Existing external executables are retained so older absolute Claude callback paths continue to work; reconnecting Claude updates the callback to the installed path. Verified old tray settings entries are backed up before removal after the installed tray icon is ready.
+Release artifacts are unsigned unless the release pipeline is configured for code signing. Installing with `CycleArc-Setup.exe` alone does not remove Windows SmartScreen warnings.
+
+Before replacement, CycleArc keeps a verified copy of the previous app outside its installation. If replacement fails or the new desktop does not become ready, a separate helper restores and restarts the previous version. Accounts and settings stay outside both app versions. If recovery itself is blocked, the backup is retained and its location is shown; this check covers startup, not failures later in a session.
+
+The installed desktop runs from `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`. `%LOCALAPPDATA%\CycleArc\CycleArc.exe` is the stable launcher used for desktop and Windows-startup entry points; Claude statusLine and failure callbacks use the current executable directly so stdin/stdout forwarding remains synchronous. Existing exact CycleArc-owned Claude callbacks migrate after a matching CLI identity check, including when their old executable has already been removed. Unrelated settings, the previous statusLine command, account bindings and nicknames remain intact.
+
+The first setup launch can close an older canonical legacy desktop after verifying its current-session IPC identity. A development build running from another path keeps the normal first-instance policy. The former `%LOCALAPPDATA%\Programs\CycleArc` installation is retained for development compatibility and is not updated by the GitHub release checker.
+
+<details>
+<summary><strong>Update preview</strong></summary>
+
+<p><img src="docs/images/updates-en-light.png" alt="CycleArc update window with current and new versions, release notes, Later and Download update" width="480"></p>
+<p>Production WPF view with synthetic 0.6.1 release notes. Downloading does not restart the app; a separate Restart &amp; update action appears after verification.</p>
+
+</details>
 
 ### Accounts
 
@@ -134,7 +148,7 @@ Browser sign-in has a five-minute deadline and can be cancelled. If it times out
 
 **Claude subscription usage is shared across Web, Desktop and Code.** CycleArc actively checks the shared quota during manual refresh and the configured automatic interval through the connected Claude Desktop login. A successful server check is labeled **Updated** with its last checked time. Claude Code statusLine and Claude Desktop's local subscription usage history remain fallback receipts, labeled **Received** with their source time; Web/Desktop activity also consumes the same allowance. [Official usage-limit explanation](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work).
 
-To check current usage independently, choose **Open usage page** on the Claude detail card or connection window. It opens [Claude Settings → Usage](https://claude.ai/settings/usage) in your browser; check that the intended account is signed in. Opening the page does not refresh CycleArc. Public API, CLI and SDK documentation still provide no supported stable personal-subscription quota query. CycleArc 0.5.9 uses a narrow private first-party Desktop profile/usage path for its live check; it may change without notice. See the [dated research and decision](docs/CLAUDE-USAGE-RESEARCH.md).
+To check current usage independently, choose **Open usage page** on the Claude detail card or connection window. It opens [Claude Settings → Usage](https://claude.ai/settings/usage) in your browser; check that the intended account is signed in. Opening the page does not refresh CycleArc. Public API, CLI and SDK documentation still provide no supported stable personal-subscription quota query. CycleArc 0.6.0 uses a narrow private first-party Desktop profile/usage path for its live check; it may change without notice. See the [dated research and decision](docs/CLAUDE-USAGE-RESEARCH.md).
 
 1. Open **Manage accounts → Add an account → Connect Claude**. Set an optional nickname.
 2. Choose **Connect current login** to verify the existing Claude CLI login, or **Sign in to Claude** to complete the official browser flow. CLI verification establishes the CycleArc connection; live quota requests use the connected Claude Desktop login. Other settings and the existing status line are preserved; no JSON copying is required.
@@ -254,19 +268,19 @@ cd cyclearc
 .\dev-run.ps1
 ```
 
-The launcher restores dependencies, builds **Release**, runs the tests and WPF checks, then publishes **one self-contained Windows x64 `CycleArc.exe`**, without debug symbols. The validated executable installs itself at `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe`, shared by downloads, all Git worktrees and source exports on this PC. Build staging stays in the current checkout; `-NoLaunch` does not stop or replace the installed app. The installer retries transient deployment locks and restores the previous installed build if replacement or startup fails.
+The launcher restores dependencies, builds **Release**, runs the tests and WPF checks, then publishes the development **single-file Windows x64 `CycleArc.exe`**, without debug symbols. Development output uses `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe` for compatibility with existing source workflows; it is separate from the stable Velopack installation under `%LOCALAPPDATA%\CycleArc` and is not selected by the GitHub update checker. Build staging stays in the current checkout; `-NoLaunch` does not stop or replace the installed app. Filesystem deployment can restore the previous build when replacement fails; a successful file rollback does not guarantee that a newly started app passed a health check.
 
 Preflight reports existing desktop PIDs and executable paths. After validation, the installer stops verified CycleArc desktops in the current Windows session and checks that the single-instance lock is gone before replacing files. If a desktop is running directly from build output, preflight identifies it before cleanup; exit that instance and rerun the script.
 
 - `-NoLaunch`: validate the staged executable without replacing the running local app.
 - `-Fast`: skip the unit suite only when it has already passed for the same changes.
-- CI also publishes the single executable as the `CycleArc-win-x64` artifact.
+- CI builds and checks the development single-file executable and packages the Velopack installer assets for the stable release workflow.
 
-For a GitHub release, commit and push the versioned changes, pass the local `-NoLaunch` gate and Windows CI, then run `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.9 -NotesPath "./release-notes/0.5.9.md"` (replace the notes path with your prepared file).
+For a GitHub release, commit and push the versioned changes, pass the local `-NoLaunch` gate and Windows CI, then run `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.6.0 -NotesPath "./release-notes/0.6.0.md"` (replace the notes path with your prepared file).
 
-The script downloads that commit's tested CI executable, checks its version and uploaded
-SHA-256 values, and publishes the draft only after verification. Existing draft notes are
-preserved; a new release requires `-NotesPath "./release-notes/0.5.9.md"` (replace the notes path with your prepared file). Public assets and existing tag targets
+The script downloads that commit's tested executable and installer assets, checks their
+versions and uploaded SHA-256 values, and publishes the draft only after verification.
+Existing draft notes are preserved; a new release requires `-NotesPath "./release-notes/0.6.0.md"` (replace the notes path with your prepared file). Public assets and existing tag targets
 are never overwritten.
 
 | Path | Purpose |

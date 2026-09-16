@@ -62,6 +62,7 @@ if (Test-Path -LiteralPath $StagingDir) {
     Remove-Item -LiteralPath $StagingDir -Recurse -Force
 }
 Invoke-Dotnet -Arguments @('restore')
+Invoke-Dotnet -Arguments @('tool', 'restore')
 Invoke-Dotnet -Arguments @('build', 'CycleArc.sln', '-c', 'Release')
 if (!$Fast) { Invoke-Dotnet -Arguments @('test', 'CycleArc.sln', '-c', 'Release', '--no-build') }
 & (Join-Path $RepoRoot 'tests/LocalInstall.Tests.ps1')
@@ -71,6 +72,16 @@ $files = @(Get-ChildItem -LiteralPath $StagingDir -File -Recurse)
 if ($files.Count -ne 1 -or $files[0].Name -ne 'CycleArc.exe') { throw 'Publish must contain exactly CycleArc.exe' }
 Write-Host 'Publish artifacts verified: CycleArc.exe only'
 Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--claude-process', (Join-Path $StagingDir 'CycleArc.exe'))
+$versionMatch = [regex]::Match((Get-Content -LiteralPath (Join-Path $RepoRoot 'Directory.Build.props') -Raw), '<Version>\s*([^<]+?)\s*</Version>')
+if (!$versionMatch.Success) { throw 'Directory.Build.props does not contain a package version' }
+$packageVersion = $versionMatch.Groups[1].Value.Trim()
+$packageOutput = Join-Path $RepoRoot 'publish/.dev-velopack'
+$packageArguments = @{ PublishedDir = $StagingDir; OutputDir = $packageOutput; Version = $packageVersion }
+$releaseNotes = Join-Path $RepoRoot "release-notes/$packageVersion.md"
+if (Test-Path -LiteralPath $releaseNotes) { $packageArguments.ReleaseNotesPath = $releaseNotes }
+& (Join-Path $RepoRoot 'scripts/Package.ps1') @packageArguments
+Write-Host "Velopack artifacts verified: $packageOutput"
+Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--update-package', $packageOutput)
 if ($NoLaunch) { Write-Host "Staged: $StagingDir"; exit 0 }
 
 # The same executable owns installation for both downloads and development.

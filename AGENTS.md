@@ -4,7 +4,11 @@ CycleArc is a Windows-only .NET 8 WPF tray app for Codex and Claude subscription
 Use Windows, the .NET 8 SDK and PowerShell 7+. The solution is `CycleArc.sln`;
 `src/CycleArc` is the desktop app, `src/CycleArc.Core` holds provider/shared logic,
 and `tests/CycleArc.Tests` / `tests/CycleArc.UiSmoke` cover unit / production WPF checks.
-Ship one self-contained Windows x64 `CycleArc.exe`.
+Ship the Windows x64 `CycleArc-Setup.exe` Velopack installer for the stable channel. Keep the
+development publish check for one self-contained `CycleArc.exe`; the installed app runs from
+`%LOCALAPPDATA%\CycleArc\current\CycleArc.exe` and the stable root launcher is used for desktop/
+autorun forwarding. The former `%LOCALAPPDATA%\Programs\CycleArc` path remains development-only
+compatibility and is excluded from GitHub update checks.
 Do not hand-edit or commit generated/local output in `bin/`, `obj/`, `publish/`, `artifacts/` or `.tmp/`.
 
 ## Read on demand
@@ -84,13 +88,14 @@ Run commands from the repository root. Use `--no-build` only for code already bu
 | Core/provider correctness | Relevant regression tests, including malformed/unknown input and state transitions. Use official protocol-shaped fixtures. |
 | Login/cache/concurrency/account lifecycle | Deterministic failure/cancellation/restart tests with isolated data and fake adapters. |
 | WPF state/layout/localization/theme/interaction | Release build and affected UiSmoke checks; visually inspect affected production views in EN/KO and relevant themes/sizes. |
-| Installer/startup/routing/distribution or executable delivery | Full gate below, including rollback, single-file and built/published receiver checks. |
+| Installer/startup/routing/distribution or executable delivery | Full gate below, including installer assets, rollback, single-file development publish and built/published receiver checks. |
 
 - Targeted tests: `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "<matching-filter>"`.
   Use an existing test name/category for the filter. WPF checks: `dotnet build CycleArc.sln -c Release`, then
   `dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build`.
 - Full gate: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` on final executable changes.
-  It restores, builds/tests Release, checks WPF/installers and validates `publish/.dev-staging/CycleArc.exe`.
+  It restores, builds/tests Release, checks WPF/installer assets and validates the development
+  `publish/.dev-staging/CycleArc.exe` receiver.
   If installation/run is requested, use `pwsh -NoProfile -File ./dev-run.ps1` instead: the same gate runs
   before installation. Choose the mode upfront to avoid repeating the gate.
   The full gate satisfies the build/test requirements above; `-Fast` skips only unit tests already passed for unchanged code.
@@ -102,9 +107,13 @@ Run commands from the repository root. Use `--no-build` only for code already bu
   Configure upstream (`git push -u origin <branch>` on first push), verify remote HEAD/tracking and check CI for that SHA.
 - Publish with `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -NotesPath <file>` after
   the final local gate and successful Windows push CI; new drafts require the notes file.
-  Use that CI run's executable; verify file version, commit/tag and uploaded SHA-256 before publication.
+  Verify all CI executable/installer assets, their versions, commit/tag and uploaded SHA-256 before publication.
   Versions are centralized in `Directory.Build.props`.
-- Install/restart only when requested. Use the executable's guarded transactional installer/rollback path,
-  verify the target checkout, running path and artifact hash, and keep the shared per-PC installation at
-  `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe` across downloads and worktrees.
-  Ordinary launches preserve/activate the first desktop; `--autorun` stays quiet. Preserve the legacy mutex.
+- Install/restart only when requested. Use the Velopack installer/update path, verify the target
+  checkout, running path and artifact hash, and keep the stable per-PC installation at
+  `%LOCALAPPDATA%\CycleArc` across releases. The external recovery supervisor restores failed
+  replacement or initial desktop readiness; it does not monitor later session failures. Preserve the
+  `%LOCALAPPDATA%\ProMeter` data path and legacy mutex. Ordinary launches preserve/activate the
+  first desktop; `--autorun` stays quiet.
+- Release artifacts are unsigned unless the release pipeline is configured for code signing;
+  an installer by itself does not remove Windows SmartScreen warnings.

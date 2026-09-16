@@ -37,6 +37,11 @@ internal static class ClaudeStatusLineProcessChecks
         try
         {
             try { owns = mutex.WaitOne(0); } catch (AbandonedMutexException) { owns = true; }
+            var invalidRecovery = RunProcess(executable, ["--apply-update"], "");
+            Check(invalidRecovery.Code == 2, "Incomplete recovery mode entered desktop startup.");
+            invalidRecovery = RunProcess(executable, ["--apply-update", Path.Combine(root, "job.json")], "");
+            Check(invalidRecovery.Code == 1 && invalidRecovery.Output.Length == 0,
+                "An untrusted recovery job entered desktop startup or emitted data.");
             var result = RunProcess(executable, [ClaudeStatusLineCommand.Argument, profile.Id, "--data-root", root], json);
             Check(result.Code == 0 && result.Output.Contains("5h 23.5%", StringComparison.Ordinal), $"Production stdin receiver failed ({Describe(result)}).");
             Check(store.Read().State?.LastGood?.SevenDay?.UsedPercentage == 41.2, "Production receiver lost weekly data.");

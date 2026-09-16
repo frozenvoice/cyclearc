@@ -126,6 +126,54 @@ try {
     Set-Content -LiteralPath $manifestPath -Value ((Get-Content -Raw $manifestPath) + 'tampered') -NoNewline
     Assert-Throws { Assert-ChecksumManifest -ManifestPath $manifestPath -ExecutablePath $exePath } 'one SHA-256 entry'
 
+    # The CI artifact now contains installer, full package, feed, and a
+    # checksum entry for every shipped asset. Exercise the feed and package
+    # checks in isolation so a malformed or missing artifact fails before gh.
+    $packaged = Join-Path $testRoot 'packaged'
+    New-Item -ItemType Directory -Path $packaged -Force | Out-Null
+    $setup = Join-Path $packaged 'CycleArc-Setup.exe'
+    [IO.File]::WriteAllBytes($setup, [byte[]](9, 8, 7))
+    $fullName = 'CycleArc-0.6.0-full.nupkg'
+    $fullPath = Join-Path $packaged $fullName
+    $stream = [IO.File]::Open($fullPath, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $entry = $archive.CreateEntry('CycleArc.exe')
+        $entryStream = $entry.Open()
+        try { $entryStream.Write([byte[]](1, 2, 3, 4), 0, 4) }
+        finally { $entryStream.Dispose() }
+    }
+    finally { $archive.Dispose(); $stream.Dispose() }
+    $feedPath = Join-Path $packaged 'releases.win.json'
+    $fullSha1 = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA1).Hash
+    $fullSha256 = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash
+    @{ Assets = @(@{ PackageId = 'CycleArc'; Version = '0.6.0'; Type = 'Full'; FileName = $fullName; SHA1 = $fullSha1; SHA256 = $fullSha256; Size = (Get-Item $fullPath).Length }) } |
+        ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $feedPath -Encoding utf8
+    $assetFiles = @($setup, $fullPath, $feedPath)
+    $manifestLines = foreach ($asset in $assetFiles) {
+        "$( (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant() )  $(Split-Path -Leaf $asset)"
+    }
+    $packagedManifest = Join-Path $packaged 'SHA256SUMS.txt'
+    $manifestLines | Set-Content -LiteralPath $packagedManifest -Encoding utf8
+    Assert-PackagedReleaseFeed -FeedPath $feedPath -VersionValue '0.6.0' -PackageName $fullName -PackagePath $fullPath | Out-Null
+    $feedText = [IO.File]::ReadAllText($feedPath)
+    $fullBytes = [IO.File]::ReadAllBytes($fullPath)
+    Assert-Throws {
+        Remove-Item -LiteralPath $feedPath -Force
+        Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0'
+    } 'release feed'
+    [IO.File]::WriteAllText($feedPath, $feedText)
+    [IO.File]::WriteAllText($feedPath, $feedText.Replace('"0.6.0"', '"0.6.1"'))
+    Assert-Throws { Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0' } 'Release feed'
+    [IO.File]::WriteAllText($feedPath, $feedText)
+    Assert-Throws {
+        Remove-Item -LiteralPath $fullPath -Force
+        Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0'
+    } 'full package'
+    [IO.File]::WriteAllBytes($fullPath, $fullBytes)
+    [IO.File]::WriteAllBytes($fullPath, [byte[]](5, 4, 3, 2))
+    Assert-Throws { Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0' } 'Size'
+
     $owned = Join-Path $testRoot 'publish/.release-staging/run-1'
     New-Item -ItemType Directory -Path $owned -Force | Out-Null
     Assert-OwnedDirectory -RepoRoot $testRoot -Target $owned

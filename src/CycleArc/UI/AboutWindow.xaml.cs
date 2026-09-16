@@ -9,10 +9,12 @@ namespace CycleArc.UI;
 public partial class AboutWindow : Window
 {
     private readonly Action<string>? _installVersion;
+    private readonly Action? _showUpdates;
 
-    public AboutWindow(string version, string dataSource, Action<string>? installVersion = null)
+    public AboutWindow(string version, string dataSource, Action<string>? installVersion = null, Action? showUpdates = null)
     {
         _installVersion = installVersion;
+        _showUpdates = showUpdates;
         InitializeComponent();
         Title = UiText.AboutTitle;
         SubtitleText.Text = UiText.T("Codex and Claude account usage monitor", "Codex·Claude 계정 사용량 모니터");
@@ -23,8 +25,12 @@ public partial class AboutWindow : Window
         InstallVersionButton.Content = UiText.T("Install another version…", "다른 버전 설치…");
         InstallVersionButton.Visibility = installVersion is null ? Visibility.Collapsed : Visibility.Visible;
         InstallVersionButton.IsEnabled = installVersion is not null;
+        UpdatesButton.Content = UiText.T("Check for updates…", "업데이트 확인…");
+        UpdatesButton.Visibility = showUpdates is null ? Visibility.Collapsed : Visibility.Visible;
         CloseButton.Content = UiText.Close;
     }
+
+    private void OnUpdates(object sender, RoutedEventArgs e) => _showUpdates?.Invoke();
 
     private void OnLink(object sender, RequestNavigateEventArgs e)
     {

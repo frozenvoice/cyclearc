@@ -2,25 +2,45 @@
 
 ## Active product — Codex and Claude Code (2026-09-16)
 
-### Desktop startup and installation (0.5.9)
+### Desktop startup and installation (0.6.0)
 
-`Program.Main` routes all three headless Claude modes before desktop argument parsing, installation,
-IPC and WPF. `DesktopBootstrap` gives the first desktop ownership of the unchanged legacy mutex.
-A later ordinary launch requests activation over a bounded, current-user/session named pipe; autorun
-only probes it. The popup shows the running assembly version. There is no dev/release precedence.
+`Program.Main` routes all three headless Claude modes before Velopack startup, desktop argument
+parsing, IPC and WPF. The headless paths run before Velopack so callbacks do not create desktop
+state, cleanup logs or update UI. `DesktopBootstrap` gives the first desktop ownership of the
+unchanged legacy mutex. A later ordinary launch requests activation over a bounded,
+current-user/session named pipe; autorun only probes it. The popup shows the running assembly
+version. There is no dev/release precedence.
 
-Published downloads and `dev-run.ps1` use `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe`.
-An exclusive install file lease serializes staged SHA-256 verification, explicit shutdown, atomic
-file replacement, readiness verification and rollback. The desktop mutex spans replacement and is
-released before launching the installed executable. New IPC servers become available only after
-WPF startup initializes settings, accounts and the tray. Explicit migration from pre-0.5.8 verifies
-the current-session process, executable metadata and first command-line argument before termination;
-it excludes every Claude headless mode. Ordinary launches never perform that legacy termination.
+`CycleArc-Setup.exe` installs Velopack 1.2.0 under `%LOCALAPPDATA%\CycleArc`. The stable launcher
+at `%LOCALAPPDATA%\CycleArc\CycleArc.exe` owns desktop and Windows-startup entry points; the
+actual app runs from `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`. Claude callbacks use the
+current executable directly because statusLine stdin/stdout forwarding must remain synchronous.
+The former `%LOCALAPPDATA%\Programs\CycleArc` path remains a development compatibility install
+and is excluded from the GitHub update channel.
 
-Settings/account compatibility remains under `ProMeter`. Old external executables are retained for
-absolute Claude callback paths. Tray migration uses only recorded, verified old executable paths;
-it backs up registry values before deleting obsolete path-specific notification entries. It does
-not restart Explorer or rewrite opaque icon caches.
+The update client checks the stable GitHub Releases channel 20 seconds after startup and every six
+hours, downloads only after explicit user action, verifies the complete `.nupkg` SHA-256 after
+download and before apply, and applies only after explicit **Restart & update**. Velopack helper
+files belong to the installer. There is no automatic startup apply. Before graceful desktop exit,
+an external recovery copy under `%LOCALAPPDATA%\CycleArc-update-recovery` starts in bounded
+`--apply-update` mode. It verifies the old process identity, waits for exit, owns the desktop mutex
+during Velopack replacement, and releases it only to start the verified new executable. A bounded
+IPC readiness check covers initialized settings, accounts and tray. Replacement/startup failure
+restores the verified previous files and restarts them; recovery failures preserve the external
+backup and display its location. Completed backups are cleaned after the helper exits. This is
+startup verification, not ongoing health monitoring or user-data schema rollback.
+
+The first setup launch can close the canonical legacy desktop only after verifying its current
+session IPC identity and executable metadata. A development build running from a different path
+keeps the first-instance policy. New IPC servers become available only after WPF startup
+initializes settings, accounts and the tray. Settings, accounts and quota compatibility remain
+under `%LOCALAPPDATA%\ProMeter`; no data schema migration is required.
+
+Settings/account compatibility remains under `ProMeter`. Existing exact CycleArc callback wrappers
+are migrated to the stable current executable after authenticated binding checks, so the old app
+binary need not be retained solely for callbacks. Tray migration uses only recorded, verified old
+executable paths; it backs up registry values before deleting obsolete path-specific notification
+entries. It does not restart Explorer or rewrite opaque icon caches.
 
 ### Provider and presentation contracts
 
@@ -61,7 +81,9 @@ not restart Explorer or rewrite opaque icon caches.
   settings, tray and account startup. It accepts only an existing Claude profile, reads bounded
   stdin and stores the two projected rate-limit windows with local receipt/status metadata.
   No raw JSON, session/project/transcript metadata, auth/token file or `/usage` parsing is used.
-  This headless entry point is part of the one self-contained `CycleArc.exe`.
+  This headless entry point is part of the published `current\CycleArc.exe`. The stable root
+  launcher is reserved for desktop and autorun forwarding; it is not used as a synchronous Claude
+  callback target.
 - Claude callbacks merge under a bounded exclusive lock and atomically replace a per-profile
   cache with a previous-good backup. Earlier receipt times cannot overwrite newer data.
   Missing/malformed input retains the last good values as stale. Optional absent windows are
@@ -78,6 +100,11 @@ not restart Explorer or rewrite opaque icon caches.
   preserves an existing command's stdin/output; reconnect is idempotent and disconnect restores the
   previous entry only while the active command is still owned by this profile. Disconnect saves
   revocation before settings/inbox cleanup; cleanup failure is reported without restoring the binding.
+- During installation migration, an existing exact CycleArc-owned statusLine and StopFailure wrapper
+  is moved to the supplied existing fully-qualified `current\CycleArc.exe` only after the CLI has
+  authenticated the matching saved profile binding. The old executable need not still exist. User
+  replacements, unrelated hooks, disconnected profiles and mismatched bindings are left untouched;
+  previous statusLine data, account generation and nicknames stay in place.
 - StatusLine has no identity fields, and Desktop history carries an organization ID rather than an email. Each live profile response is checked against the bound identity before quota is accepted. A changed or unavailable identity cannot replace the last-good sample; a mismatch hides live quota. The old manual receiver cannot bypass an automatic binding check. Details are in CLAUDE.md.
 - Official StopFailure events carry request-error classifications through a separate bounded headless
   receiver in the same executable. Only projected failure kind, binding generation and observation
@@ -197,8 +224,10 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
 - Both providers show actual provided periods, used/remaining percentages and reset times. Codex additionally shows reset-credit metadata. Claude labels a successful Desktop live response **Updated** with its fetched time, labels statusLine/history fallback data **Received**, preserves previous values as stale on failure, and hides live quota on identity mismatch. Signed-out or unavailable states remain distinct.
 - The desktop never constructs ChatGPT transports, collectors, SQLite stores, pairing servers
   or Pro reset services. Retired WPF views and WebView2 are excluded from its build.
-- Publish bundles the .NET runtime and produces exactly one `CycleArc.exe`; Codex CLI itself
-  remains an external installed/sign-in prerequisite. No extension or companion host is shipped.
+- The development publish check bundles the .NET runtime and produces one self-contained Windows
+  x64 `CycleArc.exe`; the stable 0.6.0 release is packaged as `CycleArc-Setup.exe` with Velopack
+  helper assets managed by the installer. Codex CLI remains an external installed/sign-in
+  prerequisite. No Claude companion callback host is shipped.
 - Existing settings/cache paths are retained; history is neither read nor deleted.
   Startup removes only known native-host registrations matching the old owned manifest path.
   The browser extension must be removed via the browser's extension manager.
@@ -236,8 +265,9 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
   settings/position updates, minimized restores and controller-owned closure use a synchronous
   activation guard on the current UI thread; it is released on success or exception and does
   not change DPI scaling, pointer interaction or other processes.
-  Local installation retries bounded file operations and restores/restarts the old executable
-  when deployment or startup fails. Failed pre-backup moves never restore a stale backup.
+  Local development installation retries bounded file operations and restores/restarts the old
+  executable when filesystem deployment fails. Failed pre-backup moves never restore a stale
+  backup; a filesystem rollback does not claim health rollback for a process that already started.
 - Reset rows show server reset time plus remaining days/hours. A one-minute UI-only timer
   refreshes countdowns; account refresh uses the saved 1/2/5/10/30/60-minute schedule (default five minutes).
 - Last checked combines the local successful-refresh time with elapsed minutes/hours/days.

@@ -2,6 +2,40 @@
 
 ## Current release — Codex and Claude Code
 
+- Windows installer and in-app updates (0.6.0, 2026-09-17):
+  - The final `dev-run.ps1 -NoLaunch` passed: 1,436 unit tests, all production WPF
+    checks, 15 legacy installer scenarios, process/lease/shutdown checks, built and
+    published Claude receivers, self-contained publish and Velopack packaging.
+    Release build warnings/errors: zero. The actual running 0.5.9 installation was
+    preserved; no real account or credential was used for these checks.
+  - The production adapter discovered the generated stable feed, repaired a damaged
+    cached full package, verified SHA-256 and size, rejected a same-size modification
+    made after download, and recovered through explicit retry. Separate synthetic
+    ProMeter settings/account sentinels remained unchanged.
+  - Real Velopack `Update.exe` applied the full package in a disposable `.portable`
+    installation. The prior manifest version was synthetic 0.5.9 with the current
+    production binary; this is a filesystem upgrade fixture, not an installed 0.5.9
+    to 0.6.0 end-to-end desktop session. The resulting manifest and executable hash
+    matched the package. The external recovery snapshot restored the prior tree,
+    marker, updater and launcher while its executable was held open for reading.
+  - Recovery regressions cover missing/partial current, tampered/extra snapshot files,
+    path redirects, size/count/depth limits, activation failure, root-file rollback,
+    initial readiness failure, inability to stop the failed desktop, and failure to
+    restart the previous desktop. Failed recovery retains the external snapshot.
+  - Update views passed EN/KO and Dark/Light layout checks; four production previews
+    were visually inspected. Opening/checking never downloads or applies implicitly;
+    download requires a separate restart action. Cancellation waits for cleanup even
+    after the window closes, and the app includes that operation in shutdown waiting.
+  - Exact owned Claude wrappers migrate only after matching authenticated bindings,
+    including missing old binaries; unrelated settings, prior statusLine output,
+    binding generation and profile data are preserved. Malformed recovery-helper
+    invocations exit before normal desktop or account initialization.
+  - `Setup.exe` was packaged, not executed against the real Windows profile. Its
+    registry/shortcut installation needs a disposable Windows profile for independent
+    end-to-end install testing. Packages are unsigned; Velopack also emits an expected
+    entry-point heuristic warning because its startup is delegated after the bounded
+    headless routes. Actual Velopack before/after-update hooks passed the isolated apply.
+
 - README and Claude preview refresh (2026-09-16):
   - Aligned both READMEs and the production connection/waiting/recovery guidance with
     Desktop-authenticated server refresh. Initial official CLI connection and Desktop
