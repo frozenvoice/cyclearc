@@ -87,7 +87,9 @@ public partial class App : Application
             _codex = new CodexAccountManager(accounts, CodexHomeDiscovery.DefaultHome,
                 [new CodexUsageProvider(profile => new CodexQuotaService(_codexLocator, new CodexAppServerClient(),
                     new CodexSnapshotStore(accounts.SnapshotPath(profile)), version, _log.Info, profile: profile),
-                    () => _settings.CodexExePath), new ClaudeUsageProvider(accounts, connections: _claudeConnections)]);
+                    () => _settings.CodexExePath), new ClaudeUsageProvider(accounts, connections: _claudeConnections,
+                        desktopFactory: profile => new ClaudeDesktopUsageCollector(accounts, profile.Id,
+                            _claudeConnections.VerifyUsageIdentityAsync))]);
         }
         catch
         {

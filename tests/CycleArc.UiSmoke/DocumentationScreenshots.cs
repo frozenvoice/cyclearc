@@ -16,9 +16,16 @@ namespace CycleArc.UiSmoke;
 internal static class DocumentationScreenshots
 {
     // Production views, synthetic profiles/quota metadata, no account or local settings access.
-    public static void Export(string directory, bool claudeUsageOnly = false, bool usagePeriodOnly = false)
+    public static void Export(string directory, bool claudeUsageOnly = false, bool usagePeriodOnly = false, bool claudeOnly = false)
     {
         Directory.CreateDirectory(directory);
+        if (claudeOnly)
+        {
+            ExportAccounts(directory, DateTimeOffset.Now,
+                typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)!, claudeOnly: true);
+            Console.WriteLine("Exported 12 Claude Desktop/connection previews; synthetic data only.");
+            return;
+        }
         if (claudeUsageOnly)
         {
             ExportAccounts(directory, DateTimeOffset.Now,
@@ -66,7 +73,8 @@ internal static class DocumentationScreenshots
         Console.WriteLine("Exported 32 production WPF views: Codex usage, unconnected-profile filtering, account management, connected Claude awaiting usage, Claude authentication failure, mixed usage and automatic connection; synthetic data only.");
     }
 
-    private static void ExportAccounts(string directory, DateTimeOffset now, MethodInfo applyTheme, bool claudeUsageOnly = false, bool usagePeriodOnly = false)
+    private static void ExportAccounts(string directory, DateTimeOffset now, MethodInfo applyTheme, bool claudeUsageOnly = false,
+        bool usagePeriodOnly = false, bool claudeOnly = false)
     {
         foreach (var language in new[] { UiLanguage.English, UiLanguage.Korean })
         foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light })
@@ -85,9 +93,12 @@ internal static class DocumentationScreenshots
                 flyout.ApplyWindowSettings(new AppSettings { FlyoutZoomPercent = 100 });
                 if (!claudeUsageOnly)
                 {
-                    flyout.BindAccounts(accounts, selected, false);
-                    Save(flyout, Path.Combine(directory, $"accounts-overview-{suffix}.png"), 440, null);
-                    if (!usagePeriodOnly)
+                    if (!claudeOnly)
+                    {
+                        flyout.BindAccounts(accounts, selected, false);
+                        Save(flyout, Path.Combine(directory, $"accounts-overview-{suffix}.png"), 440, null);
+                    }
+                    if (!usagePeriodOnly && !claudeOnly)
                     {
                         manager.Bind(accounts, selected);
                         Save(manager, Path.Combine(directory, $"accounts-manage-{suffix}.png"), 700, 800,
@@ -99,7 +110,7 @@ internal static class DocumentationScreenshots
                     flyout.BindAccounts([accounts[0], accounts[1], waiting], waiting.Profile.Id, false);
                     Save(flyout, Path.Combine(directory, $"claude-waiting-{suffix}.png"), 440, null);
 
-                    if (!usagePeriodOnly)
+                    if (!usagePeriodOnly && !claudeOnly)
                     {
                         var authFailure = waiting with
                         {
@@ -120,8 +131,9 @@ internal static class DocumentationScreenshots
                 {
                     Snapshot = ClaudeQuotaService.ApplyFreshness(new CodexQuotaSnapshot(CodexQuotaStatus.Available, null, now.AddMinutes(-12), now.AddMinutes(-12),
                         null, null, null,
-                        [new("five_hour", 91, 300, now.AddHours(3), CodexWindowKind.FiveHour),
-                         new("seven_day", 47, 10080, now.AddDays(4), CodexWindowKind.Weekly)], null)
+                        [new("five_hour", 91, 300, claudeOnly ? null : now.AddHours(3), CodexWindowKind.FiveHour),
+                         new("seven_day", 47, 10080, claudeOnly ? null : now.AddDays(4), CodexWindowKind.Weekly)],
+                        claudeOnly ? "claude-desktop-history" : null)
                         { Provider = UsageProviderId.Claude }, now),
                     Email = "research@example.invalid"
                 };
@@ -134,6 +146,7 @@ internal static class DocumentationScreenshots
                 ((Button)guide.FindName("ConnectExistingButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 AccountUiChecks.PumpUntil(guide.ActiveOperation);
                 Save(guide, Path.Combine(directory, $"claude-connection-{suffix}.png"), 610, 580);
+                if (claudeOnly) continue;
                 connection.FailureKind = ClaudeFailureKind.AuthRequired;
                 guide.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
                 AccountUiChecks.PumpUntil(guide.ActiveOperation);

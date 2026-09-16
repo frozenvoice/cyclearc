@@ -47,11 +47,15 @@ not restart Explorer or rewrite opaque icon caches.
 - `IUsageProvider` creates isolated `IUsageAccountService` instances for the shared account
   manager. `CodexUsageProvider` adapts the existing Codex service without changing its
   protocol/client, identity verification, concurrency or cache format. `ClaudeUsageProvider`
-  reads only a local inbox populated by Claude Code's official statusLine stdin.
-- Claude's projected windows describe shared Web/Desktop/Code subscription quota. Code is
-  the delivery source; receipt recency does not prove current server usage. Claude UI labels
-  even recent samples as Received, with shared scope and last-sample guidance. A user action
-  opens the official usage page in the default browser for manual inspection; no page or
+  reads a local inbox populated by Claude Code's official statusLine stdin and, when
+  available, Claude Desktop's app-owned `plan-usage-history.json`.
+- Claude's projected windows describe shared Web/Desktop/Code subscription quota. Code and
+  Desktop are delivery sources; observation recency does not prove current server usage.
+  Claude UI labels even recent samples as Received, with shared scope and last-sample
+  guidance. Desktop history is a best-effort local schema (version 2 currently observed
+  in Desktop 1.52386.3.0) and carries no reset timestamps. When both sources are present,
+  the provider displays the sample with the newer observation time. A user action opens
+  the official usage page in the default browser for manual inspection; no page or
   credential collection occurs. See [the official-interface review](CLAUDE-USAGE-RESEARCH.md).
 - Claude stale presentation uses explicit localized warning text and a theme-aware amber
   resource on details, account cards and widget, with an amber detail ring. These surfaces
@@ -79,10 +83,13 @@ not restart Explorer or rewrite opaque icon caches.
   Bound quota/failure commits also hold the connection mutation lease, preventing a generation
   change between binding validation and file replacement. Superseded automatic and manual
   callbacks leave quota receipt metadata untouched while existing statusLine output is preserved.
-- A separate two-second passive check reads Claude inboxes off the UI thread and emits changes
-  only for new data/freshness transitions, preserving nickname editor focus. It does not start
-  Codex, renew receipt timestamps or alter manual-refresh ownership. Normal manual refresh
-  also reads Claude's inbox. The existing Codex interval and bounded batch remain unchanged.
+- A separate two-second passive check reads Claude statusLine inboxes and Desktop history off
+  the UI thread and emits changes only for new data/freshness transitions, preserving nickname
+  editor focus. It does not start Codex, Desktop or a model turn, renew receipt timestamps or alter
+  manual-refresh ownership. Normal manual refresh also reads both local Claude sources. The
+  existing Codex interval and bounded batch remain unchanged. Desktop file writes may lag a
+  Code action; missing, changed or unrecognized history keeps the last-good projection stale
+  and reports the corresponding source detail.
 - The connection window offers current-login connection and official browser login. A single-flight
   cancellable `ClaudeConnectionService` invokes `claude auth login --claudeai` / `auth status --json`.
   Browser logins use new per-profile `CLAUDE_CONFIG_DIR` folders; current-login connection uses the
@@ -94,12 +101,14 @@ not restart Explorer or rewrite opaque icon caches.
   preserves an existing command's stdin/output; reconnect is idempotent and disconnect restores the
   previous entry only while the active command is still owned by this profile. Disconnect saves
   revocation before settings/inbox cleanup; cleanup failure is reported without restoring the binding.
-- StatusLine has no identity fields. Each automatic callback verifies the current CLI login against
-  its binding before accepting usage; a changed login marks the last sample stale. Old configuration
-  callbacks and quota samples predating a new binding cannot populate the new account. A current-login
-  check cannot authenticate an already-running session's emitter; users must restart sessions after
+- StatusLine has no identity fields, and Desktop history carries an organization ID rather than
+  an email. Each automatic callback verifies its current login; each new Desktop sample verifies a Pro/Max login
+  and organization against its binding before accepting usage; a changed or unavailable identity
+  marks the source unverified without replacing the last sample. Old configuration callbacks and
+  quota samples predating a new binding cannot populate the new account. A current-login check
+  cannot authenticate an already-running session's emitter; users must restart sessions after
   external login changes. The old manual receiver cannot bypass an automatic binding's checks.
-  Passive polls never invoke authentication. Details are in [CLAUDE.md](CLAUDE.md).
+  Desktop attribution invokes the bounded official auth-status command on startup, binding changes and a new source timestamp. Unchanged samples reuse the verified identity; failed checks back off for 30 seconds. Details are in [CLAUDE.md](CLAUDE.md).
 - Official StopFailure events carry request-error classifications through a separate bounded headless
   receiver in the same executable. Only projected failure kind, binding generation and observation
   time are persisted in `claude-failure.json`; no raw hook metadata is stored. Local signed-in
@@ -119,9 +128,11 @@ not restart Explorer or rewrite opaque icon caches.
   is hidden. The projection never deletes profiles or rewrites the user's saved selection.
   Explicit Claude disconnection is persisted separately from its preserved quota cache, so a restart
   cannot resurrect the disconnected card. Reconnection shows **Awaiting usage** until a new official
-  sample arrives. Terminal Claude Code responses supply quota fields. Web/Desktop activity,
-  including the Desktop Code tab, consumes the same allowance; this integration supports receipt
-  from the connected terminal CLI. The waiting text and launch action identify that requirement.
+  statusLine or Desktop history sample arrives. Terminal Claude Code responses supply quota fields;
+  Claude Desktop Code supplies local history percentages when its app-owned file is available.
+  Web/Desktop activity consumes the same allowance. The provider compares source observation times,
+  retains the last good projection if Desktop history is delayed or unavailable, and the waiting text
+  explains both supported local sources.
 
 - The repository is `frozenvoice/cyclearc`; clone instructions use the folder `cyclearc`.
   Clone instructions, documentation badges/download links and the app's repository link use

@@ -5,7 +5,8 @@ using CycleArc.Services;
 
 namespace CycleArc.Providers.Claude;
 
-public sealed class ClaudeUsageProvider(CodexAccountStore accounts, IClock? clock = null, ClaudeConnectionService? connections = null) : IUsageProvider
+public sealed class ClaudeUsageProvider(CodexAccountStore accounts, IClock? clock = null, ClaudeConnectionService? connections = null,
+    Func<CodexAccountProfile, IClaudeDesktopUsageSource>? desktopFactory = null) : IUsageProvider
 {
     public UsageProviderId Id => UsageProviderId.Claude;
     public IUsageAccountService Create(CodexAccountProfile profile)
@@ -13,7 +14,7 @@ public sealed class ClaudeUsageProvider(CodexAccountStore accounts, IClock? cloc
         if (profile.Provider != Id) throw new ArgumentException("Wrong usage provider.");
         return new ClaudeQuotaService(new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(profile.Id), profile.Id), clock,
             () => new ClaudeConnectionStore(accounts, profile.Id).Read(), fingerprint => connections?.Email(profile.Id, fingerprint),
-            new ClaudeFailureStore(accounts));
+            new ClaudeFailureStore(accounts), desktopFactory?.Invoke(profile));
     }
 }
 
@@ -21,6 +22,8 @@ public sealed class ClaudeQuotaService : IUsageAccountService
 {
     private readonly ClaudeStatusLineStore _store;
     private readonly ClaudeFailureStore? _failureStore;
+    private readonly IClaudeDesktopUsageSource? _desktop;
+    private ClaudeDesktopUsageUpdate? _lastDesktop;
     private readonly IClock _clock;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private ClaudeStatusLineRead? _lastRead;
@@ -34,10 +37,11 @@ public sealed class ClaudeQuotaService : IUsageAccountService
 
     public ClaudeQuotaService(ClaudeStatusLineStore store, IClock? clock = null,
         Func<ClaudeConnectionRead>? readConnection = null, Func<string?, string?>? email = null,
-        ClaudeFailureStore? failureStore = null)
+        ClaudeFailureStore? failureStore = null, IClaudeDesktopUsageSource? desktop = null)
     {
         _store = store;
         _failureStore = failureStore;
+        _desktop = desktop;
         _clock = clock ?? SystemClock.Instance;
         _readConnection = readConnection;
         _email = email;
@@ -67,9 +71,17 @@ public sealed class ClaudeQuotaService : IUsageAccountService
         IsRefreshing = true;
         try
         {
-            var (read, failure, connection) = await Task.Run(() => (_store.Read(), ReadFailure(), _readConnection?.Invoke()), token).ConfigureAwait(false);
-            var changed = connection != _connection || failure != _lastFailureRead;
+            var connection = await Task.Run(() => _readConnection?.Invoke(), token).ConfigureAwait(false);
+            var desktop = _desktop is null ? null : await _desktop.RefreshAsync(
+                connection is { Unavailable: false } ? connection.Binding : null, token).ConfigureAwait(false);
+            // A disconnect/reconnect can occur while Desktop attribution awaits the CLI.
+            var current = await Task.Run(() => _readConnection?.Invoke(), token).ConfigureAwait(false);
+            if (current != connection) desktop = null;
+            connection = current;
+            var (read, failure) = await Task.Run(() => (_store.Read(), ReadFailure(connection)), token).ConfigureAwait(false);
+            var changed = connection != _connection || failure != _lastFailureRead || desktop != _lastDesktop;
             _connection = connection;
+            _lastDesktop = desktop;
             if (read != _lastRead || changed) Apply(read, failure);
             var snapshot = Snapshot;
             PublishIfChanged(snapshot);
@@ -78,10 +90,11 @@ public sealed class ClaudeQuotaService : IUsageAccountService
         finally { IsRefreshing = false; _gate.Release(); }
     }
 
-    private ClaudeFailureRead? ReadFailure()
+    private ClaudeFailureRead? ReadFailure() => ReadFailure(_connection);
+    private ClaudeFailureRead? ReadFailure(ClaudeConnectionRead? connection)
     {
-        if (_failureStore is null || _connection?.Binding is null) return null;
-        try { return _failureStore.Read(_connection.Binding.ProfileId); }
+        if (_failureStore is null || connection?.Binding is null) return null;
+        try { return _failureStore.Read(connection.Binding.ProfileId); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
         { return new(null, true); }
     }
@@ -107,8 +120,13 @@ public sealed class ClaudeQuotaService : IUsageAccountService
         var good = state?.LastGood;
         if (good is not null && _connection?.Binding is { } sampleBinding && good.ReceivedAt < sampleBinding.ConnectedAt)
             good = null;
+        var desktop = _lastDesktop?.Sample;
+        if (desktop is not null && (_connection?.Binding is not { Disconnected: false } desktopBinding
+            || desktop.ObservedAt < desktopBinding.ConnectedAt || desktop.ObservedAt > _clock.UtcNow)) desktop = null;
+        var useDesktop = desktop is not null && (good is null || desktop.ObservedAt > good.ReceivedAt);
+        var received = useDesktop ? desktop!.ObservedAt : good?.ReceivedAt;
         var activeFailure = _connection?.Binding is { } binding && failureRead is { Unavailable: false, State: { } failure }
-            && ClaudeFailureClassification.IsActive(failure, binding, good);
+            && ClaudeFailureClassification.IsActive(failure, binding, received);
         var failureDetail = activeFailure ? ClaudeFailureClassification.TechnicalDetail(failureRead!.State!.Kind) : null;
         if (!activeFailure && failureRead?.Unavailable == true) failureDetail = "claude-bridge-unavailable";
         var statusDetail = read.Unavailable ? "claude-cache-unavailable" : state?.LastInputStatus switch
@@ -117,13 +135,23 @@ public sealed class ClaudeQuotaService : IUsageAccountService
             ClaudeInputStatus.Malformed => "claude-statusline-malformed",
             _ => "claude-statusline-missing"
         };
-        var detail = failureDetail ?? statusDetail;
-        if (detail is null && good is null && state?.LastGood is not null) detail = "claude-statusline-waiting";
-        var attempted = state?.LastReceivedAt;
+        var detail = failureDetail ?? (useDesktop ? _lastDesktop?.Failure
+            : good is null ? _lastDesktop?.Failure ?? statusDetail : statusDetail);
+        if (!useDesktop && detail is null && good is null && state?.LastGood is not null) detail = "claude-statusline-waiting";
+        var attempted = useDesktop ? desktop!.ObservedAt : state?.LastReceivedAt;
         if (activeFailure && failureRead!.State!.ObservedAt > (attempted ?? DateTimeOffset.MinValue))
             attempted = failureRead.State.ObservedAt;
 
-        if (good is not null)
+        if (useDesktop)
+        {
+            var windows = new List<CodexQuotaWindow>();
+            if (desktop!.FiveHour is { } five) windows.Add(new("five_hour", five, 300, null, CodexWindowKind.FiveHour));
+            if (desktop.SevenDay is { } week) windows.Add(new("seven_day", week, 10080, null, CodexWindowKind.Weekly));
+            _snapshot = new(detail is null ? CodexQuotaStatus.Available : CodexQuotaStatus.Stale,
+                null, desktop.ObservedAt, attempted, null, null, null, windows, detail ?? "claude-desktop-history")
+                { Provider = UsageProviderId.Claude };
+        }
+        else if (good is not null)
         {
             var windows = new List<CodexQuotaWindow>();
             if (good.FiveHour is { } five) windows.Add(Window(five, CodexWindowKind.FiveHour, 300, "five_hour"));

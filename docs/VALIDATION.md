@@ -2,6 +2,41 @@
 
 ## Current release — Codex and Claude Code
 
+- Claude Desktop quota receipt (2026-09-16):
+  - Reproduced the delivery gap: the connected profile's statusLine inbox still held
+    5-hour 4% / weekly 3% from September 12, while the actual Claude Desktop Code usage
+    popup showed 15% / 7% with Opus 5 selected. Refresh previously only reread that inbox.
+    Historical terminal tests did not establish Desktop Code receipt.
+  - Claude Desktop 1.52386.3.0 wrote those actual percentages into its app-owned
+    `plan-usage-history.json` version 2. Its organization matched the connected Pro
+    identity through official `auth status --json`. No credential, cookie, conversation
+    or transcript file was read. No CLI or Desktop model request was created for this test.
+  - Added bounded Desktop history parsing, verified personal-subscription identity,
+    generation-bound atomic caching and source selection by original observation time.
+    Desktop history contains no reset timestamps; they remain unknown, including when
+    the older CLI record has resets. Missing or invalid source data retains last-good values.
+  - The final `dev-run.ps1 -NoLaunch` passed with zero build warnings/errors, 1,352 unit
+    tests, 15 installer scenarios and the remaining installation/process checks,
+    222 mixed-provider WPF renders, all other WPF checks, built/published Claude receiver
+    checks and one self-contained executable. Replaced and visually inspected only the
+    12 affected Claude overview/waiting/connection documentation images in EN/KO and
+    light/dark. Those images deliberately use synthetic accounts and values.
+  - Installed that validated executable through the existing transactional installer.
+    The installed SHA-256 matched staging:
+    `C5EA8CE4EF2CFE1DBFC7CECCDD4530F239E1548C379555AF059FDE3B84BA4D8C`.
+    The actual running app created its own `claude-desktop-usage.json` with 15% / 7%
+    and the exact Desktop observation timestamp `2026-09-16T11:18:44.627Z`;
+    the old statusLine inbox remained untouched. Subsequent reads preserved that timestamp.
+    This establishes receipt of real Desktop data by the installed app. Computer Use
+    could read Claude's Code usage popup, but did not expose a targetable CycleArc tray
+    window even after activation. Therefore an actual installed-flyout refresh click
+    and a new Desktop conversation followed by UI refresh were not verified here;
+    production WPF presentation and refresh transitions were checked with isolated fixtures.
+  - This source is an observed Desktop-owned file schema, not a public quota API.
+    CycleArc cannot force Desktop to fetch/write a new sample; manual refresh may wait
+    for that write. Pro/Max identity is required because an organization-only history
+    sample cannot safely identify an arbitrary Team member.
+
 - Unified desktop installation and first-instance policy (0.5.8, 2026-09-16):
   - `dev-run.ps1 -NoLaunch` passed: zero build warnings/errors, 1,318 unit tests,
     installer recovery checks, production WPF checks, one self-contained executable,

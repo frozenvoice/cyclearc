@@ -31,10 +31,13 @@ Read only the sections relevant to the change:
   Identity mismatch/conflict hides cached quota and credits; never inherit another account's cache.
   Only explicit successful login may replace an established binding.
 - Claude shows the shared Web·Desktop·Code subscription quota received through official Code statusLine
-  `rate_limits.five_hour` / `seven_day` (`used_percentage`, `resets_at`); preserve fractional percentages.
+  `rate_limits.five_hour` / `seven_day` (`used_percentage`, `resets_at`) or Claude Desktop's app-owned
+  `plan-usage-history.json` (`t`, `org`, `u.fh`, `u.sd`); preserve fractional percentages.
+  Compare source observation times and display the newer sample; Desktop history has no reset timestamps.
   Label it Received, with original receipt time and shared scope, never live/current.
 - Idle Claude samples retain last-good values and Received state even after reset times pass. Input/receipt,
-  cache, identity, authentication, request or bridge failures may mark samples stale. Refresh reads the local inbox; refresh, polling
+  cache, identity, authentication, request or bridge failures may mark samples stale. Refresh reads the local
+  statusLine inbox and Desktop history; it does not start Desktop or query a quota server. Refresh, polling
   or opening the usage page must not renew receipts or invent zero. Never scrape usage pages, parse `/usage`,
   call undocumented quota endpoints or run a model turn to measure limits.
 - Connection and receipt are separate: connected Claude accounts with unknown limits show Awaiting usage
@@ -46,8 +49,9 @@ Read only the sections relevant to the change:
   and existing statusLine command/output. Change/restore only exact CycleArc-owned hook entries.
   Keep request/authentication failures separate from receipts; callbacks alone do not clear sign-in recovery.
   Bound subprocess startup, requests, cancellation and shutdown; do not orphan children. Authentication is single-flight.
-- Claude receiver storage is limited to projected quota, receipt/binding metadata and failure classifications;
-  keep email in memory.
+- Claude receiver storage is limited to projected quota, receipt/source/binding metadata and failure classifications;
+  keep email in memory. The Desktop reader may read only the bounded app-owned `plan-usage-history.json`.
+  Verify the matching signed-in Pro/Max identity and organization before accepting Desktop samples.
   Never read/copy/monitor CLI credentials, tokens, cookies, prompts, responses or conversation files;
   never log secrets or add telemetry. Tests/diagnostics use isolated roots and fake adapters, not real account/settings changes.
 - Unknown usage is never zero. Failures retain the last valid snapshot and

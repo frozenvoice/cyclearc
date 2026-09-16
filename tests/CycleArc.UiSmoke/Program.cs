@@ -100,6 +100,11 @@ internal static class Program
                 DocumentationScreenshots.Export(directory);
                 return 0;
             }
+            if (args is ["--claude-desktop-screenshots", var desktopDirectory])
+            {
+                DocumentationScreenshots.Export(desktopDirectory, claudeOnly: true);
+                return 0;
+            }
             if (args is ["--usage-periods", var periodDirectory])
             {
                 UsagePeriodUiChecks.Run(app, periodDirectory);
