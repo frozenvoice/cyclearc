@@ -33,6 +33,28 @@ public sealed class ClaudeConnectionService(CodexAccountStore accounts, IClaudeC
                 && ClaudeIdentity.LegacyFingerprint(email, auth.OrganizationId, auth.Plan) == fingerprint))
             ? auth.Email : null;
 
+    // A read-only identity check for Desktop quota attribution. Unlike connection inspection,
+    // this does not install hooks, rotate bindings or edit Claude's settings.
+    public async Task<ClaudeAuthentication> VerifyUsageIdentityAsync(ClaudeConnectionBinding binding, CancellationToken token)
+    {
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            RequireProfile(binding.ProfileId);
+            var current = new ClaudeConnectionStore(accounts, binding.ProfileId).Read();
+            if (current.Unavailable || current.Binding != binding || binding.Disconnected)
+                return new(ClaudeAuthStatus.Failed);
+            var auth = await _cli.AuthenticateAsync(binding.CliExecutable,
+                binding.UseDefaultConfig ? null : binding.ConfigDirectory, false, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            current = new ClaudeConnectionStore(accounts, binding.ProfileId).Read();
+            if (current.Unavailable || current.Binding != binding) return new(ClaudeAuthStatus.Failed);
+            _identities[binding.ProfileId] = auth;
+            return auth;
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task<ClaudeConnectionOverview> InspectAsync(string profileId, CancellationToken token)
     {
         await _gate.WaitAsync(token).ConfigureAwait(false);

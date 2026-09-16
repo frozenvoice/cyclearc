@@ -39,17 +39,20 @@ Repository: `cyclearc`; solution: `CycleArc.sln`; distribution: one self-contain
   not primary/secondary position. Keep root metadata separate from selected-bucket metadata.
   Missing optional windows are allowed; malformed protocol input is a failure, not successful empty data.
   Unknown percentages/credit expiries stay unknown. Reset-credit IDs stay in memory; persist expiry timestamps only.
-- Claude values describe the **shared Web·Desktop·Code subscription quota**, last delivered via Code's
-  official statusLine `rate_limits.five_hour` / `seven_day` (`used_percentage`, `resets_at`).
-  Preserve fractional percentages. Code is the delivery source, not the whole scope of account usage.
+- Claude values describe the **shared Web·Desktop·Code subscription quota**, observed via Code's
+  official statusLine `rate_limits.five_hour` / `seven_day` (`used_percentage`, `resets_at`) or
+  Claude Desktop's app-owned `plan-usage-history.json` (`t`, `org`, `u.fh`, `u.sd`). Preserve
+  fractional percentages. Code and Desktop are delivery sources, not the whole scope of account usage.
+  Compare the two sources by observation time and display the newer one; Desktop history has no reset times.
 - Label Claude samples as received, not live/current. Keep idle samples in Received with last-good values
   and their original receipt time, including after reported reset times pass. Reserve stale warnings for
   missing/malformed input, cache/identity failures or invalid receipt metadata. Elapsed time or a passed
   reset alone must not raise attention.
   Keep the last receipt date/time and shared scope in the UI.
   Polling, manual refresh and opening the usage page must not renew a receipt or invent zero after reset.
-- Do not force a Claude quota refresh without a supported, safe official query. The current refresh reads
-  the local inbox only; the usage-page button opens the normal browser without collecting its contents.
+- Do not force a Claude quota refresh without a supported, safe query. The current refresh passively reads
+  the local statusLine inbox and Claude Desktop history; it does not poll a quota server, start Desktop or
+  launch a model turn. The usage-page button opens the normal browser without collecting its contents.
   Never scrape usage pages, parse `/usage`, call undocumented quota endpoints, or run a model turn to measure limits.
 - Connection and usage receipt are separate. Connected Claude accounts remain visible with unknown limits
   and **Awaiting usage**, without increasing attention totals. Unconnected/disconnected profiles stay in management;
@@ -59,8 +62,10 @@ Repository: `cyclearc`; solution: `CycleArc.sln`; distribution: one self-contain
 - Claude authentication uses official `auth login --claudeai` / `auth status --json`, with bounded, cancellable,
   single-flight operations. StatusLine does not verify identity: preserve configuration/account binding checks,
   reject old or mismatched callbacks, and preserve unrelated settings and any existing statusLine command/output.
-- Persist only projected quota, receipt and binding metadata. Never read/copy/monitor CLI credential files,
-  tokens, cookies, prompts, responses or conversation files; never log secrets or add telemetry.
+- Persist only projected quota, receipt/source and binding metadata. The Desktop reader may read only the
+  app-owned `plan-usage-history.json`; never read/copy/monitor CLI credential files, tokens, cookies, prompts,
+  responses, transcripts or conversation files; never log secrets or add telemetry. Verify the matching
+  signed-in Pro/Max identity and organization before accepting a Desktop sample.
   Keep Claude email in memory and login with the official flow. Diagnostics/tests must not change real accounts/settings.
 - Unknown usage is never zero or a fabricated request count. Failed attempts must not advance the last success.
   Preserve the last valid snapshot on transient failure and across restart. Cache/settings writes remain atomic

@@ -140,6 +140,34 @@ internal static class MixedProviderUiChecks
                     && ((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(idle.Snapshot),
                     "Idle Claude values look stale or hide their original receipt.");
                 count += 2;
+                // Desktop supplies real percentages without reset timestamps. Exercise the
+                // production view, source guidance and window rows in each language/theme.
+                var desktop = idle with { Snapshot = idle.Snapshot with
+                {
+                    TechnicalDetail = "claude-desktop-history",
+                    Windows = [new("five_hour", 15, 300, null, CodexWindowKind.FiveHour),
+                        new("seven_day", 7, 10080, null, CodexWindowKind.Weekly)]
+                } };
+                flyout.BindAccounts([accounts[0], desktop], desktop.Profile.Id, false);
+                AccountUiChecks.Render(flyout, 440, null, directory is null ? null
+                    : Path.Combine(directory, $"claude-desktop-{language}-{theme}.png"));
+                var desktopNotice = (TextBlock)flyout.FindName("CodexStatusText");
+                Check(desktopNotice.Text.Contains("Desktop", StringComparison.Ordinal), "Desktop receipt hides its source.");
+                var desktopRows = ((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>()
+                    .Select(border => (Grid)border.Child).ToArray();
+                Check(desktopRows.Length == 5, "Desktop quota, reset and receipt rows were omitted.");
+                string ValueAt(int index) => ((TextBlock)((StackPanel)desktopRows[index].Children[1]).Children[0]).Text;
+                Check(ValueAt(0) == "15% / 85%" && ValueAt(2) == "7% / 93%",
+                    "Desktop quota values were omitted or changed.");
+                Check(ValueAt(1) == UiText.NotAvailable && ValueAt(3) == UiText.NotAvailable,
+                    "Desktop reset times were invented.");
+                Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(desktop.Snapshot).CenterValueText,
+                    "Desktop quota without a reset time has no ring value.");
+                widget.BindAccount(desktop);
+                AccountUiChecks.Render(widget, 245, null, null);
+                Check(((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(desktop.Snapshot),
+                    "Desktop widget hides the source observation time.");
+                count += 2;
 
                 var elapsed = idle with { Snapshot = ClaudeQuotaService.ApplyFreshness(idle.Snapshot with
                 {
@@ -234,9 +262,9 @@ internal static class MixedProviderUiChecks
                 Check(((Button)guide.FindName("OpenClaudeButton")).Content.ToString()!.Contains(UiText.T("terminal", "터미널")),
                     "Claude launch action does not identify the terminal.");
                 var receiptHint = ((TextBlock)guide.FindName("FreshnessHint")).Text;
-                Check(receiptHint.Contains(UiText.T("terminal", "터미널")) && receiptHint.Contains(UiText.T("Code tab", "Code 탭"))
-                    && receiptHint.Contains(UiText.T("original receipt time", "원래 수신 시각")),
-                    "Connection guide fails to distinguish terminal delivery from Desktop Code sessions.");
+                Check(receiptHint.Contains(UiText.T("terminal", "터미널")) && receiptHint.Contains("Claude Desktop")
+                    && receiptHint.Contains(UiText.T("same account", "같은 계정")),
+                    "Connection guide omits Desktop receipt or its same-account requirement.");
 
                 // A real StopFailure must surface a recovery action on the bound profile.
                 connection.FailureKind = ClaudeFailureKind.AuthRequired;
@@ -400,8 +428,8 @@ internal static class MixedProviderUiChecks
             "Waiting profile lacks shared quota meaning or access to current usage.");
         Check(((ItemsControl)flyout.FindName("CodexRows")).Items.Count == 0, "Waiting connection invented quota numbers.");
         var waitingText = ((TextBlock)flyout.FindName("CodexStatusText")).Text;
-        Check(waitingText.Contains(UiText.T("terminal", "터미널")) && waitingText.Contains(UiText.T("Desktop Code", "데스크톱 Code")),
-            "Awaiting usage omits the terminal source and Desktop Code limitation.");
+        Check(waitingText.Contains("Claude Code") && waitingText.Contains("Claude Desktop"),
+            "Awaiting usage omits an available Claude receipt source.");
 
         manager.Bind([first, connected, second], connected.Profile.Id);
         Check(((Button)((StackPanel)managed.Items[1]).Children[0]).IsEnabled, "Connected waiting account cannot be selected.");
