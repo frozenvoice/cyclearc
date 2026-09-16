@@ -1,128 +1,100 @@
 # CycleArc agent instructions
 
-**CycleArc** is a Windows-only .NET 8 WPF tray app for Codex and Claude subscription limits.
-Repository: `cyclearc`; solution: `CycleArc.sln`; distribution: one self-contained `CycleArc.exe`.
-`src/CycleArc` contains the desktop app; `src/CycleArc.Core` contains provider/shared logic;
-`tests/CycleArc.Tests` and `tests/CycleArc.UiSmoke` contain unit and production WPF checks.
-
-## Scope and workflow
-
-- Check the repository root, branch/upstream and working-tree changes before editing. Preserve unrelated work.
-- Follow the user's current request and earlier approvals. Resolve routine reversible choices without asking again;
-  clarify only a missing decision that materially affects the result. Respect host permissions.
-- Inspect the affected implementation and relevant recent history, then implement, run the appropriate check,
-  fix failures and verify the result. A plan, first implementation or passing compile alone is not completion.
-- Keep changes focused. Do not add collectors, dependencies, features or cleanup merely to make a check pass.
-- Read only the context needed below. Select skills for the actual operation, not incidental keywords.
-  A wording change does not require another protocol investigation or every project document.
-- Keep this file focused on current product contracts and recurring failures. Put detailed explanations in
-  the relevant document; consolidate an existing rule before adding another blanket requirement.
+CycleArc is a Windows-only .NET 8 WPF tray app for Codex and Claude subscription limits.
+Use Windows, the .NET 8 SDK and PowerShell 7+. The solution is `CycleArc.sln`;
+`src/CycleArc` is the desktop app, `src/CycleArc.Core` holds provider/shared logic,
+and `tests/CycleArc.Tests` / `tests/CycleArc.UiSmoke` cover unit / production WPF checks.
+Ship one self-contained Windows x64 `CycleArc.exe`.
+Do not hand-edit or commit generated/local output in `bin/`, `obj/`, `publish/`, `artifacts/` or `.tmp/`.
 
 ## Read on demand
 
-| When the task involves | Read the relevant section of |
-| --- | --- |
-| Product behavior, setup or user-facing wording | [README.md](README.md) and the corresponding [Korean guide](docs/README.ko.md) |
-| Provider boundaries, account state, cache compatibility or startup | The active-product section of [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| Claude login, bindings, statusLine or receipt handling | [Claude integration](docs/CLAUDE.md) |
-| Changing Claude's data source or assessing a current-quota query | [Official-interface research](docs/CLAUDE-USAGE-RESEARCH.md); recheck official sources if the decision may have changed |
-| Prior regressions, test coverage or release evidence | Matching entries in [VALIDATION.md](docs/VALIDATION.md), not its entire history |
-| Creating or replacing UI documentation images | [Image guide](docs/images/README.md) |
-| Retained ChatGPT history, reconstruction, WebView or companion code/tests | [Legacy maintenance](docs/LEGACY-MAINTENANCE.md); those rules do not apply to ordinary Codex/Claude work |
+Read only the sections relevant to the change:
+
+- Product/setup/wording: [README](README.md) and [Korean guide](docs/README.ko.md); update both for behavior changes.
+- Provider boundaries, caches and startup: active-product sections of [Architecture](docs/ARCHITECTURE.md).
+- Claude authentication/receipts: [Claude integration](docs/CLAUDE.md). Before changing its data source,
+  check [official-interface research](docs/CLAUDE-USAGE-RESEARCH.md) and current official sources.
+- Regression evidence: matching entries in [Validation](docs/VALIDATION.md).
+- UI images: [image guide](docs/images/README.md); use production views with synthetic accounts and update affected previews only.
+- Retired history/reconstruction, WebView or companion code: [legacy maintenance](docs/LEGACY-MAINTENANCE.md);
+  its rules apply only to that work.
 
 ## Product contracts
 
-- Keep providers behind `IUsageProvider` / `IUsageAccountService`. Never combine accounts' percentages,
-  windows, caches or reset credits. Selection changes the detail/tray/widget account, not another app's login.
-  Preserve nicknames, order, selected IDs, provider badges and existing settings/cache compatibility.
-- Codex data comes from the installed, signed-in App Server. Classify windows by `windowDurationMins`,
-  not primary/secondary position. Keep root metadata separate from selected-bucket metadata.
-  Missing optional windows are allowed; malformed protocol input is a failure, not successful empty data.
-  Unknown percentages/credit expiries stay unknown. Reset-credit IDs stay in memory; persist expiry timestamps only.
-- Claude values describe the **shared Web·Desktop·Code subscription quota**, last delivered via Code's
-  official statusLine `rate_limits.five_hour` / `seven_day` (`used_percentage`, `resets_at`).
-  Preserve fractional percentages. Code is the delivery source, not the whole scope of account usage.
-- Label Claude samples as received, not live/current. Keep idle samples in Received with last-good values
-  and their original receipt time, including after reported reset times pass. Reserve stale warnings for
-  missing/malformed input, cache/identity failures or invalid receipt metadata. Elapsed time or a passed
-  reset alone must not raise attention.
-  Keep the last receipt date/time and shared scope in the UI.
-  Polling, manual refresh and opening the usage page must not renew a receipt or invent zero after reset.
-- Do not force a Claude quota refresh without a supported, safe official query. The current refresh reads
-  the local inbox only; the usage-page button opens the normal browser without collecting its contents.
-  Never scrape usage pages, parse `/usage`, call undocumented quota endpoints, or run a model turn to measure limits.
-- Connection and usage receipt are separate. Connected Claude accounts remain visible with unknown limits
-  and **Awaiting usage**, without increasing attention totals. Unconnected/disconnected profiles stay in management;
-  temporary failures retain usable stale data. Popup, tray, widget, counts and fallback selection use one projection.
-- Reconnecting the same verified Claude binding reuses the existing profile. Remove only empty drafts created by
-  the cancelled/failed connection flow; preserve connected profiles and saved data. Disconnection survives restart.
-- Claude authentication uses official `auth login --claudeai` / `auth status --json`, with bounded, cancellable,
-  single-flight operations. StatusLine does not verify identity: preserve configuration/account binding checks,
-  reject old or mismatched callbacks, and preserve unrelated settings and any existing statusLine command/output.
-- Persist only projected quota, receipt and binding metadata. Never read/copy/monitor CLI credential files,
-  tokens, cookies, prompts, responses or conversation files; never log secrets or add telemetry.
-  Keep Claude email in memory and login with the official flow. Diagnostics/tests must not change real accounts/settings.
-- Unknown usage is never zero or a fabricated request count. Failed attempts must not advance the last success.
-  Preserve the last valid snapshot on transient failure and across restart. Cache/settings writes remain atomic
-  with a valid backup; branding changes must preserve `LegacyInstallation` data/mutex/registry identifiers.
-- Marshal background and system-event callbacks to the WPF Dispatcher. Bound subprocess startup, requests,
-  cancellation and shutdown; do not leak child processes. Shared refresh is single-flight across entry points:
-  only its owner clears busy state, with visible progress until the operation actually finishes.
-- Keep enabled widget visibility separate from WPF's cached `IsVisible` state. Preserve native
-  hide/minimize/topmost and resume/unlock/display recovery, saved position and per-window event
-  subscriptions. Recovery must not steal focus, revive disabled/accountless widgets or run after exit.
-- Use the existing Korean/English localization and Dark/Light/System resources. State must be clear without
-  relying only on color or hover. Preserve readable controls, scaling, scrolling and widget recovery after DPI changes.
-  Keep native tray text within 127 characters, retaining Claude freshness/receipt/scope before long nicknames.
-- Windows owns the native notification-icon slot. Do not restore taskbar overlays, Explorer hooks, browser
-  extensions, WebView2, conversation synchronization or active SQLite history collection. Retained legacy code
-  is not a supported runtime path. Starting with Windows requires opt-in; preserve saved widget preferences.
-- The bounded headless Claude receiver runs before WPF/mutex/account startup in the same executable.
-  Ship no companion host or extension. Codex reset-credit actions remain Codex-only.
+- Keep providers behind `IUsageProvider` / `IUsageAccountService`. Never mix accounts' quotas, windows,
+  caches or reset credits. Selection affects detail/tray/widget, not another app's login.
+  Preserve nicknames, order, selected IDs, badges and settings/cache compatibility.
+- Codex uses the installed, signed-in App Server. Classify windows by `windowDurationMins`, not slot order;
+  separate root and selected-bucket metadata. Optional windows may be absent; malformed input is a failure.
+  Keep unknown percentages/credit expiries unknown and reset-credit IDs in memory; persist expiry timestamps only.
+  Identity mismatch/conflict hides cached quota and credits; never inherit another account's cache.
+  Only explicit successful login may replace an established binding.
+- Claude shows the shared Web·Desktop·Code subscription quota received through official Code statusLine
+  `rate_limits.five_hour` / `seven_day` (`used_percentage`, `resets_at`); preserve fractional percentages.
+  Label it Received, with original receipt time and shared scope, never live/current.
+- Idle Claude samples retain last-good values and Received state even after reset times pass. Input/receipt,
+  cache, identity, authentication, request or bridge failures may mark samples stale. Refresh reads the local inbox; refresh, polling
+  or opening the usage page must not renew receipts or invent zero. Never scrape usage pages, parse `/usage`,
+  call undocumented quota endpoints or run a model turn to measure limits.
+- Connection and receipt are separate: connected Claude accounts with unknown limits show Awaiting usage
+  without attention counts; disconnected profiles stay in management. Use one projection for popup/tray/widget,
+  counts and fallback selection. Reuse verified bindings on reconnect, preserve saved data and disconnection
+  across restart, and remove only empty drafts from cancelled/failed connection flows.
+- Claude login uses official `auth login --claudeai` / `auth status --json`. StatusLine does not verify identity:
+  retain configuration/binding checks, reject old/mismatched callbacks and preserve unrelated settings
+  and existing statusLine command/output. Change/restore only exact CycleArc-owned hook entries.
+  Keep request/authentication failures separate from receipts; callbacks alone do not clear sign-in recovery.
+  Bound subprocess startup, requests, cancellation and shutdown; do not orphan children. Authentication is single-flight.
+- Claude receiver storage is limited to projected quota, receipt/binding metadata and failure classifications;
+  keep email in memory.
+  Never read/copy/monitor CLI credentials, tokens, cookies, prompts, responses or conversation files;
+  never log secrets or add telemetry. Tests/diagnostics use isolated roots and fake adapters, not real account/settings changes.
+- Unknown usage is never zero. Failures retain the last valid snapshot and
+  last-success time across restart. Keep atomic settings/cache writes with valid backups and preserve
+  `LegacyInstallation` data/mutex/registry identifiers through branding changes.
+- Dispatch background/system callbacks to WPF's Dispatcher. Shared refresh is single-flight across entry points;
+  only its owner clears busy state after completion. Preserve widget enabled state separately from `IsVisible`,
+  saved position and native hide/minimize/topmost/resume/unlock/display recovery without stealing focus.
+  Never revive disabled/accountless widgets or recover after exit; preserve per-window event subscriptions.
+- Use existing EN/KO and Dark/Light/System resources, accessible states and DPI-safe layout.
+  Keep native tray text within 127 characters, prioritizing Claude receipt/freshness/scope over long nicknames.
+- Windows owns tray placement. Do not restore overlays, Explorer hooks, extensions, WebView2,
+  conversation synchronization or active SQLite history collection. Retained legacy code is not a supported runtime.
+  Windows startup stays opt-in. Route the bounded headless Claude receiver before WPF/mutex/account startup
+  in the same executable; ship no companion host. Reset-credit actions remain Codex-only.
 
-## Verification matched to the change
+## Verification
 
-| Change | Required local checks |
+Run commands from the repository root. Use `--no-build` only for code already built.
+
+| Change | Required checks |
 | --- | --- |
-| Markdown, instructions, comments or Git tracking only | Review the diff; check affected links, paths and command accuracy. No app build, publish, reinstall or model call solely for this change. |
-| Core/provider behavior or a correctness bug | Relevant regression tests, including malformed/unknown input and state transitions where applicable. Synthetic fixtures must match the official protocol shape. |
-| WPF state, layout, localization, theme or interaction | Release build and affected `CycleArc.UiSmoke` checks; visually inspect affected views in English/Korean and relevant themes/sizes. |
-| Login, cache, concurrency or account lifecycle | Deterministic failure/cancellation/restart tests; isolated data roots and fake provider/process adapters. Live checks only when required by the task. |
-| Installer, startup, executable routing or distribution | Installer rollback scenarios, single-file publish and built/published Claude receiver checks via the full gate below. |
+| Documentation/instructions/comments/Git tracking only | Diff, affected links/paths and command accuracy; no local app build, publish, install or model call. |
+| Core/provider correctness | Relevant regression tests, including malformed/unknown input and state transitions. Use official protocol-shaped fixtures. |
+| Login/cache/concurrency/account lifecycle | Deterministic failure/cancellation/restart tests with isolated data and fake adapters. |
+| WPF state/layout/localization/theme/interaction | Release build and affected UiSmoke checks; visually inspect affected production views in EN/KO and relevant themes/sizes. |
+| Installer/startup/routing/distribution or executable delivery | Full gate below, including rollback, single-file and built/published receiver checks. |
 
-- Before delivering a changed executable, run `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` once on the final
-  executable-producing changes. It restores, builds/tests Release, runs WPF/installer checks and validates the
-  win-x64 single-file artifact and headless receiver. `-NoLaunch` leaves the installed app untouched.
-- For targeted unit checks use `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter ...`;
-  use a real matching test filter. Use `--no-build` only after building the code being checked.
-- After checks pass, broaden or repeat them only for a new change, failure or unresolved concern.
-  Do not add tests that merely restate a text edit. Preserve meaningful regression coverage.
-- Use production views with synthetic accounts for screenshots. Inspect and replace only affected previews;
-  do not regenerate unrelated images just to change dates. Update relevant EN/KO guidance when behavior changes.
-- Claim only checks actually run. Distinguish fixture coverage from real-account verification; an awaiting
-  Claude sample is not evidence of received usage. Do not create a model request to satisfy a test.
+- Targeted tests: `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "<matching-filter>"`.
+  Use an existing test name/category for the filter. WPF checks: `dotnet build CycleArc.sln -c Release`, then
+  `dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build`.
+- Full gate: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` on final executable changes.
+  It restores, builds/tests Release, checks WPF/installers and validates `publish/.dev-staging/CycleArc.exe`.
+  If installation/run is requested, use `pwsh -NoProfile -File ./dev-run.ps1` instead: the same gate runs
+  before installation. Choose the mode upfront to avoid repeating the gate.
+  The full gate satisfies the build/test requirements above; `-Fast` skips only unit tests already passed for unchanged code.
+- Synthetic fixtures do not establish real-account receipt/compatibility; Awaiting usage is not received usage.
 
-## Git and delivery
+## Delivery
 
-- Review the final diff and commit the intended changes. Push to the configured origin unless the user says
-  otherwise; preserve existing authorization and respect any host approval block. Never force-push.
-- On a branch's first push use `git push -u origin <branch>` with its actual name. If already published without
-  tracking, verify the remote branch, then use `git branch --set-upstream-to=origin/<branch> <branch>`.
-- Verify upstream, ahead/behind state and the actual remote SHA against local HEAD. A successful push alone
-  does not prove tracking is configured; this prevents GitHub Desktop showing **Publish branch** after upload.
-- Check the CI run for the pushed SHA. Fix relevant failures and verify the corrected run; report pending,
-  passed or failed accurately. If publication is blocked, state the exact blocker and that the commit is local.
-- Publish GitHub releases through `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version>` after the
-  final local gate and successful Windows push CI. The release must use that CI run's executable, with its
-  file version, commit/tag and uploaded SHA-256 verified before the draft becomes public. Diagnose each
-  failed run's actual failing step before retrying; a new failure is not evidence that an earlier fix failed.
-- Install/restart only when the task calls for a working local executable. Use the validated artifact and
-  existing guarded installer/rollback path; confirm the target checkout, running path and file hash.
-  Downloads and development builds share `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe` on each PC.
-  Ordinary launches preserve the first running desktop and activate it; `--autorun` stays quiet.
-  Explicit installs and `dev-run.ps1` validate before graceful shutdown and use the executable's
-  transactional installer. Preserve the legacy mutex and route Claude callbacks before all of this.
-  Do not restore worktree-specific desktop install paths: Windows remembers them as separate tray entries.
-  Documentation-only changes do not require replacing the user's running app.
-- Finish with what changed, verification results and material limitations, using concise Korean for this user.
-  Do not stop at a local commit when push/CI or an authorized installation still remains.
+- Commit and push intended changes to origin unless instructed otherwise; never force-push.
+  Configure upstream (`git push -u origin <branch>` on first push), verify remote HEAD/tracking and check CI for that SHA.
+- Publish with `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -NotesPath <file>` after
+  the final local gate and successful Windows push CI; new drafts require the notes file.
+  Use that CI run's executable; verify file version, commit/tag and uploaded SHA-256 before publication.
+  Versions are centralized in `Directory.Build.props`.
+- Install/restart only when requested. Use the executable's guarded transactional installer/rollback path,
+  verify the target checkout, running path and artifact hash, and keep the shared per-PC installation at
+  `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe` across downloads and worktrees.
+  Ordinary launches preserve/activate the first desktop; `--autorun` stays quiet. Preserve the legacy mutex.
