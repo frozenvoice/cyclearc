@@ -2,6 +2,24 @@
 
 ## Current release — Codex and Claude Code
 
+- README and Claude preview refresh (2026-09-16):
+  - Aligned both READMEs and the production connection/waiting/recovery guidance with
+    Desktop-authenticated server refresh. Initial official CLI connection and Desktop
+    quota authentication are separate steps; identity mismatch hides all profile quota.
+    Removed the obsolete claim that the connection never reads Desktop credentials.
+  - Replaced and visually inspected 20 affected PNGs in English/Korean and dark/light:
+    server quota, Desktop history, waiting, connection and account management. All use
+    production WPF views with synthetic profiles at 2x resolution. Server examples show
+    Research at 46% / 11% with known resets; history examples show 91% / 47% with unknown
+    resets and original observation time. No real account screenshot or request was used.
+  - Moved the server previews into the documentation exporter. The full command produced
+    36 images; the new `--claude-live-screenshots` command produced four. Full and focused
+    exports now use the same Desktop-history source and unknown reset metadata.
+  - Release build passed with zero warnings/errors, 88 related Claude tests passed,
+    and all 246 mixed-provider WPF checks passed after updating existing copy assertions.
+    This follow-up changes guidance and preview generation, not quota collection logic;
+    no local publish, installation or credential access was performed.
+
 - Claude Desktop live quota refresh (0.5.9, 2026-09-16):
   - Reproduced why the previous Desktop history fix was incomplete: the installed
     Desktop 2.110.0.0 normally polled at 15-minute intervals (5 minutes after recent

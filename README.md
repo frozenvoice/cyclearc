@@ -137,10 +137,12 @@ Browser sign-in has a five-minute deadline and can be cancelled. If it times out
 To check current usage independently, choose **Open usage page** on the Claude detail card or connection window. It opens [Claude Settings → Usage](https://claude.ai/settings/usage) in your browser; check that the intended account is signed in. Opening the page does not refresh CycleArc. Public API, CLI and SDK documentation still provide no supported stable personal-subscription quota query. CycleArc 0.5.9 uses a narrow private first-party Desktop profile/usage path for its live check; it may change without notice. See the [dated research and decision](docs/CLAUDE-USAGE-RESEARCH.md).
 
 1. Open **Manage accounts → Add an account → Connect Claude**. Set an optional nickname.
-2. Choose **Connect current login** to use the signed-in Claude CLI, or **Sign in to Claude** to complete the official browser login. CycleArc verifies the CLI login and binds the intended Desktop profile for live checks. Other settings and the existing status line are preserved; no JSON copying is required.
-3. During normal **Claude Code terminal (CLI)** use, statusLine can supply fallback usage. Claude Desktop Code can write a history fallback, but manual and scheduled refreshes first try the read-only Desktop live quota check. The live check verifies the connected Desktop profile and obtains shared quota without a model request. If it is unavailable, CycleArc compares the statusLine and Desktop history samples by observation time. Desktop history has no reset timestamps and may be delayed.
+2. Choose **Connect current login** to verify the existing Claude CLI login, or **Sign in to Claude** to complete the official browser flow. CLI verification establishes the CycleArc connection; live quota requests use the connected Claude Desktop login. Other settings and the existing status line are preserved; no JSON copying is required.
+3. Sign in to the **same account in Claude Desktop**, then choose **Refresh** in CycleArc. Manual and automatic refresh query the shared quota directly, without a model request. The interval in **Settings → Connection** applies to both Codex and Claude (default: five minutes).
 
-If the Desktop live check reports an authentication or identity failure, the profile shows **Sign-in required** or the corresponding connection state and keeps the last-good values stale. Sign in to the intended account in Claude Desktop, then choose **Refresh**. Rate-limit and request failures remain distinct and retryable. No model request is used to test or measure usage.
+Claude Code statusLine and Desktop subscription history also provide local fallback samples. CycleArc preserves their observation times; rereading a file does not count as a successful server check. Desktop history may be delayed and has no reset timestamps.
+
+If authentication fails, the profile shows **Claude Desktop login required** and keeps the last valid values marked as stale. If the Desktop identity does not match the connected account, CycleArc hides all Claude quota for that profile. Sign in to the intended account in Desktop, then refresh. Rate-limit and request failures also retain previous values and show the reason the check failed.
 
 A Claude plan change keeps the same account when its email and organization match. After sign-in recovery, callbacks from an older connection generation cannot change the latest sample or its receipt time. Older saved bindings are upgraded only after their identity is verified; see [connection compatibility](docs/CLAUDE.md#account-identity-compatibility).
 
@@ -156,33 +158,33 @@ A Claude plan change keeps the same account when its email and organization matc
 <table>
   <tr><td align="center"><strong>Automatic connection · Dark</strong></td><td align="center"><strong>Automatic connection · Light</strong></td></tr>
   <tr>
-    <td><img src="docs/images/claude-connection-en-dark.png" alt="Production Claude connection window with synthetic signed-in identity, current-login connection, another-account login and Open Claude Code terminal buttons" width="530"></td>
+    <td><img src="docs/images/claude-connection-en-dark.png" alt="Production Claude connection window with synthetic signed-in identity, current-login connection, another-account connection and Open Claude Code terminal buttons" width="530"></td>
     <td><img src="docs/images/claude-connection-en-light.png" alt="The same automatic Claude connection window in the light theme; no manual JSON entry" width="530"></td>
   </tr>
 </table>
 
-*The live preview uses synthetic server quota data (46% five-hour, 11% weekly, with reset times) to show the **Updated** state. It does not access a real login.*
+*Research is selected below, alongside two Codex accounts. Synthetic server data (46% five-hour, 11% weekly, with reset times) shows the **Updated** state. These previews do not access a real login.*
 
 <table>
   <tr><td align="center"><strong>Desktop live quota · Dark</strong></td><td align="center"><strong>Desktop live quota · Light</strong></td></tr>
   <tr>
-    <td><img src="docs/images/claude-live-en-dark.png" alt="Synthetic Claude Desktop live quota with Updated status, 46% five-hour usage, 11% weekly usage and reset times" width="530"></td>
-    <td><img src="docs/images/claude-live-en-light.png" alt="Synthetic Claude Desktop live quota in the light theme with Updated status and reset times" width="530"></td>
+    <td><img src="docs/images/claude-live-en-dark.png" alt="Synthetic Claude Desktop live quota with Updated status, 46% five-hour usage, 11% weekly usage and reset times" width="440"></td>
+    <td><img src="docs/images/claude-live-en-light.png" alt="Synthetic Claude Desktop live quota in the light theme with Updated status and reset times" width="440"></td>
   </tr>
 </table>
 
-The official statusLine JSON has **no account email or account ID**. Desktop history carries an organization ID, not an email. The live Desktop reader reads only the app-owned config.json and Local State, decrypts the protected OAuth access token in memory with Windows DPAPI/AES-GCM, verifies the profile response against the bound identity, then requests usage. It never writes or refreshes Desktop credentials, reads cookies, or stores the token. A mismatched identity hides live quota and cannot replace the last-good projection. Email stays in memory for display; a nickname takes precedence.
+The official statusLine JSON has **no account email or account ID**. Desktop history carries an organization ID, not an email. The live Desktop reader reads only the app-owned config.json and Local State, decrypts the protected OAuth access token in memory with Windows DPAPI/AES-GCM, verifies the profile response email and organization against the bound identity, then requests usage. It never writes or refreshes Desktop credentials, reads cookies, or stores the token. A mismatched identity hides all Claude quota for that profile and cannot replace the last-good projection. Email stays in memory for display; a nickname takes precedence.
 
-A successful live response is **Updated** and shows its server-fetched time. StatusLine and Desktop history fallbacks stay **Received** with their original source time. A live authentication, identity, rate-limit or request failure preserves the last-good values as **stale**; an identity mismatch hides the live result. Manual and scheduled refreshes attempt the live check, while the two-second passive loop reads only local sources. No reset is inferred when a source omits it, and percentages never roll back to zero locally. Claude has no Codex reset-credit controls.
+A successful live response is **Updated** and shows its server-fetched time. StatusLine and Desktop history fallbacks stay **Received** with their original source time. Authentication, rate-limit and ordinary request failures preserve the last-good values as **stale**. A Desktop profile identity mismatch hides all Claude quota for that profile and never replaces the last-good projection. Manual and scheduled refreshes attempt the live check, while the two-second passive loop reads only local sources. No reset is inferred when a source omits it, and percentages never roll back to zero locally. Claude has no Codex reset-credit controls.
 
 <details>
-<summary><strong>Claude usage after the first sample · Dark and Light</strong></summary>
+<summary><strong>Claude Desktop history fallback · Dark and Light</strong></summary>
 
-<p>Research now has received usage, so the same account list includes three accounts. Research is selected: its five-hour usage is 91% and seven-day usage is 47%, with separate reset times. Auto shows 91% in the ring; choosing Weekly switches the ring, tray and widget to 47%. The fallback sample was received 12 minutes ago and remains Received; its original source time stays visible while the live check is unavailable. The two Codex accounts still show current data.</p>
+<p>This separate preview shows a Claude Desktop history sample: 91% five-hour and 47% weekly usage, with unknown reset times. It is labeled <strong>Received</strong> with its original observation time. A server-check failure additionally marks retained values as stale. The two Codex accounts still show current data.</p>
 <table>
   <tr>
-    <td><img src="docs/images/claude-overview-en-dark.png" alt="Dark mixed-provider popup with Research Claude selected, separate five-hour and weekly limits, its original receipt time and no idle-time warning or Codex reset-credit card" width="440"></td>
-    <td><img src="docs/images/claude-overview-en-light.png" alt="Light mixed-provider popup showing the same saved Claude sample and provider badges" width="440"></td>
+    <td><img src="docs/images/claude-overview-en-dark.png" alt="Dark mixed-provider popup with Research Claude selected, 91% five-hour and 47% weekly Desktop history fallback, unknown reset timestamps and its original source time" width="440"></td>
+    <td><img src="docs/images/claude-overview-en-light.png" alt="Light mixed-provider popup showing the same Claude Desktop history fallback and provider badges" width="440"></td>
   </tr>
 </table>
 
@@ -260,11 +262,11 @@ Preflight reports existing desktop PIDs and executable paths. After validation, 
 - `-Fast`: skip the unit suite only when it has already passed for the same changes.
 - CI also publishes the single executable as the `CycleArc-win-x64` artifact.
 
-For a GitHub release, commit and push the versioned changes, pass the local `-NoLaunch`
-gate and Windows CI, then run `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7`.
+For a GitHub release, commit and push the versioned changes, pass the local `-NoLaunch` gate and Windows CI, then run `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.9 -NotesPath "./release-notes/0.5.9.md"` (replace the notes path with your prepared file).
+
 The script downloads that commit's tested CI executable, checks its version and uploaded
 SHA-256 values, and publishes the draft only after verification. Existing draft notes are
-preserved; a new release requires `-NotesPath <file>`. Public assets and existing tag targets
+preserved; a new release requires `-NotesPath "./release-notes/0.5.9.md"` (replace the notes path with your prepared file). Public assets and existing tag targets
 are never overwritten.
 
 | Path | Purpose |

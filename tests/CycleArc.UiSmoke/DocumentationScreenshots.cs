@@ -16,21 +16,20 @@ namespace CycleArc.UiSmoke;
 internal static class DocumentationScreenshots
 {
     // Production views, synthetic profiles/quota metadata, no account or local settings access.
-    public static void Export(string directory, bool claudeUsageOnly = false, bool usagePeriodOnly = false, bool claudeOnly = false)
+    public static void Export(string directory, bool claudeUsageOnly = false, bool usagePeriodOnly = false,
+        bool claudeOnly = false, bool claudeLiveOnly = false)
     {
         Directory.CreateDirectory(directory);
-        if (claudeOnly)
+        if (claudeOnly || claudeUsageOnly || claudeLiveOnly)
         {
             ExportAccounts(directory, DateTimeOffset.Now,
-                typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)!, claudeOnly: true);
-            Console.WriteLine("Exported 12 Claude Desktop/connection previews; synthetic data only.");
-            return;
-        }
-        if (claudeUsageOnly)
-        {
-            ExportAccounts(directory, DateTimeOffset.Now,
-                typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)!, true);
-            Console.WriteLine("Exported 4 Claude usage previews; synthetic data only.");
+                typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)!,
+                claudeUsageOnly: claudeUsageOnly, claudeOnly: claudeOnly, claudeLiveOnly: claudeLiveOnly);
+            Console.WriteLine(claudeOnly
+                ? "Exported 16 Claude server/history/waiting/connection previews; synthetic data only."
+                : claudeLiveOnly
+                    ? "Exported 4 Claude server quota previews; synthetic data only."
+                    : "Exported 4 Claude history fallback previews; synthetic data only.");
             return;
         }
         UiText.SetLanguage(UiLanguage.English);
@@ -55,7 +54,7 @@ internal static class DocumentationScreenshots
         if (usagePeriodOnly)
         {
             ExportAccounts(directory, now, applyTheme, usagePeriodOnly: true);
-            Console.WriteLine("Exported 14 usage-period detail previews; synthetic data only.");
+            Console.WriteLine("Exported 18 usage-period detail previews; synthetic data only.");
             return;
         }
         applyTheme.Invoke(null, [AppTheme.Dark]);
@@ -70,11 +69,11 @@ internal static class DocumentationScreenshots
         }
         finally { widget.Close(); }
         ExportAccounts(directory, now, applyTheme);
-        Console.WriteLine("Exported 32 production WPF views: Codex usage, unconnected-profile filtering, account management, connected Claude awaiting usage, Claude authentication failure, mixed usage and automatic connection; synthetic data only.");
+        Console.WriteLine("Exported 36 production WPF views: Codex usage, unconnected-profile filtering, account management, Claude server quota, history fallback, awaiting usage, authentication failure and automatic connection; synthetic data only.");
     }
 
     private static void ExportAccounts(string directory, DateTimeOffset now, MethodInfo applyTheme, bool claudeUsageOnly = false,
-        bool usagePeriodOnly = false, bool claudeOnly = false)
+        bool usagePeriodOnly = false, bool claudeOnly = false, bool claudeLiveOnly = false)
     {
         foreach (var language in new[] { UiLanguage.English, UiLanguage.Korean })
         foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light })
@@ -93,6 +92,20 @@ internal static class DocumentationScreenshots
                 flyout.ApplyWindowSettings(new AppSettings { FlyoutZoomPercent = 100 });
                 if (!claudeUsageOnly)
                 {
+                    var live = accounts[2] with
+                    {
+                        IsConnected = true,
+                        Email = "research@example.invalid",
+                        Snapshot = new CodexQuotaSnapshot(CodexQuotaStatus.Available, null, now, now,
+                            null, null, null,
+                            [new("five_hour", 46, 300, now.AddHours(3), CodexWindowKind.FiveHour),
+                             new("seven_day", 11, 10080, now.AddDays(4), CodexWindowKind.Weekly)],
+                            ClaudeUsagePresentation.LiveDetail) { Provider = UsageProviderId.Claude }
+                    };
+                    flyout.BindAccounts([accounts[0], accounts[1], live], live.Profile.Id, false);
+                    Save(flyout, Path.Combine(directory, $"claude-live-{suffix}.png"), 440, null);
+                    if (claudeLiveOnly) continue;
+
                     if (!claudeOnly)
                     {
                         flyout.BindAccounts(accounts, selected, false);
@@ -129,11 +142,12 @@ internal static class DocumentationScreenshots
 
                 var received = accounts[2] with
                 {
+                    IsConnected = true,
                     Snapshot = ClaudeQuotaService.ApplyFreshness(new CodexQuotaSnapshot(CodexQuotaStatus.Available, null, now.AddMinutes(-12), now.AddMinutes(-12),
                         null, null, null,
-                        [new("five_hour", 91, 300, claudeOnly ? null : now.AddHours(3), CodexWindowKind.FiveHour),
-                         new("seven_day", 47, 10080, claudeOnly ? null : now.AddDays(4), CodexWindowKind.Weekly)],
-                        claudeOnly ? "claude-desktop-history" : null)
+                        [new("five_hour", 91, 300, null, CodexWindowKind.FiveHour),
+                         new("seven_day", 47, 10080, null, CodexWindowKind.Weekly)],
+                        "claude-desktop-history")
                         { Provider = UsageProviderId.Claude }, now),
                     Email = "research@example.invalid"
                 };

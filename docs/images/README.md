@@ -11,71 +11,68 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `accounts-overview-{en,ko}-{dark,light}.png` | Two ready Codex accounts, with Work / 업무용 selected; the unconnected Claude profile is absent from the cards and counts |
 | `accounts-manage-{en,ko}-{dark,light}.png` | All three registered profiles, including unconnected Research / 실험용 Claude, with connection, nickname and saved-order controls |
 | `claude-waiting-{en,ko}-{dark,light}.png` | Connected Research before its first sample, with unknown shared subscription limits, Awaiting usage and Open usage page |
-| `claude-live-{en,ko}-{dark,light}.png` | Server quota preview: synthetic Work Codex and Personal Claude, 46% five-hour / 11% weekly, known resets and Last checked |
-| `claude-overview-{en,ko}-{dark,light}.png` | Research selected with a Desktop subscription sample, separate five-hour/weekly windows, unknown reset times, the original observation time and the manual usage-page action |
-| `claude-connection-{en,ko}-{dark,light}.png` | Automatic Claude connection, Desktop and terminal receipt guidance, official-login choices and manual usage-page access; advanced settings collapsed (scroll to advanced details) |
+| `claude-live-{en,ko}-{dark,light}.png` | Research selected with a synthetic server response: 46% five-hour / 11% weekly, known resets, Updated and Last checked |
+| `claude-overview-{en,ko}-{dark,light}.png` | Research selected with a Desktop history fallback: 91% five-hour / 47% weekly, unknown resets, Received and original observation time |
+| `claude-connection-{en,ko}-{dark,light}.png` | Official CLI connection choices, existing Desktop login for server checks and manual usage-page access; advanced settings collapsed |
 
 The multi-account fixtures live in `DocumentationScreenshots.SampleAccounts`. They use the
 names Personal / Work / Research (개인용 / 업무용 / 실험용), reserved `example.invalid` email
 addresses and display-only paths under `C:\CycleArc-Samples`. Personal and Work have Codex
-weekly usage of 18% and 64%; Work is selected, so its detail ring shows 64% used and the
-quota row includes 36% remaining. Research is unconnected in the main/manager comparison:
-the main popup counts two ready accounts, while management retains all three profiles.
+weekly usage of 18% and 64%; Work is selected in the account overview, so its detail ring shows
+64% used and its quota row includes 36% remaining. Research is unconnected in the main/manager
+comparison: the main popup counts two ready accounts, while management retains all three profiles.
 Account-management previews scroll to the bottom so all three sets of actions are visible.
 
-The waiting view shows Research after connection but before any quota sample. The Claude
-overview then supplies a synthetic sample with 91% five-hour usage and 47%
-seven-day usage, observed 12 minutes ago. The Desktop sample has no reset timestamps, so
-those remain unknown. It remains Received without an idle-time warning,
-with Auto selecting the known five-hour value (91%) for the ring. The display-period selector
-applies to the ring, tray and widget. The last receipt date/time and preserved values remain
-visible, and selecting
-Claude removes the Codex reset-credit card. Connection previews drive the production
-window through `IClaudeConnectionActions` using `PreviewClaudeConnection`; the adapter
+The Claude previews use those same profiles with Research connected and selected, so all three
+accounts appear. The waiting view has no quota yet. The server preview supplies synthetic
+46% / 11% usage and reset timestamps to show Updated / Last checked. The separate history
+preview supplies 91% / 47% observed 12 minutes ago. Desktop history has no reset timestamps,
+so those remain unknown, and the original Last received time stays visible. Exporting through
+any supported command uses the same source and reset metadata for each image name.
+
+Auto selects the known five-hour value for the ring; the display-period selector applies to
+the ring, tray and widget. Selecting Claude removes the Codex reset-credit card. These previews
+illustrate display states, not real-account compatibility. Connection previews drive the
+production window through `IClaudeConnectionActions` using `PreviewClaudeConnection`; the adapter
 returns fictional login metadata and only changes in-memory state. It never runs a CLI,
-starts a browser, creates a home, opens a session or changes settings. All dates are
-generated relative to export time.
+starts a browser, creates a home, opens a session or changes settings. All dates are generated
+relative to export time.
 
-Generate on Windows after building the solution:
+Generate on Windows after building the solution. Export to `artifacts/` for visual review
+before copying affected images into `docs/images`.
+
+Full export (36 PNGs, including additional authentication-failure previews):
 
 ```powershell
-dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -- --screenshots docs/images
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --screenshots artifacts/docs-previews
 ```
 
-To export only the four Claude usage previews for review:
+Only the four server quota previews:
 
 ```powershell
-dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -- --claude-usage-screenshots artifacts/claude-usage
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --claude-live-screenshots artifacts/claude-live-docs
 ```
 
-To export the 12 Claude Desktop, waiting and connection previews changed by Desktop collection:
+Only the four Desktop history fallback previews:
 
 ```powershell
-dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --claude-desktop-screenshots artifacts/claude-desktop-docs
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --claude-usage-screenshots artifacts/claude-history-docs
 ```
 
-To export only the 14 detail previews affected by the shared display-period selector:
+All 16 Claude server, history, waiting and connection previews:
 
 ```powershell
-dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -- --usage-period-screenshots artifacts/period-docs
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --claude-desktop-screenshots artifacts/claude-docs
+```
+
+Only the 18 detail previews affected by the shared display-period selector:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --usage-period-screenshots artifacts/period-docs
 ```
 
 The exporter never runs production startup, requests account data, or reads/writes user settings.
-The full export creates 32 PNGs at 2x resolution through WPF `RenderTargetBitmap`, without taking a desktop
-screenshot. It runs under the smoke harness's `OfflineApp`; the live-account diagnostic path
-is not used. Each image must be visually inspected before replacing the checked-in files.
-Export to an `artifacts/` directory for visual review before copying the generated images
-into this directory. Keep the English and Korean README captions consistent with the
-two-ready/three-registered comparison and the separate Claude periods.
-
-The 0.5.9 live previews render `MixedProviderUiChecks` with synthetic accounts, 46% / 11%
-Claude usage and reset timestamps. They demonstrate server-check wording and layout;
-they are not evidence of a real account request. The older Desktop overview illustrates
-fallback history, where reset times are unknown. Export the live previews with:
-
-```powershell
-dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --claude-ui artifacts/claude-live-ui
-```
-
-Inspect `claude-live-{English,Korean}-{Dark,Light}.png` before copying to the corresponding
-`claude-live-{en,ko}-{dark,light}.png` documentation names.
+All documentation previews use WPF `RenderTargetBitmap` at 2x resolution under the smoke harness's
+`OfflineApp`, without taking a desktop screenshot. Each image must be visually inspected before
+replacing the checked-in file. Keep English and Korean captions consistent with the account counts,
+selected profile, data source and separate Claude periods.

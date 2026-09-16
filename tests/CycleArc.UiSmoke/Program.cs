@@ -85,6 +85,11 @@ internal static class Program
                 DocumentationScreenshots.Export(claudeUsageDirectory, claudeUsageOnly: true);
                 return 0;
             }
+            if (args is ["--claude-live-screenshots", var claudeLiveDirectory])
+            {
+                DocumentationScreenshots.Export(claudeLiveDirectory, claudeLiveOnly: true);
+                return 0;
+            }
             if (args is ["--widget-recovery", var recoveryDirectory])
             {
                 WidgetRecoveryChecks.Run(recoveryDirectory);

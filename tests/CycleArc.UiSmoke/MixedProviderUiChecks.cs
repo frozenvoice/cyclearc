@@ -297,9 +297,9 @@ internal static class MixedProviderUiChecks
                 Check(((Button)guide.FindName("OpenClaudeButton")).Content.ToString()!.Contains(UiText.T("terminal", "터미널")),
                     "Claude launch action does not identify the terminal.");
                 var receiptHint = ((TextBlock)guide.FindName("FreshnessHint")).Text;
-                Check(receiptHint.Contains(UiText.T("terminal", "터미널")) && receiptHint.Contains("Claude Desktop")
+                Check(receiptHint.Contains(UiText.T("Manual and automatic refresh", "수동·자동 새로고침")) && receiptHint.Contains("Claude Desktop")
                     && receiptHint.Contains(UiText.T("same account", "같은 계정")),
-                    "Connection guide omits Desktop receipt or its same-account requirement.");
+                    "Connection guide omits server refresh through the same Desktop account.");
 
                 // A real StopFailure must surface a recovery action on the bound profile.
                 connection.FailureKind = ClaudeFailureKind.AuthRequired;
@@ -310,7 +310,7 @@ internal static class MixedProviderUiChecks
                     "Claude authentication failure did not offer same-account reauthentication.");
                 var failureText = ((TextBlock)guide.FindName("ConnectionState")).Text;
                 Check(failureText == ClaudeUsagePresentation.FailureLabel("claude-auth-required")
-                    && ((TextBlock)guide.FindName("OperationStatus")).Text.Contains(UiText.T("last received", "마지막 수신값"), StringComparison.OrdinalIgnoreCase),
+                    && ((TextBlock)guide.FindName("OperationStatus")).Text.Contains(UiText.T("last valid", "마지막 정상값"), StringComparison.OrdinalIgnoreCase),
                     "Claude authentication failure did not explain recovery while preserving the last receipt.");
                 var connectCallsBeforeReauth = connection.Calls;
                 reauthenticate.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -463,8 +463,8 @@ internal static class MixedProviderUiChecks
             "Waiting profile lacks shared quota meaning or access to current usage.");
         Check(((ItemsControl)flyout.FindName("CodexRows")).Items.Count == 0, "Waiting connection invented quota numbers.");
         var waitingText = ((TextBlock)flyout.FindName("CodexStatusText")).Text;
-        Check(waitingText.Contains("Claude Code") && waitingText.Contains("Claude Desktop"),
-            "Awaiting usage omits an available Claude receipt source.");
+        Check(waitingText.Contains("Claude Desktop") && waitingText.Contains(UiText.T("refresh", "새로고침")),
+            "Awaiting usage omits Desktop sign-in and refresh guidance.");
 
         manager.Bind([first, connected, second], connected.Profile.Id);
         Check(((Button)((StackPanel)managed.Items[1]).Children[0]).IsEnabled, "Connected waiting account cannot be selected.");

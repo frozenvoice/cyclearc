@@ -271,7 +271,7 @@ public class ClaudeConnectionTests
         Assert.False(service.Snapshot.HasUsablePercentages);
         Assert.Null(service.Snapshot.LastSuccessfulRefresh);
         Assert.Equal(Auth.Email, View().Email);
-        Assert.Contains("Claude Code", ClaudeUsagePresentation.StatusText(service.Snapshot));
+        Assert.Contains("Claude Desktop", ClaudeUsagePresentation.StatusText(service.Snapshot));
         Assert.Contains(UiText.T("usage page", "사용량 페이지"), ClaudeUsagePresentation.StatusText(service.Snapshot));
         connection = new ClaudeConnectionService(data.Accounts, cli, data.Clock);
         service = new ClaudeUsageProvider(data.Accounts, data.Clock, connection).Create(data.Profile);

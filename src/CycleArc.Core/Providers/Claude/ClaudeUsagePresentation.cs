@@ -73,16 +73,16 @@ public static class ClaudeUsagePresentation
                     "CycleArc 새로고침을 다시 시도하세요. Claude 서버 직접 한도 조회에 실패했으며 모델 요청은 필요하지 않습니다."),
                 "claude-live-unavailable" => UiText.T("Open Claude Desktop, sign in to the intended account, then retry CycleArc refresh. The quota check does not run a model request.",
                     "Claude Desktop을 열고 사용할 계정으로 로그인한 뒤 CycleArc 새로고침을 다시 시도하세요. 한도 조회에는 모델 요청을 실행하지 않습니다."),
-                "claude-auth-required" or "claude-identity-mismatch" => UiText.T("Reauthenticate this Claude profile, then run Claude Code again or use Desktop Code to receive a new sample.",
-                    "이 Claude 프로필을 다시 인증한 뒤 Claude Code를 다시 실행하거나 데스크톱 Code를 사용해 새 값을 받으세요."),
-                "claude-request-failed" => UiText.T("Retry Claude Code to receive a new sample. Check the Claude Code terminal if the failure continues.",
-                    "Claude Code를 다시 실행해 새 값을 받으세요. 계속 실패하면 Claude Code 터미널을 확인하세요."),
-                "claude-desktop-unavailable" => UiText.T("Open Claude Desktop and use its Code tab, then refresh CycleArc after the app records a new sample.",
-                    "Claude Desktop의 Code 탭을 사용해 앱이 새 값을 기록한 뒤 CycleArc를 새로고침하세요."),
-                "claude-desktop-identity-unverified" => UiText.T("Sign in with the Claude Pro or Max account bound to this profile, then use Claude Desktop Code again.",
-                    "이 프로필에 연결된 Claude Pro 또는 Max 계정으로 로그인한 뒤 Claude Desktop Code를 다시 사용하세요."),
-                _ => UiText.T("Check the Claude connection, then run Claude Code again or use Desktop Code to receive a new sample.",
-                    "Claude 연결을 확인한 뒤 Claude Code 또는 Claude Desktop Code를 다시 사용해 새 값을 받으세요.")
+                "claude-auth-required" or "claude-identity-mismatch" => UiText.T("Reauthenticate this Claude profile, sign in to the same account in Claude Desktop, then refresh CycleArc.",
+                    "이 Claude 프로필을 다시 인증하고 Claude Desktop에 같은 계정으로 로그인한 뒤 CycleArc를 새로고침하세요."),
+                "claude-request-failed" => UiText.T("Retry CycleArc refresh. If you use Claude Code, check its terminal if the failure continues.",
+                    "CycleArc 새로고침을 다시 시도하세요. Claude Code를 사용 중이고 오류가 계속되면 해당 터미널을 확인하세요."),
+                "claude-desktop-unavailable" => UiText.T("Desktop usage history is unavailable. Sign in to the same account in Claude Desktop, then refresh CycleArc for a server check.",
+                    "Desktop 사용량 기록을 확인할 수 없습니다. Claude Desktop에 같은 계정으로 로그인한 뒤 CycleArc를 새로고침해 서버 한도를 조회하세요."),
+                "claude-desktop-identity-unverified" => UiText.T("Sign in with the Claude Pro or Max account bound to this profile in Claude Desktop, then retry CycleArc refresh.",
+                    "Claude Desktop에서 이 프로필에 연결된 Claude Pro 또는 Max 계정으로 로그인한 뒤 CycleArc 새로고침을 다시 시도하세요."),
+                _ => UiText.T("Check the Claude connection, then retry CycleArc refresh.",
+                    "Claude 연결을 확인한 뒤 CycleArc 새로고침을 다시 시도하세요.")
             };
             return snapshot.HasUsablePercentages
                 ? failure + ". " + UiText.T("Showing the last valid values; they may not be current. ", "마지막 정상값을 표시하며 현재 값이 아닐 수 있습니다. ") + action
@@ -100,8 +100,8 @@ public static class ClaudeUsagePresentation
                     "Claude Code에서 마지막으로 받은 값입니다. 이후 계정 사용량은 달라졌을 수 있습니다.");
         }
         if (snapshot.TechnicalDetail == "claude-connected-waiting")
-            return UiText.T("Connected; waiting for usage from Claude Code or Claude Desktop subscription history. Open the terminal in connection settings, use Desktop Code, or check the usage page for current limits.",
-                "연결됨 · Claude Code 또는 Claude Desktop 구독 사용량 기록에서 사용량을 확인하는 중입니다. 연결 설정에서 터미널을 열거나 Desktop Code를 사용하고, 사용량 페이지에서 현재 한도를 확인하세요.");
+            return UiText.T("Connected; no usage received yet. Sign in to the same account in Claude Desktop and refresh, or check the usage page for current limits.",
+                "연결됨 · 아직 사용량을 받지 못했습니다. Claude Desktop에 같은 계정으로 로그인한 뒤 새로고침하거나 사용량 페이지에서 현재 한도를 확인하세요.");
         if (snapshot.Status == CodexQuotaStatus.SignedOut)
             return UiText.T("Claude is disconnected. Open Connect to reconnect this profile.", "Claude 연결이 해제되었습니다. 연결 버튼에서 다시 연결할 수 있습니다.");
         if (snapshot.TechnicalDetail == "claude-statusline-malformed" || snapshot.Status == CodexQuotaStatus.ProtocolMismatch)
@@ -114,8 +114,8 @@ public static class ClaudeUsagePresentation
             return UiText.T("Stale data · The receipt time could not be verified. Showing the last valid values.",
                 "오래된 데이터 · 수신 시각을 확인할 수 없어 마지막 정상값을 표시합니다.");
         if (snapshot.Status == CodexQuotaStatus.Stale)
-            return UiText.T("Stale data · Last values received from Claude Code or read from Claude Desktop subscription usage history. Current usage may differ; check the usage page.",
-                "오래된 데이터 · Claude Code에서 받거나 Claude Desktop 구독 사용량 기록에서 읽은 마지막 값입니다. 현재 사용량은 다를 수 있으니 사용량 페이지에서 확인하세요.");
+            return UiText.T("Stale data · Showing the last valid usage. Refresh CycleArc or check the usage page for current limits.",
+                "오래된 데이터 · 마지막 정상 사용량입니다. CycleArc를 새로고침하거나 사용량 페이지에서 현재 한도를 확인하세요.");
         return UiText.T("No Claude subscription usage received. Sign in to the intended Pro or Max account in Claude Desktop, then refresh. CycleArc checks the shared quota directly; a model request is not needed.",
             "Claude 구독 사용량을 아직 받지 못했습니다. Claude Desktop에서 사용할 Pro 또는 Max 계정으로 로그인한 뒤 새로고침하세요. CycleArc가 공유 한도를 직접 확인하므로 모델 요청은 필요하지 않습니다.");
     }
