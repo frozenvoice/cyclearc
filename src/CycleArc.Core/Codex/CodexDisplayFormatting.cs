@@ -64,15 +64,23 @@ public static class CodexDisplayFormatting
         _ => UiText.CodexUnavailable
     };
 
+    /// <summary>
+    /// Whether this snapshot's quota windows may be shown at all. A signed-out or not-found
+    /// account never shows windows, and a failed refresh shows them only while it still holds
+    /// last-good percentages. Shared so the detail rows and the widget modules cannot drift.
+    /// </summary>
+    public static bool ShowsQuotaWindows(CodexQuotaSnapshot snapshot) =>
+        snapshot.Status is not (CodexQuotaStatus.CodexNotFound or CodexQuotaStatus.SignedOut)
+        && (snapshot.HasUsablePercentages
+            || snapshot.Status is not (CodexQuotaStatus.Unavailable
+                or CodexQuotaStatus.ProtocolMismatch
+                or CodexQuotaStatus.TimedOut
+                or CodexQuotaStatus.Cancelled
+                or CodexQuotaStatus.Refreshing));
+
     public static IReadOnlyList<CodexDisplayRow> Rows(CodexQuotaSnapshot snapshot, DateTimeOffset? now = null, bool includeResetCredits = true)
     {
-        if (snapshot.Status is CodexQuotaStatus.CodexNotFound or CodexQuotaStatus.SignedOut
-            || (!snapshot.HasUsablePercentages
-                && snapshot.Status is CodexQuotaStatus.Unavailable
-                    or CodexQuotaStatus.ProtocolMismatch
-                    or CodexQuotaStatus.TimedOut
-                    or CodexQuotaStatus.Cancelled
-                    or CodexQuotaStatus.Refreshing))
+        if (!ShowsQuotaWindows(snapshot))
         {
             return [];
         }
