@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Threading;
+
 namespace CycleArc.Updates;
 
 /// <summary>A content-addressed file captured in an update recovery snapshot.</summary>
@@ -15,6 +18,12 @@ public sealed record UpdateRecoverySnapshot(
     UpdateRecoveryFile[] Files)
 {
     private const int MaximumFileCount = 256;
+    // Windows refuses to rename or overwrite a file or directory that something still holds
+    // open, and an update has just written a large executable that a scanner, or the image of
+    // the process that was started and quit, may not have released yet. Recovery is the one
+    // path that must not give up on that: giving up leaves no working installation at all.
+    private static readonly TimeSpan ReplaceRetryBudget = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ReplaceRetryDelay = TimeSpan.FromMilliseconds(250);
     private const long MaximumTotalSize = 1L * 1024 * 1024 * 1024;
     private const int MaximumTraversalDepth = 32;
     private const int MaximumDirectoryCount = 4096;
@@ -173,12 +182,12 @@ public sealed record UpdateRecoverySnapshot(
             if (Directory.Exists(current))
             {
                 ValidateDirectory(current, "current directory");
-                Directory.Move(current, failed);
+                MoveDirectoryWithRetry(current, failed);
                 movedOld = true;
             }
 
             beforeActivate?.Invoke();
-            Directory.Move(stage, current);
+            MoveDirectoryWithRetry(stage, current);
             activated = true;
             RestoreRootFileIfCaptured(snapshot, root, UpdateBackupName, "Update.exe");
             afterFirstRootFile?.Invoke();
@@ -195,7 +204,7 @@ public sealed record UpdateRecoverySnapshot(
                 TryRemoveCurrentForRollback(current, root);
             if (movedOld && Directory.Exists(failed) && !Directory.Exists(current))
             {
-                try { Directory.Move(failed, current); }
+                try { MoveDirectoryWithRetry(failed, current); }
                 catch { /* Preserve failed and snapshot directories for manual recovery. */ }
             }
 
@@ -257,7 +266,30 @@ public sealed record UpdateRecoverySnapshot(
             return;
         var target = Path.Combine(installationRoot, targetName);
         ValidateRootTarget(target);
-        File.Copy(source, target, overwrite: true);
+        // The updater rewrote these root files moments ago, so they carry the same transient
+        // lock hazard as the directory renames above.
+        Retry(() => File.Copy(source, target, overwrite: true));
+    }
+
+    private static void MoveDirectoryWithRetry(string source, string destination) =>
+        Retry(() => Directory.Move(source, destination));
+
+    private static void Retry(Action operation)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (true)
+        {
+            try
+            {
+                operation();
+                return;
+            }
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException)
+                && elapsed.Elapsed < ReplaceRetryBudget)
+            {
+                Thread.Sleep(ReplaceRetryDelay);
+            }
+        }
     }
 
     private static IReadOnlyList<RootFileRollback> CaptureRootFiles(string root, string rollbackDirectory)

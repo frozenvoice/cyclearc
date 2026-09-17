@@ -28,6 +28,37 @@ public sealed class UpdateRecoverySnapshotTests
     }
 
     [Fact]
+    public void RestoreWaitsOutATransientLockOnTheReplacedInstallation()
+    {
+        using var install = new TemporaryDirectory();
+        using var snapshots = new TemporaryDirectory();
+        PrepareInstallation(install.FullName, includeRootBootFiles: true);
+        var snapshot = UpdateRecoverySnapshot.Create(
+            install.FullName, Path.Combine(snapshots.FullName, "snapshot-lock"), "1.2.3");
+        var current = Path.Combine(install.FullName, "current");
+        File.WriteAllText(Path.Combine(current, "CycleArc.exe"), "replaced-by-a-failed-update");
+
+        // An update has just rewritten these files, so a scanner or the image of the process
+        // that was started and quit can still hold them while recovery starts. Releasing the
+        // handle shortly afterwards must let recovery finish rather than abandon the install.
+        var released = new ManualResetEventSlim(false);
+        var holder = Task.Run(() =>
+        {
+            using var handle = new FileStream(Path.Combine(current, "CycleArc.exe"),
+                FileMode.Open, FileAccess.Read, FileShare.Read);
+            released.Set();
+            Thread.Sleep(TimeSpan.FromSeconds(1));
+        });
+        released.Wait(TimeSpan.FromSeconds(5));
+
+        snapshot.Restore();
+
+        holder.Wait(TimeSpan.FromSeconds(30));
+        snapshot.Verify();
+        Assert.Equal("old-app", File.ReadAllText(Path.Combine(current, "CycleArc.exe")));
+    }
+
+    [Fact]
     public void RestoreRebuildsMissingCurrentAndRootBootFilesWithoutTouchingExternalData()
     {
         using var install = new TemporaryDirectory();
