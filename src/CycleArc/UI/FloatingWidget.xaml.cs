@@ -203,7 +203,11 @@ public partial class FloatingWidget : Window
             : LastLayout?.Width ?? 180;
         var height = content is { DesiredSize.Height: > 0 } ? content.DesiredSize.Height
             : LastLayout?.Height ?? 60;
-        var position = WidgetPlacement.RecoverInto(Left, Top, width, height, target);
+        var onTarget = double.IsFinite(Left) && double.IsFinite(Top)
+            && Left >= target.X && Left < target.Right && Top >= target.Y && Top < target.Bottom;
+        var position = onTarget
+            ? WidgetPlacement.RecoverInto(Left, Top, width, height, target)
+            : WidgetPlacement.Recover(Left, Top, width, height, areas is { Count: > 0 } ? areas : [target]);
         if (position.Left == Left && position.Top == Top) return;
         Left = position.Left;
         Top = position.Top;
@@ -336,9 +340,7 @@ public partial class FloatingWidget : Window
         {
             var content = (FrameworkElement)Content;
             content.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-            var width = ActualWidth > 0 ? ActualWidth : content.DesiredSize.Width;
-            var height = ActualHeight > 0 ? ActualHeight : content.DesiredSize.Height;
-            var position = WidgetPlacement.RecoverInto(Left, Top, width, height, CurrentWorkArea(areas));
+            var position = WidgetPlacement.Recover(Left, Top, content.DesiredSize.Width, content.DesiredSize.Height, areas);
             if (position.Left == Left && position.Top == Top) return;
             Left = position.Left;
             Top = position.Top;
