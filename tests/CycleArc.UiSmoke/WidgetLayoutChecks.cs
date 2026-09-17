@@ -253,13 +253,16 @@ internal static class WidgetLayoutChecks
             Check(widget.Left == left && widget.Top == top, "Thumb drag moved the widget.");
             Check(flyouts == 0 && selected.Length == 0, "Thumb drag selected an account or opened the flyout.");
 
-            var afterThumb = scroller.VerticalOffset;
+            scroller.ScrollToHome();
+            scroller.UpdateLayout();
+            var beforeWheel = scroller.VerticalOffset;
             scroller.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, 0, -120)
             {
-                RoutedEvent = UIElement.MouseWheelEvent
+                RoutedEvent = UIElement.MouseWheelEvent,
+                Source = scroller
             });
             Pump();
-            Check(scroller.VerticalOffset != afterThumb || scroller.ScrollableHeight == 0,
+            Check(scroller.VerticalOffset > beforeWheel,
                 "Mouse wheel did not scroll the module grid.");
             Check(widget.Left == left && widget.Top == top, "Mouse wheel moved the widget.");
 
