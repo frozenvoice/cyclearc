@@ -65,14 +65,30 @@
     build could never have been produced. Both now use the escaped `%3B`. Compilation is still not
     execution: it proves those branches build, not that the installed update, recovery or removal
     works.
-  - Still not executed anywhere: `scripts/Verify-InstalledUpdate.ps1`, so real Setup installation,
-    the installed-app update, supervisor recovery and removal remain unverified, and the
-    `CYCLEARC_TEST_E2E` / `CYCLEARC_TEST_FAIL_STARTUP` build flavours have never been compiled —
-    CI builds without those constants. Run
+  - Executed end to end on a GitHub-hosted `windows-latest` runner by the `Windows installed E2E`
+    workflow, first passing on 2026-09-17 at 06:47 UTC (`8a37d22`, run 14). What that run actually
+    did, in order: packaged three genuinely different builds (9.9.1 / 9.9.2 / 9.9.3, distinct file
+    versions and distinct executable hashes, not an `sq.version` rewrite); installed 9.9.1 with its
+    real `Setup.exe --silent`, which registered the `CycleArc` uninstall entry and both shortcuts;
+    seeded a synthetic Claude connection through the production stores and ran the installed
+    callback; drove the in-app update to 9.9.2 through the production coordinator, client and
+    supervisor (pid 6852 → pid 2936, installed hash matching build B); applied 9.9.3, a build that
+    quits before readiness, and watched the supervisor detect it and restore 9.9.2 (marker
+    `completed: restored`, one desktop running the installed executable afterwards); then removed
+    the installation with `Update.exe --uninstall --silent` and confirmed the Claude cleanup
+    receipt `Completed: true, Inspected 1, Restored 1, Failed 0`, the accounts registry and Claude
+    connection record unchanged, the data root still present and the shortcuts gone.
+  - The failed-start scenario found a real defect before it passed: recovery abandoned the restore
+    on Windows' first refusal to rename `current`, leaving an applied update with no working
+    installation. `UpdateRecoverySnapshot` now retries those renames and the root-file copies for
+    up to thirty seconds, and the supervisor records why a recovery failed beside the retained copy.
+  - What this does not establish: installer packages remain unsigned; the update feed is a local
+    directory, so no production release or GitHub feed was exercised; the Claude account is
+    synthetic, so nothing here is evidence of live subscription usage; and the runner is a fresh
+    throwaway user, so it says nothing about an installation that shares a machine with someone's
+    real profile. For that, run
     `pwsh -NoProfile -File ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment`
-    on a disposable Windows VM or throwaway user before treating removal or installed updates as
-    verified. Installer packages remain unsigned, and that script's Claude data is synthetic: it
-    is not evidence of live subscription usage.
+    on a disposable Windows VM or throwaway user.
   - Known limits of the new script: it cannot isolate the data root, the single-instance mutex,
     the desktop IPC pipe, the recovery root, the uninstall registry entry or shortcuts, so it
     refuses to run without `-ConfirmDisposableEnvironment` and when it finds an existing
