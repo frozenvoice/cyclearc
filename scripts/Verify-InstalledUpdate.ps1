@@ -127,12 +127,17 @@ function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$What
 function Get-CycleArcProcesses {
     , @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue)
 }
+# The boundary separator matters: the recovery root sits beside the installation as
+# 'CycleArc-update-recovery', so a bare prefix test counts the supervisor's own snapshot copy
+# as a second desktop inside the installation.
 function Get-ProcessesUnder([string]$Root) {
+    $full = [IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $prefix = $full + [IO.Path]::DirectorySeparatorChar
     $matched = @()
     foreach ($process in Get-CycleArcProcesses) {
         $path = $null
         try { $path = $process.Path } catch { $path = $null }
-        if ($path -and $path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)) { $matched += $process }
+        if ($path -and $path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $matched += $process }
     }
     , $matched
 }
