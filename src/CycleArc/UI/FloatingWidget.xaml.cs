@@ -51,6 +51,11 @@ public partial class FloatingWidget : Window
             RecoverPosition(_workAreas);
         };
         DpiChanged += (_, _) => QueueRelayout();
+        SourceInitialized += (_, _) =>
+        {
+            if (HwndSource.FromHwnd(new WindowInteropHelper(this).Handle) is { } source)
+                source.AddHook(AllowArrangedTrackSize);
+        };
     }
 
     public void CloseWithoutActivation()
@@ -178,9 +183,57 @@ public partial class FloatingWidget : Window
         InvalidateMeasure();
         content.InvalidateMeasure();
         content.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-        content.Arrange(new System.Windows.Rect(content.DesiredSize));
+        var (width, height) = ArrangedSize();
+        content.Arrange(new System.Windows.Rect(new System.Windows.Size(width, height)));
         content.UpdateLayout();
-        if (IsLoaded) UpdateLayout();
+        if (!IsLoaded) return;
+        ApplyNativeSize(width, height);
+    }
+
+    /// <summary>
+    /// SizeToContent will not grow a layered window after it has wrapped, and WPF Width is
+    /// clamped to the host's SM_CXMAXTRACK. Relayout therefore writes the arranged DIP size
+    /// onto the HWND after the grid is measured, so recovery uses the new footprint.
+    /// Tests may inject work areas; this size step stays on the same path as production.
+    /// </summary>
+    private void ApplyNativeSize(double width, double height)
+    {
+        if (width <= 0 || height <= 0) return;
+        using var activation = new PassiveUpdate();
+        SizeToContent = SizeToContent.Manual;
+        MinWidth = 0;
+        MinHeight = 0;
+        Width = width;
+        Height = height;
+        UpdateLayout();
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        var toDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice
+            ?? Matrix.Identity;
+        var pixels = toDevice.Transform(new System.Windows.Point(width, height));
+        SetWindowPos(hwnd, IntPtr.Zero, 0, 0,
+            Math.Max(1, (int)Math.Round(pixels.X)), Math.Max(1, (int)Math.Round(pixels.Y)),
+            SwpNoMove | SwpNoZOrder | SwpNoActivate);
+        UpdateLayout();
+    }
+
+    private (double Width, double Height) ArrangedSize()
+    {
+        var content = Content as FrameworkElement;
+        var width = LastLayout?.Width ?? 0;
+        var height = LastLayout?.Height ?? 0;
+        if (content is { DesiredSize.Width: > 0 })
+        {
+            var slack = LastLayout?.HairlineRoundingSlack(1) ?? 0;
+            // Hairline snapping may be a few DIP wider than the formula. A previous
+            // five-column DesiredSize must not keep the HWND wide after the grid wraps.
+            if (width <= 0 || content.DesiredSize.Width <= width + slack + 2)
+                width = Math.Max(width, content.DesiredSize.Width);
+        }
+        if (content is { DesiredSize.Height: > 0 }
+            && (height <= 0 || content.DesiredSize.Height <= height + 2))
+            height = Math.Max(height, content.DesiredSize.Height);
+        return (width > 0 ? width : 180, height > 0 ? height : 60);
     }
 
     private void RecoverTo(ScreenRect target)
@@ -189,21 +242,15 @@ public partial class FloatingWidget : Window
         if (WindowState != WindowState.Normal) return;
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != IntPtr.Zero && IsIconic(hwnd)) return;
+        // Pixel restore owns the first placement. Clamping DIP Left/Top before that
+        // would persist (40,40) and fight WidgetPixelLeft/Top on mixed-DPI restart.
+        if (!_positionReady) return;
+        // Injected or live work areas only choose the monitor list. Recovery always clamps
+        // into the target already used to wrap, after the arranged size has been applied.
         var areas = _workAreas ?? (IsLoaded ? DesktopWorkAreas.For(this) : null);
         if (areas is { Count: > 0 } && !areas.Contains(target))
             target = CurrentWorkArea(areas);
-        if (_workAreas is null)
-        {
-            if (!_positionReady || hwnd == IntPtr.Zero) return;
-            RecoverPhysicalPosition();
-            return;
-        }
-        var content = Content as FrameworkElement;
-        // DesiredSize is the size just applied; ActualWidth can still be the previous HWND.
-        var width = content is { DesiredSize.Width: > 0 } ? content.DesiredSize.Width
-            : LastLayout?.Width ?? 180;
-        var height = content is { DesiredSize.Height: > 0 } ? content.DesiredSize.Height
-            : LastLayout?.Height ?? 60;
+        var (width, height) = ArrangedSize();
         var onTarget = double.IsFinite(Left) && double.IsFinite(Top)
             && Left >= target.X && Left < target.Right && Top >= target.Y && Top < target.Bottom;
         var position = onTarget
@@ -339,9 +386,13 @@ public partial class FloatingWidget : Window
         _recoveringPosition = true;
         try
         {
-            var content = (FrameworkElement)Content;
-            content.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-            var position = WidgetPlacement.Recover(Left, Top, content.DesiredSize.Width, content.DesiredSize.Height, areas);
+            var (width, height) = ArrangedSize();
+            var target = WidgetPlacement.AreaContaining(Left, Top, areas);
+            var onTarget = double.IsFinite(Left) && double.IsFinite(Top)
+                && Left >= target.X && Left < target.Right && Top >= target.Y && Top < target.Bottom;
+            var position = onTarget
+                ? WidgetPlacement.RecoverInto(Left, Top, width, height, target)
+                : WidgetPlacement.Recover(Left, Top, width, height, areas);
             if (position.Left == Left && position.Top == Top) return;
             Left = position.Left;
             Top = position.Top;
@@ -411,7 +462,7 @@ public partial class FloatingWidget : Window
     {
         using var activation = new PassiveUpdate();
         SetWindowPos(new WindowInteropHelper(this).Handle, IntPtr.Zero, x, y, 0, 0,
-            0x0001 | 0x0004 | 0x0010); // NOSIZE | NOZORDER | NOACTIVATE
+            SwpNoSize | SwpNoZOrder | SwpNoActivate);
     }
 
     private void RecoverPhysicalPosition()
@@ -432,6 +483,30 @@ public partial class FloatingWidget : Window
             Moved?.Invoke(Left, Top);
         }
         finally { _recoveringPosition = false; }
+    }
+
+    private IntPtr AllowArrangedTrackSize(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != 0x0024) return IntPtr.Zero; // WM_GETMINMAXINFO
+        var (width, height) = ArrangedSize();
+        if (width <= 0 || height <= 0) return IntPtr.Zero;
+        var toDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice
+            ?? Matrix.Identity;
+        var pixels = toDevice.Transform(new System.Windows.Point(width, height));
+        var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+        info.MaxTrack.X = Math.Max(info.MaxTrack.X, (int)Math.Ceiling(pixels.X));
+        info.MaxTrack.Y = Math.Max(info.MaxTrack.Y, (int)Math.Ceiling(pixels.Y));
+        Marshal.StructureToPtr(info, lParam, true);
+        return IntPtr.Zero;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint { public int X, Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved, MaxSize, MaxPosition, MinTrack, MaxTrack;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -572,6 +647,7 @@ public partial class FloatingWidget : Window
     private const uint GwHwndPrev = 3;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpShowWindow = 0x0040;
     private const uint SwpNoOwnerZOrder = 0x0200;

@@ -494,9 +494,10 @@ internal static class Program
         var secondary = System.Windows.Forms.Screen.AllScreens.FirstOrDefault(x => !x.Primary);
         if (secondary is not null)
         {
-            // First calibrate the actual target-monitor size; the next instance tests its bottom edge.
-            settings.WidgetPixelLeft = secondary.WorkingArea.Right - 178;
-            settings.WidgetPixelTop = secondary.WorkingArea.Bottom - 100;
+            // Inset from the secondary origin so the current arranged widget still fits.
+            // Right-178 was the old single-account width and overflowed a module-sized panel.
+            settings.WidgetPixelLeft = secondary.WorkingArea.Left + 80;
+            settings.WidgetPixelTop = secondary.WorkingArea.Top + 80;
         }
         for (var attempt = 0; attempt < 2; attempt++)
         {

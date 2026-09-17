@@ -347,8 +347,8 @@ public static class UiText
     public static string WidgetReset => T("Reset", "리셋");
     public static string WidgetLeft(string percent) => T($"Left {percent}", $"남음 {percent}");
     public static string WidgetAccountsConnected(int count) => count == 1
-        ? T("1 account connected", "계정 1개 연결됨")
-        : T($"{count} accounts connected", $"계정 {count}개 연결됨");
+        ? T("1 account", "계정 1")
+        : T($"{count} accounts", $"계정 {count}");
     public static string WidgetHideHint => T("Hide the widget (CycleArc keeps running)", "위젯 숨기기 (CycleArc는 계속 실행됨)");
     public static string WidgetOpenDetailHint => T("Open this account's details", "이 계정의 상세 정보 열기");
     public static string WidgetOpacity => T("Widget opacity", "위젯 투명도");

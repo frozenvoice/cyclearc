@@ -1382,5 +1382,21 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   the build, the unit tests and every UiSmoke render listed above were left to the Windows CI job
   rather than run locally. Multi-monitor recovery is exercised only through the synthetic
   `ScreenRect` work areas and whatever monitors the CI runner reports; it is not evidence of a real
-  multi-monitor desktop. `docs/images/widget.png` still shows the previous single-account widget and
-  needs regenerating on Windows with `CycleArc.UiSmoke --screenshots`.
+  multi-monitor desktop. `docs/images/widget.png` is produced from the production widget with three
+  synthetic accounts (`DocumentationScreenshots`); it is not a live-account capture.
+
+## Widget relayout display and recovery, 2026-09-18
+
+- Relayout now applies the arranged DIP size to the HWND (`SizeToContent` can keep a previous
+  wrapped width, and WPF Width can follow `SM_CXMAXTRACK`) before clamping into the same target
+  work area. Tests inject monitor rectangles only; `RecoverTo` uses `RecoverInto` on that path
+  whether the list is injected or live.
+- `WidgetLayoutChecks.RelayoutOrder` records injected vs host work areas, LastLayout, DesiredSize,
+  RenderSize, ActualWidth/Height and `GetWindowRect`, requires a `Moved` event when the origin
+  must change, and round-trips DIP plus `WidgetPixelLeft/Top` through an isolated `SettingsStore`.
+  It does not read or write `%LOCALAPPDATA%\ProMeter`.
+- Capture of a shown widget uses the live `RenderSize`. A five-column primary render that uses the
+  injected 1920×1040 DIP work area is not a claim that the CI host monitor is that wide.
+- Not run: installed-app update/removal, real-account quota requests, or changing this PC's
+  monitor layout. Dual-monitor wrap/recovery is the injected `ScreenRect` path plus whatever
+  monitors the host already has.

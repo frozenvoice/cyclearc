@@ -2,10 +2,12 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using CycleArc.Codex;
 using CycleArc.Models;
@@ -154,6 +156,7 @@ internal static class WidgetLayoutChecks
             var before = widget.Modules.Select(module => module.RingValueText.Text).ToArray();
             Check(widget.LastLayout!.Columns == 5 && widget.LastLayout.Rows == 1,
                 $"{suffix}: wide relayout fixture is not five columns.");
+            CheckAccountsFullyVisible(widget, $"{suffix}/five-row");
             WidgetFixture.RenderWidget(widget, PathFor(directory, $"widget-layout-5-row-{suffix}"));
 
             widget.Relayout(Narrow);
@@ -162,6 +165,7 @@ internal static class WidgetLayoutChecks
                 $"{suffix}: Relayout to a narrow work area did not wrap to 3+2.");
             Check(before.SequenceEqual(widget.Modules.Select(module => module.RingValueText.Text)),
                 $"{suffix}: Relayout rebound usage numbers.");
+            CheckAccountsFullyVisible(widget, $"{suffix}/wrapped");
             WidgetFixture.RenderWidget(widget, PathFor(directory, $"widget-layout-5-wrapped-{suffix}"));
 
             widget.Relayout(Wide);
@@ -208,6 +212,8 @@ internal static class WidgetLayoutChecks
     {
         var secondary = Dual[1];
         var primary = Dual[0];
+        var log = new StringBuilder();
+        LogHostMonitors(log);
         var focus = new Window
         {
             Title = "CycleArc relayout-order focus",
@@ -231,32 +237,33 @@ internal static class WidgetLayoutChecks
             Layout(widget);
             Check(widget.LastLayout!.Columns == 5 && widget.LastLayout.Rows == 1,
                 "Relayout-order fixture did not start as five columns.");
-            var wideWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
-            Check(wideWidth > secondary.Width,
-                $"Five-column width {wideWidth} is not wider than the secondary work area.");
+            var wide = DipSize(widget);
+            Check(wide.Width > secondary.Width,
+                $"Five-column width {wide.Width} is not wider than the secondary work area.");
+            LogProbe(log, "start five-column", widget, primary, Wide, persisted);
 
             var foreground = GetForegroundWindow();
             widget.Left = -400;
             widget.Top = 40;
+            var beforeSecondary = (widget.Left, widget.Top);
             persisted.Clear();
             widget.Relayout(Dual);
             Pump();
             Check(widget.LastLayout!.Columns == 3 && widget.LastLayout.Rows == 2,
                 $"Drop onto the secondary did not wrap ({widget.LastLayout.Columns}x{widget.LastLayout.Rows}).");
-            var afterWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
-            var afterHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
-            Check(afterWidth < wideWidth - 8,
-                $"Wrapped width {afterWidth} did not shrink from the five-column width {wideWidth}.");
-            Check(Inside(widget.Left, widget.Top, afterWidth, afterHeight, secondary),
-                $"Wrapped widget {widget.Left},{widget.Top} {afterWidth}x{afterHeight} left the secondary {secondary}.");
-            Check(persisted.Count == 0 || persisted[^1] == (widget.Left, widget.Top),
-                "Persisted coordinates do not match the final secondary position.");
+            var after = DipSize(widget);
+            Check(after.Width < wide.Width - 8,
+                $"Wrapped width {after.Width} did not shrink from the five-column width {wide.Width}.");
+            Check(Inside(widget.Left, widget.Top, after.Width, after.Height, secondary),
+                $"Wrapped widget {widget.Left},{widget.Top} {after.Width}x{after.Height} left the secondary {secondary}.");
+            CheckMoved(persisted, widget, secondary, mustMove: true, before: beforeSecondary,
+                "secondary wrap");
             Check(GetForegroundWindow() == foreground, "Relayout stole focus from another window.");
-
-            Pump();
-            Check(widget.LastLayout.Columns == 3 && Inside(widget.Left, widget.Top, afterWidth, afterHeight, secondary),
-                "Extra dispatcher work bounced the wrapped widget onto the primary.");
+            CheckUnchangedAfterPump(persisted, widget, secondary, "secondary wrap");
+            CheckAccountsFullyVisible(widget, "relayout-secondary");
+            LogProbe(log, "after secondary 3+2", widget, secondary, Dual, persisted);
             WidgetFixture.RenderWidget(widget, PathFor(directory, "widget-relayout-secondary"));
+            PersistReload(accounts, Dual, secondary, widget, "secondary wrap reload");
 
             widget.BindAccounts(accounts, accounts[2].Profile.Id, UsagePeriodPreference.Auto, Dual, Now);
             Pump();
@@ -265,58 +272,75 @@ internal static class WidgetLayoutChecks
                 "A later account bind snapped the secondary widget back to five columns.");
 
             widget.Left = 40;
+            widget.Top = 40;
+            var beforePrimary = (widget.Left, widget.Top);
+            persisted.Clear();
             widget.Relayout();
             Pump();
             Check(widget.LastLayout!.Columns == 5 && widget.LastLayout.Rows == 1,
                 "Moving onto the primary did not restore one row.");
-            var primaryWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
-            var primaryHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
-            Check(primaryWidth > afterWidth + 8,
-                $"Primary width {primaryWidth} was not taken from the new five-column size.");
-            Check(Inside(widget.Left, widget.Top, primaryWidth, primaryHeight, primary),
-                $"Primary widget {widget.Left},{widget.Top} {primaryWidth}x{primaryHeight} left the primary.");
+            var onPrimary = DipSize(widget);
+            Check(onPrimary.Width > after.Width + 8,
+                $"Primary width {onPrimary.Width} was not taken from the new five-column size.");
+            CheckWindowMatchesLayout(widget, "primary five-column");
+            Check(Inside(widget.Left, widget.Top, onPrimary.Width, onPrimary.Height, primary),
+                $"Primary widget {widget.Left},{widget.Top} {onPrimary.Width}x{onPrimary.Height} left the primary.");
+            CheckMoved(persisted, widget, primary, mustMove: false, before: beforePrimary,
+                "primary restore");
+            CheckUnchangedAfterPump(persisted, widget, primary, "primary restore");
+            CheckAccountsFullyVisible(widget, "relayout-primary");
+            LogProbe(log, "after primary five-column", widget, primary, Dual, persisted);
             WidgetFixture.RenderWidget(widget, PathFor(directory, "widget-relayout-primary"));
 
             widget.Left = 9000;
             widget.Top = 40;
+            var beforeOffscreen = (widget.Left, widget.Top);
             persisted.Clear();
             widget.Relayout(Wide);
             Pump();
             Check(widget.LastLayout!.Columns == 5,
                 "Off-screen recovery skipped because the five-column layout was unchanged.");
-            var recoveredWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
-            var recoveredHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
-            Check(Inside(widget.Left, widget.Top, recoveredWidth, recoveredHeight, primary),
+            var recovered = DipSize(widget);
+            Check(Inside(widget.Left, widget.Top, recovered.Width, recovered.Height, primary),
                 $"Unchanged layout left the widget off-screen at {widget.Left},{widget.Top}.");
-            Check(persisted.Count == 0 || persisted[^1] == (widget.Left, widget.Top),
-                "Off-screen recovery persisted coordinates that do not match the window.");
+            CheckMoved(persisted, widget, primary, mustMove: true, before: beforeOffscreen,
+                "off-screen recovery");
+            CheckUnchangedAfterPump(persisted, widget, primary, "off-screen recovery");
+            LogProbe(log, "after off-screen recovery", widget, primary, Wide, persisted);
 
             widget.Left = -400;
             widget.Top = 40;
             widget.Relayout(Dual);
             Pump();
+            persisted.Clear();
+            var beforeRemoval = (widget.Left, widget.Top);
             widget.Relayout([primary]);
             Pump();
-            var removedWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
-            var removedHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
-            Check(widget.LastLayout!.Columns == 5 && Inside(widget.Left, widget.Top, removedWidth, removedHeight, primary),
+            var removed = DipSize(widget);
+            Check(widget.LastLayout!.Columns == 5 && Inside(widget.Left, widget.Top, removed.Width, removed.Height, primary),
                 "Removing the secondary monitor did not recover onto the remaining primary.");
+            CheckMoved(persisted, widget, primary, mustMove: true, before: beforeRemoval,
+                "monitor removal");
+            LogProbe(log, "after secondary removed", widget, primary, [primary], persisted);
 
             foreach (var scale in new[] { 1.0, 1.5, 2.0 })
             {
                 VisualTreeHelper.SetRootDpi(widget, new DpiScale(scale, scale));
                 widget.Left = -400;
                 widget.Top = 40;
+                persisted.Clear();
                 widget.Relayout(Dual);
                 Pump();
                 Check(widget.LastLayout!.Columns == 3 && widget.LastLayout.Rows == 2,
                     $"{scale:0.0}x drop onto the secondary did not wrap.");
-                var scaledWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
-                var scaledHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
-                Check(Inside(widget.Left, widget.Top, scaledWidth, scaledHeight, secondary),
-                    $"{scale:0.0}x wrapped widget left the secondary at {widget.Left},{widget.Top} {scaledWidth}x{scaledHeight}.");
+                var scaled = DipSize(widget);
+                Check(Inside(widget.Left, widget.Top, scaled.Width, scaled.Height, secondary),
+                    $"{scale:0.0}x wrapped widget left the secondary at {widget.Left},{widget.Top} {scaled.Width}x{scaled.Height}.");
+                CheckMoved(persisted, widget, secondary, mustMove: true, before: (-400, 40),
+                    $"{scale:0.0}x secondary wrap");
             }
             VisualTreeHelper.SetRootDpi(widget, new DpiScale(1, 1));
+            WriteLog(directory, log);
             return 4;
         }
         finally
@@ -342,8 +366,254 @@ internal static class WidgetLayoutChecks
     private static bool Inside(double left, double top, double width, double height, ScreenRect area) =>
         left >= area.X && top >= area.Y && left + width <= area.Right + 0.5 && top + height <= area.Bottom + 0.5;
 
+    private static (double Width, double Height) DipSize(FloatingWidget widget)
+    {
+        var content = (FrameworkElement)widget.Content;
+        return (
+            widget.ActualWidth > 0 ? widget.ActualWidth : content.DesiredSize.Width,
+            widget.ActualHeight > 0 ? widget.ActualHeight : content.DesiredSize.Height);
+    }
+
+    private static (double Width, double Height) NativeDipSize(FloatingWidget widget)
+    {
+        var hwnd = new WindowInteropHelper(widget).Handle;
+        if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var rect)) return (0, 0);
+        var fromDevice = PresentationSource.FromVisual(widget)?.CompositionTarget?.TransformFromDevice
+            ?? Matrix.Identity;
+        var topLeft = fromDevice.Transform(new Point(rect.Left, rect.Top));
+        var bottomRight = fromDevice.Transform(new Point(rect.Right, rect.Bottom));
+        return (Math.Max(0, bottomRight.X - topLeft.X), Math.Max(0, bottomRight.Y - topLeft.Y));
+    }
+
+    private static void CheckWindowMatchesLayout(FloatingWidget widget, string name)
+    {
+        var layout = widget.LastLayout ?? throw new InvalidOperationException($"{name}: no layout.");
+        var content = (FrameworkElement)widget.Content;
+        var native = NativeDipSize(widget);
+        var slack = layout.HairlineRoundingSlack(1) + 2;
+        Check(content.DesiredSize.Width + 0.5 >= layout.Width - slack,
+            $"{name}: DesiredSize {content.DesiredSize.Width} is smaller than layout {layout.Width}.");
+        if (widget.IsLoaded && widget.ActualWidth > 0)
+        {
+            Check(widget.ActualWidth + slack >= layout.Width,
+                $"{name}: ActualWidth {widget.ActualWidth} is smaller than arranged layout {layout.Width}.");
+        }
+        if (widget.IsLoaded && native.Width > 0)
+        {
+            Check(native.Width + slack >= layout.Width,
+                $"{name}: HWND width {native.Width} is smaller than arranged layout {layout.Width} (ActualWidth={widget.ActualWidth}).");
+        }
+    }
+
+    private static void CheckAccountsFullyVisible(FloatingWidget widget, string name)
+    {
+        var content = (FrameworkElement)widget.Content;
+        var layout = widget.LastLayout!;
+        var scroller = (ScrollViewer)widget.FindName("ModuleScroller");
+        var host = widget.IsLoaded ? (FrameworkElement)widget : content;
+        var clip = ClipSize(widget, content);
+        CheckWindowMatchesLayout(widget, name);
+        foreach (var module in widget.Modules)
+        {
+            var bounds = module.TransformToAncestor(host).TransformBounds(new Rect(module.RenderSize));
+            var belowFold = layout.Scrolls && scroller.ComputedVerticalScrollBarVisibility == Visibility.Visible
+                && module.TransformToAncestor(scroller).TransformBounds(new Rect(module.RenderSize)).Bottom
+                    > scroller.ViewportHeight + 2;
+            if (belowFold) continue;
+            Check(bounds.Right <= clip.Width + 0.5 && bounds.Bottom <= clip.Height + 0.5
+                && bounds.Left >= -0.5 && bounds.Top >= -0.5,
+                $"{name}: {module.NameText.Text} is outside the visible widget ({bounds} vs {clip.Width}x{clip.Height}).");
+            CheckKeyText(module, host, clip, name);
+        }
+        if (layout.Scrolls) ScrollToLastPeriod(widget, scroller, name);
+    }
+
+    private static (double Width, double Height) ClipSize(FloatingWidget widget, FrameworkElement content)
+    {
+        var native = NativeDipSize(widget);
+        var width = content.RenderSize.Width > 0 ? content.RenderSize.Width : content.ActualWidth;
+        var height = content.RenderSize.Height > 0 ? content.RenderSize.Height : content.ActualHeight;
+        if (widget.IsLoaded)
+        {
+            if (widget.ActualWidth > 0) width = width > 0 ? Math.Min(width, widget.ActualWidth) : widget.ActualWidth;
+            if (widget.ActualHeight > 0) height = height > 0 ? Math.Min(height, widget.ActualHeight) : widget.ActualHeight;
+            if (native.Width > 0) width = width > 0 ? Math.Min(width, native.Width) : native.Width;
+            if (native.Height > 0) height = height > 0 ? Math.Min(height, native.Height) : native.Height;
+        }
+        return (width, height);
+    }
+
+    private static void CheckKeyText(WidgetAccountModuleView module, FrameworkElement host,
+        (double Width, double Height) clip, string name)
+    {
+        void InsideElement(FrameworkElement element, string part)
+        {
+            if (element.Visibility != Visibility.Visible || element.RenderSize.Width <= 0) return;
+            var bounds = element.TransformToAncestor(host).TransformBounds(new Rect(element.RenderSize));
+            Check(bounds.Right <= clip.Width + 0.5 && bounds.Bottom <= clip.Height + 0.5
+                && bounds.Left >= -0.5 && bounds.Top >= -0.5,
+                $"{name}: {module.NameText.Text} {part} is clipped ({bounds} vs {clip.Width}x{clip.Height}).");
+            if (element is TextBlock text)
+            {
+                Check(text.ActualWidth + 0.5 >= text.DesiredSize.Width,
+                    $"{name}: {module.NameText.Text} {part} text is truncated.");
+            }
+        }
+        InsideElement(module.Badge, "provider badge");
+        foreach (var line in module.Periods)
+        {
+            InsideElement(line.RemainingText, "remaining");
+            InsideElement(line.ResetText, "reset");
+        }
+    }
+
+    private static void CheckMoved(List<(double Left, double Top)> persisted, FloatingWidget widget,
+        ScreenRect target, bool mustMove, (double Left, double Top) before, string name)
+    {
+        if (mustMove)
+        {
+            Check(persisted.Count > 0, $"{name}: position recovery produced no Moved event.");
+            Check(persisted[^1] != before,
+                $"{name}: Moved stayed at the unclamped origin {before}.");
+        }
+        if (persisted.Count == 0) return;
+        Check(persisted[^1] == (widget.Left, widget.Top),
+            $"{name}: last Moved {persisted[^1]} != window ({widget.Left}, {widget.Top}).");
+        foreach (var point in persisted)
+        {
+            Check(point.Left >= target.X && point.Left < target.Right
+                && point.Top >= target.Y && point.Top < target.Bottom,
+                $"{name}: an intermediate position {point} was saved off the target {target}.");
+        }
+    }
+
+    private static void CheckUnchangedAfterPump(List<(double Left, double Top)> persisted,
+        FloatingWidget widget, ScreenRect target, string name)
+    {
+        var count = persisted.Count;
+        var last = (widget.Left, widget.Top);
+        var layout = widget.LastLayout!;
+        Pump();
+        Check(widget.LastLayout!.Columns == layout.Columns && widget.LastLayout.Rows == layout.Rows
+            && Inside(widget.Left, widget.Top, DipSize(widget).Width, DipSize(widget).Height, target),
+            $"{name}: extra dispatcher work bounced the widget.");
+        Check(persisted.Count == count && (widget.Left, widget.Top) == last,
+            $"{name}: extra dispatcher work overwrote the recovered position.");
+    }
+
+    private static void PersistReload(CodexAccountView[] accounts, IReadOnlyList<ScreenRect> areas,
+        ScreenRect target, FloatingWidget source, string name)
+    {
+        var pixels = source.PixelPosition;
+        var expected = (source.Left, source.Top);
+        var root = Path.Combine(Path.GetTempPath(), "CycleArc-widget-relayout-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "settings.json");
+        try
+        {
+            var store = new SettingsStore(path);
+            store.Save(new AppSettings
+            {
+                FloatingWidgetEnabled = true,
+                WidgetLeft = source.Left,
+                WidgetTop = source.Top,
+                WidgetPixelLeft = pixels?.X,
+                WidgetPixelTop = pixels?.Y
+            });
+            var loaded = new SettingsStore(path).Load();
+            Check(loaded.WidgetLeft == expected.Left && loaded.WidgetTop == expected.Top,
+                $"{name}: isolated settings did not keep DIP coordinates.");
+            Check(loaded.WidgetPixelLeft == pixels?.X && loaded.WidgetPixelTop == pixels?.Y,
+                $"{name}: isolated settings did not keep pixel coordinates.");
+
+            var restored = new FloatingWidget { ShowActivated = false };
+            try
+            {
+                restored.BindAccounts(accounts, accounts[2].Profile.Id, UsagePeriodPreference.Auto, areas, Now);
+                restored.Apply(loaded);
+                restored.Show();
+                Pump();
+                Check(restored.LastLayout!.Columns == source.LastLayout!.Columns
+                    && restored.LastLayout.Rows == source.LastLayout.Rows,
+                    $"{name}: reloaded widget lost the wrapped layout.");
+                var size = DipSize(restored);
+                Check(Inside(restored.Left, restored.Top, size.Width, size.Height, target),
+                    $"{name}: reloaded widget left the target at {restored.Left},{restored.Top}.");
+                Check(Math.Abs(restored.Left - expected.Left) < 1 && Math.Abs(restored.Top - expected.Top) < 1,
+                    $"{name}: reloaded DIP {restored.Left},{restored.Top} != saved {expected}.");
+                if (pixels is { } savedPixels && restored.PixelPosition is { } restoredPixels)
+                {
+                    Check(Math.Abs(restoredPixels.X - savedPixels.X) <= 2
+                        && Math.Abs(restoredPixels.Y - savedPixels.Y) <= 2,
+                        $"{name}: reloaded pixels {restoredPixels} != saved {savedPixels}.");
+                }
+            }
+            finally { restored.Close(); }
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); }
+            catch (IOException) { }
+        }
+    }
+
+    private static void LogHostMonitors(StringBuilder log)
+    {
+        log.AppendLine("Host monitors (physical pixels; tests inject DIP work areas and do not change this desktop):");
+        foreach (var screen in System.Windows.Forms.Screen.AllScreens.OrderByDescending(s => s.Primary))
+        {
+            log.AppendLine(
+                $"  primary={screen.Primary} bounds={screen.Bounds} work={screen.WorkingArea}");
+        }
+        log.AppendLine($"Injected dual: primary={Dual[0]} secondary={Dual[1]}");
+        if (System.Windows.Forms.Screen.AllScreens.Length < 2)
+            log.AppendLine("Host has one monitor; dual-monitor recovery is exercised with injected ScreenRect values.");
+        Console.Write(log.ToString());
+    }
+
+    private static void LogProbe(StringBuilder log, string phase, FloatingWidget widget, ScreenRect target,
+        IReadOnlyList<ScreenRect> injected, List<(double Left, double Top)> persisted)
+    {
+        var content = (FrameworkElement)widget.Content;
+        var native = NativeDipSize(widget);
+        var hwnd = new WindowInteropHelper(widget).Handle;
+        GetWindowRect(hwnd, out var rect);
+        var scroller = (ScrollViewer)widget.FindName("ModuleScroller");
+        var last = widget.Modules[^1];
+        var lastBounds = last.TransformToAncestor(content).TransformBounds(new Rect(last.RenderSize));
+        var badge = last.Badge.TransformToAncestor(content).TransformBounds(new Rect(last.Badge.RenderSize));
+        var line = last.Periods.Count > 0 ? last.Periods[^1] : null;
+        var remaining = line is null ? default(Rect?)
+            : line.RemainingText.TransformToAncestor(content).TransformBounds(new Rect(line.RemainingText.RenderSize));
+        var reset = line is null ? default(Rect?)
+            : line.ResetText.TransformToAncestor(content).TransformBounds(new Rect(line.ResetText.RenderSize));
+        var block =
+            $"{phase}: injected={string.Join(" | ", injected)} target={target} " +
+            $"LastLayout={widget.LastLayout} Desired={content.DesiredSize.Width:0.##}x{content.DesiredSize.Height:0.##} " +
+            $"Render={content.RenderSize.Width:0.##}x{content.RenderSize.Height:0.##} " +
+            $"Actual={widget.ActualWidth:0.##}x{widget.ActualHeight:0.##} " +
+            $"HWND_px=({rect.Left},{rect.Top})-({rect.Right},{rect.Bottom}) HWND_dip={native.Width:0.##}x{native.Height:0.##} " +
+            $"LeftTop={widget.Left:0.##},{widget.Top:0.##} scroller={scroller.ViewportWidth:0.##}x{scroller.ViewportHeight:0.##} " +
+            $"lastModule={lastBounds} badge={badge} remaining={remaining} reset={reset} " +
+            $"Moved=[{string.Join("; ", persisted.Select(p => $"{p.Left:0.##},{p.Top:0.##}"))}]";
+        log.AppendLine(block);
+        Console.WriteLine(block);
+    }
+
+    private static void WriteLog(string? directory, StringBuilder log)
+    {
+        if (directory is null) return;
+        File.WriteAllText(Path.Combine(directory, "widget-relayout-log.txt"), log.ToString());
+    }
+
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect { public int Left, Top, Right, Bottom; }
 
     private static int ScrollbarDoesNotDragWindow()
     {

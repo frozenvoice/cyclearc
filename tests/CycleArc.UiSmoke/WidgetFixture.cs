@@ -33,8 +33,17 @@ internal static class WidgetFixture
 
     public static string Tooltip(FloatingWidget widget, int index = 0) => Module(widget, index).ToolTip as string ?? "";
 
-    /// Renders at the width the widget's own layout asked for, so a render can never hide a wrap.
-    public static void RenderWidget(FloatingWidget widget, string? path) =>
+    /// Renders the widget as currently arranged. A shown window is captured at its live
+    /// RenderSize so a LastLayout-sized remesaure cannot hide HWND clipping.
+    public static void RenderWidget(FloatingWidget widget, string? path)
+    {
+        var content = (FrameworkElement)widget.Content;
+        if (widget.IsLoaded && content.RenderSize.Width > 0 && content.RenderSize.Height > 0)
+        {
+            AccountUiChecks.RenderCurrent(content, path);
+            return;
+        }
         AccountUiChecks.Render(widget, widget.LastLayout?.Width
-            ?? ((FrameworkElement)widget.Content).DesiredSize.Width, null, path);
+            ?? content.DesiredSize.Width, null, path);
+    }
 }

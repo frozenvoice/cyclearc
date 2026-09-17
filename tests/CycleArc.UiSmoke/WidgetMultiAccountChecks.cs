@@ -70,6 +70,9 @@ internal static class WidgetMultiAccountChecks
             var layout = widget.LastLayout!;
             Check(layout.Columns == expectColumns && layout.Rows == expectRows,
                 $"{name}: expected {expectColumns}x{expectRows}, produced {layout.Columns}x{layout.Rows}.");
+            Check(((System.Windows.Controls.TextBlock)widget.FindName("AccountCountText")).Text
+                == UiText.WidgetAccountsConnected(accounts.Count),
+                $"{name}: the header is not the short account-count label.");
             Check(layout.Width <= workAreas[0].Width - (2 * WidgetGridLayout.EdgeMargin),
                 $"{name}: the widget is wider than the work area ({layout.Width} in {workAreas[0].Width}).");
             Check(widget.Modules.Count == accounts.Count, $"{name}: an account module is missing.");

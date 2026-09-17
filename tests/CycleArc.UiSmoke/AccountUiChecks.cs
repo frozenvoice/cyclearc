@@ -503,8 +503,22 @@ internal static class AccountUiChecks
         var size = new Size(width, height ?? content.DesiredSize.Height);
         content.Arrange(new Rect(new Point(), size));
         content.UpdateLayout();
+        WritePng(content, size, path);
+    }
+
+    /// Captures the visual as laid out now. Does not remeasure to a different size.
+    internal static void RenderCurrent(FrameworkElement content, string? path)
+    {
+        content.UpdateLayout();
+        var size = content.RenderSize;
+        if (size.Width <= 0 || size.Height <= 0) return;
+        WritePng(content, size, path);
+    }
+
+    private static void WritePng(Visual visual, Size size, string? path)
+    {
         var bitmap = new RenderTargetBitmap((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height), 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(content);
+        bitmap.Render(visual);
         if (path is null) return;
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));

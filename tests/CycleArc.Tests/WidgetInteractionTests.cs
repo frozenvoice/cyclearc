@@ -59,6 +59,12 @@ public class WidgetInteractionTests
         Assert.Contains("public void Relayout(", widgetCode, StringComparison.Ordinal);
         Assert.Contains("RecoverInto(", widgetCode, StringComparison.Ordinal);
         Assert.Contains("ApplyArrangedLayout()", widgetCode, StringComparison.Ordinal);
+        Assert.Contains("ApplyNativeSize(", widgetCode, StringComparison.Ordinal);
+        Assert.Contains("AllowArrangedTrackSize", widgetCode, StringComparison.Ordinal);
+        var recoverTo = Slice(widgetCode, "private void RecoverTo(", "private void QueueRelayout(");
+        Assert.Contains("ArrangedSize()", recoverTo, StringComparison.Ordinal);
+        Assert.Contains("RecoverInto(", recoverTo, StringComparison.Ordinal);
+        Assert.DoesNotContain("RecoverPhysicalPosition()", recoverTo, StringComparison.Ordinal);
         Assert.Contains("WidgetAccountModel.All(", widgetCode, StringComparison.Ordinal);
         Assert.Contains("WidgetGridLayout.For(", widgetCode, StringComparison.Ordinal);
         // The widget must not build a usage source of its own.
@@ -203,5 +209,13 @@ public class WidgetInteractionTests
         }
 
         throw new FileNotFoundException(relative);
+    }
+
+    private static string Slice(string source, string start, string end)
+    {
+        var from = source.IndexOf(start, StringComparison.Ordinal);
+        var to = source.IndexOf(end, StringComparison.Ordinal);
+        if (from < 0 || to <= from) throw new InvalidOperationException($"Missing {start} .. {end}.");
+        return source[from..to];
     }
 }

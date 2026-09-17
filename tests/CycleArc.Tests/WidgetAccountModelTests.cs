@@ -223,4 +223,19 @@ public class WidgetAccountModelTests
         var models = WidgetAccountModel.All(overview.Accounts, overview.SelectedId, overview.Preference, Now);
         Assert.Equal(new[] { "a" }, models.Select(m => m.ProfileId));
     }
+
+    [Fact]
+    public void WidgetHeaderUsesAShortAccountCount()
+    {
+        UiText.SetLanguage(UiLanguage.English);
+        Assert.Equal("1 account", UiText.WidgetAccountsConnected(1));
+        Assert.Equal("3 accounts", UiText.WidgetAccountsConnected(3));
+        UiText.SetLanguage(UiLanguage.Korean);
+        try
+        {
+            Assert.Equal("계정 1", UiText.WidgetAccountsConnected(1));
+            Assert.Equal("계정 5", UiText.WidgetAccountsConnected(5));
+        }
+        finally { UiText.SetLanguage(UiLanguage.English); }
+    }
 }
