@@ -86,11 +86,22 @@ jobs:
           Get-ChildItem -LiteralPath $state -Recurse -Include '*.exe', '*.dll', '*.nupkg' -ErrorAction SilentlyContinue |
             Remove-Item -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath $artifacts -Recurse | Select-Object -ExpandProperty FullName
-          # Artifact downloads are not always reachable, so put the small diagnostics in the log too.
+          # Artifact downloads are not always reachable, so put the diagnostics in the log too.
+          # The verification's own tail comes first, then the recovery evidence; bulk preference
+          # files would otherwise push both out of a readable window.
+          $log = Join-Path $artifacts 'verification.log'
+          if (Test-Path -LiteralPath $log) {
+            Write-Host '===== verification.log (tail) ====='
+            Get-Content -LiteralPath $log -Tail 60 -ErrorAction SilentlyContinue
+          }
           foreach ($file in @(Get-ChildItem -LiteralPath $state -Recurse -File -ErrorAction SilentlyContinue |
-              Where-Object { $_.Length -le 65536 -and $_.Name -notmatch '(?i)\.(exe|dll|nupkg)$' })) {
+              Where-Object {
+                $_.Length -le 65536 -and
+                $_.Name -notmatch '(?i)\.(exe|dll|nupkg|lock)$' -and
+                $_.Name -notmatch '(?i)^settings\.json' } |
+              Sort-Object { $_.FullName -notmatch '(?i)update-recovery' })) {
             Write-Host "===== $($file.FullName) ====="
-            Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
+            Get-Content -LiteralPath $file.FullName -Tail 120 -ErrorAction SilentlyContinue
           }
 
       - name: Upload verification artifacts
