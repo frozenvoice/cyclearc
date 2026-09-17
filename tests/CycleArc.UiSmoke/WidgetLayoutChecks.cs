@@ -236,6 +236,7 @@ internal static class WidgetLayoutChecks
 
             var left = widget.Left;
             var top = widget.Top;
+            var offset = scroller.VerticalOffset;
             var down = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
             {
                 RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
@@ -246,12 +247,22 @@ internal static class WidgetLayoutChecks
             Check(drag is null, "Scrollbar thumb preview-down started a window drag.");
             Check(flyouts == 0 && selected.Length == 0, "Scrollbar thumb preview-down selected an account.");
 
-            // Wheel from the unscrolled top. A prior thumb delta can already sit on
-            // ScrollableHeight, so a later wheel would be a no-op even when routing works.
+            thumb.RaiseEvent(new DragDeltaEventArgs(0, 48) { RoutedEvent = Thumb.DragDeltaEvent });
+            Pump();
+            Check(scroller.VerticalOffset > offset, "Thumb DragDelta did not change VerticalOffset.");
+            Check(widget.Left == left && widget.Top == top, "Thumb drag moved the widget.");
+            Check(flyouts == 0 && selected.Length == 0, "Thumb drag selected an account or opened the flyout.");
+            thumb.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent
+            });
+
+            // A down-wheel after the thumb already sat on ScrollableHeight is a no-op.
             scroller.ScrollToVerticalOffset(0);
             scroller.UpdateLayout();
             Pump();
-            Check(scroller.ScrollableHeight > 8, "Scrollbar fixture has no remaining scroll range.");
+            Check(scroller.VerticalOffset + 8 < scroller.ScrollableHeight,
+                "Scrollbar fixture has no remaining scroll range after returning to the top.");
             var beforeWheel = scroller.VerticalOffset;
             var host = (UIElement)widget.FindName("ModuleHost");
             host.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, -120)
@@ -270,13 +281,6 @@ internal static class WidgetLayoutChecks
             Check(scroller.VerticalOffset > beforeWheel,
                 "Mouse wheel did not scroll the module grid.");
             Check(widget.Left == left && widget.Top == top, "Mouse wheel moved the widget.");
-
-            var offset = scroller.VerticalOffset;
-            thumb.RaiseEvent(new DragDeltaEventArgs(0, 48) { RoutedEvent = Thumb.DragDeltaEvent });
-            Pump();
-            Check(scroller.VerticalOffset > offset, "Thumb DragDelta did not change VerticalOffset.");
-            Check(widget.Left == left && widget.Top == top, "Thumb drag moved the widget.");
-            Check(flyouts == 0 && selected.Length == 0, "Thumb drag selected an account or opened the flyout.");
 
             var line = AccountUiChecks.Descendants<RepeatButton>(bar).FirstOrDefault();
             if (line is not null)
