@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -64,19 +65,19 @@ internal static class WidgetLayoutChecks
             Check(heights[0] + 8 < heights.Max(),
                 $"{suffix}: the first mixed-height module is not shorter than a later one.");
             var probe = new ScreenRect(0, 0, 760, 1040);
-            var byFirst = WidgetGridLayout.For(accounts.Count, headerHeight, heights[0], probe);
-            var byAll = WidgetGridLayout.For(accounts.Count, headerHeight, heights, probe);
+            var byFirst = WidgetGridLayout.For(accounts.Length, headerHeight, heights[0], probe);
+            var byAll = WidgetGridLayout.For(accounts.Length, headerHeight, heights, probe);
             var firstTotal = WidgetGridLayout.ChromeHeight + headerHeight
                 + (byFirst.Rows * heights[0]) + ((byFirst.Rows - 1) * WidgetGridLayout.SeparatorThickness);
             var allTotal = WidgetGridLayout.ChromeHeight + headerHeight
-                + RowSum(accounts.Count, byAll.Columns, heights);
+                + RowSum(accounts.Length, byAll.Columns, heights);
             Check(allTotal > firstTotal + 4,
                 $"{suffix}: later rows are not taller than a first-module estimate.");
             var shortHeight = (int)Math.Round((firstTotal + allTotal) / 2 + (2 * WidgetGridLayout.EdgeMargin));
             IReadOnlyList<ScreenRect> shortArea = [new ScreenRect(0, 0, 760, shortHeight)];
-            var expected = WidgetGridLayout.For(accounts.Count, headerHeight, heights, shortArea[0],
+            var expected = WidgetGridLayout.For(accounts.Length, headerHeight, heights, shortArea[0],
                 SystemParameters.VerticalScrollBarWidth);
-            var firstOnShort = WidgetGridLayout.For(accounts.Count, headerHeight, heights[0], shortArea[0]);
+            var firstOnShort = WidgetGridLayout.For(accounts.Length, headerHeight, heights[0], shortArea[0]);
             Check(!firstOnShort.Scrolls && expected.Scrolls,
                 $"{suffix}: the fixture does not reproduce a short first row hiding later overflow.");
 
@@ -105,7 +106,7 @@ internal static class WidgetLayoutChecks
             ScrollToLastPeriod(widget, scroller, suffix);
             WidgetFixture.RenderWidget(widget, PathFor(directory, $"widget-scrolled-last-row-{suffix}"));
 
-            var reordered = accounts.Reverse().ToArray();
+            var reordered = Enumerable.Reverse(accounts).ToArray();
             widget.BindAccounts(reordered, reordered[0].Profile.Id, UsagePeriodPreference.Auto, shortArea, Now);
             Layout(widget);
             Check(widget.LastLayout!.Scrolls, $"{suffix}: reordering dropped scrolling.");
@@ -238,7 +239,7 @@ internal static class WidgetLayoutChecks
             var offset = scroller.VerticalOffset;
             var down = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
             {
-                RoutedEvent = Mouse.PreviewMouseLeftButtonDownEvent
+                RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
             };
             thumb.RaiseEvent(down);
             var drag = typeof(FloatingWidget).GetField("_drag", BindingFlags.NonPublic | BindingFlags.Instance)!
