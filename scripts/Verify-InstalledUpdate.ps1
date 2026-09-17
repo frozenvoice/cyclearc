@@ -136,6 +136,37 @@ function Get-ProcessesUnder([string]$Root) {
     }
     , $matched
 }
+# The supervisor writes a one-word marker, and now its failure detail, beside the retained copy.
+# Reading them turns a blind 15-minute timeout into an immediate, explained failure.
+function Get-RecoveryDirectories {
+    if (!(Test-Path -LiteralPath $RecoveryRoot)) { return , @() }
+    , @(Get-ChildItem -LiteralPath $RecoveryRoot -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.FullName })
+}
+function Get-RecoveryOutcome([string[]]$Ignore) {
+    foreach ($directory in Get-RecoveryDirectories) {
+        if ($Ignore -contains $directory) { continue }
+        foreach ($marker in @('failed', 'completed')) {
+            $path = Join-Path $directory $marker
+            if (!(Test-Path -LiteralPath $path)) { continue }
+            $detail = ''
+            foreach ($name in @('failure.txt', 'apply.log')) {
+                $file = Join-Path $directory $name
+                if (Test-Path -LiteralPath $file) {
+                    $text = (Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue)
+                    if ($text) { $detail += "`n--- $name ---`n" + $text.Trim() }
+                }
+            }
+            return [pscustomobject]@{
+                Directory = $directory
+                Marker    = $marker
+                Text      = ((Get-Content -LiteralPath $path -Raw -ErrorAction SilentlyContinue) + '').Trim()
+                Detail    = $detail
+            }
+        }
+    }
+    $null
+}
 function Get-Sha256OrNull([string]$Path) {
     try {
         if (!(Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
@@ -354,11 +385,18 @@ Invoke-UiSmoke @('--claude-uninstall-installed', $DataRoot, $SeedPath, $InstallT
 
 Write-Step 'Applying a build that quits before readiness and watching the supervisor recover'
 Stop-InstalledDesktop $InstallTo
+$recoveryBefore = Get-RecoveryDirectories
 $failing = Start-InstalledDesktop $Builds.Fail.Feed
 Wait-Until { $failing.HasExited } 600 'the running app to close itself for the failing update'
 Wait-Until {
+    $outcome = Get-RecoveryOutcome $recoveryBefore
+    if ($outcome -and $outcome.Marker -eq 'failed') {
+        throw "VERIFICATION FAILED: the recovery supervisor reported '$($outcome.Text)' in $($outcome.Directory).$($outcome.Detail)"
+    }
     ((Get-Sha256OrNull $Current) -eq $Builds.B.Sha256) -and ($null -ne (Get-DesktopStatus $Current))
 } 900 'the supervisor to restore and restart the previous installation'
+$recoveryOutcome = Get-RecoveryOutcome $recoveryBefore
+Write-Fact 'recovery.marker' $(if ($recoveryOutcome) { "$($recoveryOutcome.Marker): $($recoveryOutcome.Text)" } else { 'none recorded yet' })
 $recovered = Get-DesktopStatus $Current
 Assert-True ($recovered -and $recovered.Succeeded) 'no desktop answered after the failed update.'
 Assert-True ((Get-Sha256 $Current) -eq $Builds.B.Sha256) 'the failed update left a different executable in place.'

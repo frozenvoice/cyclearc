@@ -115,17 +115,36 @@ internal static class ManagedUpdateSupervisor
             lease = null;
             File.WriteAllText(Path.Combine(directory, result.Succeeded || result.Restored ? "completed" : "failed"),
                 result.Succeeded ? "updated" : result.Restored ? "restored" : "recovery-required");
+            WriteFailureDetail(directory, result.Failure);
             if (!result.Succeeded) Report(job.Korean, result.Restored, directory);
             return result.Succeeded ? 0 : result.Restored ? 2 : 1;
         }
-        catch
+        catch (Exception failure)
         {
             lease?.Dispose();
             lease = null;
+            if (directory is not null) WriteFailureDetail(directory, failure);
             if (job is not null && directory is not null) Report(job.Korean, false, directory);
             return 1;
         }
         finally { started?.Dispose(); lease?.Dispose(); }
+    }
+
+    /// <summary>
+    /// Keeps why an update or its recovery failed beside the retained copy. Without it the
+    /// notice tells a person that recovery is required and nothing tells anyone why, because
+    /// this helper outlives the desktop that would otherwise have logged it.
+    /// </summary>
+    private static void WriteFailureDetail(string directory, Exception? failure)
+    {
+        if (failure is null) return;
+        try
+        {
+            var text = failure.ToString();
+            File.WriteAllText(Path.Combine(directory, "failure.txt"), text.Length > 16000 ? text[..16000] : text);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     private static void Apply(Job job, string directory)

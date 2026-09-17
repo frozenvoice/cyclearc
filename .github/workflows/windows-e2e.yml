@@ -82,7 +82,16 @@ jobs:
           foreach ($velopack in @(Get-ChildItem -LiteralPath $env:LOCALAPPDATA -Filter 'Velopack.log' -Recurse -Depth 3 -ErrorAction SilentlyContinue)) {
             Copy-Item -LiteralPath $velopack.FullName -Destination (Join-Path $state ("velopack-" + [Guid]::NewGuid().ToString('N') + '.log')) -Force -ErrorAction SilentlyContinue
           }
+          # Executables make the artifact large and say nothing; the text beside them is the evidence.
+          Get-ChildItem -LiteralPath $state -Recurse -Include '*.exe', '*.dll', '*.nupkg' -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath $artifacts -Recurse | Select-Object -ExpandProperty FullName
+          # Artifact downloads are not always reachable, so put the small diagnostics in the log too.
+          foreach ($file in @(Get-ChildItem -LiteralPath $state -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Length -le 65536 -and $_.Name -notmatch '(?i)\.(exe|dll|nupkg)$' })) {
+            Write-Host "===== $($file.FullName) ====="
+            Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
+          }
 
       - name: Upload verification artifacts
         if: always()
