@@ -16,9 +16,10 @@
     <Description>Windows tray monitor for Codex and Claude account usage</Description>
     <Product>CycleArc</Product>
   </PropertyGroup>
-  <!-- Test-only build flavours for scripts/Verify-InstalledUpdate.ps1. Never set for the
-       development publish, CI or a release build, so shipped executables contain none of
-       this code. Known values: CYCLEARC_TEST_E2E, CYCLEARC_TEST_FAIL_STARTUP. -->
+  <!-- Test-only build flavours for scripts/Verify-InstalledUpdate.ps1, plus one compile-only CI
+       step that type-checks them. Never set for the development publish, the published artifact
+       or a release build, so shipped executables contain none of this code. Known values:
+       CYCLEARC_TEST_E2E, CYCLEARC_TEST_FAIL_STARTUP; separate them with %3B on a command line. -->
   <PropertyGroup Condition="'$(CycleArcTestBuild)' != ''">
     <DefineConstants>$(DefineConstants);$(CycleArcTestBuild)</DefineConstants>
   </PropertyGroup>

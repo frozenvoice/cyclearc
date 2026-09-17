@@ -59,8 +59,12 @@
     build contains that code, and no production update happens without a person approving it.
   - CI now compiles `CYCLEARC_TEST_E2E` and `CYCLEARC_TEST_FAIL_STARTUP` into a throwaway output,
     so the test-only code is type-checked on every push instead of first failing when someone runs
-    the installed-app verification. Compilation is not execution: it proves those branches build,
-    not that the installed update, recovery or removal works.
+    the installed-app verification. It paid for itself immediately: both the new step and
+    `Verify-InstalledUpdate.ps1` passed the two constants separated by a bare semicolon, which
+    MSBuild reads as the end of the property (`MSB1006: Property is not valid`), so the failure
+    build could never have been produced. Both now use the escaped `%3B`. Compilation is still not
+    execution: it proves those branches build, not that the installed update, recovery or removal
+    works.
   - Still not executed anywhere: `scripts/Verify-InstalledUpdate.ps1`, so real Setup installation,
     the installed-app update, supervisor recovery and removal remain unverified, and the
     `CYCLEARC_TEST_E2E` / `CYCLEARC_TEST_FAIL_STARTUP` build flavours have never been compiled —

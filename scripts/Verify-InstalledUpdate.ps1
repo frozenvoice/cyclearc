@@ -62,9 +62,9 @@ if (!$WorkRoot) { $WorkRoot = Join-Path ([IO.Path]::GetTempPath()) ("cyclearc-in
 $WorkRoot = [IO.Path]::GetFullPath($WorkRoot)
 
 $Builds = [ordered]@{
-    A    = @{ Version = '9.9.1'; Constants = 'CYCLEARC_TEST_E2E' }
-    B    = @{ Version = '9.9.2'; Constants = 'CYCLEARC_TEST_E2E' }
-    Fail = @{ Version = '9.9.3'; Constants = 'CYCLEARC_TEST_E2E;CYCLEARC_TEST_FAIL_STARTUP' }
+    A    = @{ Version = '9.9.1'; Constants = @('CYCLEARC_TEST_E2E') }
+    B    = @{ Version = '9.9.2'; Constants = @('CYCLEARC_TEST_E2E') }
+    Fail = @{ Version = '9.9.3'; Constants = @('CYCLEARC_TEST_E2E', 'CYCLEARC_TEST_FAIL_STARTUP') }
 }
 $Evidence = [ordered]@{}
 $script:StepNumber = 0
@@ -249,7 +249,9 @@ foreach ($name in $Builds.Keys) {
         '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true',
         '-p:DebugType=None', '-p:DebugSymbols=false',
         "-p:Version=$($build.Version)", "-p:FileVersion=$($build.Version).0", "-p:AssemblyVersion=$($build.Version).0",
-        "-p:CycleArcTestBuild=$($build.Constants)", '-o', $publish) "publish of test build $name"
+        # An unescaped semicolon would end the property and MSBuild would read the next
+        # constant as another switch, so join them with the escaped form.
+        "-p:CycleArcTestBuild=$($build.Constants -join '%3B')", '-o', $publish) "publish of test build $name"
     $executable = Join-Path $publish 'CycleArc.exe'
     $files = @(Get-ChildItem -LiteralPath $publish -File -Recurse)
     Assert-True ($files.Count -eq 1 -and $files[0].Name -eq 'CycleArc.exe') "test build $name published more than CycleArc.exe."
