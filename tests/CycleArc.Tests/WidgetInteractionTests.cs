@@ -80,8 +80,8 @@ public class WidgetInteractionTests
         string?[] Named(string element) => document.Descendants(ns + element)
             .Select(e => (string?)e.Attribute(x + "Name")).ToArray();
 
-        Assert.Single(Named("Grid").Where(name => name == "WidgetHeader"));
-        Assert.Single(Named("Grid").Where(name => name == "ModuleHost"));
+        Assert.Single(Named("Grid"), name => name == "WidgetHeader");
+        Assert.Single(Named("Grid"), name => name == "ModuleHost");
         var scroller = document.Descendants(ns + "ScrollViewer")
             .Single(e => (string?)e.Attribute(x + "Name") == "ModuleScroller");
         Assert.Equal("Auto", (string?)scroller.Attribute("VerticalScrollBarVisibility"));

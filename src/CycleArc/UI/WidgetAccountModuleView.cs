@@ -163,9 +163,10 @@ public sealed class WidgetAccountModuleView : Border
         _ringArc.Visibility = arc.Visible ? Visibility.Visible : Visibility.Collapsed;
         _ringFull.Visibility = arc.IsFullCircle ? Visibility.Visible : Visibility.Collapsed;
         if (!arc.Visible) return;
-        _ringFigure.StartPoint = new Point(arc.Start.X, arc.Start.Y);
-        _ringSegment.Point = new Point(arc.End.X, arc.End.Y);
-        _ringSegment.Size = new Size(RingRadius, RingRadius);
+        // Qualified: the desktop project also imports WinForms, where Point and Size differ.
+        _ringFigure.StartPoint = new System.Windows.Point(arc.Start.X, arc.Start.Y);
+        _ringSegment.Point = new System.Windows.Point(arc.End.X, arc.End.Y);
+        _ringSegment.Size = new System.Windows.Size(RingRadius, RingRadius);
         _ringSegment.IsLargeArc = arc.IsLargeArc;
     }
 

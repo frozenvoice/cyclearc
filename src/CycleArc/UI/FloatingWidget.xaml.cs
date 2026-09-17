@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using CycleArc.Codex;
@@ -189,7 +188,9 @@ public partial class FloatingWidget : Window
             Tag = vertical ? "WidgetModuleSeparator" : "WidgetRowSeparator",
             Width = vertical ? WidgetGridLayout.SeparatorThickness : double.NaN,
             Height = vertical ? double.NaN : WidgetGridLayout.SeparatorThickness,
-            Margin = vertical ? new Thickness(0, 6, 0, 6) : new Thickness(6, 4, 6, 4),
+            // A row separator must measure exactly its own thickness, or the rendered grid grows
+            // past the height the layout reserved for it. The modules' own padding is the gap.
+            Margin = vertical ? new Thickness(0, 6, 0, 6) : new Thickness(6, 0, 6, 0),
             HorizontalAlignment = vertical ? HorizontalAlignment.Center : HorizontalAlignment.Stretch,
             VerticalAlignment = vertical ? VerticalAlignment.Stretch : VerticalAlignment.Center
         };
@@ -369,7 +370,8 @@ public partial class FloatingWidget : Window
         e.Handled = true;
     }
 
-    private static bool IsChromeButton(DependencyObject? source) => Ancestors(source).OfType<ButtonBase>().Any();
+    private static bool IsChromeButton(DependencyObject? source) =>
+        Ancestors(source).OfType<System.Windows.Controls.Primitives.ButtonBase>().Any();
 
     private static WidgetAccountModuleView? ModuleAt(DependencyObject? source) =>
         Ancestors(source).OfType<WidgetAccountModuleView>().FirstOrDefault();
