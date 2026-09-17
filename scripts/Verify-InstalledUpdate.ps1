@@ -127,33 +127,6 @@ function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$What
 function Get-CycleArcProcesses {
     , @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue)
 }
-# Containment decides this, not a string prefix: the recovery root sits beside the
-# installation as 'CycleArc-update-recovery', and a prefix test counted the supervisor's own
-# snapshot copy as a second desktop inside the installation. Ask the path API instead - a
-# path outside the root relates to it through '..'. Do not filter on HasExited either: .NET
-# reports a process it cannot open a handle for as exited, which hid the running desktop.
-function Split-PathSegments([string]$Value) {
-    try { $full = [IO.Path]::GetFullPath($Value) } catch { return , @() }
-    , @($full.Split([char[]]@('\', '/'), [StringSplitOptions]::RemoveEmptyEntries))
-}
-function Test-PathUnder([string]$Root, [string]$Path) {
-    $rootParts = Split-PathSegments $Root
-    $pathParts = Split-PathSegments $Path
-    if ($rootParts.Count -eq 0 -or $pathParts.Count -le $rootParts.Count) { return $false }
-    for ($index = 0; $index -lt $rootParts.Count; $index++) {
-        if ($rootParts[$index] -ine $pathParts[$index]) { return $false }
-    }
-    $true
-}
-function Get-ProcessesUnder([string]$Root) {
-    $matched = @()
-    foreach ($process in Get-CycleArcProcesses) {
-        $path = $null
-        try { $path = $process.Path } catch { $path = $null }
-        if ($path -and (Test-PathUnder $Root $path)) { $matched += $process }
-    }
-    , $matched
-}
 # The one comparison this file has always got right, used elsewhere in the same step:
 # an exact full-path match against a known executable. No prefix, no relative path.
 function Get-ProcessesRunning([string]$Executable) {
@@ -234,11 +207,16 @@ function Get-DesktopStatus([string]$Executable) {
         Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
     }
 }
+# An installed CycleArc process runs one of two known executables: the desktop under
+# 'current', or the root stub. Naming them beats asking which directory a path sits in.
 function Get-InstalledProcesses([string]$Root) {
-    # The union, so a containment test that answers nothing cannot quietly make this a no-op.
-    $byIdentity = Get-ProcessesRunning (Join-Path $Root 'current/CycleArc.exe')
-    $ids = @($byIdentity | ForEach-Object { $_.Id })
-    , @($byIdentity + @(Get-ProcessesUnder $Root | Where-Object { $ids -notcontains $_.Id }))
+    $matched = @()
+    foreach ($process in Get-ProcessesRunning (Join-Path $Root 'current/CycleArc.exe')) { $matched += $process }
+    $ids = @($matched | ForEach-Object { $_.Id })
+    foreach ($process in Get-ProcessesRunning (Join-Path $Root 'CycleArc.exe')) {
+        if ($ids -notcontains $process.Id) { $matched += $process }
+    }
+    , $matched
 }
 function Stop-InstalledDesktop([string]$Root) {
     # Test-harness step only: the shipped app has no forced-exit entry point.
@@ -454,15 +432,6 @@ Assert-True ((Get-FileVersionText $Current) -eq $Builds.B.FileVersion) 'the rest
 # Identity, not containment: exactly one process is running the installed executable.
 $installedProcesses = Get-ProcessesRunning $Current
 Write-Fact 'recovered.installedProcesses' (Get-ProcessSummary $installedProcesses)
-# Get-ProcessesUnder answered per call rather than per path here - nothing under the
-# installation, everything under the recovery root. Record what it decides and on what,
-# because Stop-InstalledDesktop and the notice cleanup below still rely on it.
-foreach ($process in Get-CycleArcProcesses) {
-    $candidate = $null
-    try { $candidate = $process.Path } catch { $candidate = '<unreadable>' }
-    Write-Fact "pathCheck.$($process.Id)" ("$candidate | underInstall=" +
-        "$(Test-PathUnder $InstallTo $candidate) | underRecovery=$(Test-PathUnder $RecoveryRoot $candidate)")
-}
 Assert-True ($installedProcesses.Count -eq 1) `
     ("expected exactly one process running $Current after recovery, found " +
         "$($installedProcesses.Count): $(Get-ProcessSummary $installedProcesses)")
@@ -473,14 +442,15 @@ Write-Fact 'recovered.desktop' ("pid $($recovered.ProcessId), $($recovered.Execu
 
 # A restored update ends with the supervisor showing a modal notice from its snapshot copy.
 # That helper waits for a person, so an unattended run has to acknowledge it explicitly.
-# Never the installed desktop, whatever the containment test claims: the supervisor's
-# notice runs from its snapshot copy, and the step after this one needs the desktop alive.
+# It is whatever CycleArc process is not the installation, and the step after this one
+# needs the installed desktop alive, so name that one rather than guess at the other.
 function Get-NoticeProcesses {
-    @(Get-ProcessesUnder $RecoveryRoot | Where-Object {
-        $path = $null
-        try { $path = $_.Path } catch { $path = $null }
-        $path -and !([IO.Path]::GetFullPath($path) -ieq [IO.Path]::GetFullPath($Current))
-    })
+    $installed = @(Get-InstalledProcesses $InstallTo | ForEach-Object { $_.Id })
+    $matched = @()
+    foreach ($process in Get-CycleArcProcesses) {
+        if ($installed -notcontains $process.Id) { $matched += $process }
+    }
+    , $matched
 }
 $helpers = Get-NoticeProcesses
 Write-Fact 'recovery.noticeProcesses' $helpers.Count
