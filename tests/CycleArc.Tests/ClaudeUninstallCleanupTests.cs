@@ -257,11 +257,10 @@ public sealed class ClaudeUninstallCleanupTests
     }
 
     [Fact]
-    public void AnUnusableInstallationRootCleansNothingAndIsNotReportedAsComplete()
+    public async Task AnUnusableInstallationRootCleansNothingAndIsNotReportedAsComplete()
     {
         using var data = new ClaudeStatusLineTests.ClaudeTestData();
-        var report = ClaudeUninstallCleanup.RunAsync(data.Accounts, "not-a-full-path", data.Clock)
-            .GetAwaiter().GetResult();
+        var report = await ClaudeUninstallCleanup.RunAsync(data.Accounts, "not-a-full-path", data.Clock);
         Assert.False(report.Completed);
         Assert.Empty(report.Profiles);
     }

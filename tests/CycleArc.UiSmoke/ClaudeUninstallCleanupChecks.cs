@@ -21,7 +21,7 @@ internal static class ClaudeUninstallCleanupChecks
     private const string UserStatusLine = "cmd /c echo synthetic-user-status-line";
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
-    private sealed record Seed(string ProfileId, string ConfigDirectory, string CallbackExecutable,
+    private sealed record SeedFixture(string ProfileId, string ConfigDirectory, string CallbackExecutable,
         string CliExecutable, string UserStatusLineCommand, int UserStatusLinePadding);
 
     public static void Seed(string dataRoot, string configDirectory, string callbackExecutable, string seedPath)
@@ -58,7 +58,7 @@ internal static class ClaudeUninstallCleanupChecks
         Check(ClaudeStatusLineInstaller.IsInstalled(configDirectory, profile.Id), "Seeding did not install the owned wrapper.");
 
         File.WriteAllText(Path.GetFullPath(seedPath), JsonSerializer.Serialize(
-            new Seed(profile.Id, configDirectory, callbackExecutable, cli, UserStatusLine, 3), Indented));
+            new SeedFixture(profile.Id, configDirectory, callbackExecutable, cli, UserStatusLine, 3), Indented));
         Console.WriteLine($"PASS: seeded synthetic Claude connection {profile.Id} in {dataRoot} with an existing user statusLine and another tool's StopFailure hook.");
     }
 
@@ -112,9 +112,9 @@ internal static class ClaudeUninstallCleanupChecks
         Console.WriteLine("PASS: removal restored the person's statusLine, removed both owned callbacks, kept another tool's hook, and preserved accounts, connection and usage data.");
     }
 
-    private static (Seed Seed, CodexAccountStore Accounts, JsonObject Settings) Load(string dataRoot, string seedPath)
+    private static (SeedFixture Seed, CodexAccountStore Accounts, JsonObject Settings) Load(string dataRoot, string seedPath)
     {
-        var seed = JsonSerializer.Deserialize<Seed>(File.ReadAllText(Path.GetFullPath(seedPath)))
+        var seed = JsonSerializer.Deserialize<SeedFixture>(File.ReadAllText(Path.GetFullPath(seedPath)))
             ?? throw new InvalidOperationException("The seed description is not readable.");
         var settings = JsonNode.Parse(File.ReadAllText(Path.Combine(seed.ConfigDirectory, "settings.json")))?.AsObject()
             ?? throw new InvalidOperationException("Claude settings are not readable.");
@@ -123,7 +123,7 @@ internal static class ClaudeUninstallCleanupChecks
 
     // The account registry, the connection binding and the usage inbox must still be
     // readable by the production stores, not merely present as untouched files.
-    private static void CheckPreservedAccountData(CodexAccountStore accounts, Seed seed)
+    private static void CheckPreservedAccountData(CodexAccountStore accounts, SeedFixture seed)
     {
         Check(accounts.ContainsClaude(seed.ProfileId), "The Claude profile is missing from the account registry.");
         Check(accounts.ClaudeProfileIds().Contains(seed.ProfileId, StringComparer.Ordinal),
