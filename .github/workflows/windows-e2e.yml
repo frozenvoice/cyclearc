@@ -1,0 +1,91 @@
+name: Windows installed E2E
+
+# Runs scripts/Verify-InstalledUpdate.ps1 end to end on a GitHub-hosted windows-latest runner:
+# real Setup.exe installation, the in-app update through the production update path, failed-start
+# recovery, real removal and the Claude cleanup. The runner is discarded after the job, which is
+# why this may install and uninstall for the runner's own Windows user. It never touches a
+# developer machine, never needs a self-hosted runner, and never reads or publishes a real
+# release: the update feed is a local directory and all Claude data is synthetic.
+#
+# It is deliberately NOT part of the ordinary Windows workflow: it takes tens of minutes and
+# removal deletes HKCU\...\Uninstall\CycleArc by package id rather than by installation path.
+
+on:
+  workflow_dispatch:
+  # Temporary until this file reaches the default branch: GitHub only offers workflow_dispatch
+  # for workflows that exist on the default branch, so the working branch triggers it for now.
+  push:
+    branches:
+      - claude/eloquent-noether-2n7iaf
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+
+jobs:
+  installed-e2e:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Record the runner's pre-existing CycleArc state
+        run: |
+          $report = [ordered]@{
+            localAppData   = $env:LOCALAPPDATA
+            installation   = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'CycleArc')
+            dataRoot       = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'ProMeter')
+            recoveryRoot   = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'CycleArc-update-recovery')
+            uninstallEntry = Test-Path -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CycleArc'
+            processes      = @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue).Count
+          }
+          $report.GetEnumerator() | ForEach-Object { "$($_.Key) = $($_.Value)" }
+
+      - name: Run the installed-app verification
+        run: |
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/e2e'
+          New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+          ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment -WorkRoot $artifacts |
+            Tee-Object -FilePath (Join-Path $artifacts 'verification.log')
+
+      # Collected for a failed run as well, so a failure is diagnosable from the artifact alone.
+      - name: Collect state
+        if: always()
+        run: |
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/e2e'
+          New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+          $state = New-Item -ItemType Directory -Path (Join-Path $artifacts 'state') -Force
+          foreach ($name in @('ProMeter', 'CycleArc-update-recovery')) {
+            $source = Join-Path $env:LOCALAPPDATA $name
+            if (Test-Path -LiteralPath $source) {
+              Copy-Item -LiteralPath $source -Destination (Join-Path $state $name) -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          $installation = Join-Path $env:LOCALAPPDATA 'CycleArc'
+          if (Test-Path -LiteralPath $installation) {
+            Get-ChildItem -LiteralPath $installation -Recurse -ErrorAction SilentlyContinue |
+              Select-Object FullName, Length, LastWriteTimeUtc |
+              ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $state 'installation-tree.json')
+            foreach ($log in @(Get-ChildItem -LiteralPath $installation -Filter '*.log' -Recurse -ErrorAction SilentlyContinue)) {
+              Copy-Item -LiteralPath $log.FullName -Destination (Join-Path $state ("installation-" + $log.Name)) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          # Velopack's own logs are the first place a Setup, apply or uninstall failure shows up.
+          foreach ($velopack in @(Get-ChildItem -LiteralPath $env:LOCALAPPDATA -Filter 'Velopack.log' -Recurse -Depth 3 -ErrorAction SilentlyContinue)) {
+            Copy-Item -LiteralPath $velopack.FullName -Destination (Join-Path $state ("velopack-" + [Guid]::NewGuid().ToString('N') + '.log')) -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem -LiteralPath $artifacts -Recurse | Select-Object -ExpandProperty FullName
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: installed-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/e2e
+          if-no-files-found: warn
+          retention-days: 14
