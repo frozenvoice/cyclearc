@@ -66,6 +66,7 @@ Invoke-Dotnet -Arguments @('tool', 'restore')
 Invoke-Dotnet -Arguments @('build', 'CycleArc.sln', '-c', 'Release')
 if (!$Fast) { Invoke-Dotnet -Arguments @('test', 'CycleArc.sln', '-c', 'Release', '--no-build') }
 & (Join-Path $RepoRoot 'tests/LocalInstall.Tests.ps1')
+& (Join-Path $RepoRoot 'tests/BuildLocal.Tests.ps1')
 Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build')
 Invoke-Dotnet -Arguments @('publish', 'src/CycleArc/CycleArc.csproj', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $StagingDir)
 $files = @(Get-ChildItem -LiteralPath $StagingDir -File -Recurse)

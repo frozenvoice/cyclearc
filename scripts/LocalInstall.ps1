@@ -62,7 +62,7 @@ function Test-CycleArcHeadlessCommandLine([string]$CommandLine) {
     $match = [regex]::Match($CommandLine.Trim(), '^(?:"[^"]*"|\S+)\s+(?:"([^"]+)"|(\S+))')
     if (!$match.Success) { return $false }
     $firstArgument = if ($match.Groups[1].Success) { $match.Groups[1].Value } else { $match.Groups[2].Value }
-    foreach ($argument in @('--claude-statusline', '--claude-statusline-bridge', '--claude-stop-failure-bridge', '--apply-update')) {
+    foreach ($argument in @('--claude-statusline', '--claude-statusline-bridge', '--claude-stop-failure-bridge', '--apply-update', '--desktop-status', '--desktop-shutdown')) {
         if ($firstArgument.Equals($argument, [StringComparison]::Ordinal)) { return $true }
     }
     $false
@@ -300,6 +300,31 @@ function Resolve-InstallLayout {
         BackupDir = Join-Path $primaryRoot 'publish/local.previous'
         UsesGitPrimary = $true
     }
+}
+
+function Get-ManagedInstallRoot {
+    $defaultRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CycleArc'
+    $uninstall = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CycleArc' -ErrorAction SilentlyContinue
+    $fromRegistry = ''
+    if ($uninstall) {
+        try { $fromRegistry = [string]$uninstall.InstallLocation } catch { }
+    }
+    if (![string]::IsNullOrWhiteSpace($fromRegistry)) {
+        return ConvertTo-InstallAbsolutePath $fromRegistry
+    }
+    $current = Join-Path $defaultRoot 'current/CycleArc.exe'
+    $updater = Join-Path $defaultRoot 'Update.exe'
+    if ((Test-Path -LiteralPath $current -PathType Leaf) -and (Test-Path -LiteralPath $updater -PathType Leaf)) {
+        return ConvertTo-InstallAbsolutePath $defaultRoot
+    }
+    $null
+}
+
+function Test-ManagedInstallRoot([string]$Root) {
+    if ([string]::IsNullOrWhiteSpace($Root)) { return $false }
+    $full = ConvertTo-InstallAbsolutePath $Root
+    (Test-Path -LiteralPath (Join-Path $full 'current/CycleArc.exe') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $full 'Update.exe') -PathType Leaf)
 }
 
 function New-InstallLease {

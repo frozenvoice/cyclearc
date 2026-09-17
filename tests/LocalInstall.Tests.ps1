@@ -153,7 +153,7 @@ try {
     if (@(Get-CycleArcDesktopProcess -ProcessSnapshots @($unclassified) -KnownExecutablePaths @($outsideExe)).Count) {
         throw 'A process with an unreadable command line was selected for termination'
     }
-    foreach ($argument in @('--claude-statusline', '--claude-statusline-bridge', '--claude-stop-failure-bridge', '--apply-update')) {
+    foreach ($argument in @('--claude-statusline', '--claude-statusline-bridge', '--claude-stop-failure-bridge', '--apply-update', '--desktop-status', '--desktop-shutdown')) {
         foreach ($quoted in @($false, $true)) {
             $argText = if ($quoted) { '"' + $argument + '"' } else { $argument }
             $callback = [pscustomobject]@{ ProcessId=105; Path=$outsideExe; SessionId=$session; CommandLine=('"' + $outsideExe + '" ' + $argText + ' synthetic'); ProductName='CycleArc'; OriginalFilename='CycleArc.dll' }

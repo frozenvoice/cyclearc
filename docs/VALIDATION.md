@@ -8,6 +8,13 @@
   period lines or status text change. Unchanged numbers skip a native resize. A drag defers
   that apply until pointer release. UiSmoke `BindingResizesTheShownWindow` drives 3→5→1→3
   through `Window.Show()` and `Update()` without calling Relayout/ApplyNativeSize after Update.
+- One-click managed install (unreleased): root `build-local.cmd` runs `scripts/Build-Local.ps1`,
+  which invokes `dev-run.ps1 -NoLaunch` in a separate `pwsh` process, then installs the
+  produced `CycleArc-Setup.exe` with Velopack `--silent` (and `--installto` only for a
+  non-default existing InstallLocation). Success requires `current\CycleArc.exe` SHA-256 to
+  match this publish. `tests/BuildLocal.Tests.ps1` covers failed build (no Setup), leftover
+  Setup refusal, same-version hash mismatch, Setup failure, lock overlap and paths with
+  spaces. Real Setup.exe replacement against a developer profile was not run here.
 
 - Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
   - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's
