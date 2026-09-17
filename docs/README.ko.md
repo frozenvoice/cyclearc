@@ -128,6 +128,8 @@ ChatGPT Pro/Sol 기록 추정 기능은 종료했습니다. Edge/Chrome 확장, 
 
 처음 설치할 때 현재 세션의 IPC와 실행 파일을 확인할 수 있으면 예전 표준 설치의 데스크톱을 종료하고 새 설치를 실행합니다. 다른 경로에서 실행 중인 개발 빌드는 먼저 실행된 인스턴스 정책을 유지합니다. 예전 `%LOCALAPPDATA%\Programs\CycleArc` 경로는 개발 호환성을 위해 남아 있지만 GitHub 업데이트 확인 대상이 아닙니다.
 
+**설정 → 앱**에서 제거하거나 `Update.exe --uninstall`을 실행하면, 설치 파일을 지우기 전에 이 설치가 바꾼 Claude 설정을 되돌립니다. 이번에 제거하는 설치가 소유한 콜백만 정리합니다. 이전 statusLine은 원래 모습 그대로 복원하고 CycleArc 오류 훅은 제거하며, 사용자가 직접 바꾼 statusLine·다른 도구의 훅·다른 CycleArc 설치가 소유한 wrapper는 건드리지 않습니다. `%LOCALAPPDATA%\ProMeter`의 계정·설정·사용량 기록·Claude 연결 정보는 삭제하거나 로그아웃하지 않으므로 다시 설치하면 그대로 사용할 수 있습니다. 정리는 제한 시간 안에서만 수행하며 제거를 지연시키지 않습니다. 설정 파일이 잠겨 있거나 손상됐거나 동시에 편집 중이면 파일을 그대로 두고 결과를 `%LOCALAPPDATA%\ProMeter\claude-uninstall-cleanup.json`에 기록합니다.
+
 Codex 조회에는 이 PC에 설치된 **Codex CLI**, 구독 한도를 제공하는 ChatGPT 계정으로의 CLI 로그인과 네트워크 연결이 필요합니다. Claude 서버 조회에는 공식 Claude CLI의 연결 확인, Windows PowerShell, 로그인된 Claude Desktop과 Claude Pro·Max 계정이 필요합니다. statusLine과 Claude Desktop 구독 사용량 기록은 로컬 기록으로 사용할 수 있습니다. Codex 로그인은 필요하지 않습니다. 두 서비스 모두 CycleArc에서 공식 로그인을 시작할 수 있습니다.
 앱은 `codex.exe` 또는 `codex.cmd`를 PATH와 일반 설치 위치에서 찾습니다.
 자동으로 찾지 못하면 트레이 메뉴 → 설정에서 실행 파일의 절대 경로를 지정하세요.
@@ -251,6 +253,8 @@ CI는 개발용 단일 파일을 검사하고 안정 배포용 Velopack 설치 �
 
 설정·계정·캐시는 기존 `%LOCALAPPDATA%\ProMeter`에 유지합니다. 안정 설치의 실제 앱은 `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`이며, `%LOCALAPPDATA%\CycleArc\CycleArc.exe`는 데스크톱과 Windows 시작용 안정 런처입니다. Claude 콜백은 stdin/stdout 전달을 위해 current 실행 파일을 직접 사용하며, 일치하는 CLI 신원과 저장된 바인딩을 확인한 뒤 기존 소유 wrapper를 옮깁니다. 확인된 이전 트레이 항목은 새 트레이 아이콘이 준비된 뒤 레지스트리 값을 백업하고 정리합니다.
 `-Fast`는 같은 변경에 대한 전체 테스트를 이미 통과했을 때만 사용하세요.
+
+`scripts/Verify-InstalledUpdate.ps1`은 설치된 앱을 처음부터 끝까지 검증합니다. 버전과 해시가 실제로 다른 테스트 빌드 3개를 만들어 첫 번째를 실제 `Setup.exe`로 설치하고, 운영 업데이트 창·조정자·업데이터·복구 supervisor를 그대로 거쳐 두 번째로 업데이트한 뒤, 준비 완료 전에 종료하는 빌드를 적용해 supervisor가 이전 버전을 복원·재실행하는지 확인하고, 마지막으로 앱을 제거해 Claude 설정 복원과 데이터 보존을 검사합니다. 현재 Windows 사용자 계정에 실제로 설치·업데이트·제거하며 데이터 루트·제거 레지스트리 항목·바로가기·단일 인스턴스 mutex·데스크톱 IPC는 격리할 수 없으므로, 폐기 가능한 Windows VM이나 전용 테스트 사용자에서 `-ConfirmDisposableEnvironment`와 함께만 실행하세요. 업데이트 피드는 테스트 전용 빌드 플래그에서만 읽는 로컬 디렉터리이며 HTTPS 강제와 패키지 검증은 그대로입니다. Claude 계정은 합성 데이터이며 실제 구독 사용량 검증이 아닙니다.
 
 GitHub Actions는 개발용 단일 파일 검사물과 Velopack 설치 자산을 함께 생성합니다.
 

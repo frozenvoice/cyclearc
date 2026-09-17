@@ -58,6 +58,12 @@ Read only the sections relevant to the change:
   and existing statusLine command/output. Change/restore only exact CycleArc-owned hook entries.
   Keep request/authentication failures separate from receipts; callbacks alone do not clear sign-in recovery.
   Bound subprocess startup, requests, cancellation and shutdown; do not orphan children. Authentication is single-flight.
+- Removal cleans up only what this installation owns. Velopack's uninstall hook stops the app, runs once with
+  a bounded budget, ignores the result and then deletes the installation root, so cleanup is time-boxed, never
+  throws and never tries to cancel or retry removal. Restore a statusLine or StopFailure hook only when the
+  exact owned wrapper names this profile, the same configuration directory and an executable inside the
+  installation being removed; never delete or rewrite accounts, settings, caches, bindings or credentials, and
+  never record an incomplete cleanup as a successful one.
 - Claude storage is limited to projected quota, receipt/source/binding metadata and failure classifications;
   keep email in memory. The history reader opens only bounded `plan-usage-history.json`; the separate
   live credential reader opens only Desktop OAuth config and its protected encryption key. Verify
@@ -88,7 +94,7 @@ Run commands from the repository root. Use `--no-build` only for code already bu
 | Core/provider correctness | Relevant regression tests, including malformed/unknown input and state transitions. Use official protocol-shaped fixtures. |
 | Login/cache/concurrency/account lifecycle | Deterministic failure/cancellation/restart tests with isolated data and fake adapters. |
 | WPF state/layout/localization/theme/interaction | Release build and affected UiSmoke checks; visually inspect affected production views in EN/KO and relevant themes/sizes. |
-| Installer/startup/routing/distribution or executable delivery | Full gate below, including installer assets, rollback, single-file development publish and built/published receiver checks. |
+| Installer/startup/routing/distribution or executable delivery | Full gate below, including installer assets, rollback, single-file development publish and built/published receiver checks. Setup/update/removal behavior of the installed app also needs `scripts/Verify-InstalledUpdate.ps1` on a disposable Windows VM or throwaway user. |
 
 - Targeted tests: `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "<matching-filter>"`.
   Use an existing test name/category for the filter. WPF checks: `dotnet build CycleArc.sln -c Release`, then
@@ -98,6 +104,11 @@ Run commands from the repository root. Use `--no-build` only for code already bu
   `publish/.dev-staging/CycleArc.exe` receiver.
   If installation/run is requested, use `pwsh -NoProfile -File ./dev-run.ps1` instead: the same gate runs
   before installation. Choose the mode upfront to avoid repeating the gate.
+- Installed-app end to end: `pwsh -NoProfile -File ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment`.
+  It installs, updates, recovers and removes a real installation for the current Windows user and cannot
+  isolate the data root, uninstall registry entry, shortcuts, mutex or desktop IPC, so never run it on a
+  working profile. Packaging `Setup.exe`, rewriting a fixture's `sq.version` or calling `Update.exe` directly
+  is not an installed-app update; report those as component checks.
   The full gate satisfies the build/test requirements above; `-Fast` skips only unit tests already passed for unchanged code.
 - Synthetic fixtures do not establish real-account receipt/compatibility; Awaiting usage is not received usage.
 

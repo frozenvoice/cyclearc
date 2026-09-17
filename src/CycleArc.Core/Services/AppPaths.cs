@@ -2,13 +2,16 @@ namespace CycleArc.Services;
 
 public static class AppPaths
 {
+    /// <summary>The data location without creating it. Uninstall cleanup must not create anything.</summary>
+    public static string RootPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        LegacyInstallation.DataDirectoryName);
+
     public static string Root
     {
         get
         {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                LegacyInstallation.DataDirectoryName);
+            var dir = RootPath;
             Directory.CreateDirectory(dir);
             return dir;
         }

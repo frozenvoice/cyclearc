@@ -2,6 +2,53 @@
 
 ## Current release — Codex and Claude Code
 
+- Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
+  - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's
+    `OnBeforeUninstallFastCallback`, which runs `ClaudeUninstallCleanup` from the installed
+    `current\CycleArc.exe`. Verified against Velopack 1.2.0: the uninstall command stops the app,
+    runs `--veloapp-uninstall <version>` with a 60-second timeout, discards the result and then
+    deletes the installation root, so the cleanup is time-boxed (20 seconds), never throws and
+    never tries to cancel or retry removal.
+  - Ownership for removal is stricter than for disconnection: `RestoreOwnedAsync` restores a
+    statusLine wrapper or StopFailure hook only when the decoded wrapper matches byte for byte,
+    names the profile, names the same configuration directory **and** names an executable inside
+    the installation being removed. Disconnection keeps its existing profile-scoped behavior.
+  - Accounts, settings, quota caches, connection bindings and Claude/Codex credentials are read
+    but never rewritten or deleted, and the data root is not created when it does not exist.
+    A receipt at `%LOCALAPPDATA%\ProMeter\claude-uninstall-cleanup.json` records per-profile
+    outcomes; an incomplete or failed run is never recorded as completed, and it stores no
+    command text, payload or address.
+  - `ClaudeUninstallCleanupTests` covers an absent and a present previous statusLine, a statusLine
+    the person replaced after connecting, another tool's hooks and unrelated properties, several
+    profiles with a second installation's connection, a wrapper already migrated to a newer
+    installation, damaged settings, a settings file held by another process, an unreadable
+    connection record, repeated cleanup, installation-root ownership including a similarly named
+    neighbour, and receipt privacy.
+  - `scripts/Verify-InstalledUpdate.ps1` adds the missing installed-app end-to-end verification:
+    three test builds with different versions and executable hashes (not an `sq.version` rewrite),
+    a real `Setup.exe` installation, an update driven through the production update window,
+    coordinator, Velopack client, supervisor and `Update.exe`, readiness confirmed over the
+    desktop IPC status, a deliberate build that quits before readiness to exercise supervisor
+    recovery, the installed Claude callback executed with synthetic input after each phase, and a
+    real removal followed by the restoration and preservation checks. The failure injection and
+    the isolated local feed exist only in the `CYCLEARC_TEST_E2E` / `CYCLEARC_TEST_FAIL_STARTUP`
+    build flavours and are never compiled into a shipped build; HTTPS enforcement and package
+    verification are unchanged.
+  - **Not executed in the environment that produced this change.** It was a Linux container with
+    no .NET SDK, and the SDK download host is blocked by that environment's egress policy, so no
+    build, no unit test, no WPF check and no installed-app run was performed here. The following
+    still have to be run on Windows before this is treated as verified:
+    `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "ClaudeUninstallCleanupTests"`,
+    `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch`, and
+    `pwsh -NoProfile -File ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment`
+    on a disposable Windows VM or throwaway user. Installer packages remain unsigned, and the
+    verification script's Claude data is synthetic: it is not evidence of live subscription usage.
+  - Known limits of the new script: it cannot isolate the data root, the single-instance mutex,
+    the desktop IPC pipe, the recovery root, the uninstall registry entry or shortcuts, so it
+    refuses to run without `-ConfirmDisposableEnvironment` and when it finds an existing
+    installation, data root or running CycleArc. Shortcut checks report what the current packaging
+    configuration actually created rather than assuming one exists.
+
 - Windows installer and in-app updates (0.6.0, 2026-09-17):
   - The final `dev-run.ps1 -NoLaunch` passed: 1,436 unit tests, all production WPF
     checks, 15 legacy installer scenarios, process/lease/shutdown checks, built and

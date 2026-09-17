@@ -30,6 +30,19 @@ public sealed class VelopackUpdateClient : IAppUpdateClient
         if (!InstalledApp.SupportsUpdates) return;
         _enabled = true;
         _packagesDirectory = VelopackLocator.Current.PackagesDir;
+#if CYCLEARC_TEST_E2E
+        // Test-only build flavour: an isolated local release feed for the installed-app
+        // verification, so a real update never depends on, or publishes to, the public
+        // GitHub release. Package verification and every other step stay unchanged.
+        // Never compiled into a shipped build; see scripts/Verify-InstalledUpdate.ps1.
+        var testFeed = Environment.GetEnvironmentVariable("CYCLEARC_TEST_UPDATE_FEED");
+        if (!string.IsNullOrWhiteSpace(testFeed) && Directory.Exists(testFeed))
+        {
+            _manager = new UpdateManager(testFeed,
+                new UpdateOptions { ExplicitChannel = "win", AllowVersionDowngrade = false, MaximumDeltasBeforeFallback = 0 });
+            return;
+        }
+#endif
         _manager = new UpdateManager(
             new GithubSource("https://github.com/frozenvoice/cyclearc", null, prerelease: false, _downloader),
             new UpdateOptions { ExplicitChannel = "win", AllowVersionDowngrade = false, MaximumDeltasBeforeFallback = 0 });

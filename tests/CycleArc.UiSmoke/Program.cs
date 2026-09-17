@@ -44,6 +44,23 @@ internal static class Program
         }
         if (args is ["--shutdown-child", var scenario]) return ShutdownChecks.RunChild(scenario);
         if (args is ["--shutdown"]) { ShutdownChecks.Run(); return 0; }
+        if (args is ["--claude-uninstall-seed", var seedRoot, var seedConfig, var seedCallback, var seedPath])
+        {
+            ClaudeUninstallCleanupChecks.Seed(seedRoot, seedConfig, seedCallback, seedPath);
+            return 0;
+        }
+        if (args is ["--claude-uninstall-installed", var installedRoot, var installedSeed, var installedInstallation])
+        {
+            ClaudeUninstallCleanupChecks.VerifyInstalled(installedRoot, installedSeed, installedInstallation);
+            ClaudeUninstallCleanupChecks.VerifyCallbackRuns(installedRoot, installedSeed);
+            return 0;
+        }
+        if (args is ["--claude-uninstall-removed", var removedRoot, var removedSeed, var removedInstallation])
+        {
+            ClaudeUninstallCleanupChecks.VerifyRemoved(removedRoot, removedSeed, removedInstallation);
+            ClaudeUninstallCleanupChecks.VerifyRestoredCallbackRuns(removedRoot, removedSeed);
+            return 0;
+        }
         if (args is ["--claude-process", var executable])
         {
             ClaudeStatusLineProcessChecks.Run(executable);

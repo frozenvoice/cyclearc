@@ -255,27 +255,52 @@ public static class ClaudeStatusLineInstaller
         catch (Exception ex) when (ex is ClaudeSetupException or IOException or UnauthorizedAccessException) { return false; }
     }
 
-    public static async Task RestoreAsync(string directory, string profileId, CancellationToken token)
+    public static Task RestoreAsync(string directory, string profileId, CancellationToken token)
+        => RestoreCoreAsync(directory, profileId, owns: null, token);
+
+    /// <summary>
+    /// Restores only callbacks this exact installation owns. Removing an installation must
+    /// never touch a wrapper that belongs to a different installation or that has already been
+    /// migrated to a new one, even when it names the same profile and configuration directory.
+    /// Returns whether an owned callback was found and rewritten.
+    /// </summary>
+    public static Task<bool> RestoreOwnedAsync(string directory, string profileId,
+        Func<string, bool> ownsExecutable, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(ownsExecutable);
+        return RestoreCoreAsync(directory, profileId, ownsExecutable, token);
+    }
+
+    private static async Task<bool> RestoreCoreAsync(string directory, string profileId,
+        Func<string, bool>? owns, CancellationToken token)
     {
         directory = RequireDirectory(directory);
-        if (!Directory.Exists(directory)) return;
+        if (!Directory.Exists(directory)) return false;
         using var lease = await LeaseAsync(directory, token).ConfigureAwait(false);
         var file = Path.Combine(directory, "settings.json");
         var original = ReadBytes(file);
         var settings = ParseSettings(original);
         ClaudeBridgeOptions? installed = null;
         var ownsStatusLine = settings["statusLine"] is JsonObject obj && ValidStatusLine(obj)
-            && TryRead(obj["command"]!.GetValue<string>(), out installed) && installed!.ProfileId == profileId;
-        var hadOwnedFailureHook = HasOwnedFailureHook(settings, profileId);
+            && TryRead(obj["command"]!.GetValue<string>(), out installed) && installed!.ProfileId == profileId
+            && IsOwnedCallback(owns, installed.ConfigDirectory, installed.CycleArcExecutable, directory);
+        var hadOwnedFailureHook = HasOwnedFailureHook(settings, profileId, owns, directory);
         if (ownsStatusLine)
         {
             if (installed!.HadStatusLine) settings["statusLine"] = installed.PreviousStatusLine?.DeepClone();
             else settings.Remove("statusLine");
         }
-        RemoveOwnedFailureHook(settings, profileId);
-        if (ownsStatusLine || hadOwnedFailureHook)
-            WriteIfChanged(file, original, settings, token);
+        RemoveOwnedFailureHook(settings, profileId, owns, directory);
+        if (!ownsStatusLine && !hadOwnedFailureHook) return false;
+        WriteIfChanged(file, original, settings, token);
+        return true;
     }
+
+    // Disconnect keeps its profile-scoped behavior. An installation-scoped caller must also
+    // prove that the recorded configuration directory and executable belong to it.
+    private static bool IsOwnedCallback(Func<string, bool>? owns, string configDirectory, string executable, string directory)
+        => owns is null
+            || (string.Equals(configDirectory, directory, StringComparison.OrdinalIgnoreCase) && owns(executable));
     private static bool Valid(ClaudeBridgeOptions o) => o.Version == 1 && Guid.TryParseExact(o.ProfileId, "N", out _)
         && ClaudeConnectionPaths.Normalize(o.ConfigDirectory) is { } directory && directory == o.ConfigDirectory
         && ClaudeConnectionPaths.Normalize(o.CycleArcExecutable) is { } executable && executable == o.CycleArcExecutable
@@ -326,15 +351,18 @@ public static class ClaudeStatusLineInstaller
         }
     }
 
-    private static bool HasOwnedFailureHook(JsonObject settings, string profileId)
+    private static bool HasOwnedFailureHook(JsonObject settings, string profileId,
+        Func<string, bool>? owns, string directory)
     {
         if (settings["hooks"] is not JsonObject hooks || hooks["StopFailure"] is not JsonArray stop) return false;
         foreach (var entry in stop)
-            if (entry is JsonObject item && TryReadOwnedFailureHook(item, out var options) && options!.ProfileId == profileId) return true;
+            if (entry is JsonObject item && TryReadOwnedFailureHook(item, out var options) && options!.ProfileId == profileId
+                && IsOwnedCallback(owns, options.ConfigDirectory, options.CycleArcExecutable, directory)) return true;
         return false;
     }
 
-    private static void RemoveOwnedFailureHook(JsonObject settings, string profileId)
+    private static void RemoveOwnedFailureHook(JsonObject settings, string profileId,
+        Func<string, bool>? owns, string directory)
     {
         if (settings["hooks"] is null) return;
         if (settings["hooks"] is not JsonObject hooks) throw new ClaudeSetupException(ClaudeSetupFailure.InvalidSettings);
@@ -345,7 +373,8 @@ public static class ClaudeStatusLineInstaller
         foreach (var entry in stop)
         {
             if (entry is not JsonObject item) continue;
-            if (TryReadOwnedFailureHook(item, out var options) && options!.ProfileId == profileId)
+            if (TryReadOwnedFailureHook(item, out var options) && options!.ProfileId == profileId
+                && IsOwnedCallback(owns, options.ConfigDirectory, options.CycleArcExecutable, directory))
             {
                 owned.Add(item); original = options;
             }

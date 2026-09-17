@@ -58,6 +58,16 @@ public sealed class CodexAccountStore
                 && state!.Profiles.Any(p => p.Id == id && p.Provider == UsageProviderId.Claude);
     }
 
+    // Read-only projection for cleanup paths that must never create or migrate a registry.
+    // Uninstall runs after the desktop has been stopped and must leave account data as it is.
+    public IReadOnlyList<string> ClaudeProfileIds()
+    {
+        lock (_gate)
+            return (TryRead(RegistryPath, out var state) || TryRead(RegistryPath + ".bak", out state))
+                ? state!.Profiles.Where(p => p.Provider == UsageProviderId.Claude).Select(p => p.Id).ToArray()
+                : [];
+    }
+
     public string ClaudeStatusLinePath(string id) =>
         Path.Combine(_root, "accounts", RequireId(id), "claude-statusline.json");
 

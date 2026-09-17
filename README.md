@@ -62,6 +62,8 @@ The installed desktop runs from `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`. 
 
 The first setup launch can close an older canonical legacy desktop after verifying its current-session IPC identity. A development build running from another path keeps the normal first-instance policy. The former `%LOCALAPPDATA%\Programs\CycleArc` installation is retained for development compatibility and is not updated by the GitHub release checker.
 
+Removing CycleArc through **Settings → Apps** (or `Update.exe --uninstall`) restores the Claude settings this installation changed before its files are deleted. Only callbacks that belong to the installation being removed are touched: the previous statusLine comes back exactly as it was, the CycleArc failure hook is removed, and a statusLine you replaced yourself, another tool's hooks and any wrapper belonging to a different CycleArc installation stay as they are. Accounts, preferences, quota history and Claude connection records under `%LOCALAPPDATA%\ProMeter` are never deleted or signed out, so reinstalling finds them again. The cleanup is time-boxed and cannot delay removal; when settings are locked, damaged or edited at the same moment, the file is left untouched and the outcome is recorded in `%LOCALAPPDATA%\ProMeter\claude-uninstall-cleanup.json`.
+
 <details>
 <summary><strong>Update preview</strong></summary>
 
@@ -275,6 +277,8 @@ Preflight reports existing desktop PIDs and executable paths. After validation, 
 - `-NoLaunch`: validate the staged executable without replacing the running local app.
 - `-Fast`: skip the unit suite only when it has already passed for the same changes.
 - CI builds and checks the development single-file executable and packages the Velopack installer assets for the stable release workflow.
+
+`scripts/Verify-InstalledUpdate.ps1` verifies the installed application end to end: it builds three test executables with different versions and hashes, installs the first with its real `Setup.exe`, updates to the second through the production update window, coordinator, updater and recovery supervisor, forces a build that fails to start so the supervisor restores and restarts the previous version, and finally removes the installation and checks the Claude cleanup and data preservation. It installs, updates and removes CycleArc for the current Windows user and cannot isolate the data root, uninstall registry entry, shortcuts, single-instance mutex or desktop IPC, so run it only on a disposable Windows VM or a throwaway user account, with `-ConfirmDisposableEnvironment`. Its update feed is a local directory read by a test-only build flavour; HTTPS enforcement and package verification are unchanged, and its Claude accounts are synthetic rather than a live subscription check.
 
 For a GitHub release, commit and push the versioned changes, pass the local `-NoLaunch` gate and Windows CI, then run `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.6.0 -NotesPath "./release-notes/0.6.0.md"` (replace the notes path with your prepared file).
 

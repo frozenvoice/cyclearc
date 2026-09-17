@@ -86,6 +86,13 @@ public partial class UpdateWindow : Window
         else await Track(_updates.DownloadAsync(_operations.Token));
     }
 
+#if CYCLEARC_TEST_E2E
+    // Test-only build flavour: raise the production click event on the same button, so no
+    // coordinator, client or supervisor step is bypassed. Never compiled into a shipped build.
+    internal void ClickAction() => ActionButton.RaiseEvent(
+        new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+#endif
+
     private T Track<T>(T operation) where T : Task
     {
         ActiveOperation = operation;

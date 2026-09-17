@@ -47,6 +47,13 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+#if CYCLEARC_TEST_FAIL_STARTUP
+        // Test-only build flavour: quit before this desktop can report readiness, so the
+        // installed-app verification can prove that the real update supervisor detects a
+        // failed start and restores the previous installation. Never compiled into a
+        // shipped build; see scripts/Verify-InstalledUpdate.ps1.
+        Environment.Exit(3);
+#endif
         if (InstanceLease is null) { Shutdown(1); return; }
         _settingsStore = new SettingsStore();
         _settings = _settingsStore.Load();
@@ -172,7 +179,49 @@ public partial class App : Application
             _updateTimer.Start();
             _updateTask = CheckUpdatesAsync(TimeSpan.FromSeconds(20));
         }
+#if CYCLEARC_TEST_E2E
+        if (Environment.GetEnvironmentVariable("CYCLEARC_TEST_UPDATE_DRIVE") == "1") StartTestUpdateDrive();
+#endif
     }
+
+#if CYCLEARC_TEST_E2E
+    // Test-only build flavour: press the same production buttons a person presses, so the
+    // installed-app verification exercises the real coordinator, client and supervisor
+    // instead of calling Update.exe directly. Never compiled into a shipped build.
+    private void StartTestUpdateDrive() => _ = Task.Run(async () =>
+    {
+        try
+        {
+            await Dispatcher.InvokeAsync(ShowUpdates);
+            if (!await WaitForTestUpdateStateAsync(AppUpdateState.Available, TimeSpan.FromMinutes(2)))
+            {
+                _log.Warn("test update drive: no release became available");
+                return;
+            }
+            await Dispatcher.InvokeAsync(() => _updateWindow?.ClickAction());
+            if (!await WaitForTestUpdateStateAsync(AppUpdateState.Ready, TimeSpan.FromMinutes(5)))
+            {
+                _log.Warn("test update drive: the download did not become ready");
+                return;
+            }
+            await Dispatcher.InvokeAsync(() => _updateWindow?.ClickAction());
+        }
+        catch (Exception ex) { _log.Warn("test update drive stopped: " + ex.GetType().Name); }
+    });
+
+    private async Task<bool> WaitForTestUpdateStateAsync(AppUpdateState state, TimeSpan timeout)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (elapsed.Elapsed < timeout)
+        {
+            if (IsExiting) return false;
+            if (_updates?.State == state) return true;
+            if (_updates?.State == AppUpdateState.Failed) return false;
+            await Task.Delay(200);
+        }
+        return false;
+    }
+#endif
 
     private async Task CheckUpdatesAsync(TimeSpan delay)
     {
