@@ -185,7 +185,7 @@ public partial class FloatingWidget : Window
 
     private void RecoverTo(ScreenRect target)
     {
-        if (_closed || _drag is not null || _applying || _restoringPixels) return;
+        if (_closed || _drag is not null || _applying) return;
         if (WindowState != WindowState.Normal) return;
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != IntPtr.Zero && IsIconic(hwnd)) return;
