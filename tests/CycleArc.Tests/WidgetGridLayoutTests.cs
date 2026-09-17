@@ -96,6 +96,24 @@ public class WidgetGridLayoutTests
         Assert.Equal(WidgetGridLayout.ChromeHeight + Header + Module, layout.Height);
     }
 
+    [Theory]
+    [InlineData(1.0, 0)]
+    [InlineData(1.25, 0)]
+    [InlineData(2.0, 0)]
+    public void HairlinesThatLandOnWholeDevicePixelsNeedNoWidthSlack(double scale, double expected)
+    {
+        Assert.Equal(expected, For(3, Wide).HairlineRoundingSlack(scale));
+    }
+
+    [Fact]
+    public void HairlinesAt150PercentAddTwoDevicePixelsOnThreeColumns()
+    {
+        // Four 1 DIP hairlines (two borders + two separators) round 1.5 px up to 2 px.
+        Assert.Equal(4.0 / 3.0, For(3, Wide).HairlineRoundingSlack(1.5), 6);
+        Assert.Equal(0.5 / 1.75 * 4, For(3, Wide).HairlineRoundingSlack(1.75), 6);
+        Assert.Equal(2.0, For(5, Wide).HairlineRoundingSlack(1.5), 6);
+    }
+
     [Fact]
     public void AccountCountIsNotCappedAtFive()
     {

@@ -155,8 +155,10 @@ internal static class WidgetDpiChecks
             if (Math.Abs(VisualTreeHelper.GetDpi(name).DpiScaleY - scale) > 0.001)
                 throw new InvalidOperationException("Widget text did not inherit the tested DPI.");
         }
-        // The wrapped grid must never exceed what the widget said it would take.
-        if (content.DesiredSize.Width > layout.Width + 1.01)
+        // The wrapped grid must never exceed what the widget said it would take, beyond
+        // 1 DIP hairlines snapping to whole device pixels (150% DPI: 720 → 721⅓).
+        var slack = Math.Max(1.01, layout.HairlineRoundingSlack(VisualTreeHelper.GetDpi(content).DpiScaleX) + 0.01);
+        if (content.DesiredSize.Width > layout.Width + slack)
             throw new InvalidOperationException(
                 $"Rendered widget is wider than its layout ({context}): {content.DesiredSize.Width} > {layout.Width}.");
     }

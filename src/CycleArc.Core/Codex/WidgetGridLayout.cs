@@ -24,6 +24,20 @@ public sealed record WidgetGridLayout(int Columns, int Rows, double Width, doubl
     /// Height available to the module grid once the panel chrome and header are taken out.
     public double ModuleViewportHeight { get; init; }
 
+    /// <summary>
+    /// Extra DIP a WPF measure may occupy beyond <see cref="Width"/> after 1 DIP hairlines
+    /// (the panel's two vertical borders and each inter-column separator) snap to whole
+    /// device pixels. At 150% DPI those 1.5 px lines become 2 px, so three modules measure
+    /// 1⅓ DIP wider than the DIP formula (721⅓ vs 720). Wrapping still uses <see cref="Width"/>.
+    /// </summary>
+    public double HairlineRoundingSlack(double dpiScaleX)
+    {
+        var scale = dpiScaleX > 0 && double.IsFinite(dpiScaleX) ? dpiScaleX : 1;
+        var snapped = Math.Round(scale, MidpointRounding.AwayFromZero);
+        var extraDipPerHairline = Math.Max(0, (snapped - scale) / scale);
+        return extraDipPerHairline * (2 + Math.Max(Columns - 1, 0));
+    }
+
     public static WidgetGridLayout For(int accountCount, double headerHeight, double moduleHeight, ScreenRect workArea)
     {
         var count = Math.Max(accountCount, 1);
