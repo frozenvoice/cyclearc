@@ -21,6 +21,20 @@ public static class WidgetPlacement
             if (overlapping is null) { left = area.X + 40; top = area.Y + 40; }
             else area = overlapping.Value;
         }
+        return RecoverInto(left, top, width, height, area);
+    }
+
+    /// <summary>
+    /// Clamps into a work area that was already chosen for this pass. Relayout uses this after
+    /// wrapping so a previous wide rectangle cannot re-select a different monitor by overlap.
+    /// </summary>
+    public static (double Left, double Top) RecoverInto(double left, double top, double width, double height,
+        ScreenRect area)
+    {
+        width = double.IsFinite(width) && width > 0 ? width : 180;
+        height = double.IsFinite(height) && height > 0 ? height : 60;
+        if (!double.IsFinite(left) || !double.IsFinite(top))
+            return (area.X + 40, area.Y + 40);
         // A fully visible widget is already valid, even within the flyout's 8px edge margin.
         // Do not move a user-positioned widget just because the application restarted.
         if (left >= area.X && top >= area.Y && left + width <= area.Right && top + height <= area.Bottom)

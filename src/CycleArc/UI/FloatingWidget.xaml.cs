@@ -43,7 +43,13 @@ public partial class FloatingWidget : Window
             RestoreAfterLayout();
         };
         Closed += (_, _) => _closed = true;
-        SizeChanged += (_, _) => RecoverPosition();
+        SizeChanged += (_, _) =>
+        {
+            // Relayout owns recovery for its pass so SizeChanged cannot read a mid-wrap HWND
+            // and persist that rectangle. A queued DPI relayout must win over this size event.
+            if (_relayouting || _relayoutQueued) return;
+            RecoverPosition(_workAreas);
+        };
         DpiChanged += (_, _) => QueueRelayout();
     }
 
@@ -115,7 +121,7 @@ public partial class FloatingWidget : Window
         EnsureModules(models.Count);
         for (var i = 0; i < models.Count; i++) _modules[i].Bind(accounts[i], models[i]);
         _workAreas = workAreas;
-        LastLayout = ArrangeModules(models.Count, _workAreas);
+        LastLayout = ArrangeModules(models.Count, CurrentWorkArea(_workAreas));
     }
 
     private void EnsureModules(int count)
@@ -124,9 +130,8 @@ public partial class FloatingWidget : Window
         if (_modules.Count > count) _modules.RemoveRange(count, _modules.Count - count);
     }
 
-    private WidgetGridLayout ArrangeModules(int count, IReadOnlyList<ScreenRect>? workAreas)
+    private WidgetGridLayout ArrangeModules(int count, ScreenRect area)
     {
-        var area = CurrentWorkArea(workAreas);
         WidgetHeader.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
         var headerHeight = WidgetHeader.DesiredSize.Height + WidgetHeader.Margin.Bottom;
         var heights = new double[_modules.Count];
@@ -148,7 +153,8 @@ public partial class FloatingWidget : Window
 
     /// <summary>
     /// Recomputes columns, height and scrolling for the work area the widget now sits on,
-    /// without binding new account data. No-ops when the layout is already correct.
+    /// without binding new account data. Position recovery still runs when the grid is
+    /// unchanged, so an off-screen origin or a shrunken work area is not skipped.
     /// </summary>
     public void Relayout(IReadOnlyList<ScreenRect>? workAreas = null)
     {
@@ -157,19 +163,51 @@ public partial class FloatingWidget : Window
         _relayouting = true;
         try
         {
-            var layout = ArrangeModules(_modules.Count, _workAreas);
-            var unchanged = LastLayout is { } previous
-                && previous.Columns == layout.Columns
-                && previous.Rows == layout.Rows
-                && previous.Width == layout.Width
-                && previous.Height == layout.Height
-                && previous.Scrolls == layout.Scrolls
-                && previous.ModuleViewportHeight == layout.ModuleViewportHeight;
-            LastLayout = layout;
-            if (unchanged) return;
-            RecoverPosition(_workAreas);
+            var areas = _workAreas ?? DesktopWorkAreas.For(this);
+            var target = CurrentWorkArea(areas);
+            LastLayout = ArrangeModules(_modules.Count, target);
+            ApplyArrangedLayout();
+            RecoverTo(target);
         }
         finally { _relayouting = false; }
+    }
+
+    private void ApplyArrangedLayout()
+    {
+        if (Content is not FrameworkElement content) return;
+        InvalidateMeasure();
+        content.InvalidateMeasure();
+        content.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        content.Arrange(new System.Windows.Rect(content.DesiredSize));
+        content.UpdateLayout();
+        if (IsLoaded) UpdateLayout();
+    }
+
+    private void RecoverTo(ScreenRect target)
+    {
+        if (_closed || _drag is not null || _applying || _restoringPixels) return;
+        if (WindowState != WindowState.Normal) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero && IsIconic(hwnd)) return;
+        var areas = _workAreas ?? (IsLoaded ? DesktopWorkAreas.For(this) : null);
+        if (areas is { Count: > 0 } && !areas.Contains(target))
+            target = CurrentWorkArea(areas);
+        if (_workAreas is null && hwnd != IntPtr.Zero)
+        {
+            RecoverPhysicalPosition();
+            return;
+        }
+        var content = Content as FrameworkElement;
+        // DesiredSize is the size just applied; ActualWidth can still be the previous HWND.
+        var width = content is { DesiredSize.Width: > 0 } ? content.DesiredSize.Width
+            : LastLayout?.Width ?? 180;
+        var height = content is { DesiredSize.Height: > 0 } ? content.DesiredSize.Height
+            : LastLayout?.Height ?? 60;
+        var position = WidgetPlacement.RecoverInto(Left, Top, width, height, target);
+        if (position.Left == Left && position.Top == Top) return;
+        Left = position.Left;
+        Top = position.Top;
+        Moved?.Invoke(Left, Top);
     }
 
     private void QueueRelayout()
@@ -282,10 +320,12 @@ public partial class FloatingWidget : Window
 
     public void RecoverPosition(IReadOnlyList<ScreenRect>? workAreas = null)
     {
-        if (_recoveringPosition || _drag is not null || _applying || _restoringPixels || _closed) return;
+        if (_recoveringPosition || _relayouting || _relayoutQueued || _drag is not null || _applying
+            || _restoringPixels || _closed) return;
         // A minimized window's native rectangle is not a position to save or clamp.
         if (WindowState != WindowState.Normal || IsIconic(new WindowInteropHelper(this).Handle)) return;
-        if (workAreas is null)
+        var areas = workAreas ?? _workAreas;
+        if (areas is null)
         {
             if (!_positionReady) return;
             RecoverPhysicalPosition();
@@ -296,8 +336,9 @@ public partial class FloatingWidget : Window
         {
             var content = (FrameworkElement)Content;
             content.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-            var position = WidgetPlacement.Recover(Left, Top, content.DesiredSize.Width, content.DesiredSize.Height,
-                workAreas ?? DesktopWorkAreas.For(this));
+            var width = ActualWidth > 0 ? ActualWidth : content.DesiredSize.Width;
+            var height = ActualHeight > 0 ? ActualHeight : content.DesiredSize.Height;
+            var position = WidgetPlacement.RecoverInto(Left, Top, width, height, CurrentWorkArea(areas));
             if (position.Left == Left && position.Top == Top) return;
             Left = position.Left;
             Top = position.Top;
@@ -376,7 +417,10 @@ public partial class FloatingWidget : Window
         if (!GetWindowRect(hwnd, out var rect)) return;
         var areas = System.Windows.Forms.Screen.AllScreens.OrderByDescending(x => x.Primary)
             .Select(x => new ScreenRect(x.WorkingArea.X, x.WorkingArea.Y, x.WorkingArea.Width, x.WorkingArea.Height)).ToArray();
-        var next = WidgetPlacement.Recover(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top, areas);
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        var target = WidgetPlacement.AreaContaining(rect.Left, rect.Top, areas);
+        var next = WidgetPlacement.RecoverInto(rect.Left, rect.Top, width, height, target);
         if ((int)next.Left == rect.Left && (int)next.Top == rect.Top) return;
         _recoveringPosition = true;
         try

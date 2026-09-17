@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -44,6 +45,8 @@ internal static class WidgetLayoutChecks
         }
         UiText.SetLanguage(UiLanguage.English);
         applyTheme.Invoke(null, [AppTheme.Dark]);
+        count += RelayoutOrder(directory);
+        count += RelayoutQueueDoesNotTouchAClosedWindow();
         Console.WriteLine($"PASS: {count} widget layout checks; mixed-height work-area scroll, monitor relayout without a usage bind, scrollbar thumb vs window drag; synthetic accounts only.");
     }
 
@@ -200,6 +203,148 @@ internal static class WidgetLayoutChecks
         }
         finally { widget.Close(); }
     }
+
+    private static int RelayoutOrder(string? directory)
+    {
+        var secondary = Dual[1];
+        var primary = Dual[0];
+        var focus = new Window
+        {
+            Title = "CycleArc relayout-order focus",
+            Width = 220,
+            Height = 80,
+            ShowInTaskbar = false,
+            ShowActivated = true,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen
+        };
+        var persisted = new List<(double Left, double Top)>();
+        var widget = new FloatingWidget { ShowActivated = false };
+        widget.Moved += (left, top) => persisted.Add((left, top));
+        try
+        {
+            focus.Show();
+            Pump();
+            var accounts = Five();
+            widget.BindAccounts(accounts, accounts[2].Profile.Id, UsagePeriodPreference.Auto, Wide, Now);
+            widget.Show();
+            Pump();
+            Layout(widget);
+            Check(widget.LastLayout!.Columns == 5 && widget.LastLayout.Rows == 1,
+                "Relayout-order fixture did not start as five columns.");
+            var wideWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
+            Check(wideWidth > secondary.Width,
+                $"Five-column width {wideWidth} is not wider than the secondary work area.");
+
+            var foreground = GetForegroundWindow();
+            widget.Left = -400;
+            widget.Top = 40;
+            persisted.Clear();
+            widget.Relayout(Dual);
+            Pump();
+            Check(widget.LastLayout!.Columns == 3 && widget.LastLayout.Rows == 2,
+                $"Drop onto the secondary did not wrap ({widget.LastLayout.Columns}x{widget.LastLayout.Rows}).");
+            var afterWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
+            var afterHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
+            Check(afterWidth < wideWidth - 8,
+                $"Wrapped width {afterWidth} did not shrink from the five-column width {wideWidth}.");
+            Check(Inside(widget.Left, widget.Top, afterWidth, afterHeight, secondary),
+                $"Wrapped widget {widget.Left},{widget.Top} {afterWidth}x{afterHeight} left the secondary {secondary}.");
+            Check(persisted.Count == 0 || persisted[^1] == (widget.Left, widget.Top),
+                "Persisted coordinates do not match the final secondary position.");
+            Check(GetForegroundWindow() == foreground, "Relayout stole focus from another window.");
+
+            Pump();
+            Check(widget.LastLayout.Columns == 3 && Inside(widget.Left, widget.Top, afterWidth, afterHeight, secondary),
+                "Extra dispatcher work bounced the wrapped widget onto the primary.");
+            WidgetFixture.RenderWidget(widget, PathFor(directory, "widget-relayout-secondary"));
+
+            widget.BindAccounts(accounts, accounts[2].Profile.Id, UsagePeriodPreference.Auto, Dual, Now);
+            Pump();
+            Layout(widget);
+            Check(widget.LastLayout!.Columns == 3 && widget.LastLayout.Rows == 2,
+                "A later account bind snapped the secondary widget back to five columns.");
+
+            widget.Left = 40;
+            widget.Relayout();
+            Pump();
+            Check(widget.LastLayout!.Columns == 5 && widget.LastLayout.Rows == 1,
+                "Moving onto the primary did not restore one row.");
+            var primaryWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
+            var primaryHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
+            Check(primaryWidth > afterWidth + 8,
+                $"Primary width {primaryWidth} was not taken from the new five-column size.");
+            Check(Inside(widget.Left, widget.Top, primaryWidth, primaryHeight, primary),
+                $"Primary widget {widget.Left},{widget.Top} {primaryWidth}x{primaryHeight} left the primary.");
+            WidgetFixture.RenderWidget(widget, PathFor(directory, "widget-relayout-primary"));
+
+            widget.Left = 9000;
+            widget.Top = 40;
+            persisted.Clear();
+            widget.Relayout(Wide);
+            Pump();
+            Check(widget.LastLayout!.Columns == 5,
+                "Off-screen recovery skipped because the five-column layout was unchanged.");
+            var recoveredWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
+            var recoveredHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
+            Check(Inside(widget.Left, widget.Top, recoveredWidth, recoveredHeight, primary),
+                $"Unchanged layout left the widget off-screen at {widget.Left},{widget.Top}.");
+            Check(persisted.Count == 0 || persisted[^1] == (widget.Left, widget.Top),
+                "Off-screen recovery persisted coordinates that do not match the window.");
+
+            widget.Left = -400;
+            widget.Top = 40;
+            widget.Relayout(Dual);
+            Pump();
+            widget.Relayout([primary]);
+            Pump();
+            var removedWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
+            var removedHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
+            Check(widget.LastLayout!.Columns == 5 && Inside(widget.Left, widget.Top, removedWidth, removedHeight, primary),
+                "Removing the secondary monitor did not recover onto the remaining primary.");
+
+            var content = (FrameworkElement)widget.Content;
+            foreach (var scale in new[] { 1.0, 1.5, 2.0 })
+            {
+                VisualTreeHelper.SetRootDpi(content, new DpiScale(scale, scale));
+                widget.Left = -400;
+                widget.Top = 40;
+                widget.Relayout(Dual);
+                Pump();
+                Check(widget.LastLayout!.Columns == 3 && widget.LastLayout.Rows == 2,
+                    $"{scale:0.0}x drop onto the secondary did not wrap.");
+                var scaledWidth = widget.ActualWidth > 0 ? widget.ActualWidth : content.DesiredSize.Width;
+                var scaledHeight = widget.ActualHeight > 0 ? widget.ActualHeight : content.DesiredSize.Height;
+                Check(Inside(widget.Left, widget.Top, scaledWidth, scaledHeight, secondary),
+                    $"{scale:0.0}x wrapped widget left the secondary at {widget.Left},{widget.Top} {scaledWidth}x{scaledHeight}.");
+            }
+            VisualTreeHelper.SetRootDpi(content, new DpiScale(1, 1));
+            return 4;
+        }
+        finally
+        {
+            widget.Close();
+            focus.Close();
+        }
+    }
+
+    private static int RelayoutQueueDoesNotTouchAClosedWindow()
+    {
+        var widget = new FloatingWidget { ShowActivated = false };
+        widget.BindAccounts(Five(), "five-c1", UsagePeriodPreference.Auto, Wide, Now);
+        widget.Show();
+        Pump();
+        typeof(FloatingWidget).GetMethod("QueueRelayout", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(widget, null);
+        widget.Close();
+        Pump();
+        return 1;
+    }
+
+    private static bool Inside(double left, double top, double width, double height, ScreenRect area) =>
+        left >= area.X && top >= area.Y && left + width <= area.Right + 0.5 && top + height <= area.Bottom + 0.5;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     private static int ScrollbarDoesNotDragWindow()
     {

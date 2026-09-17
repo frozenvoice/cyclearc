@@ -200,6 +200,34 @@ public class WidgetGridLayoutTests
     [Fact]
     public void AnUnplacedWidgetFallsBackToThePrimaryWorkArea() =>
         Assert.Equal(Wide, WidgetPlacement.AreaFor(9000, 9000, 240, 120, [Wide]));
+
+    [Fact]
+    public void PreviousWideSizeAtASecondaryOriginSelectsThePrimaryByOverlap()
+    {
+        IReadOnlyList<ScreenRect> areas = [Wide, new(-760, 0, 760, 1040)];
+        var recovered = WidgetPlacement.Recover(-400, 40, 1186, 140, areas);
+        Assert.True(recovered.Left >= 0);
+        Assert.Equal(Wide, WidgetPlacement.AreaContaining(recovered.Left, recovered.Top, areas));
+    }
+
+    [Fact]
+    public void RecoverIntoKeepsTheSecondaryAfterTheWideWidgetWraps()
+    {
+        var secondary = new ScreenRect(-760, 0, 760, 1040);
+        var recovered = WidgetPlacement.RecoverInto(-400, 40, 720, 200, secondary);
+        Assert.True(recovered.Left >= secondary.X);
+        Assert.True(recovered.Top >= secondary.Y);
+        Assert.True(recovered.Left + 720 <= secondary.Right);
+        Assert.True(recovered.Top + 200 <= secondary.Bottom);
+        Assert.True(recovered.Left < 0);
+    }
+
+    [Fact]
+    public void RecoverIntoLeavesAFullyVisibleWidgetWhereItIs()
+    {
+        var secondary = new ScreenRect(-760, 0, 760, 1040);
+        Assert.Equal((-750d, 40d), WidgetPlacement.RecoverInto(-750, 40, 10, 10, secondary));
+    }
 }
 
 public class WidgetResetCountdownTests
