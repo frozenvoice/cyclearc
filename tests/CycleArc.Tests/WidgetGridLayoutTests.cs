@@ -110,7 +110,7 @@ public class WidgetGridLayoutTests
     {
         // Four 1 DIP hairlines (two borders + two separators) round 1.5 px up to 2 px.
         Assert.Equal(4.0 / 3.0, For(3, Wide).HairlineRoundingSlack(1.5), 6);
-        Assert.Equal(0.5 / 1.75 * 4, For(3, Wide).HairlineRoundingSlack(1.75), 6);
+        Assert.Equal((2 - 1.75) / 1.75 * 4, For(3, Wide).HairlineRoundingSlack(1.75), 6);
         Assert.Equal(2.0, For(5, Wide).HairlineRoundingSlack(1.5), 6);
     }
 
