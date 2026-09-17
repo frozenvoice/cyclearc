@@ -18,7 +18,10 @@ namespace CycleArc.UiSmoke;
 internal static class ClaudeUninstallCleanupChecks
 {
     private const string AuthJson = """{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"synthetic@example.invalid","orgId":"synthetic-org","subscriptionType":"pro"}""";
-    private const string UserStatusLine = "cmd /c echo synthetic-user-status-line";
+    // The bridge forwards the person's previous statusLine through a shell: Git Bash when it is
+    // installed, PowerShell otherwise. This fixture command has to behave the same under both,
+    // so it uses no shell-specific switch (a "cmd /c ..." form is mangled by Git Bash).
+    private const string UserStatusLine = "echo synthetic-user-status-line";
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
     private sealed record SeedFixture(string ProfileId, string ConfigDirectory, string CallbackExecutable,
@@ -177,29 +180,32 @@ internal static class ClaudeUninstallCleanupChecks
         });
         var result = RunProcess("powershell.exe",
             ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command.Split(' ')[^1]], input);
-        Check(result.Code == 0, $"The installed Claude callback failed (exit {result.Code}, error '{result.Error.Trim()}').");
+        Check(result.Code == 0, $"The installed Claude callback failed ({Describe(result)}).");
         Check(result.Output.Contains("synthetic-user-status-line", StringComparison.Ordinal),
-            "The installed wrapper stopped forwarding the person's own statusLine output.");
+            $"The installed wrapper stopped forwarding the person's own statusLine output ({Describe(result)}).");
         var state = new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(seed.ProfileId), seed.ProfileId).Read().State;
         Check(state?.LastGood?.FiveHour?.UsedPercentage == 12.5 && state?.LastGood?.SevenDay?.UsedPercentage == 34.5,
             "The installed callback did not record the synthetic usage sample.");
         Console.WriteLine("PASS: the installed Claude callback runs from the current installation and records a synthetic sample (not a live subscription check).");
     }
 
-    /// <summary>Runs the person's own restored statusLine after removal.</summary>
+    /// <summary>Runs the person's own restored statusLine after removal, through the same shell
+    /// the bridge would have used, so the check reflects how Claude actually invokes it.</summary>
     public static void VerifyRestoredCallbackRuns(string dataRoot, string seedPath)
     {
-        var (_, _, settings) = Load(dataRoot, seedPath);
+        var (seed, _, settings) = Load(dataRoot, seedPath);
         var command = settings["statusLine"]?["command"]?.GetValue<string>()
             ?? throw new InvalidOperationException("No statusLine command remains.");
         Check(!ClaudeStatusLineInstaller.TryRead(command, out _), "A CycleArc wrapper is still installed after removal.");
-        var parts = command.Split(' ', 3);
-        Check(parts.Length == 3 && parts[0] == "cmd", "The restored statusLine is not the seeded fixture command.");
-        var result = RunProcess("cmd.exe", ["/c", "echo synthetic-user-status-line"], "{}");
+        Check(command == seed.UserStatusLineCommand, "The restored statusLine is not the command that was seeded.");
+        var result = RunProcess(ClaudeStatusLineBridge.ShellStartInfo(command), "{}");
         Check(result.Code == 0 && result.Output.Contains("synthetic-user-status-line", StringComparison.Ordinal),
-            "The person's restored statusLine command does not run.");
+            $"The person's restored statusLine command does not run ({Describe(result)}).");
         Console.WriteLine("PASS: the person's own statusLine runs after removal and no CycleArc process is invoked.");
     }
+
+    private static string Describe((int Code, string Output, string Error) result) =>
+        $"exit {result.Code}, output '{result.Output.Trim()}', error '{result.Error.Trim()}'";
 
     private static (int Code, string Output, string Error) RunProcess(string executable, string[] args, string? input)
     {
@@ -210,6 +216,12 @@ internal static class ClaudeUninstallCleanupChecks
             StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = Encoding.UTF8,
         };
         foreach (var arg in args) info.ArgumentList.Add(arg);
+        return RunProcess(info, input);
+    }
+
+    private static (int Code, string Output, string Error) RunProcess(
+        System.Diagnostics.ProcessStartInfo info, string? input)
+    {
         using var process = System.Diagnostics.Process.Start(info)
             ?? throw new InvalidOperationException("Could not start the callback process.");
         var output = process.StandardOutput.ReadToEndAsync();

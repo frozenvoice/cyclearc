@@ -122,17 +122,59 @@ function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$What
     throw "VERIFICATION FAILED: timed out after $TimeoutSeconds seconds waiting for $What."
 }
 
+# These emit processes, nothing else, and every caller wraps the call in @() for a count.
+# Returning ', @()' for "no matches" instead hands the caller an empty array as a single
+# object, which then reaches $_.Id and, under Set-StrictMode, throws 'property not found'.
 function Get-CycleArcProcesses {
-    @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue)
+    Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue
 }
-function Get-ProcessesUnder([string]$Root) {
-    $matched = @()
-    foreach ($process in Get-CycleArcProcesses) {
-        $path = $null
-        try { $path = $process.Path } catch { $path = $null }
-        if ($path -and $path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)) { $matched += $process }
+function Get-ProcessPathOrEmpty($Process) {
+    try { return [string]$Process.Path } catch { return '' }
+}
+# The one comparison this file has always got right, used elsewhere in the same step:
+# an exact full-path match against a known executable. No prefix, no relative path.
+function Get-ProcessesRunning([string]$Executable) {
+    $target = [IO.Path]::GetFullPath($Executable)
+    Get-CycleArcProcesses | Where-Object {
+        $path = Get-ProcessPathOrEmpty $_
+        $path -and ([IO.Path]::GetFullPath($path) -ieq $target)
     }
-    , $matched
+}
+function Get-ProcessSummary($Processes) {
+    $items = @($Processes)
+    if ($items.Count -eq 0) { return 'none' }
+    (($items | ForEach-Object { "pid $($_.Id) $(Get-ProcessPathOrEmpty $_)" }) -join '; ')
+}
+# The supervisor writes a one-word marker, and now its failure detail, beside the retained copy.
+# Reading them turns a blind 15-minute timeout into an immediate, explained failure.
+function Get-RecoveryDirectories {
+    if (!(Test-Path -LiteralPath $RecoveryRoot)) { return }
+    Get-ChildItem -LiteralPath $RecoveryRoot -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.FullName }
+}
+function Get-RecoveryOutcome([string[]]$Ignore) {
+    foreach ($directory in @(Get-RecoveryDirectories)) {
+        if ($Ignore -contains $directory) { continue }
+        foreach ($marker in @('failed', 'completed')) {
+            $path = Join-Path $directory $marker
+            if (!(Test-Path -LiteralPath $path)) { continue }
+            $detail = ''
+            foreach ($name in @('failure.txt', 'apply.log')) {
+                $file = Join-Path $directory $name
+                if (Test-Path -LiteralPath $file) {
+                    $text = (Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue)
+                    if ($text) { $detail += "`n--- $name ---`n" + $text.Trim() }
+                }
+            }
+            return [pscustomobject]@{
+                Directory = $directory
+                Marker    = $marker
+                Text      = ((Get-Content -LiteralPath $path -Raw -ErrorAction SilentlyContinue) + '').Trim()
+                Detail    = $detail
+            }
+        }
+    }
+    $null
 }
 function Get-Sha256OrNull([string]$Path) {
     try {
@@ -144,6 +186,7 @@ function Get-Sha256OrNull([string]$Path) {
 function Get-DesktopStatus([string]$Executable) {
     if (!(Test-Path -LiteralPath $Executable -PathType Leaf)) { return $null }
     $output = Join-Path $LogRoot ("desktop-status-" + [Guid]::NewGuid().ToString('N') + '.json')
+    $process = $null
     try {
         $process = Start-Process -FilePath $Executable -ArgumentList '--desktop-status' -PassThru `
             -NoNewWindow -RedirectStandardOutput $output
@@ -155,12 +198,29 @@ function Get-DesktopStatus([string]$Executable) {
         return (Get-Content -LiteralPath $output -Raw | ConvertFrom-Json)
     }
     catch { return $null }
-    finally { Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue }
+    finally {
+        # Release the probe immediately: a status query is not a second running desktop, and
+        # the checks below count processes.
+        if ($process) { try { $process.Dispose() } catch { } }
+        Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
+    }
+}
+# An installed CycleArc process runs one of two known executables: the desktop under
+# 'current', or the root stub. Naming them beats asking which directory a path sits in.
+function Get-InstalledProcesses([string]$Root) {
+    $desktop = [IO.Path]::GetFullPath((Join-Path $Root 'current/CycleArc.exe'))
+    $stub = [IO.Path]::GetFullPath((Join-Path $Root 'CycleArc.exe'))
+    Get-CycleArcProcesses | Where-Object {
+        $path = Get-ProcessPathOrEmpty $_
+        if (!$path) { return $false }
+        $full = [IO.Path]::GetFullPath($path)
+        ($full -ieq $desktop) -or ($full -ieq $stub)
+    }
 }
 function Stop-InstalledDesktop([string]$Root) {
     # Test-harness step only: the shipped app has no forced-exit entry point.
-    foreach ($process in Get-ProcessesUnder $Root) { try { $process.Kill() } catch { } }
-    Wait-Until { (Get-ProcessesUnder $Root).Count -eq 0 } 30 'the installed CycleArc processes to exit'
+    foreach ($process in @(Get-InstalledProcesses $Root)) { try { $process.Kill() } catch { } }
+    Wait-Until { @(Get-InstalledProcesses $Root).Count -eq 0 } 30 'the installed CycleArc processes to exit'
 }
 
 function Get-InstallationShortcuts([string]$Root) {
@@ -181,7 +241,7 @@ function Get-InstallationShortcuts([string]$Root) {
             }
         }
     }
-    , $found
+    $found
 }
 function Get-UninstallEntries {
     $keys = @(
@@ -195,7 +255,7 @@ function Get-UninstallEntries {
             if ($child.PSChildName -match '(?i)cyclearc') { $entries += $child.PSChildName }
         }
     }
-    , $entries
+    $entries
 }
 
 # --- Preconditions ------------------------------------------------------------------------
@@ -211,12 +271,12 @@ Run it on a disposable Windows VM or a dedicated throwaway user, then pass
 -ConfirmDisposableEnvironment.
 '@
 }
-Assert-True ((Get-CycleArcProcesses).Count -eq 0) 'a CycleArc process is already running on this machine.'
+Assert-True (@(Get-CycleArcProcesses).Count -eq 0) 'a CycleArc process is already running on this machine.'
 Assert-True (!(Test-Path -LiteralPath $InstallTo)) "an installation already exists at $InstallTo."
 Assert-True (!(Test-Path -LiteralPath $DataRoot)) "CycleArc data already exists at $DataRoot; this must be a fresh profile."
 Assert-True (!(Test-Path -LiteralPath $RecoveryRoot)) "an update recovery copy already exists at $RecoveryRoot."
-Assert-True ((Get-UninstallEntries).Count -eq 0) 'a CycleArc uninstall registry entry already exists.'
-Assert-True ((Get-InstallationShortcuts $InstallTo).Count -eq 0) 'a CycleArc shortcut already exists.'
+Assert-True (@(Get-UninstallEntries).Count -eq 0) 'a CycleArc uninstall registry entry already exists.'
+Assert-True (@(Get-InstallationShortcuts $InstallTo).Count -eq 0) 'a CycleArc shortcut already exists.'
 Write-Fact 'installationRoot' $InstallTo
 Write-Fact 'dataRoot' $DataRoot
 Write-Fact 'workRoot' $WorkRoot
@@ -287,10 +347,10 @@ Assert-True ((Get-Sha256 $Current) -eq $Builds.A.Sha256) 'the installed executab
 Assert-True ((Get-FileVersionText $Current) -eq $Builds.A.FileVersion) 'the installed file version does not match test build A.'
 Write-Fact 'installed.afterSetup.fileVersion' (Get-FileVersionText $Current)
 Write-Fact 'installed.afterSetup.sha256' (Get-Sha256 $Current)
-$uninstallEntries = Get-UninstallEntries
+$uninstallEntries = @(Get-UninstallEntries)
 Assert-True ($uninstallEntries.Count -ge 1) 'Setup.exe did not register an uninstall entry.'
 Write-Fact 'uninstallRegistryEntries' ($uninstallEntries -join ', ')
-$shortcutsAfterInstall = Get-InstallationShortcuts $InstallTo
+$shortcutsAfterInstall = @(Get-InstallationShortcuts $InstallTo)
 $shortcutSummary = 'none created by this installer configuration'
 if ($shortcutsAfterInstall.Count -gt 0) { $shortcutSummary = (($shortcutsAfterInstall | ForEach-Object { $_.Link }) -join ', ') }
 Write-Fact 'shortcutsAfterInstall' $shortcutSummary
@@ -336,7 +396,7 @@ Wait-Until {
 $statusAfter = Get-DesktopStatus $Current
 Assert-True ((Get-FileVersionText $Current) -eq $Builds.B.FileVersion) 'the updated file version is not test build B.'
 Assert-True ($statusAfter.ProcessId -ne $statusBefore.ProcessId) 'the previous desktop process is still the running one.'
-Assert-True ((Get-ProcessesUnder $InstallTo).Count -ge 1) 'no CycleArc desktop is running after the update.'
+Assert-True (@(Get-InstalledProcesses $InstallTo).Count -ge 1) 'no CycleArc desktop is running after the update.'
 Write-Fact 'desktop.afterUpdate' ("pid $($statusAfter.ProcessId), $($statusAfter.ExecutablePath), version $($statusAfter.Version)")
 Write-Fact 'installed.afterUpdate.fileVersion' (Get-FileVersionText $Current)
 Write-Fact 'installed.afterUpdate.sha256' (Get-Sha256 $Current)
@@ -352,16 +412,28 @@ Invoke-UiSmoke @('--claude-uninstall-installed', $DataRoot, $SeedPath, $InstallT
 
 Write-Step 'Applying a build that quits before readiness and watching the supervisor recover'
 Stop-InstalledDesktop $InstallTo
+$recoveryBefore = @(Get-RecoveryDirectories)
 $failing = Start-InstalledDesktop $Builds.Fail.Feed
 Wait-Until { $failing.HasExited } 600 'the running app to close itself for the failing update'
 Wait-Until {
+    $outcome = Get-RecoveryOutcome $recoveryBefore
+    if ($outcome -and $outcome.Marker -eq 'failed') {
+        throw "VERIFICATION FAILED: the recovery supervisor reported '$($outcome.Text)' in $($outcome.Directory).$($outcome.Detail)"
+    }
     ((Get-Sha256OrNull $Current) -eq $Builds.B.Sha256) -and ($null -ne (Get-DesktopStatus $Current))
 } 900 'the supervisor to restore and restart the previous installation'
+$recoveryOutcome = Get-RecoveryOutcome $recoveryBefore
+Write-Fact 'recovery.marker' $(if ($recoveryOutcome) { "$($recoveryOutcome.Marker): $($recoveryOutcome.Text)" } else { 'none recorded yet' })
 $recovered = Get-DesktopStatus $Current
 Assert-True ($recovered -and $recovered.Succeeded) 'no desktop answered after the failed update.'
 Assert-True ((Get-Sha256 $Current) -eq $Builds.B.Sha256) 'the failed update left a different executable in place.'
 Assert-True ((Get-FileVersionText $Current) -eq $Builds.B.FileVersion) 'the restored file version is not the previous build.'
-Assert-True ((Get-ProcessesUnder $InstallTo).Count -eq 1) 'more than one CycleArc desktop is running after recovery.'
+# Identity, not containment: exactly one process is running the installed executable.
+$installedProcesses = @(Get-ProcessesRunning $Current)
+Write-Fact 'recovered.installedProcesses' (Get-ProcessSummary $installedProcesses)
+Assert-True ($installedProcesses.Count -eq 1) `
+    ("expected exactly one process running $Current after recovery, found " +
+        "$($installedProcesses.Count): $(Get-ProcessSummary $installedProcesses)")
 Assert-True ([IO.Path]::GetFullPath($recovered.ExecutablePath) -ieq [IO.Path]::GetFullPath($Current)) 'the recovered desktop is not the installed executable.'
 Write-Fact 'recovered.fileVersion' (Get-FileVersionText $Current)
 Write-Fact 'recovered.sha256' (Get-Sha256 $Current)
@@ -369,10 +441,16 @@ Write-Fact 'recovered.desktop' ("pid $($recovered.ProcessId), $($recovered.Execu
 
 # A restored update ends with the supervisor showing a modal notice from its snapshot copy.
 # That helper waits for a person, so an unattended run has to acknowledge it explicitly.
-$helpers = Get-ProcessesUnder $RecoveryRoot
+# It is whatever CycleArc process is not the installation, and the step after this one
+# needs the installed desktop alive, so name that one rather than guess at the other.
+function Get-NoticeProcesses {
+    $installed = @(@(Get-InstalledProcesses $InstallTo) | ForEach-Object { $_.Id })
+    Get-CycleArcProcesses | Where-Object { $installed -notcontains $_.Id }
+}
+$helpers = @(Get-NoticeProcesses)
 Write-Fact 'recovery.noticeProcesses' $helpers.Count
 foreach ($helper in $helpers) { try { $helper.Kill() } catch { } }
-if ($helpers.Count -gt 0) { Wait-Until { (Get-ProcessesUnder $RecoveryRoot).Count -eq 0 } 30 'the recovery notice to close' }
+if ($helpers.Count -gt 0) { Wait-Until { @(Get-NoticeProcesses).Count -eq 0 } 30 'the recovery notice to close' }
 Invoke-UiSmoke @('--claude-uninstall-installed', $DataRoot, $SeedPath, $InstallTo) 'Claude callback check after recovery'
 
 function Write-Evidence {
@@ -394,7 +472,7 @@ $accountsBeforeRemoval = Get-Sha256 (Join-Path $DataRoot 'codex-accounts.json')
 $connectionBeforeRemoval = Get-Sha256 (Join-Path $DataRoot "accounts/$SeededProfile/claude-connection.json")
 Invoke-Windowed $Updater @('--uninstall', '--silent', '--log', (Join-Path $LogRoot 'uninstall.log')) 'Update.exe --uninstall' 300
 Wait-Until { !(Test-Path -LiteralPath $Current) } 120 'the installed application files to be removed'
-Assert-True ((Get-CycleArcProcesses).Count -eq 0) 'a CycleArc process survived removal.'
+Assert-True (@(Get-CycleArcProcesses).Count -eq 0) 'a CycleArc process survived removal.'
 Assert-True (Test-Path -LiteralPath $DataRoot) 'removal deleted the user data root.'
 foreach ($shortcut in $shortcutsAfterInstall) {
     Assert-True (!(Test-Path -LiteralPath $shortcut.Link)) "removal left the shortcut $($shortcut.Link) behind."
