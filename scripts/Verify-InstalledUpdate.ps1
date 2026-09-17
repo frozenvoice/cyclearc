@@ -129,17 +129,27 @@ function Get-CycleArcProcesses {
 }
 # The boundary separator matters: the recovery root sits beside the installation as
 # 'CycleArc-update-recovery', so a bare prefix test counts the supervisor's own snapshot copy
-# as a second desktop inside the installation.
+# as a second desktop inside the installation. A process that has already exited is not
+# running either, whoever still holds a handle to it.
 function Get-ProcessesUnder([string]$Root) {
     $full = [IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar)
     $prefix = $full + [IO.Path]::DirectorySeparatorChar
     $matched = @()
     foreach ($process in Get-CycleArcProcesses) {
         $path = $null
+        try { if ($process.HasExited) { continue } } catch { }
         try { $path = $process.Path } catch { $path = $null }
         if ($path -and $path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $matched += $process }
     }
     , $matched
+}
+function Get-ProcessSummary($Processes) {
+    if ($Processes.Count -eq 0) { return 'none' }
+    (($Processes | ForEach-Object {
+        $path = $null
+        try { $path = $_.Path } catch { $path = '<unreadable>' }
+        "pid $($_.Id) $path"
+    }) -join '; ')
 }
 # The supervisor writes a one-word marker, and now its failure detail, beside the retained copy.
 # Reading them turns a blind 15-minute timeout into an immediate, explained failure.
@@ -182,6 +192,7 @@ function Get-Sha256OrNull([string]$Path) {
 function Get-DesktopStatus([string]$Executable) {
     if (!(Test-Path -LiteralPath $Executable -PathType Leaf)) { return $null }
     $output = Join-Path $LogRoot ("desktop-status-" + [Guid]::NewGuid().ToString('N') + '.json')
+    $process = $null
     try {
         $process = Start-Process -FilePath $Executable -ArgumentList '--desktop-status' -PassThru `
             -NoNewWindow -RedirectStandardOutput $output
@@ -193,7 +204,12 @@ function Get-DesktopStatus([string]$Executable) {
         return (Get-Content -LiteralPath $output -Raw | ConvertFrom-Json)
     }
     catch { return $null }
-    finally { Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue }
+    finally {
+        # Release the probe immediately: a status query is not a second running desktop, and
+        # the checks below count processes.
+        if ($process) { try { $process.Dispose() } catch { } }
+        Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
+    }
 }
 function Stop-InstalledDesktop([string]$Root) {
     # Test-harness step only: the shipped app has no forced-exit entry point.
@@ -406,7 +422,10 @@ $recovered = Get-DesktopStatus $Current
 Assert-True ($recovered -and $recovered.Succeeded) 'no desktop answered after the failed update.'
 Assert-True ((Get-Sha256 $Current) -eq $Builds.B.Sha256) 'the failed update left a different executable in place.'
 Assert-True ((Get-FileVersionText $Current) -eq $Builds.B.FileVersion) 'the restored file version is not the previous build.'
-Assert-True ((Get-ProcessesUnder $InstallTo).Count -eq 1) 'more than one CycleArc desktop is running after recovery.'
+$installedProcesses = Get-ProcessesUnder $InstallTo
+Write-Fact 'recovered.installedProcesses' (Get-ProcessSummary $installedProcesses)
+Assert-True ($installedProcesses.Count -eq 1) `
+    "more than one CycleArc desktop is running after recovery: $(Get-ProcessSummary $installedProcesses)"
 Assert-True ([IO.Path]::GetFullPath($recovered.ExecutablePath) -ieq [IO.Path]::GetFullPath($Current)) 'the recovered desktop is not the installed executable.'
 Write-Fact 'recovered.fileVersion' (Get-FileVersionText $Current)
 Write-Fact 'recovered.sha256' (Get-Sha256 $Current)
