@@ -1358,3 +1358,29 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
 - Account-history collection supports cross-device reconstruction; identical current-cycle
   displays on fresh PCs remain unverified until the same evidenced reset boundary is
   available on each PC. A successful scan does not establish authoritative billed usage.
+
+## Multi-account floating widget, 2026-09-17
+
+- The widget now projects `UsageAccountOverview.Accounts` through `WidgetAccountModel`, which
+  reuses `CodexRingPresentation`, `CodexDisplayFormatting` and `ClaudeUsagePresentation`. It adds
+  no collector, request or timer: the existing one-minute display timer and the two-second passive
+  read already rebind it, so a countdown tick costs no network call.
+- `WidgetGridLayoutTests` covers wrapping in DIP against the work area of the monitor the widget
+  sits on: 1/3/5 accounts on one row when it fits, 3+2 at 760 DIP, 2+2+1 at 520 DIP, a whole module
+  on a work area narrower than one module, and bounded vertical scrolling for 24 accounts on a
+  300 DIP-tall work area. Column count is never capped at five.
+- `WidgetAccountModelTests` covers every reported period being shown with its own remaining
+  percentage and its own reset, the Auto/5-hour/Weekly preference choosing only the ring, unknown
+  percentages staying `?`, a missing reset staying **Reset not provided**, a passed reset staying
+  **Awaiting refresh** rather than restarting a cycle locally, and identity mismatch, sign-out and
+  awaiting-usage showing no cached numbers.
+- WPF evidence is produced by `CycleArc.UiSmoke --widget-accounts`: 1/3/5 accounts, the wrapped
+  5-account row, mixed one-period and two-period accounts, and long names, missing resets, stale
+  data and authentication failure, each in EN/KO and Dark/Light. `WidgetDpiChecks` runs the same
+  three-account content at 100–200% in both languages and all themes.
+- Not verified here: this change was authored on Linux, where the WPF projects cannot build, so
+  the build, the unit tests and every UiSmoke render listed above were left to the Windows CI job
+  rather than run locally. Multi-monitor recovery is exercised only through the synthetic
+  `ScreenRect` work areas and whatever monitors the CI runner reports; it is not evidence of a real
+  multi-monitor desktop. `docs/images/widget.png` still shows the previous single-account widget and
+  needs regenerating on Windows with `CycleArc.UiSmoke --screenshots`.
