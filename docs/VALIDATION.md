@@ -2,6 +2,13 @@
 
 ## Current release — Codex and Claude Code
 
+- Widget bind applies the arranged HWND size (unreleased): `FloatingWidget.BindAccounts` now
+  calls the existing Relayout path when the arranged DIP size changed, so
+  `FloatingWidgetController.Update()` grows or shrinks the same native window when accounts,
+  period lines or status text change. Unchanged numbers skip a native resize. A drag defers
+  that apply until pointer release. UiSmoke `BindingResizesTheShownWindow` drives 3→5→1→3
+  through `Window.Show()` and `Update()` without calling Relayout/ApplyNativeSize after Update.
+
 - Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
   - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's
     `OnBeforeUninstallFastCallback`, which runs `ClaudeUninstallCleanup` from the installed

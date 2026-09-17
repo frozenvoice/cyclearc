@@ -60,6 +60,8 @@ public class WidgetInteractionTests
         Assert.Contains("RecoverInto(", widgetCode, StringComparison.Ordinal);
         Assert.Contains("ApplyArrangedLayout()", widgetCode, StringComparison.Ordinal);
         Assert.Contains("ApplyNativeSize(", widgetCode, StringComparison.Ordinal);
+        Assert.Contains("ApplyBoundSize()", widgetCode, StringComparison.Ordinal);
+        Assert.Contains("ArrangedSizeAlreadyApplied()", widgetCode, StringComparison.Ordinal);
         Assert.Contains("AllowArrangedTrackSize", widgetCode, StringComparison.Ordinal);
         var recoverTo = Slice(widgetCode, "private void RecoverTo(", "private void QueueRelayout(");
         Assert.Contains("ArrangedSize()", recoverTo, StringComparison.Ordinal);
@@ -74,6 +76,11 @@ public class WidgetInteractionTests
         var controller = File.ReadAllText(Find("src/CycleArc/Services/FloatingWidgetController.cs"));
         Assert.Contains("BindAccounts(overview.Accounts, overview.SelectedId, overview.Preference)", controller, StringComparison.Ordinal);
         Assert.DoesNotContain("overview.Selected,", controller, StringComparison.Ordinal);
+        var update = Slice(controller, "public void Update(", "public void MaintainVisibility(");
+        Assert.Contains("BindAccounts(", update, StringComparison.Ordinal);
+        Assert.Contains("EnsureVisible(", update, StringComparison.Ordinal);
+        Assert.DoesNotContain("Relayout(", update, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyNativeSize(", update, StringComparison.Ordinal);
 
         var appCode = File.ReadAllText(Find("src/CycleArc/App.xaml.cs"));
         Assert.Contains("widget.AccountSelected += id => _codex.Select(id)", appCode, StringComparison.Ordinal);

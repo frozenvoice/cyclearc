@@ -31,6 +31,8 @@ public partial class FloatingWidget : Window
     private IReadOnlyList<ScreenRect>? _workAreas;
     private bool _relayouting;
     private bool _relayoutQueued;
+    private bool _sizeApplyPending;
+    private (double Width, double Height)? _appliedSize;
 
     public FloatingWidget()
     {
@@ -127,6 +129,33 @@ public partial class FloatingWidget : Window
         for (var i = 0; i < models.Count; i++) _modules[i].Bind(accounts[i], models[i]);
         _workAreas = workAreas;
         LastLayout = ArrangeModules(models.Count, CurrentWorkArea(_workAreas));
+        ApplyBoundSize();
+    }
+
+    /// <summary>
+    /// After a usage bind, the arranged DIP size is applied through the same Relayout path
+    /// used for monitor changes. Unchanged numbers skip a native resize and position write.
+    /// A drag defers that apply until the pointer is released, on this same window.
+    /// </summary>
+    private void ApplyBoundSize()
+    {
+        if (_closed || _relayouting || _applying || !IsLoaded) return;
+        if (_drag is not null)
+        {
+            if (!ArrangedSizeAlreadyApplied()) _sizeApplyPending = true;
+            return;
+        }
+        if (ArrangedSizeAlreadyApplied()) return;
+        Relayout();
+    }
+
+    private bool ArrangedSizeAlreadyApplied()
+    {
+        if (_appliedSize is not { } applied) return false;
+        var (width, height) = ArrangedSize();
+        if (width <= 0 || height <= 0) return false;
+        var slack = (LastLayout?.HairlineRoundingSlack(1) ?? 0) + 2;
+        return Math.Abs(applied.Width - width) <= slack && Math.Abs(applied.Height - height) <= slack;
     }
 
     private void EnsureModules(int count)
@@ -163,7 +192,13 @@ public partial class FloatingWidget : Window
     /// </summary>
     public void Relayout(IReadOnlyList<ScreenRect>? workAreas = null)
     {
-        if (_closed || _relayouting || _applying || _drag is not null) return;
+        if (_closed || _relayouting || _applying) return;
+        if (_drag is not null)
+        {
+            _sizeApplyPending = true;
+            return;
+        }
+        _sizeApplyPending = false;
         if (workAreas is not null) _workAreas = workAreas;
         _relayouting = true;
         try
@@ -215,6 +250,7 @@ public partial class FloatingWidget : Window
             Math.Max(1, (int)Math.Round(pixels.X)), Math.Max(1, (int)Math.Round(pixels.Y)),
             SwpNoMove | SwpNoZOrder | SwpNoActivate);
         UpdateLayout();
+        _appliedSize = (width, height);
     }
 
     private (double Width, double Height) ArrangedSize()
@@ -269,7 +305,7 @@ public partial class FloatingWidget : Window
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ContextIdle, new Action(() =>
         {
             _relayoutQueued = false;
-            if (_closed) return;
+            if (_closed || !IsVisible) return;
             Relayout();
         }));
     }
@@ -611,6 +647,7 @@ public partial class FloatingWidget : Window
             Moved?.Invoke(Left, Top);
             return;
         }
+        if (_sizeApplyPending) Relayout();
         if (gesture is null || !allowClick) return;
         // Selecting reuses the existing selection state; it never starts a login or a request.
         if (!string.IsNullOrEmpty(pressed)) AccountSelected?.Invoke(pressed);

@@ -49,7 +49,8 @@ internal static class WidgetLayoutChecks
         applyTheme.Invoke(null, [AppTheme.Dark]);
         count += RelayoutOrder(directory);
         count += RelayoutQueueDoesNotTouchAClosedWindow();
-        Console.WriteLine($"PASS: {count} widget layout checks; mixed-height work-area scroll, monitor relayout without a usage bind, scrollbar thumb vs window drag; synthetic accounts only.");
+        count += BindingResizesTheShownWindow();
+        Console.WriteLine($"PASS: {count} widget layout checks; mixed-height work-area scroll, monitor relayout without a usage bind, scrollbar thumb vs window drag, account-bind native resize; synthetic accounts only.");
     }
 
     private static int MixedHeightScroll(string? directory, string suffix)
@@ -363,6 +364,208 @@ internal static class WidgetLayoutChecks
         return 1;
     }
 
+    /// <summary>
+    /// Production Update() must apply the arranged size on the same HWND. The check does
+    /// not call Relayout or ApplyNativeSize after Update: those belong to the bind path.
+    /// </summary>
+    private static int BindingResizesTheShownWindow()
+    {
+        var focus = new Window
+        {
+            Title = "CycleArc bind-resize focus",
+            Width = 220,
+            Height = 80,
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen
+        };
+        var settings = new AppSettings
+        {
+            FloatingWidgetEnabled = true,
+            WidgetLeft = 40,
+            WidgetTop = 40,
+            WidgetOpacity = 0.92,
+            WidgetAlwaysOnTop = false
+        };
+        var moved = new List<(double Left, double Top)>();
+        var configured = 0;
+        FloatingWidgetController? controller = null;
+        controller = new FloatingWidgetController(window =>
+        {
+            configured++;
+            window.Moved += (left, top) =>
+            {
+                if (!ReferenceEquals(controller?.CurrentWindow, window)) return;
+                moved.Add((left, top));
+            };
+        });
+        try
+        {
+            focus.Show();
+            Pump();
+            UsageAccountOverview ThreeOverview() => UsageAccountOverview.Create(Three(), "three-c");
+            UsageAccountOverview FiveOverview() => UsageAccountOverview.Create(Five(), "five-c1");
+            UsageAccountOverview OneOverview() => UsageAccountOverview.Create([Three()[0]], "three-a");
+
+            controller.Update(settings, ThreeOverview());
+            Pump();
+            var window = controller.CurrentWindow ?? throw new InvalidOperationException("Update did not show the widget.");
+            var hwnd = new WindowInteropHelper(window).Handle;
+            Check(hwnd != IntPtr.Zero && window.IsVisible, "Controller.Update did not Show() the widget.");
+            Check(window.Modules.Count == 3, "The 3-account bind dropped a module.");
+            CheckWindowMatchesLayout(window, "bind-3");
+            CheckAccountsFullyVisible(window, "bind-3");
+            var three = DipSize(window);
+            var threeNative = NativeDipSize(window);
+
+            controller.Update(settings, FiveOverview());
+            Pump();
+            Check(configured == 1 && ReferenceEquals(controller.CurrentWindow, window)
+                && new WindowInteropHelper(window).Handle == hwnd,
+                "Adding accounts recreated the widget HWND.");
+            Check(window.Modules.Count == 5, "The 5-account Update() did not bind five modules.");
+            CheckWindowMatchesLayout(window, "bind-5");
+            CheckAccountsFullyVisible(window, "bind-5");
+            var five = DipSize(window);
+            var fiveNative = NativeDipSize(window);
+            Check(five.Width > three.Width + 8 || five.Height > three.Height + 8,
+                $"5-account size {five} did not grow from 3-account {three}.");
+            Check(fiveNative.Width > threeNative.Width + 8 || fiveNative.Height > threeNative.Height + 8,
+                $"5-account HWND {fiveNative} stayed at 3-account {threeNative}.");
+
+            var beforeNumbers = (Left: window.Left, Top: window.Top, Width: five.Width, Height: five.Height, Moved: moved.Count);
+            var scroller = (ScrollViewer)window.FindName("ModuleScroller");
+            var scrollBefore = scroller.VerticalOffset;
+            var grown = Five();
+            grown[0] = Codex(grown[0].Profile.Id, grown[0].DisplayName, Both(11, 12));
+            controller.Update(settings, UsageAccountOverview.Create(grown, "five-c1"));
+            Pump();
+            Check(ReferenceEquals(controller.CurrentWindow, window)
+                && new WindowInteropHelper(window).Handle == hwnd,
+                "A number-only Update recreated the widget.");
+            Check(window.Modules.Count == 5, "A number-only Update dropped a module.");
+            var afterNumbers = DipSize(window);
+            Check(Math.Abs(afterNumbers.Width - beforeNumbers.Width) <= 2
+                && Math.Abs(afterNumbers.Height - beforeNumbers.Height) <= 2
+                && (window.Left, window.Top) == (beforeNumbers.Left, beforeNumbers.Top)
+                && moved.Count == beforeNumbers.Moved
+                && Math.Abs(scroller.VerticalOffset - scrollBefore) <= 0.5,
+                "A number-only Update resized, moved, or scrolled the widget.");
+
+            controller.Update(settings, OneOverview());
+            Pump();
+            Check(configured == 1 && window.Modules.Count == 1
+                && new WindowInteropHelper(window).Handle == hwnd,
+                "Removing accounts recreated the widget or left extra modules.");
+            CheckWindowMatchesLayout(window, "bind-1");
+            CheckAccountsFullyVisible(window, "bind-1");
+            var one = DipSize(window);
+            var oneNative = NativeDipSize(window);
+            Check(one.Width + 8 < five.Width && oneNative.Width + 8 < fiveNative.Width,
+                $"1-account size {one}/{oneNative} kept the previous 5-account footprint {five}/{fiveNative}.");
+
+            controller.Update(settings, ThreeOverview());
+            Pump();
+            Check(configured == 1 && window.Modules.Count == 3
+                && new WindowInteropHelper(window).Handle == hwnd,
+                "Restoring three accounts recreated the widget.");
+            CheckWindowMatchesLayout(window, "bind-3-again");
+            CheckAccountsFullyVisible(window, "bind-3-again");
+            var threeAgain = DipSize(window);
+            Check(Math.Abs(threeAgain.Width - three.Width) <= 4 && Math.Abs(threeAgain.Height - three.Height) <= 4,
+                $"Returning to 3 accounts produced {threeAgain} instead of {three}.");
+
+            var weekly = Three()[1];
+            controller.Update(settings, UsageAccountOverview.Create([weekly], weekly.Profile.Id));
+            Pump();
+            Check(window.Modules[0].Periods.Count == 1, "The weekly-only fixture still has two period lines.");
+            CheckWindowMatchesLayout(window, "bind-one-period");
+            var weeklyNative = NativeDipSize(window);
+            var both = Three()[0];
+            controller.Update(settings, UsageAccountOverview.Create([both], both.Profile.Id));
+            Pump();
+            Check(window.Modules[0].Periods.Count == 2, "The two-period bind did not add a period line.");
+            CheckWindowMatchesLayout(window, "bind-two-periods");
+            CheckAccountsFullyVisible(window, "bind-two-periods");
+            var bothLayout = window.LastLayout!.Height;
+            var bothNative = NativeDipSize(window);
+            // Two compact period lines sit beside the 60 DIP ring, so height may stay.
+            // The HWND must still match the arranged layout rather than a previous bind.
+            Check(Math.Abs(bothNative.Height - bothLayout) <= 4,
+                $"Two-period HWND {bothNative.Height} does not match layout {bothLayout}.");
+
+            var stale = both with { Snapshot = both.Snapshot with { Status = CodexQuotaStatus.Stale } };
+            controller.Update(settings, UsageAccountOverview.Create([stale], stale.Profile.Id));
+            Pump();
+            Check(window.Modules[0].StatusText.Visibility == Visibility.Visible,
+                "Status text did not appear after Update().");
+            CheckWindowMatchesLayout(window, "bind-status");
+            CheckAccountsFullyVisible(window, "bind-status");
+            var staleLayout = window.LastLayout!.Height;
+            var staleNative = NativeDipSize(window);
+            Check(staleLayout > bothLayout + 4,
+                $"Status text did not grow the arranged layout ({bothLayout} → {staleLayout}).");
+            Check(staleNative.Height > bothNative.Height + 4
+                && staleNative.Height > weeklyNative.Height + 4,
+                $"Status text did not grow the HWND ({weeklyNative.Height}/{bothNative.Height} → {staleNative.Height}).");
+            controller.Update(settings, UsageAccountOverview.Create([both], both.Profile.Id));
+            Pump();
+            Check(window.Modules[0].StatusText.Visibility != Visibility.Visible,
+                "Status text stayed after it was cleared.");
+            CheckWindowMatchesLayout(window, "bind-status-cleared");
+            var clearedNative = NativeDipSize(window);
+            Check(clearedNative.Height + 4 < staleNative.Height,
+                $"Clearing status text left the previous HWND height {staleNative.Height} → {clearedNative.Height}.");
+
+            controller.Update(settings, ThreeOverview());
+            Pump();
+            var beforeDrag = DipSize(window);
+            var drag = typeof(FloatingWidget).GetField("_drag", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var finish = typeof(FloatingWidget).GetMethod("FinishDrag", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            drag.SetValue(window, new WidgetDragSession(window.Left, window.Top, 0, 0));
+            controller.Update(settings, FiveOverview());
+            Pump();
+            Check(new WindowInteropHelper(window).Handle == hwnd, "A drag-time Update recreated the HWND.");
+            var duringDrag = DipSize(window);
+            Check(Math.Abs(duringDrag.Width - beforeDrag.Width) <= 2
+                && Math.Abs(duringDrag.Height - beforeDrag.Height) <= 2,
+                "A drag-time Update resized the window under the pointer.");
+            Check(window.Modules.Count == 5, "A drag-time Update did not bind the new accounts.");
+            finish.Invoke(window, [false]);
+            Pump();
+            CheckWindowMatchesLayout(window, "bind-after-drag");
+            CheckAccountsFullyVisible(window, "bind-after-drag");
+            var afterDrag = DipSize(window);
+            Check(afterDrag.Width > beforeDrag.Width + 8 || afterDrag.Height > beforeDrag.Height + 8,
+                "Releasing the drag did not apply the pending 5-account size.");
+
+            drag.SetValue(window, new WidgetDragSession(window.Left, window.Top, 0, 0));
+            controller.Update(settings, OneOverview());
+            window.Close();
+            Pump();
+            finish.Invoke(window, [false]);
+            Pump();
+            Check(!window.IsVisible && !IsWindowVisible(hwnd),
+                "A queued bind-size apply revived a closed widget.");
+
+            controller.Update(settings, ThreeOverview());
+            Pump();
+            window = controller.CurrentWindow!;
+            hwnd = new WindowInteropHelper(window).Handle;
+            controller.Update(settings, UsageAccountOverview.Create([], ""));
+            Pump();
+            Check(!window.IsVisible && !IsWindowVisible(hwnd),
+                "Clearing accounts left the widget visible.");
+            Check(configured == 2, "Hiding an accountless widget recreated it.");
+            return 6;
+        }
+        finally
+        {
+            controller.Dispose();
+            focus.Close();
+        }
+    }
+
     private static bool Inside(double left, double top, double width, double height, ScreenRect area) =>
         left >= area.X && top >= area.Y && left + width <= area.Right + 0.5 && top + height <= area.Bottom + 0.5;
 
@@ -397,11 +600,29 @@ internal static class WidgetLayoutChecks
         {
             Check(widget.ActualWidth + slack >= layout.Width,
                 $"{name}: ActualWidth {widget.ActualWidth} is smaller than arranged layout {layout.Width}.");
+            Check(widget.ActualWidth <= layout.Width + slack + 2,
+                $"{name}: ActualWidth {widget.ActualWidth} kept a previous footprint larger than layout {layout.Width}.");
+        }
+        if (widget.IsLoaded && widget.ActualHeight > 0)
+        {
+            Check(widget.ActualHeight + slack >= layout.Height,
+                $"{name}: ActualHeight {widget.ActualHeight} is smaller than arranged layout {layout.Height}.");
+            Check(widget.ActualHeight <= layout.Height + slack + 2,
+                $"{name}: ActualHeight {widget.ActualHeight} kept a previous footprint larger than layout {layout.Height}.");
         }
         if (widget.IsLoaded && native.Width > 0)
         {
             Check(native.Width + slack >= layout.Width,
                 $"{name}: HWND width {native.Width} is smaller than arranged layout {layout.Width} (ActualWidth={widget.ActualWidth}).");
+            Check(native.Width <= layout.Width + slack + 2,
+                $"{name}: HWND width {native.Width} kept a previous footprint larger than layout {layout.Width}.");
+        }
+        if (widget.IsLoaded && native.Height > 0)
+        {
+            Check(native.Height + slack >= layout.Height,
+                $"{name}: HWND height {native.Height} is smaller than arranged layout {layout.Height} (ActualHeight={widget.ActualHeight}).");
+            Check(native.Height <= layout.Height + slack + 2,
+                $"{name}: HWND height {native.Height} kept a previous footprint larger than layout {layout.Height}.");
         }
     }
 
@@ -612,6 +833,9 @@ internal static class WidgetLayoutChecks
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
 
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hwnd);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect { public int Left, Top, Right, Bottom; }
 
@@ -736,11 +960,11 @@ internal static class WidgetLayoutChecks
 
     private static void Pump()
     {
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < 5; i++)
         {
             var frame = new System.Windows.Threading.DispatcherFrame();
             System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.Background,
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle,
                 new Action(() => frame.Continue = false));
             System.Windows.Threading.Dispatcher.PushFrame(frame);
         }
