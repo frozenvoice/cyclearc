@@ -125,13 +125,14 @@ public partial class FloatingWidget : Window
         var area = CurrentWorkArea(workAreas);
         WidgetHeader.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
         var headerHeight = WidgetHeader.DesiredSize.Height + WidgetHeader.Margin.Bottom;
-        var moduleHeight = 0d;
-        if (_modules.Count > 0)
+        var heights = new double[_modules.Count];
+        for (var i = 0; i < _modules.Count; i++)
         {
-            _modules[0].Measure(new System.Windows.Size(WidgetGridLayout.ModuleWidth, double.PositiveInfinity));
-            moduleHeight = _modules[0].DesiredSize.Height;
+            _modules[i].Measure(new System.Windows.Size(WidgetGridLayout.ModuleWidth, double.PositiveInfinity));
+            heights[i] = _modules[i].DesiredSize.Height;
         }
-        var layout = WidgetGridLayout.For(count, headerHeight, moduleHeight, area);
+        var layout = WidgetGridLayout.For(count, headerHeight, heights, area,
+            System.Windows.SystemParameters.VerticalScrollBarWidth);
         if (_shape != (count, layout.Columns)) BuildGrid(count, layout.Columns);
         _shape = (count, layout.Columns);
         // Only a grid that no longer fits the monitor scrolls; the panel itself never shrinks text.

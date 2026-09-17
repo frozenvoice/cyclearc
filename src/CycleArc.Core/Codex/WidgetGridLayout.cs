@@ -38,30 +38,96 @@ public sealed record WidgetGridLayout(int Columns, int Rows, double Width, doubl
         return extraDipPerHairline * (2 + Math.Max(Columns - 1, 0));
     }
 
-    public static WidgetGridLayout For(int accountCount, double headerHeight, double moduleHeight, ScreenRect workArea)
+    public static WidgetGridLayout For(int accountCount, double headerHeight, double moduleHeight, ScreenRect workArea) =>
+        For(accountCount, headerHeight, Repeat(accountCount, moduleHeight), workArea);
+
+    /// <param name="moduleHeights">
+    /// One measured height per account, in account-management order. Row height is the tallest
+    /// module on that row; a short first account cannot hide later taller rows from scrolling.
+    /// </param>
+    /// <param name="scrollbarWidth">
+    /// Reserved when the grid scrolls so the last column's numbers are not clipped by the
+    /// vertical bar. Ignored while the grid still fits. DIP, like every other length here.
+    /// </param>
+    public static WidgetGridLayout For(int accountCount, double headerHeight, IReadOnlyList<double> moduleHeights,
+        ScreenRect workArea, double scrollbarWidth = 0)
     {
         var count = Math.Max(accountCount, 1);
-        moduleHeight = double.IsFinite(moduleHeight) && moduleHeight > 0 ? moduleHeight : 1;
         headerHeight = double.IsFinite(headerHeight) && headerHeight > 0 ? headerHeight : 0;
+        scrollbarWidth = double.IsFinite(scrollbarWidth) && scrollbarWidth > 0 ? scrollbarWidth : 0;
+        var heights = Normalize(count, moduleHeights);
+        var tallest = heights.Max();
 
         // One module always fits, even on a work area narrower than the module: the placement
         // clamp then anchors the panel inside the monitor instead of shrinking the text.
         var usable = Math.Max(workArea.Width - (2 * EdgeMargin) - ChromeWidth, ModuleWidth);
-        var fits = (int)Math.Floor((usable + SeparatorThickness) / (ModuleWidth + SeparatorThickness));
-        var columns = Math.Clamp(fits, 1, count);
-        var rows = (int)Math.Ceiling(count / (double)columns);
-
-        var width = ChromeWidth + (columns * ModuleWidth) + ((columns - 1) * SeparatorThickness);
-        var grid = (rows * moduleHeight) + ((rows - 1) * SeparatorThickness);
+        var columns = ColumnsFor(usable, count);
+        var (rows, grid) = GridHeight(count, columns, heights);
         var height = ChromeHeight + headerHeight + grid;
 
         // Above the work area the module grid scrolls; the header and the panel stay put.
-        var maximum = Math.Max(workArea.Height - (2 * EdgeMargin), ChromeHeight + headerHeight + moduleHeight);
+        // The floor keeps one full (tallest) module readable inside the scrolling viewport.
+        var maximum = Math.Max(workArea.Height - (2 * EdgeMargin), ChromeHeight + headerHeight + tallest);
         var scrolls = height > maximum;
+        if (scrolls && scrollbarWidth > 0)
+        {
+            var columnsWithBar = ColumnsFor(Math.Max(usable - scrollbarWidth, ModuleWidth), count);
+            if (columnsWithBar != columns)
+            {
+                columns = columnsWithBar;
+                (rows, grid) = GridHeight(count, columns, heights);
+                height = ChromeHeight + headerHeight + grid;
+                scrolls = height > maximum;
+            }
+        }
+
+        var width = ChromeWidth + (columns * ModuleWidth) + ((columns - 1) * SeparatorThickness)
+            + (scrolls ? scrollbarWidth : 0);
         var outer = scrolls ? maximum : height;
         return new WidgetGridLayout(columns, rows, width, outer, scrolls)
         {
-            ModuleViewportHeight = Math.Max(outer - ChromeHeight - headerHeight, moduleHeight)
+            ModuleViewportHeight = Math.Max(outer - ChromeHeight - headerHeight, tallest)
         };
+    }
+
+    private static int ColumnsFor(double usableWidth, int count)
+    {
+        var fits = (int)Math.Floor((usableWidth + SeparatorThickness) / (ModuleWidth + SeparatorThickness));
+        return Math.Clamp(fits, 1, count);
+    }
+
+    private static (int Rows, double Grid) GridHeight(int count, int columns, double[] heights)
+    {
+        var rows = (int)Math.Ceiling(count / (double)columns);
+        var grid = 0d;
+        for (var row = 0; row < rows; row++)
+        {
+            var start = row * columns;
+            var end = Math.Min(start + columns, count);
+            var rowHeight = 1d;
+            for (var i = start; i < end; i++) rowHeight = Math.Max(rowHeight, heights[i]);
+            grid += rowHeight;
+        }
+        return (rows, grid + ((rows - 1) * SeparatorThickness));
+    }
+
+    private static double[] Repeat(int accountCount, double moduleHeight)
+    {
+        var count = Math.Max(accountCount, 1);
+        var height = double.IsFinite(moduleHeight) && moduleHeight > 0 ? moduleHeight : 1;
+        var heights = new double[count];
+        Array.Fill(heights, height);
+        return heights;
+    }
+
+    private static double[] Normalize(int count, IReadOnlyList<double> moduleHeights)
+    {
+        var heights = new double[count];
+        for (var i = 0; i < count; i++)
+        {
+            var value = i < moduleHeights.Count ? moduleHeights[i] : 0;
+            heights[i] = double.IsFinite(value) && value > 0 ? value : 1;
+        }
+        return heights;
     }
 }

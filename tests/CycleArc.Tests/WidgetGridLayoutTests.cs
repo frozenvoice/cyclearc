@@ -96,6 +96,59 @@ public class WidgetGridLayoutTests
         Assert.Equal(WidgetGridLayout.ChromeHeight + Header + Module, layout.Height);
     }
 
+    [Fact]
+    public void AShortFirstAccountDoesNotHideLaterTallerRowsFromScrolling()
+    {
+        double[] heights = [80, 150, 150, 150, 150];
+        var area = new ScreenRect(0, 0, 760, 300);
+        var byFirst = WidgetGridLayout.For(5, Header, heights[0], area);
+        var byAll = WidgetGridLayout.For(5, Header, heights, area);
+        Assert.False(byFirst.Scrolls);
+        Assert.True(byAll.Scrolls);
+        Assert.True(byAll.Height <= area.Height - (2 * WidgetGridLayout.EdgeMargin));
+        Assert.True(byAll.ModuleViewportHeight > 0);
+    }
+
+    [Fact]
+    public void RowHeightFollowsTheTallestModuleOnThatRowAfterReorder()
+    {
+        var twoColumns = new ScreenRect(0, 0, 520, 1040);
+        var shortFirst = WidgetGridLayout.For(5, Header, [80, 150, 150, 150, 150], twoColumns);
+        var tallLast = WidgetGridLayout.For(5, Header, [150, 150, 150, 150, 80], twoColumns);
+        Assert.Equal(2, shortFirst.Columns);
+        Assert.Equal(3, shortFirst.Rows);
+        Assert.True(shortFirst.Height > tallLast.Height);
+        Assert.False(shortFirst.Scrolls);
+        Assert.False(tallLast.Scrolls);
+    }
+
+    [Fact]
+    public void AScrollingGridReservesScrollbarWidthSoTheLastColumnIsNotClipped()
+    {
+        var heights = Enumerable.Repeat(150d, 5).ToArray();
+        var fitsThree = new ScreenRect(0, 0, 760, 280);
+        var without = WidgetGridLayout.For(5, Header, heights, fitsThree, scrollbarWidth: 0);
+        var withBar = WidgetGridLayout.For(5, Header, heights, fitsThree, scrollbarWidth: 17);
+        Assert.True(without.Scrolls);
+        Assert.Equal(3, without.Columns);
+        Assert.Equal(without.Width + 17, withBar.Width);
+        Assert.Equal(3, withBar.Columns);
+        Assert.True(withBar.Width <= fitsThree.Width - (2 * WidgetGridLayout.EdgeMargin));
+    }
+
+    [Fact]
+    public void ScrollbarWidthCanWrapOneFewerColumnWhenTheWorkAreaIsTight()
+    {
+        var heights = Enumerable.Repeat(150d, 5).ToArray();
+        var tight = new ScreenRect(0, 0, 740, 280);
+        var without = WidgetGridLayout.For(5, Header, heights, tight, scrollbarWidth: 0);
+        var withBar = WidgetGridLayout.For(5, Header, heights, tight, scrollbarWidth: 17);
+        Assert.Equal(3, without.Columns);
+        Assert.True(withBar.Scrolls);
+        Assert.Equal(2, withBar.Columns);
+        Assert.True(withBar.Width <= tight.Width - (2 * WidgetGridLayout.EdgeMargin));
+    }
+
     [Theory]
     [InlineData(1.0, 0)]
     [InlineData(1.25, 0)]
