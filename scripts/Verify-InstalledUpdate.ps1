@@ -122,8 +122,10 @@ function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$What
     throw "VERIFICATION FAILED: timed out after $TimeoutSeconds seconds waiting for $What."
 }
 
+# The leading comma matters: a function that returns an empty array emits nothing, so the
+# caller would see $null and .Count would fail under Set-StrictMode on a clean machine.
 function Get-CycleArcProcesses {
-    @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue)
+    , @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue)
 }
 function Get-ProcessesUnder([string]$Root) {
     $matched = @()

@@ -50,8 +50,11 @@ jobs:
         run: |
           $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/e2e'
           New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
-          ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment -WorkRoot $artifacts |
-            Tee-Object -FilePath (Join-Path $artifacts 'verification.log')
+          # A transcript, not Tee-Object: the script reports through Write-Host, which does not
+          # flow through the pipeline, so a tee would save an empty log for a failed run.
+          Start-Transcript -Path (Join-Path $artifacts 'verification.log') | Out-Null
+          try { ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment -WorkRoot $artifacts }
+          finally { Stop-Transcript | Out-Null }
 
       # Collected for a failed run as well, so a failure is diagnosable from the artifact alone.
       - name: Collect state
