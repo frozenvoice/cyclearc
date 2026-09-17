@@ -28,6 +28,9 @@ public partial class FloatingWidget : Window
     private readonly List<WidgetAccountModuleView> _modules = [];
     private string? _pressedProfileId;
     private (int Count, int Columns) _shape = (-1, -1);
+    private IReadOnlyList<ScreenRect>? _workAreas;
+    private bool _relayouting;
+    private bool _relayoutQueued;
 
     public FloatingWidget()
     {
@@ -41,7 +44,7 @@ public partial class FloatingWidget : Window
         };
         Closed += (_, _) => _closed = true;
         SizeChanged += (_, _) => RecoverPosition();
-        DpiChanged += (_, _) => Dispatcher.BeginInvoke(() => RecoverPosition());
+        DpiChanged += (_, _) => QueueRelayout();
     }
 
     public void CloseWithoutActivation()
@@ -111,7 +114,8 @@ public partial class FloatingWidget : Window
 
         EnsureModules(models.Count);
         for (var i = 0; i < models.Count; i++) _modules[i].Bind(accounts[i], models[i]);
-        LastLayout = ArrangeModules(models.Count, workAreas);
+        _workAreas = workAreas;
+        LastLayout = ArrangeModules(models.Count, _workAreas);
     }
 
     private void EnsureModules(int count)
@@ -142,9 +146,49 @@ public partial class FloatingWidget : Window
         return layout;
     }
 
+    /// <summary>
+    /// Recomputes columns, height and scrolling for the work area the widget now sits on,
+    /// without binding new account data. No-ops when the layout is already correct.
+    /// </summary>
+    public void Relayout(IReadOnlyList<ScreenRect>? workAreas = null)
+    {
+        if (_closed || _relayouting || _applying || _drag is not null) return;
+        if (workAreas is not null) _workAreas = workAreas;
+        _relayouting = true;
+        try
+        {
+            var layout = ArrangeModules(_modules.Count, _workAreas);
+            var unchanged = LastLayout is { } previous
+                && previous.Columns == layout.Columns
+                && previous.Rows == layout.Rows
+                && previous.Width == layout.Width
+                && previous.Height == layout.Height
+                && previous.Scrolls == layout.Scrolls
+                && previous.ModuleViewportHeight == layout.ModuleViewportHeight;
+            LastLayout = layout;
+            if (unchanged) return;
+            RecoverPosition(_workAreas);
+        }
+        finally { _relayouting = false; }
+    }
+
+    private void QueueRelayout()
+    {
+        if (_closed || _relayoutQueued) return;
+        _relayoutQueued = true;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ContextIdle, new Action(() =>
+        {
+            _relayoutQueued = false;
+            if (_closed) return;
+            Relayout();
+        }));
+    }
+
     private ScreenRect CurrentWorkArea(IReadOnlyList<ScreenRect>? workAreas)
     {
-        var areas = workAreas ?? DesktopWorkAreas.For(this);
+        var areas = workAreas ?? _workAreas ?? DesktopWorkAreas.For(this);
+        if (double.IsFinite(Left) && double.IsFinite(Top))
+            return WidgetPlacement.AreaContaining(Left, Top, areas);
         var width = ActualWidth > 0 ? ActualWidth : WidgetGridLayout.ModuleWidth;
         var height = ActualHeight > 0 ? ActualHeight : WidgetGridLayout.ModuleWidth;
         return WidgetPlacement.AreaFor(Left, Top, width, height, areas);
@@ -219,6 +263,7 @@ public partial class FloatingWidget : Window
     {
         using var activation = new PassiveUpdate();
         _applying = true;
+        var applied = false;
         try
         {
             _savedPixels = settings.WidgetPixelLeft is int x && settings.WidgetPixelTop is int y ? (x, y) : null;
@@ -229,9 +274,10 @@ public partial class FloatingWidget : Window
             SetClickThrough(settings.WidgetClickThrough);
             Cursor = settings.WidgetClickThrough ? System.Windows.Input.Cursors.Arrow : System.Windows.Input.Cursors.SizeAll;
             if (_positionReady) RestoreAfterLayout();
+            applied = true;
         }
         finally { _applying = false; }
-        RecoverPosition();
+        if (applied) Relayout();
     }
 
     public void RecoverPosition(IReadOnlyList<ScreenRect>? workAreas = null)
@@ -307,7 +353,7 @@ public partial class FloatingWidget : Window
             if (_closed) return;
             RestorePixels();
             _restoringPixels = false;
-            RecoverPosition();
+            Relayout();
             Moved?.Invoke(Left, Top);
         }));
     }
@@ -373,7 +419,7 @@ public partial class FloatingWidget : Window
         e.Handled = true;
     }
 
-    internal static bool ShouldBeginWindowDrag(DependencyObject? source) =>
+    public static bool ShouldBeginWindowDrag(DependencyObject? source) =>
         !IsChromeButton(source) && !IsScrollChrome(source);
 
     private static bool IsChromeButton(DependencyObject? source) =>
@@ -437,7 +483,12 @@ public partial class FloatingWidget : Window
         _pressedProfileId = null;
         if (IsMouseCaptured) ReleaseMouseCapture();
         // A move that ended is a move, never an accidental open.
-        if (gesture?.IsDragging == true) { Moved?.Invoke(Left, Top); return; }
+        if (gesture?.IsDragging == true)
+        {
+            Relayout();
+            Moved?.Invoke(Left, Top);
+            return;
+        }
         if (gesture is null || !allowClick) return;
         // Selecting reuses the existing selection state; it never starts a login or a request.
         if (!string.IsNullOrEmpty(pressed)) AccountSelected?.Invoke(pressed);

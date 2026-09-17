@@ -56,6 +56,7 @@ public class WidgetInteractionTests
     {
         var widgetCode = File.ReadAllText(Find("src/CycleArc/UI/FloatingWidget.xaml.cs"));
         Assert.Contains("public void BindAccounts(", widgetCode, StringComparison.Ordinal);
+        Assert.Contains("public void Relayout(", widgetCode, StringComparison.Ordinal);
         Assert.Contains("WidgetAccountModel.All(", widgetCode, StringComparison.Ordinal);
         Assert.Contains("WidgetGridLayout.For(", widgetCode, StringComparison.Ordinal);
         // The widget must not build a usage source of its own.

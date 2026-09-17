@@ -103,6 +103,12 @@ internal static class Program
             if (args is ["--widget-accounts", var widgetAccountsDirectory])
             {
                 WidgetMultiAccountChecks.Run(widgetAccountsDirectory);
+                WidgetLayoutChecks.Run(widgetAccountsDirectory);
+                return 0;
+            }
+            if (args is ["--widget-layout", var widgetLayoutDirectory])
+            {
+                WidgetLayoutChecks.Run(widgetLayoutDirectory);
                 return 0;
             }
             if (args is ["--widget-dpi", var dpiDirectory])
@@ -184,6 +190,7 @@ internal static class Program
             CheckWidgetRestart();
             WidgetRecoveryChecks.Run();
             WidgetMultiAccountChecks.Run();
+            WidgetLayoutChecks.Run();
             TrayIconChecks.Run();
             WidgetDpiChecks.Run();
             CheckPositionReset();

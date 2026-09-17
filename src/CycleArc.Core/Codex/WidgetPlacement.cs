@@ -29,6 +29,22 @@ public static class WidgetPlacement
     }
 
     /// <summary>
+    /// The monitor that contains this origin. Used when relaying out after a move so a wide
+    /// widget dropped onto a narrow display is measured against that display, not against the
+    /// overlap of its previous large rectangle with the virtual desktop.
+    /// </summary>
+    public static ScreenRect AreaContaining(double left, double top, IReadOnlyList<ScreenRect> workAreas)
+    {
+        if (workAreas.Count == 0) return new ScreenRect(0, 0, 1920, 1040);
+        foreach (var area in workAreas)
+        {
+            if (left >= area.X && left < area.Right && top >= area.Y && top < area.Bottom)
+                return area;
+        }
+        return workAreas[0];
+    }
+
+    /// <summary>
     /// The work area the widget actually sits on, so wrapping is measured against that monitor
     /// rather than the whole virtual desktop. Falls back to the primary monitor when the saved
     /// position overlaps none of them. Coordinates are DIP, like every other caller here.

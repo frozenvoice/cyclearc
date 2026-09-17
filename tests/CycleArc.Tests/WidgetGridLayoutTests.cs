@@ -189,6 +189,15 @@ public class WidgetGridLayoutTests
     }
 
     [Fact]
+    public void AreaContainingUsesTheOriginMonitorNotThePreviousWidgetRectangle()
+    {
+        IReadOnlyList<ScreenRect> areas = [Wide, new ScreenRect(-760, 0, 760, 1040)];
+        Assert.Equal(areas[1], WidgetPlacement.AreaContaining(-700, 40, areas));
+        Assert.Equal(Wide, WidgetPlacement.AreaContaining(40, 40, areas));
+        Assert.Equal(Wide, WidgetPlacement.AreaContaining(9000, 9000, areas));
+    }
+
+    [Fact]
     public void AnUnplacedWidgetFallsBackToThePrimaryWorkArea() =>
         Assert.Equal(Wide, WidgetPlacement.AreaFor(9000, 9000, 240, 120, [Wide]));
 }
