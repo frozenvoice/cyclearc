@@ -7,19 +7,14 @@ name: Windows installed E2E
 # developer machine, never needs a self-hosted runner, and never reads or publishes a real
 # release: the update feed is a local directory and all Claude data is synthetic.
 #
-# It is deliberately NOT part of the ordinary Windows workflow: it takes tens of minutes and
-# removal deletes HKCU\...\Uninstall\CycleArc by package id rather than by installation path.
+# It is deliberately NOT part of the ordinary Windows workflow, and runs on request only:
+# it installs and removes a real installation, and removal deletes
+# HKCU\...\Uninstall\CycleArc by package id rather than by installation path.
+#
+# Run it from the Actions tab, or with a workflow dispatch, choosing the branch to verify.
 
 on:
   workflow_dispatch:
-  # Temporary until this file reaches the default branch: GitHub only offers workflow_dispatch
-  # for workflows that exist on the default branch, so the working branch triggers it for now.
-  push:
-    branches:
-      - claude/eloquent-noether-2n7iaf
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
 
 jobs:
   installed-e2e:
