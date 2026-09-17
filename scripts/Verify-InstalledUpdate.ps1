@@ -127,18 +127,25 @@ function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$What
 function Get-CycleArcProcesses {
     , @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue)
 }
-# The boundary separator matters: the recovery root sits beside the installation as
-# 'CycleArc-update-recovery', so a bare prefix test counts the supervisor's own snapshot copy
-# as a second desktop inside the installation. Do not filter on HasExited: .NET reports a
-# process it cannot open a handle for as exited, which hid the running desktop entirely.
+# Containment decides this, not a string prefix: the recovery root sits beside the
+# installation as 'CycleArc-update-recovery', and a prefix test counted the supervisor's own
+# snapshot copy as a second desktop inside the installation. Ask the path API instead - a
+# path outside the root relates to it through '..'. Do not filter on HasExited either: .NET
+# reports a process it cannot open a handle for as exited, which hid the running desktop.
+function Test-PathUnder([string]$Root, [string]$Path) {
+    try {
+        $relative = [IO.Path]::GetRelativePath([IO.Path]::GetFullPath($Root), [IO.Path]::GetFullPath($Path))
+    }
+    catch { return $false }
+    if ($relative -eq '.' -or [IO.Path]::IsPathRooted($relative)) { return $false }
+    return !$relative.StartsWith('..', [StringComparison]::Ordinal)
+}
 function Get-ProcessesUnder([string]$Root) {
-    $full = [IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar)
-    $prefix = $full + [IO.Path]::DirectorySeparatorChar
     $matched = @()
     foreach ($process in Get-CycleArcProcesses) {
         $path = $null
         try { $path = $process.Path } catch { $path = $null }
-        if ($path -and $path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $matched += $process }
+        if ($path -and (Test-PathUnder $Root $path)) { $matched += $process }
     }
     , $matched
 }
@@ -424,7 +431,7 @@ Assert-True ((Get-FileVersionText $Current) -eq $Builds.B.FileVersion) 'the rest
 $installedProcesses = Get-ProcessesUnder $InstallTo
 Write-Fact 'recovered.installedProcesses' (Get-ProcessSummary $installedProcesses)
 Assert-True ($installedProcesses.Count -eq 1) `
-    ("expected exactly one CycleArc desktop under the installation after recovery, found " +
+    ("expected exactly one CycleArc desktop under $InstallTo after recovery, found " +
         "$($installedProcesses.Count): $(Get-ProcessSummary $installedProcesses)")
 Assert-True ([IO.Path]::GetFullPath($recovered.ExecutablePath) -ieq [IO.Path]::GetFullPath($Current)) 'the recovered desktop is not the installed executable.'
 Write-Fact 'recovered.fileVersion' (Get-FileVersionText $Current)
