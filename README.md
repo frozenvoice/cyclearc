@@ -33,7 +33,7 @@ The **Codex** or **Claude** label on account cards, selected details, tray toolt
 - **Usage in the tray.** A Windows notification-area icon keeps the meter within reach. Click for the detailed card; pin it to keep it visible.
 - **Clear quota windows.** See usage and remaining percentages, reset times and countdowns for each reported five-hour or weekly window. The ring, tray and widget share one display period: **Auto** uses a known five-hour percentage first, then weekly. Choose **Auto / 5 hours / Weekly** above the detail ring, or click the ring to switch when both values are known. The selection applies immediately to all three views and is saved across restarts. If the selected period has no known value, a known available period is shown with an explanation in the detail card.
 - **Reset credits.** View the available count and expiry times when the server supplies them. Use an individual reset after confirmation. Missing expiry information stays explicitly unknown.
-- **Optional desktop widget.** A compact, draggable meter with adjustable opacity, always-on-top, and click-through options. Click once to open the usage popup or bring it forward when another window covers it. Off-screen positions recover automatically.
+- **Optional desktop widget.** A compact, draggable summary that compares every displayable Codex and Claude account side by side: one small module each, with the account name, its provider badge, a usage ring for the shared display period, and what is left plus the countdown to the next reset for **every** period that account reports. Accounts keep their managed order and are never combined. One row holds as many modules as the widget's own monitor allows and the rest wrap to the next row; a list taller than the work area scrolls inside it. Opacity, always-on-top and click-through are unchanged. Click a module to select that account and open the usage popup; the thin header carries settings and a hide button. Off-screen positions recover automatically.
 - **Your preferred appearance.** Dark, Light, or live System theme; English and Korean; keyboard zoom from 80% to 150%.
 - **Honest refresh states.** Codex refreshes on its selectable 1, 2, 5, 10, 30 or 60-minute interval (default: five minutes). Claude actively checks the shared quota through the connected Desktop login during manual and configured scheduled refresh. Successful live data is **Updated** with a last-checked time; statusLine and Desktop history fallbacks are **Received** with source time. Failed checks keep previous values visibly stale.
 
@@ -78,7 +78,7 @@ Removing CycleArc through **Settings → Apps** (or `Update.exe --uninstall`) re
 
 **Codex profiles keep their verified login.** Profiles marked **Login changed** or **Check connection** stay visible with quota and reset credits hidden. If the affected profile is selected, the detail card, tray and widget retain that selection. Follow [Codex connection recovery](#codex-connection-recovery) to restore it.
 
-**Connected Claude accounts remain visible while awaiting usage.** They show **Awaiting usage** and unknown limits, without increasing the attention count. Unconnected profiles stay in **Manage accounts** and do not increase the main account count. Previously received values remain visible as stale during a temporary update failure. Popup, tray and widget share the same visible selection; if none is available, the widget stays hidden and the popup shows a connection hint.
+**Connected Claude accounts remain visible while awaiting usage.** They show **Awaiting usage** and unknown limits, without increasing the attention count. Unconnected profiles stay in **Manage accounts** and do not increase the main account count. Previously received values remain visible as stale during a temporary update failure. Popup and tray show the selected account; the widget lists every visible account and marks the selected one. If none is available, the widget stays hidden and the popup shows a connection hint.
 
 <table>
   <tr>
@@ -223,7 +223,9 @@ Usage comes from the Desktop live profile/usage check when available, then the o
 | Pin button | Keep the detail card on top |
 | `Ctrl` + `+` / `Ctrl` + `-` | Enlarge or reduce the detail card |
 | `Ctrl` + `0` | Restore 100% zoom |
-| Drag the widget | Move it and save its position |
+| Drag the widget | Move it and save its position; a finished drag never opens the popup |
+| Click a widget account | Select that account everywhere and open the usage popup |
+| Widget header buttons | Open Settings, or hide the widget without exiting CycleArc |
 | Right-click the widget | Open its menu, including Close widget |
 
 The zoom shortcuts also support the numeric keypad. Widget position can be reset from **Settings → Widget**; saving moves it to the primary screen and recreates its window so a missing widget can recover even when Windows reports it as visible.
@@ -236,7 +238,7 @@ The **Usage number** tray style shows bold digits as large as the native icon sl
 <summary><strong>Settings and compact widget</strong></summary>
 
 <p><img src="docs/images/settings.png" alt="English settings with theme, language, tray style, and optional Windows startup" width="640"></p>
-<p><img src="docs/images/widget.png" alt="Compact desktop widget showing sample weekly usage" width="220"></p>
+<p><img src="docs/images/widget.png" alt="Compact desktop widget comparing three sample accounts side by side" width="740"></p>
 
 </details>
 
@@ -270,7 +272,9 @@ cd cyclearc
 .\dev-run.ps1
 ```
 
-The launcher restores dependencies, builds **Release**, runs the tests and WPF checks, then publishes the development **single-file Windows x64 `CycleArc.exe`**, without debug symbols. Development output uses `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe` for compatibility with existing source workflows; it is separate from the stable Velopack installation under `%LOCALAPPDATA%\CycleArc` and is not selected by the GitHub update checker. Build staging stays in the current checkout; `-NoLaunch` does not stop or replace the installed app. Filesystem deployment can restore the previous build when replacement fails; a successful file rollback does not guarantee that a newly started app passed a health check.
+Double-click **`build-local.cmd`** in the repository root to build the current checkout, package `CycleArc-Setup.exe`, install that package into the managed Velopack location (`%LOCALAPPDATA%\CycleArc`, or the existing InstallLocation), and start `%LOCALAPPDATA%\CycleArc\CycleArc.exe`. It runs `dev-run.ps1 -NoLaunch` in a separate process, then uses Setup.exe. It does not copy the development EXE to `%LOCALAPPDATA%\Programs\CycleArc`.
+
+`.\dev-run.ps1` remains the development publish path: it restores dependencies, builds **Release**, runs the tests and WPF checks, then publishes the development **single-file Windows x64 `CycleArc.exe`**, without debug symbols. Development output uses `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe` for compatibility with existing source workflows; it is separate from the stable Velopack installation under `%LOCALAPPDATA%\CycleArc` and is not selected by the GitHub update checker. Build staging stays in the current checkout; `-NoLaunch` does not stop or replace the installed app. Filesystem deployment can restore the previous build when replacement fails; a successful file rollback does not guarantee that a newly started app passed a health check.
 
 Preflight reports existing desktop PIDs and executable paths. After validation, the installer stops verified CycleArc desktops in the current Windows session and checks that the single-instance lock is gone before replacing files. If a desktop is running directly from build output, preflight identifies it before cleanup; exit that instance and rerun the script.
 

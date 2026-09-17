@@ -33,6 +33,30 @@ public static class CodexDeadlineFormatting
             : UiText.T("Less than a minute", "1분 미만 남음");
     }
 
+    /// <summary>
+    /// The widget's countdown to a reset: "in 35m" / "35분 후". Local clock arithmetic only,
+    /// so a redraw never costs a request. A deadline that has passed stays "Awaiting refresh"
+    /// instead of counting down through zero or claiming a new cycle only a server can confirm.
+    /// </summary>
+    public static string ResetCountdown(DateTimeOffset? deadline, DateTimeOffset now)
+    {
+        if (deadline is null) return UiText.ResetNotProvided;
+        var left = deadline.Value - now;
+        if (left <= TimeSpan.Zero) return UiText.T("Awaiting refresh", "갱신 대기");
+        if (left.TotalDays >= 1)
+            return left.Hours == 0 ? UiText.T($"in {left.Days}d", $"{left.Days}일 후")
+                : UiText.T($"in {left.Days}d {left.Hours}h", $"{left.Days}일 {left.Hours}시간 후");
+        if (left.TotalHours >= 1)
+            return left.Minutes == 0 ? UiText.T($"in {left.Hours}h", $"{left.Hours}시간 후")
+                : UiText.T($"in {left.Hours}h {left.Minutes}m", $"{left.Hours}시간 {left.Minutes}분 후");
+        return left.TotalMinutes >= 1 ? UiText.T($"in {left.Minutes}m", $"{left.Minutes}분 후")
+            : UiText.T("in under a minute", "1분 미만 후");
+    }
+
+    /// The exact local reset time behind the countdown, or null when the server gave none.
+    public static string? ResetStampTooltip(DateTimeOffset? deadline) => deadline is null ? null
+        : deadline.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+
     public static string DateStamp(DateTimeOffset date, DateTimeOffset now)
     {
         var local = date.ToLocalTime();

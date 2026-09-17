@@ -19,7 +19,7 @@ internal static class AccountSummary
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var identity = new DockPanel();
-        var avatar = Avatar(account);
+        var avatar = Avatar(account, 30);
         DockPanel.SetDock(avatar, Dock.Left);
         identity.Children.Add(avatar);
         var name = Text((selected ? "● " : "") + account.DisplayName, 12, "TextBrush", bold: true);
@@ -86,7 +86,8 @@ internal static class AccountSummary
         return button;
     }
 
-    private static Border Avatar(CodexAccountView account)
+    // Shared with the floating widget's account modules so both draw the same identity.
+    internal static Border Avatar(CodexAccountView account, double size)
     {
         // Local presentation only: the official account protocol provides no web profile image.
         var source = account.DisplayName.Split('@', 2)[0].Trim();
@@ -99,10 +100,10 @@ internal static class AccountSummary
         var colors = new[] { "#167048", "#956000", "#3864B5", "#7952A5", "#A84268", "#227575" };
         return new Border
         {
-            Tag = "AccountAvatar", Width = 30, Height = 30, CornerRadius = new CornerRadius(15),
+            Tag = "AccountAvatar", Width = size, Height = size, CornerRadius = new CornerRadius(size / 2),
             Background = new SolidColorBrush((Color)System.Windows.Media.ColorConverter.ConvertFromString(colors[hash % colors.Length])),
             ToolTip = UiText.T($"Icon made from the name in {UiText.ProductName}", $"{UiText.ProductName}에서 이름으로 만든 아이콘"),
-            Child = new TextBlock { Text = initials.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeights.SemiBold,
+            Child = new TextBlock { Text = initials.ToUpperInvariant(), FontSize = Math.Max(9, size * 0.37), FontWeight = FontWeights.SemiBold,
                 Foreground = System.Windows.Media.Brushes.White, HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center }
         };

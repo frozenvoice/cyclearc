@@ -15,37 +15,80 @@
         PreviewMouseMove="OnPreviewMouseMove"
         PreviewMouseLeftButtonUp="OnPreviewLeftUp"
         LostMouseCapture="OnLostMouseCapture" MouseDown="OnMouseDown">
-    <Border Background="{DynamicResource CardBrush}"
-            CornerRadius="10"
-            Padding="10,8"
+    <Window.Resources>
+        <Style x:Key="WidgetIconButton" TargetType="Button">
+            <Setter Property="Width" Value="22"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="WidgetIconChrome" Background="{TemplateBinding Background}" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource GhostBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource SelectionBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Border x:Name="WidgetPanel"
+            Background="{DynamicResource CardBrush}"
+            CornerRadius="12"
+            Padding="10,9"
             BorderBrush="{DynamicResource LineBrush}"
             BorderThickness="1"
             MinWidth="168">
-        <!-- The native window can be taller than DesiredSize; center within its actual height. -->
-        <StackPanel x:Name="WidgetStatusStack" VerticalAlignment="Center">
-            <TextBlock x:Name="ProductTitle" Text="{x:Static text:UiText.ProductName}" FontSize="13" FontWeight="SemiBold"
-                       Margin="0,0,0,8" Foreground="{DynamicResource TextBrush}"/>
-            <DockPanel Margin="0,0,0,8">
-                <ui:UsageProviderBadge x:Name="ProviderBadge" DockPanel.Dock="Left" HorizontalAlignment="Left"/>
-                <TextBlock x:Name="AccountName" Visibility="Collapsed" MaxWidth="180" TextTrimming="CharacterEllipsis"
-                           FontSize="12" FontWeight="SemiBold" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
-            </DockPanel>
-            <DockPanel>
-                <TextBlock x:Name="CodexValue"
-                           DockPanel.Dock="Right"
-                           Foreground="{DynamicResource TextBrush}"
-                           FontSize="12"/>
-                <TextBlock x:Name="CodexLabel"
-                           Foreground="{DynamicResource MutedBrush}"
-                           FontSize="12"/>
-            </DockPanel>
-            <TextBlock x:Name="HistoryValue"
-                       Visibility="Collapsed"
-                       Foreground="{DynamicResource MutedBrush}"
-                       FontSize="11"
-                       Margin="0,6,0,0"/>
-            <TextBlock x:Name="ClaudeReceipt" Visibility="Collapsed" Foreground="{DynamicResource MutedBrush}"
-                       FontSize="11" Margin="0,4,0,0"/>
+        <StackPanel x:Name="WidgetStatusStack">
+            <!-- One header for the whole widget; never repeated per account. -->
+            <Grid x:Name="WidgetHeader" Margin="0,0,0,7">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*" MinWidth="0"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Viewbox Width="15" Height="15" Stretch="Uniform" Margin="1,0,7,0">
+                        <Canvas Width="24" Height="24">
+                            <Path x:Name="WidgetLogoPath" Stroke="{DynamicResource TextBrush}" StrokeThickness="5"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M17,18 A8,8 0 1 1 12,4"/>
+                            <Ellipse Canvas.Left="16" Canvas.Top="0" Width="6" Height="6" Fill="{DynamicResource AccentBrush}"/>
+                        </Canvas>
+                    </Viewbox>
+                    <TextBlock x:Name="ProductTitle" Text="{x:Static text:UiText.ProductName}" FontSize="12"
+                               FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+                </StackPanel>
+                <TextBlock x:Name="AccountCountText" Grid.Column="1" Margin="10,0,10,0" FontSize="10.5"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                           Foreground="{DynamicResource MutedBrush}"/>
+                <Button x:Name="WidgetSettingsButton" Grid.Column="2" Style="{StaticResource WidgetIconButton}"
+                        Click="OnSettingsClick" Margin="0,0,2,0">
+                    <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                               Foreground="{DynamicResource MutedBrush}"/>
+                </Button>
+                <Button x:Name="WidgetCloseButton" Grid.Column="3" Style="{StaticResource WidgetIconButton}"
+                        Click="OnCloseClick">
+                    <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                               Foreground="{DynamicResource MutedBrush}"/>
+                </Button>
+            </Grid>
+            <!-- Modules wrap into rows; only a grid taller than the work area scrolls. -->
+            <ScrollViewer x:Name="ModuleScroller" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                <Grid x:Name="ModuleHost"/>
+            </ScrollViewer>
+            <TextBlock x:Name="EmptyStateText" Visibility="Collapsed" FontSize="11" TextWrapping="Wrap"
+                       MaxWidth="200" Margin="2,2,2,2" Foreground="{DynamicResource MutedBrush}"/>
         </StackPanel>
     </Border>
 </Window>

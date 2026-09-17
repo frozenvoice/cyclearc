@@ -1,9 +1,9 @@
 using System.Runtime.InteropServices;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using CycleArc.Codex;
 using CycleArc.Providers.Usage;
-using CycleArc.Providers.Claude;
 
 namespace CycleArc.UI;
 
@@ -13,6 +13,9 @@ public partial class FloatingWidget : Window
     public event Action? FlyoutRequested;
     public event Action? RefreshRequested;
     public event Action? ContextMenuRequested;
+    public event Action<string>? AccountSelected;
+    public event Action? SettingsRequested;
+    public event Action? CloseRequested;
 
     private WidgetDragSession? _drag;
     private System.Windows.Media.Matrix _dragFromDevice;
@@ -22,6 +25,14 @@ public partial class FloatingWidget : Window
     private bool _restoringPixels;
     private bool _closed;
     private (int X, int Y)? _savedPixels;
+    private readonly List<WidgetAccountModuleView> _modules = [];
+    private string? _pressedProfileId;
+    private (int Count, int Columns) _shape = (-1, -1);
+    private IReadOnlyList<ScreenRect>? _workAreas;
+    private bool _relayouting;
+    private bool _relayoutQueued;
+    private bool _sizeApplyPending;
+    private (double Width, double Height)? _appliedSize;
 
     public FloatingWidget()
     {
@@ -34,8 +45,19 @@ public partial class FloatingWidget : Window
             RestoreAfterLayout();
         };
         Closed += (_, _) => _closed = true;
-        SizeChanged += (_, _) => RecoverPosition();
-        DpiChanged += (_, _) => Dispatcher.BeginInvoke(() => RecoverPosition());
+        SizeChanged += (_, _) =>
+        {
+            // Relayout owns recovery for its pass so SizeChanged cannot read a mid-wrap HWND
+            // and persist that rectangle. A queued DPI relayout must win over this size event.
+            if (_relayouting || _relayoutQueued) return;
+            RecoverPosition(_workAreas);
+        };
+        DpiChanged += (_, _) => QueueRelayout();
+        SourceInitialized += (_, _) =>
+        {
+            if (HwndSource.FromHwnd(new WindowInteropHelper(this).Handle) is { } source)
+                source.AddHook(AllowArrangedTrackSize);
+        };
     }
 
     public void CloseWithoutActivation()
@@ -78,38 +100,296 @@ public partial class FloatingWidget : Window
         private static extern uint GetCurrentThreadId();
     }
 
-    public void Bind(CodexQuotaSnapshot snapshot, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+    /// <summary>The layout the last bind produced. Columns, rows and the wrapped size in DIP.</summary>
+    public WidgetGridLayout? LastLayout { get; private set; }
+
+    /// <summary>The account modules currently shown, in account-management order.</summary>
+    public IReadOnlyList<WidgetAccountModuleView> Modules => _modules;
+
+    /// <summary>
+    /// Shows every account the overview says may be displayed, in its existing order, each with
+    /// its own ring and every period its provider reported. Rebinding rewrites text in place;
+    /// the module grid is rebuilt only when the account count or the column count changes.
+    /// </summary>
+    public void BindAccounts(IReadOnlyList<CodexAccountView> accounts, string selectedId,
+        UsagePeriodPreference preference = UsagePeriodPreference.Auto,
+        IReadOnlyList<ScreenRect>? workAreas = null, DateTimeOffset? now = null)
     {
         Title = UiText.WidgetTitle;
-        ProviderBadge.Provider = snapshot.Provider;
-        CodexLabel.Text = CodexRingPresentation.From(snapshot, preference).CenterSubLabel;
-        CodexValue.Text = CycleArcPresentation.CompactText(snapshot, preference: preference)[(snapshot.Provider.Name().Length + 1)..];
-        var showStatus = snapshot.Provider == UsageProviderId.Claude
-            || snapshot.Status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing);
-        HistoryValue.Text = showStatus ? CycleArcPresentation.StatusLabel(snapshot) : "";
-        HistoryValue.Visibility = showStatus ? Visibility.Visible : Visibility.Collapsed;
-        var stale = ClaudeUsagePresentation.IsStale(snapshot);
-        HistoryValue.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, stale ? "StaleBrush" : "MutedBrush");
-        HistoryValue.FontWeight = stale ? FontWeights.SemiBold : FontWeights.Normal;
-        CodexValue.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, stale ? "StaleBrush" : "TextBrush");
-        ClaudeReceipt.Text = ClaudeUsagePresentation.LastReceivedText(snapshot);
-        ClaudeReceipt.Visibility = snapshot.Provider == UsageProviderId.Claude && snapshot.LastSuccessfulRefresh is not null
-            ? Visibility.Visible : Visibility.Collapsed;
-        ToolTip = CycleArcPresentation.Tooltip(snapshot, preference);
+        var models = WidgetAccountModel.All(accounts, selectedId, preference, now);
+        AccountCountText.Text = UiText.WidgetAccountsConnected(models.Count);
+        ToolTip = UiText.ProductName + " · " + AccountCountText.Text;
+
+        EmptyStateText.Text = UiText.T("No account to show. Connect one in Manage accounts.",
+            "표시할 계정이 없습니다. 계정 관리에서 연결하세요.");
+        EmptyStateText.Visibility = models.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ModuleScroller.Visibility = models.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+        EnsureModules(models.Count);
+        for (var i = 0; i < models.Count; i++) _modules[i].Bind(accounts[i], models[i]);
+        _workAreas = workAreas;
+        LastLayout = ArrangeModules(models.Count, CurrentWorkArea(_workAreas));
+        ApplyBoundSize();
     }
 
-    public void BindAccount(CodexAccountView? account, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+    /// <summary>
+    /// After a usage bind, the arranged DIP size is applied through the same Relayout path
+    /// used for monitor changes. Unchanged numbers skip a native resize and position write.
+    /// A drag defers that apply until the pointer is released, on this same window.
+    /// </summary>
+    private void ApplyBoundSize()
     {
-        Bind(account?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), preference);
-        AccountName.Text = account?.DisplayName ?? "";
-        AccountName.Visibility = account is not null ? Visibility.Visible : Visibility.Collapsed;
-        if (account is not null) ToolTip = account.DisplayName + Environment.NewLine + ToolTip;
+        if (_closed || _relayouting || _applying || !IsLoaded) return;
+        if (_drag is not null)
+        {
+            if (!ArrangedSizeAlreadyApplied()) _sizeApplyPending = true;
+            return;
+        }
+        if (ArrangedSizeAlreadyApplied()) return;
+        Relayout();
+    }
+
+    private bool ArrangedSizeAlreadyApplied()
+    {
+        if (_appliedSize is not { } applied) return false;
+        var (width, height) = ArrangedSize();
+        if (width <= 0 || height <= 0) return false;
+        var slack = (LastLayout?.HairlineRoundingSlack(1) ?? 0) + 2;
+        return Math.Abs(applied.Width - width) <= slack && Math.Abs(applied.Height - height) <= slack;
+    }
+
+    private void EnsureModules(int count)
+    {
+        while (_modules.Count < count) _modules.Add(new WidgetAccountModuleView());
+        if (_modules.Count > count) _modules.RemoveRange(count, _modules.Count - count);
+    }
+
+    private WidgetGridLayout ArrangeModules(int count, ScreenRect area)
+    {
+        WidgetHeader.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var headerHeight = WidgetHeader.DesiredSize.Height + WidgetHeader.Margin.Bottom;
+        var heights = new double[_modules.Count];
+        for (var i = 0; i < _modules.Count; i++)
+        {
+            _modules[i].Measure(new System.Windows.Size(WidgetGridLayout.ModuleWidth, double.PositiveInfinity));
+            heights[i] = _modules[i].DesiredSize.Height;
+        }
+        var layout = WidgetGridLayout.For(count, headerHeight, heights, area,
+            System.Windows.SystemParameters.VerticalScrollBarWidth);
+        if (_shape != (count, layout.Columns)) BuildGrid(count, layout.Columns);
+        _shape = (count, layout.Columns);
+        // Only a grid that no longer fits the monitor scrolls; the panel itself never shrinks text.
+        // A grid that fits stays unconstrained, so a sub-pixel rounding difference cannot
+        // introduce a scrollbar the layout did not ask for.
+        ModuleScroller.MaxHeight = layout.Scrolls ? layout.ModuleViewportHeight : double.PositiveInfinity;
+        return layout;
+    }
+
+    /// <summary>
+    /// Recomputes columns, height and scrolling for the work area the widget now sits on,
+    /// without binding new account data. Position recovery still runs when the grid is
+    /// unchanged, so an off-screen origin or a shrunken work area is not skipped.
+    /// </summary>
+    public void Relayout(IReadOnlyList<ScreenRect>? workAreas = null)
+    {
+        if (_closed || _relayouting || _applying) return;
+        if (_drag is not null)
+        {
+            _sizeApplyPending = true;
+            return;
+        }
+        _sizeApplyPending = false;
+        if (workAreas is not null) _workAreas = workAreas;
+        _relayouting = true;
+        try
+        {
+            var areas = _workAreas ?? DesktopWorkAreas.For(this);
+            var target = CurrentWorkArea(areas);
+            LastLayout = ArrangeModules(_modules.Count, target);
+            ApplyArrangedLayout();
+            RecoverTo(target);
+        }
+        finally { _relayouting = false; }
+    }
+
+    private void ApplyArrangedLayout()
+    {
+        if (Content is not FrameworkElement content) return;
+        InvalidateMeasure();
+        content.InvalidateMeasure();
+        content.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var (width, height) = ArrangedSize();
+        content.Arrange(new System.Windows.Rect(new System.Windows.Size(width, height)));
+        content.UpdateLayout();
+        if (!IsLoaded) return;
+        ApplyNativeSize(width, height);
+    }
+
+    /// <summary>
+    /// SizeToContent will not grow a layered window after it has wrapped, and WPF Width is
+    /// clamped to the host's SM_CXMAXTRACK. Relayout therefore writes the arranged DIP size
+    /// onto the HWND after the grid is measured, so recovery uses the new footprint.
+    /// Tests may inject work areas; this size step stays on the same path as production.
+    /// </summary>
+    private void ApplyNativeSize(double width, double height)
+    {
+        if (width <= 0 || height <= 0) return;
+        using var activation = new PassiveUpdate();
+        SizeToContent = SizeToContent.Manual;
+        MinWidth = 0;
+        MinHeight = 0;
+        Width = width;
+        Height = height;
+        UpdateLayout();
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        var toDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice
+            ?? Matrix.Identity;
+        var pixels = toDevice.Transform(new System.Windows.Point(width, height));
+        SetWindowPos(hwnd, IntPtr.Zero, 0, 0,
+            Math.Max(1, (int)Math.Round(pixels.X)), Math.Max(1, (int)Math.Round(pixels.Y)),
+            SwpNoMove | SwpNoZOrder | SwpNoActivate);
+        UpdateLayout();
+        _appliedSize = (width, height);
+    }
+
+    private (double Width, double Height) ArrangedSize()
+    {
+        var content = Content as FrameworkElement;
+        var width = LastLayout?.Width ?? 0;
+        var height = LastLayout?.Height ?? 0;
+        if (content is { DesiredSize.Width: > 0 })
+        {
+            var slack = LastLayout?.HairlineRoundingSlack(1) ?? 0;
+            // Hairline snapping may be a few DIP wider than the formula. A previous
+            // five-column DesiredSize must not keep the HWND wide after the grid wraps.
+            if (width <= 0 || content.DesiredSize.Width <= width + slack + 2)
+                width = Math.Max(width, content.DesiredSize.Width);
+        }
+        if (content is { DesiredSize.Height: > 0 }
+            && (height <= 0 || content.DesiredSize.Height <= height + 2))
+            height = Math.Max(height, content.DesiredSize.Height);
+        return (width > 0 ? width : 180, height > 0 ? height : 60);
+    }
+
+    private void RecoverTo(ScreenRect target)
+    {
+        if (_closed || _drag is not null || _applying) return;
+        if (WindowState != WindowState.Normal) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero && IsIconic(hwnd)) return;
+        // Pixel restore owns the first placement. Clamping DIP Left/Top before that
+        // would persist (40,40) and fight WidgetPixelLeft/Top on mixed-DPI restart.
+        if (!_positionReady) return;
+        // Injected or live work areas only choose the monitor list. Recovery always clamps
+        // into the target already used to wrap, after the arranged size has been applied.
+        var areas = _workAreas ?? (IsLoaded ? DesktopWorkAreas.For(this) : null);
+        if (areas is { Count: > 0 } && !areas.Contains(target))
+            target = CurrentWorkArea(areas);
+        var (width, height) = ArrangedSize();
+        var onTarget = double.IsFinite(Left) && double.IsFinite(Top)
+            && Left >= target.X && Left < target.Right && Top >= target.Y && Top < target.Bottom;
+        var position = onTarget
+            ? WidgetPlacement.RecoverInto(Left, Top, width, height, target)
+            : WidgetPlacement.Recover(Left, Top, width, height, areas is { Count: > 0 } ? areas : [target]);
+        if (position.Left == Left && position.Top == Top) return;
+        Left = position.Left;
+        Top = position.Top;
+        Moved?.Invoke(Left, Top);
+    }
+
+    private void QueueRelayout()
+    {
+        if (_closed || _relayoutQueued) return;
+        _relayoutQueued = true;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ContextIdle, new Action(() =>
+        {
+            _relayoutQueued = false;
+            if (_closed || !IsVisible) return;
+            Relayout();
+        }));
+    }
+
+    private ScreenRect CurrentWorkArea(IReadOnlyList<ScreenRect>? workAreas)
+    {
+        var areas = workAreas ?? _workAreas ?? DesktopWorkAreas.For(this);
+        if (double.IsFinite(Left) && double.IsFinite(Top))
+            return WidgetPlacement.AreaContaining(Left, Top, areas);
+        var width = ActualWidth > 0 ? ActualWidth : WidgetGridLayout.ModuleWidth;
+        var height = ActualHeight > 0 ? ActualHeight : WidgetGridLayout.ModuleWidth;
+        return WidgetPlacement.AreaFor(Left, Top, width, height, areas);
+    }
+
+    private void BuildGrid(int count, int columns)
+    {
+        ModuleHost.Children.Clear();
+        ModuleHost.ColumnDefinitions.Clear();
+        ModuleHost.RowDefinitions.Clear();
+        if (count == 0) return;
+        var rows = (int)Math.Ceiling(count / (double)columns);
+        for (var column = 0; column < columns; column++)
+        {
+            if (column > 0) ModuleHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            ModuleHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        }
+        for (var row = 0; row < rows; row++)
+        {
+            if (row > 0) ModuleHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            ModuleHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+        // Reading order stays account order: left to right, then down to the next row.
+        for (var index = 0; index < count; index++)
+        {
+            var column = index % columns;
+            var row = index / columns;
+            var module = _modules[index];
+            Grid.SetColumn(module, column * 2);
+            Grid.SetRow(module, row * 2);
+            ModuleHost.Children.Add(module);
+            if (column > 0) ModuleHost.Children.Add(Separator(vertical: true, (column * 2) - 1, row * 2, 1));
+        }
+        for (var row = 1; row < rows; row++)
+            ModuleHost.Children.Add(Separator(vertical: false, 0, (row * 2) - 1, ModuleHost.ColumnDefinitions.Count));
+    }
+
+    private static Border Separator(bool vertical, int column, int row, int span)
+    {
+        var line = new Border
+        {
+            Tag = vertical ? "WidgetModuleSeparator" : "WidgetRowSeparator",
+            Width = vertical ? WidgetGridLayout.SeparatorThickness : double.NaN,
+            Height = vertical ? double.NaN : WidgetGridLayout.SeparatorThickness,
+            // A row separator must measure exactly its own thickness, or the rendered grid grows
+            // past the height the layout reserved for it. The modules' own padding is the gap.
+            Margin = vertical ? new Thickness(0, 6, 0, 6) : new Thickness(6, 0, 6, 0),
+            HorizontalAlignment = vertical ? HorizontalAlignment.Center : HorizontalAlignment.Stretch,
+            VerticalAlignment = vertical ? VerticalAlignment.Stretch : VerticalAlignment.Center
+        };
+        line.SetResourceReference(BackgroundProperty, "LineBrush");
+        Grid.SetColumn(line, column);
+        Grid.SetRow(line, row);
+        Grid.SetColumnSpan(line, span);
+        return line;
+    }
+
+    private void OnSettingsClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        SettingsRequested?.Invoke();
+    }
+
+    // Hides the widget surface only. Turning the setting off is the app's job; this never exits.
+    private void OnCloseClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        CloseRequested?.Invoke();
     }
 
     public void Apply(AppSettings settings)
     {
         using var activation = new PassiveUpdate();
         _applying = true;
+        var applied = false;
         try
         {
             _savedPixels = settings.WidgetPixelLeft is int x && settings.WidgetPixelTop is int y ? (x, y) : null;
@@ -120,17 +400,20 @@ public partial class FloatingWidget : Window
             SetClickThrough(settings.WidgetClickThrough);
             Cursor = settings.WidgetClickThrough ? System.Windows.Input.Cursors.Arrow : System.Windows.Input.Cursors.SizeAll;
             if (_positionReady) RestoreAfterLayout();
+            applied = true;
         }
         finally { _applying = false; }
-        RecoverPosition();
+        if (applied) Relayout();
     }
 
     public void RecoverPosition(IReadOnlyList<ScreenRect>? workAreas = null)
     {
-        if (_recoveringPosition || _drag is not null || _applying || _restoringPixels || _closed) return;
+        if (_recoveringPosition || _relayouting || _relayoutQueued || _drag is not null || _applying
+            || _restoringPixels || _closed) return;
         // A minimized window's native rectangle is not a position to save or clamp.
         if (WindowState != WindowState.Normal || IsIconic(new WindowInteropHelper(this).Handle)) return;
-        if (workAreas is null)
+        var areas = workAreas ?? _workAreas;
+        if (areas is null)
         {
             if (!_positionReady) return;
             RecoverPhysicalPosition();
@@ -139,10 +422,13 @@ public partial class FloatingWidget : Window
         _recoveringPosition = true;
         try
         {
-            var content = (FrameworkElement)Content;
-            content.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-            var position = WidgetPlacement.Recover(Left, Top, content.DesiredSize.Width, content.DesiredSize.Height,
-                workAreas ?? DesktopWorkAreas.For(this));
+            var (width, height) = ArrangedSize();
+            var target = WidgetPlacement.AreaContaining(Left, Top, areas);
+            var onTarget = double.IsFinite(Left) && double.IsFinite(Top)
+                && Left >= target.X && Left < target.Right && Top >= target.Y && Top < target.Bottom;
+            var position = onTarget
+                ? WidgetPlacement.RecoverInto(Left, Top, width, height, target)
+                : WidgetPlacement.Recover(Left, Top, width, height, areas);
             if (position.Left == Left && position.Top == Top) return;
             Left = position.Left;
             Top = position.Top;
@@ -198,7 +484,7 @@ public partial class FloatingWidget : Window
             if (_closed) return;
             RestorePixels();
             _restoringPixels = false;
-            RecoverPosition();
+            Relayout();
             Moved?.Invoke(Left, Top);
         }));
     }
@@ -212,7 +498,7 @@ public partial class FloatingWidget : Window
     {
         using var activation = new PassiveUpdate();
         SetWindowPos(new WindowInteropHelper(this).Handle, IntPtr.Zero, x, y, 0, 0,
-            0x0001 | 0x0004 | 0x0010); // NOSIZE | NOZORDER | NOACTIVATE
+            SwpNoSize | SwpNoZOrder | SwpNoActivate);
     }
 
     private void RecoverPhysicalPosition()
@@ -221,7 +507,10 @@ public partial class FloatingWidget : Window
         if (!GetWindowRect(hwnd, out var rect)) return;
         var areas = System.Windows.Forms.Screen.AllScreens.OrderByDescending(x => x.Primary)
             .Select(x => new ScreenRect(x.WorkingArea.X, x.WorkingArea.Y, x.WorkingArea.Width, x.WorkingArea.Height)).ToArray();
-        var next = WidgetPlacement.Recover(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top, areas);
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        var target = WidgetPlacement.AreaContaining(rect.Left, rect.Top, areas);
+        var next = WidgetPlacement.RecoverInto(rect.Left, rect.Top, width, height, target);
         if ((int)next.Left == rect.Left && (int)next.Top == rect.Top) return;
         _recoveringPosition = true;
         try
@@ -230,6 +519,30 @@ public partial class FloatingWidget : Window
             Moved?.Invoke(Left, Top);
         }
         finally { _recoveringPosition = false; }
+    }
+
+    private IntPtr AllowArrangedTrackSize(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != 0x0024) return IntPtr.Zero; // WM_GETMINMAXINFO
+        var (width, height) = ArrangedSize();
+        if (width <= 0 || height <= 0) return IntPtr.Zero;
+        var toDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice
+            ?? Matrix.Identity;
+        var pixels = toDevice.Transform(new System.Windows.Point(width, height));
+        var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+        info.MaxTrack.X = Math.Max(info.MaxTrack.X, (int)Math.Ceiling(pixels.X));
+        info.MaxTrack.Y = Math.Max(info.MaxTrack.Y, (int)Math.Ceiling(pixels.Y));
+        Marshal.StructureToPtr(info, lParam, true);
+        return IntPtr.Zero;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint { public int X, Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved, MaxSize, MaxPosition, MinTrack, MaxTrack;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -252,11 +565,39 @@ public partial class FloatingWidget : Window
 
     private void OnPreviewLeftDown(object sender, MouseButtonEventArgs e)
     {
+        // Header buttons keep their click. Scrollbar chrome (thumb, track, buttons) must
+        // scroll the module grid instead of moving the window or selecting an account.
+        if (IsChromeButton(e.OriginalSource as DependencyObject)
+            || IsScrollChrome(e.OriginalSource as DependencyObject)) return;
         _dragFromDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice
             ?? System.Windows.Media.Matrix.Identity;
+        _pressedProfileId = ModuleAt(e.OriginalSource as DependencyObject)?.ProfileId;
         var pointer = PointerOnScreen(e);
         BeginDrag(pointer);
         e.Handled = true;
+    }
+
+    public static bool ShouldBeginWindowDrag(DependencyObject? source) =>
+        !IsChromeButton(source) && !IsScrollChrome(source);
+
+    private static bool IsChromeButton(DependencyObject? source) =>
+        Ancestors(source).OfType<System.Windows.Controls.Primitives.ButtonBase>().Any();
+
+    private static bool IsScrollChrome(DependencyObject? source) =>
+        Ancestors(source).OfType<System.Windows.Controls.Primitives.ScrollBar>().Any();
+
+    private static WidgetAccountModuleView? ModuleAt(DependencyObject? source) =>
+        Ancestors(source).OfType<WidgetAccountModuleView>().FirstOrDefault();
+
+    // Only visual ancestors: a non-visual original source (an inline, say) has no visual parent.
+    private static IEnumerable<DependencyObject> Ancestors(DependencyObject? source)
+    {
+        for (var node = source; node is Visual or System.Windows.Media.Media3D.Visual3D;
+             node = VisualTreeHelper.GetParent(node))
+        {
+            yield return node;
+            if (node is Window) yield break;
+        }
     }
 
     private void OnPreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
@@ -295,10 +636,22 @@ public partial class FloatingWidget : Window
     private void FinishDrag(bool allowClick)
     {
         var gesture = _drag;
+        var pressed = _pressedProfileId;
         _drag = null;
+        _pressedProfileId = null;
         if (IsMouseCaptured) ReleaseMouseCapture();
-        if (gesture?.IsDragging == true) Moved?.Invoke(Left, Top);
-        else if (gesture is not null && allowClick) FlyoutRequested?.Invoke();
+        // A move that ended is a move, never an accidental open.
+        if (gesture?.IsDragging == true)
+        {
+            Relayout();
+            Moved?.Invoke(Left, Top);
+            return;
+        }
+        if (_sizeApplyPending) Relayout();
+        if (gesture is null || !allowClick) return;
+        // Selecting reuses the existing selection state; it never starts a login or a request.
+        if (!string.IsNullOrEmpty(pressed)) AccountSelected?.Invoke(pressed);
+        FlyoutRequested?.Invoke();
     }
 
     private void OnMouseDown(object sender, MouseButtonEventArgs e)
@@ -331,6 +684,7 @@ public partial class FloatingWidget : Window
     private const uint GwHwndPrev = 3;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpShowWindow = 0x0040;
     private const uint SwpNoOwnerZOrder = 0x0200;

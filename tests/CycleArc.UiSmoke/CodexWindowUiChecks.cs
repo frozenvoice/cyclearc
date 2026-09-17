@@ -50,7 +50,7 @@ internal static class CodexWindowUiChecks
                         Label = UiText.T("Other account", "다른 계정") },
                         Snapshot = Parse(scenarios[4]) };
                     flyout.BindAccounts([account, other], account.Profile.Id, false);
-                    widget.BindAccount(account);
+                    WidgetFixture.BindOne(widget, account);
                     foreach (var zoom in new[] { 80, 100, 150 })
                     {
                         flyout.ApplyWindowSettings(new AppSettings { FlyoutZoomPercent = zoom });
@@ -60,7 +60,7 @@ internal static class CodexWindowUiChecks
                         Check(flyout, widget, scenario);
                         count++;
                     }
-                    AccountUiChecks.Render(widget, 245, null, directory is not null && theme != AppTheme.System
+                    WidgetFixture.RenderWidget(widget, directory is not null && theme != AppTheme.System
                         && scenario.Name == "five-hour-only"
                         ? Path.Combine(directory, $"codex-five-hour-widget-{language}-{theme}.png") : null);
                     count++;
@@ -101,11 +101,17 @@ internal static class CodexWindowUiChecks
         var expectedValue = scenario.CompactFiveHour ? "42%" : "31%";
         var expectedCaption = scenario.CompactFiveHour ? UiText.T("5-hour used", "5시간 사용")
             : UiText.T("Weekly used", "주간 사용");
+        var module = WidgetFixture.Module(widget);
         if (((TextBlock)flyout.FindName("CodexRingValueText")).Text != expectedValue
             || ((TextBlock)flyout.FindName("CodexRingSubLabel")).Text != expectedCaption
-            || ((TextBlock)widget.FindName("CodexValue")).Text != expectedValue
-            || ((TextBlock)widget.FindName("CodexLabel")).Text != expectedCaption)
+            || module.RingValueText.Text != expectedValue
+            || module.Model!.Ring.CenterSubLabel != expectedCaption)
             throw new InvalidOperationException($"Codex compact window is incorrect: {scenario.Name}.");
+        // The ring's period leads, and every window the response carried keeps its own line.
+        var provided = new[] { scenario.Primary, scenario.Secondary }.OfType<WindowData>().Count();
+        if (module.Periods.Count != provided
+            || (provided > 0 && !module.Model!.Periods[0].IsRepresentative))
+            throw new InvalidOperationException($"Widget dropped or invented a period: {scenario.Name}.");
 
         var inputs = new[] { scenario.Primary, scenario.Secondary }.OfType<WindowData>().ToArray();
         var summary = (StackPanel)((Button)((ItemsControl)flyout.FindName("AccountOverview")).Items[0]).Content;

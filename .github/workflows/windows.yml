@@ -35,6 +35,21 @@ jobs:
       - name: Validate desktop resources
         run: dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build
 
+      # Render the production widget from synthetic accounts so a layout regression is visible
+      # in the run's artifacts, not only as a failed assertion.
+      - name: Render floating widget previews
+        run: >
+          dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj
+          -c Release --no-build -- --widget-accounts artifacts/widget-previews
+
+      - name: Upload floating widget previews
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: widget-previews
+          path: artifacts/widget-previews/*
+          if-no-files-found: ignore
+
       # Type-check the test-only code: every other build omits these constants, so without this
       # step it first fails when someone runs the installed-app verification. Compile only, into
       # a throwaway directory, so no shipped output is replaced. %3B is an escaped semicolon; an
@@ -47,6 +62,9 @@ jobs:
 
       - name: Installer recovery tests
         run: ./tests/LocalInstall.Tests.ps1
+
+      - name: Local Setup one-click tests
+        run: ./tests/BuildLocal.Tests.ps1
 
       - name: Publish win-x64
         run: >
@@ -100,3 +118,101 @@ jobs:
           name: failed-test-results
           path: TestResults/*.trx
           if-no-files-found: ignore
+
+  # Disposable GitHub-hosted runner only. Installs the just-packaged Setup.exe for the
+  # runner user, checks that current\CycleArc.exe matches the packed executable, then
+  # stops the desktop over IPC. This is not an uninstall/reinstall cycle and does not
+  # run on a developer profile.
+  managed-setup-install:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download installer assets
+        uses: actions/download-artifact@v6
+        with:
+          name: CycleArc-win-x64
+          path: publish/velopack
+
+      - name: Install Setup.exe and verify current executable hash
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $setup = Join-Path $PWD 'publish/velopack/CycleArc-Setup.exe'
+          $nupkg = Get-ChildItem -LiteralPath (Join-Path $PWD 'publish/velopack') -Filter 'CycleArc-*-full.nupkg' |
+            Select-Object -First 1
+          if (!(Test-Path -LiteralPath $setup -PathType Leaf) -or !$nupkg) {
+            throw 'Packaged Setup.exe or full nupkg is missing from the build artifact.'
+          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $extract = Join-Path $PWD 'artifacts/setup-install/packed-exe'
+          New-Item -ItemType Directory -Path $extract -Force | Out-Null
+          $zip = [IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
+          try {
+            $entry = @($zip.Entries | Where-Object { $_.Name -ceq 'CycleArc.exe' }) |
+              Sort-Object Length -Descending | Select-Object -First 1
+            if (!$entry) { throw 'The full package does not contain CycleArc.exe' }
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $extract 'CycleArc.exe'), $true)
+          }
+          finally { $zip.Dispose() }
+          $expected = (Get-FileHash -LiteralPath (Join-Path $extract 'CycleArc.exe') -Algorithm SHA256).Hash.ToUpperInvariant()
+          $log = Join-Path $PWD 'artifacts/setup-install/setup.log'
+          New-Item -ItemType Directory -Path (Split-Path $log) -Force | Out-Null
+          $process = Start-Process -FilePath $setup -ArgumentList @('--silent', '--log', $log) -PassThru
+          if (!$process.WaitForExit(600000)) {
+            try { $process.Kill($true) } catch { }
+            throw 'Setup.exe did not finish within 600 seconds.'
+          }
+          if ($process.ExitCode -ne 0) { throw "Setup.exe exited $($process.ExitCode). See $log" }
+          $current = Join-Path $env:LOCALAPPDATA 'CycleArc/current/CycleArc.exe'
+          $launcher = Join-Path $env:LOCALAPPDATA 'CycleArc/CycleArc.exe'
+          if (!(Test-Path -LiteralPath $current -PathType Leaf) -or !(Test-Path -LiteralPath $launcher -PathType Leaf)) {
+            throw "Managed install is missing $current or $launcher"
+          }
+          $actual = (Get-FileHash -LiteralPath $current -Algorithm SHA256).Hash.ToUpperInvariant()
+          if ($actual -cne $expected) {
+            throw "Installed current SHA-256 $actual does not match packed $expected"
+          }
+          Start-Process -FilePath $launcher -ArgumentList @('--show') | Out-Null
+          $deadline = [Diagnostics.Stopwatch]::StartNew()
+          $status = $null
+          while ($deadline.Elapsed.TotalSeconds -lt 60) {
+            $output = Join-Path $PWD ("artifacts/setup-install/status-{0}.json" -f [Guid]::NewGuid().ToString('N'))
+            $probe = Start-Process -FilePath $current -ArgumentList @('--desktop-status') -PassThru -NoNewWindow -RedirectStandardOutput $output
+            if ($probe.WaitForExit(20000) -and $probe.ExitCode -eq 0 -and (Test-Path -LiteralPath $output)) {
+              $status = Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+              if ($status.Succeeded) { break }
+            }
+            Start-Sleep -Milliseconds 500
+          }
+          if (!$status -or !$status.Succeeded) { throw 'Installed desktop did not report readiness.' }
+          Write-Host "Managed install ready PID $($status.ProcessId) $($status.ExecutablePath) SHA-256 $actual"
+          $shutdownOut = Join-Path $PWD 'artifacts/setup-install/shutdown.json'
+          $stop = Start-Process -FilePath $current -ArgumentList @('--desktop-shutdown') -PassThru -NoNewWindow -RedirectStandardOutput $shutdownOut
+          if (!$stop.WaitForExit(30000) -or $stop.ExitCode -ne 0) {
+            throw "desktop-shutdown failed with exit $($stop.ExitCode)"
+          }
+
+          # Same-version silent repair of this identical package must keep current\CycleArc.exe.
+          $repairLog = Join-Path $PWD 'artifacts/setup-install/setup-repair.log'
+          $repair = Start-Process -FilePath $setup -ArgumentList @('--silent', '--log', $repairLog) -PassThru
+          if (!$repair.WaitForExit(600000)) {
+            try { $repair.Kill($true) } catch { }
+            throw 'Same-version Setup.exe repair did not finish within 600 seconds.'
+          }
+          if ($repair.ExitCode -ne 0) { throw "Same-version Setup.exe exited $($repair.ExitCode). See $repairLog" }
+          $repaired = (Get-FileHash -LiteralPath $current -Algorithm SHA256).Hash.ToUpperInvariant()
+          if ($repaired -cne $expected) {
+            throw "Same-version repair SHA-256 $repaired does not match packed $expected"
+          }
+          Write-Host "Same-version Setup repair kept SHA-256 $repaired"
+
+      - name: Upload setup-install logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: setup-install-logs
+          path: artifacts/setup-install/**
+          if-no-files-found: ignore
+

@@ -343,6 +343,14 @@ public static class UiText
     public static string FloatingWidgetHint => T(
         "Shows server Pro status, reset time, Codex usage and reconstructed history.",
         "서버 Pro 상태, 리셋 시각, Codex 사용량, 재구성한 기록을 표시합니다.");
+    public static string ResetNotProvided => T("Reset not provided", "리셋 미제공");
+    public static string WidgetReset => T("Reset", "리셋");
+    public static string WidgetLeft(string percent) => T($"Left {percent}", $"남음 {percent}");
+    public static string WidgetAccountsConnected(int count) => count == 1
+        ? T("1 account", "계정 1")
+        : T($"{count} accounts", $"계정 {count}");
+    public static string WidgetHideHint => T("Hide the widget (CycleArc keeps running)", "위젯 숨기기 (CycleArc는 계속 실행됨)");
+    public static string WidgetOpenDetailHint => T("Open this account's details", "이 계정의 상세 정보 열기");
     public static string WidgetOpacity => T("Widget opacity", "위젯 투명도");
     public static string WidgetAlwaysOnTop => T("Always on top", "항상 위");
     public static string WidgetClickThrough => T("Click through", "클릭 통과");

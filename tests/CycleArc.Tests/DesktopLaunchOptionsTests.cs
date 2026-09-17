@@ -26,6 +26,19 @@ public class DesktopLaunchOptionsTests
         Assert.Throws<ArgumentException>(() => DesktopLaunchOptions.Parse([argument, "--autorun", "--expected-sha256", new string('A', 64), "--expected-version", "0.5.8.0"]));
     }
 
+    [Fact]
+    public void DesktopStatusAndShutdownAreExclusive()
+    {
+        var status = DesktopLaunchOptions.Parse(["--desktop-status"]);
+        Assert.True(status.StatusOnly);
+        Assert.False(status.ShutdownOnly);
+        var shutdown = DesktopLaunchOptions.Parse(["--desktop-shutdown"]);
+        Assert.True(shutdown.ShutdownOnly);
+        Assert.False(shutdown.StatusOnly);
+        Assert.Throws<ArgumentException>(() => DesktopLaunchOptions.Parse(["--desktop-status", "--desktop-shutdown"]));
+        Assert.Throws<ArgumentException>(() => DesktopLaunchOptions.Parse(["--desktop-shutdown", "--show"]));
+    }
+
     [Theory]
     [InlineData(null, false)]
     [InlineData("", false)]
@@ -40,6 +53,7 @@ public class DesktopLaunchOptionsTests
     [InlineData("CycleArc.exe --install --expected-sha256 value", false)]
     [InlineData("CycleArc.exe --replace --show", false)]
     [InlineData("CycleArc.exe --desktop-status", false)]
+    [InlineData("CycleArc.exe --desktop-shutdown", false)]
     [InlineData("CycleArc.exe --show --claude-statusline", true)]
     public void LegacyFallbackExcludesCallbacksAndInstallers(string? command, bool desktop)
         => Assert.Equal(desktop, DesktopLaunchOptions.IsLegacyDesktopCommand(command));

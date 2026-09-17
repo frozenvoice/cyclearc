@@ -28,6 +28,21 @@ public static class DesktopBootstrap
                 Console.Out.WriteLine(JsonSerializer.Serialize(status));
                 return status.Succeeded ? 0 : 1;
             }
+            if (options.ShutdownOnly)
+            {
+                var status = Request(DesktopInstanceCommand.Status, TimeSpan.FromSeconds(3));
+                if (!status.Succeeded)
+                {
+                    Console.Out.WriteLine(JsonSerializer.Serialize(status));
+                    return 1;
+                }
+                using var current = OpenVerifiedProcess(status);
+                var ack = Request(DesktopInstanceCommand.Shutdown, TimeSpan.FromSeconds(3), status);
+                Console.Out.WriteLine(JsonSerializer.Serialize(ack));
+                if (!ack.Succeeded || ack.ProcessId != current.Id || !current.WaitForExit(22000))
+                    return 1;
+                return 0;
+            }
 
             if (InstalledApp.IsManaged)
             {

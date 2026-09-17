@@ -23,7 +23,8 @@ public sealed class FloatingWidgetController(Action<FloatingWidget> configure, A
         _overview = overview;
         if (!ShouldShow) { _window?.Hide(); return; }
         var created = EnsureWindow();
-        _window!.BindAccount(overview.Selected, overview.Preference);
+        // Every displayable account, in account-management order, not only the selected one.
+        _window!.BindAccounts(overview.Accounts, overview.SelectedId, overview.Preference);
         if (created || applySettings) _window.Apply(settings);
         _window.EnsureVisible(settings.WidgetAlwaysOnTop);
         if (created) log?.Invoke("Widget window created and shown");

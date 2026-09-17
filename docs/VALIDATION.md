@@ -2,6 +2,20 @@
 
 ## Current release — Codex and Claude Code
 
+- Widget bind applies the arranged HWND size (unreleased): `FloatingWidget.BindAccounts` now
+  calls the existing Relayout path when the arranged DIP size changed, so
+  `FloatingWidgetController.Update()` grows or shrinks the same native window when accounts,
+  period lines or status text change. Unchanged numbers skip a native resize. A drag defers
+  that apply until pointer release. UiSmoke `BindingResizesTheShownWindow` drives 3→5→1→3
+  through `Window.Show()` and `Update()` without calling Relayout/ApplyNativeSize after Update.
+- One-click managed install (unreleased): root `build-local.cmd` runs `scripts/Build-Local.ps1`,
+  which invokes `dev-run.ps1 -NoLaunch` in a separate `pwsh` process, then installs the
+  produced `CycleArc-Setup.exe` with Velopack `--silent` (and `--installto` only for a
+  non-default existing InstallLocation). Success requires `current\CycleArc.exe` SHA-256 to
+  match this publish. `tests/BuildLocal.Tests.ps1` covers failed build (no Setup), leftover
+  Setup refusal, same-version hash mismatch, Setup failure, lock overlap and paths with
+  spaces. Real Setup.exe replacement against a developer profile was not run here.
+
 - Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
   - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's
     `OnBeforeUninstallFastCallback`, which runs `ClaudeUninstallCleanup` from the installed
@@ -1358,3 +1372,45 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
 - Account-history collection supports cross-device reconstruction; identical current-cycle
   displays on fresh PCs remain unverified until the same evidenced reset boundary is
   available on each PC. A successful scan does not establish authoritative billed usage.
+
+## Multi-account floating widget, 2026-09-17
+
+- The widget now projects `UsageAccountOverview.Accounts` through `WidgetAccountModel`, which
+  reuses `CodexRingPresentation`, `CodexDisplayFormatting` and `ClaudeUsagePresentation`. It adds
+  no collector, request or timer: the existing one-minute display timer and the two-second passive
+  read already rebind it, so a countdown tick costs no network call.
+- `WidgetGridLayoutTests` covers wrapping in DIP against the work area of the monitor the widget
+  sits on: 1/3/5 accounts on one row when it fits, 3+2 at 760 DIP, 2+2+1 at 520 DIP, a whole module
+  on a work area narrower than one module, and bounded vertical scrolling for 24 accounts on a
+  300 DIP-tall work area. Column count is never capped at five.
+- `WidgetAccountModelTests` covers every reported period being shown with its own remaining
+  percentage and its own reset, the Auto/5-hour/Weekly preference choosing only the ring, unknown
+  percentages staying `?`, a missing reset staying **Reset not provided**, a passed reset staying
+  **Awaiting refresh** rather than restarting a cycle locally, and identity mismatch, sign-out and
+  awaiting-usage showing no cached numbers.
+- WPF evidence is produced by `CycleArc.UiSmoke --widget-accounts`: 1/3/5 accounts, the wrapped
+  5-account row, mixed one-period and two-period accounts, and long names, missing resets, stale
+  data and authentication failure, each in EN/KO and Dark/Light. `WidgetDpiChecks` runs the same
+  three-account content at 100–200% in both languages and all themes.
+- Not verified here: this change was authored on Linux, where the WPF projects cannot build, so
+  the build, the unit tests and every UiSmoke render listed above were left to the Windows CI job
+  rather than run locally. Multi-monitor recovery is exercised only through the synthetic
+  `ScreenRect` work areas and whatever monitors the CI runner reports; it is not evidence of a real
+  multi-monitor desktop. `docs/images/widget.png` is produced from the production widget with three
+  synthetic accounts (`DocumentationScreenshots`); it is not a live-account capture.
+
+## Widget relayout display and recovery, 2026-09-18
+
+- Relayout now applies the arranged DIP size to the HWND (`SizeToContent` can keep a previous
+  wrapped width, and WPF Width can follow `SM_CXMAXTRACK`) before clamping into the same target
+  work area. Tests inject monitor rectangles only; `RecoverTo` uses `RecoverInto` on that path
+  whether the list is injected or live.
+- `WidgetLayoutChecks.RelayoutOrder` records injected vs host work areas, LastLayout, DesiredSize,
+  RenderSize, ActualWidth/Height and `GetWindowRect`, requires a `Moved` event when the origin
+  must change, and round-trips DIP plus `WidgetPixelLeft/Top` through an isolated `SettingsStore`.
+  It does not read or write `%LOCALAPPDATA%\ProMeter`.
+- Capture of a shown widget uses the live `RenderSize`. A five-column primary render that uses the
+  injected 1920×1040 DIP work area is not a claim that the CI host monitor is that wide.
+- Not run: installed-app update/removal, real-account quota requests, or changing this PC's
+  monitor layout. Dual-monitor wrap/recovery is the injected `ScreenRect` path plus whatever
+  monitors the host already has.
