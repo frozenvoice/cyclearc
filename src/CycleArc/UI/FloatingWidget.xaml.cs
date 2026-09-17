@@ -192,8 +192,9 @@ public partial class FloatingWidget : Window
         var areas = _workAreas ?? (IsLoaded ? DesktopWorkAreas.For(this) : null);
         if (areas is { Count: > 0 } && !areas.Contains(target))
             target = CurrentWorkArea(areas);
-        if (_workAreas is null && hwnd != IntPtr.Zero)
+        if (_workAreas is null)
         {
+            if (!_positionReady || hwnd == IntPtr.Zero) return;
             RecoverPhysicalPosition();
             return;
         }
