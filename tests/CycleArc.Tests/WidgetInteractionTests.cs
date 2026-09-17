@@ -43,6 +43,8 @@ public class WidgetInteractionTests
         Assert.Contains("ContextMenuRequested", widgetCode, StringComparison.Ordinal);
         Assert.Contains("WidgetDragSession", widgetCode, StringComparison.Ordinal);
         Assert.DoesNotContain("DragMove()", widgetCode, StringComparison.Ordinal);
+        Assert.Contains("IsScrollChrome", widgetCode, StringComparison.Ordinal);
+        Assert.Contains("ShouldBeginWindowDrag", widgetCode, StringComparison.Ordinal);
         Assert.Contains("MouseButton.Middle", widgetCode, StringComparison.Ordinal);
         var appCode = File.ReadAllText(Find("src/CycleArc/App.xaml.cs"));
         Assert.Contains("RefreshCodexAsync", appCode, StringComparison.Ordinal);

@@ -361,8 +361,10 @@ public partial class FloatingWidget : Window
 
     private void OnPreviewLeftDown(object sender, MouseButtonEventArgs e)
     {
-        // The header's own buttons keep their click: no drag starts and no account is selected.
-        if (IsChromeButton(e.OriginalSource as DependencyObject)) return;
+        // Header buttons keep their click. Scrollbar chrome (thumb, track, buttons) must
+        // scroll the module grid instead of moving the window or selecting an account.
+        if (IsChromeButton(e.OriginalSource as DependencyObject)
+            || IsScrollChrome(e.OriginalSource as DependencyObject)) return;
         _dragFromDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice
             ?? System.Windows.Media.Matrix.Identity;
         _pressedProfileId = ModuleAt(e.OriginalSource as DependencyObject)?.ProfileId;
@@ -371,8 +373,14 @@ public partial class FloatingWidget : Window
         e.Handled = true;
     }
 
+    internal static bool ShouldBeginWindowDrag(DependencyObject? source) =>
+        !IsChromeButton(source) && !IsScrollChrome(source);
+
     private static bool IsChromeButton(DependencyObject? source) =>
         Ancestors(source).OfType<System.Windows.Controls.Primitives.ButtonBase>().Any();
+
+    private static bool IsScrollChrome(DependencyObject? source) =>
+        Ancestors(source).OfType<System.Windows.Controls.Primitives.ScrollBar>().Any();
 
     private static WidgetAccountModuleView? ModuleAt(DependencyObject? source) =>
         Ancestors(source).OfType<WidgetAccountModuleView>().FirstOrDefault();
