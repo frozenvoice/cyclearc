@@ -1,9 +1,10 @@
 using System.Runtime.InteropServices;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using CycleArc.Codex;
 using CycleArc.Providers.Usage;
-using CycleArc.Providers.Claude;
 
 namespace CycleArc.UI;
 
@@ -13,6 +14,9 @@ public partial class FloatingWidget : Window
     public event Action? FlyoutRequested;
     public event Action? RefreshRequested;
     public event Action? ContextMenuRequested;
+    public event Action<string>? AccountSelected;
+    public event Action? SettingsRequested;
+    public event Action? CloseRequested;
 
     private WidgetDragSession? _drag;
     private System.Windows.Media.Matrix _dragFromDevice;
@@ -22,6 +26,9 @@ public partial class FloatingWidget : Window
     private bool _restoringPixels;
     private bool _closed;
     private (int X, int Y)? _savedPixels;
+    private readonly List<WidgetAccountModuleView> _modules = [];
+    private string? _pressedProfileId;
+    private (int Count, int Columns) _shape = (-1, -1);
 
     public FloatingWidget()
     {
@@ -78,32 +85,132 @@ public partial class FloatingWidget : Window
         private static extern uint GetCurrentThreadId();
     }
 
-    public void Bind(CodexQuotaSnapshot snapshot, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+    /// <summary>The layout the last bind produced. Columns, rows and the wrapped size in DIP.</summary>
+    public WidgetGridLayout? LastLayout { get; private set; }
+
+    /// <summary>The account modules currently shown, in account-management order.</summary>
+    public IReadOnlyList<WidgetAccountModuleView> Modules => _modules;
+
+    /// <summary>
+    /// Shows every account the overview says may be displayed, in its existing order, each with
+    /// its own ring and every period its provider reported. Rebinding rewrites text in place;
+    /// the module grid is rebuilt only when the account count or the column count changes.
+    /// </summary>
+    public void BindAccounts(IReadOnlyList<CodexAccountView> accounts, string selectedId,
+        UsagePeriodPreference preference = UsagePeriodPreference.Auto,
+        IReadOnlyList<ScreenRect>? workAreas = null, DateTimeOffset? now = null)
     {
         Title = UiText.WidgetTitle;
-        ProviderBadge.Provider = snapshot.Provider;
-        CodexLabel.Text = CodexRingPresentation.From(snapshot, preference).CenterSubLabel;
-        CodexValue.Text = CycleArcPresentation.CompactText(snapshot, preference: preference)[(snapshot.Provider.Name().Length + 1)..];
-        var showStatus = snapshot.Provider == UsageProviderId.Claude
-            || snapshot.Status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing);
-        HistoryValue.Text = showStatus ? CycleArcPresentation.StatusLabel(snapshot) : "";
-        HistoryValue.Visibility = showStatus ? Visibility.Visible : Visibility.Collapsed;
-        var stale = ClaudeUsagePresentation.IsStale(snapshot);
-        HistoryValue.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, stale ? "StaleBrush" : "MutedBrush");
-        HistoryValue.FontWeight = stale ? FontWeights.SemiBold : FontWeights.Normal;
-        CodexValue.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, stale ? "StaleBrush" : "TextBrush");
-        ClaudeReceipt.Text = ClaudeUsagePresentation.LastReceivedText(snapshot);
-        ClaudeReceipt.Visibility = snapshot.Provider == UsageProviderId.Claude && snapshot.LastSuccessfulRefresh is not null
-            ? Visibility.Visible : Visibility.Collapsed;
-        ToolTip = CycleArcPresentation.Tooltip(snapshot, preference);
+        var models = WidgetAccountModel.All(accounts, selectedId, preference, now);
+        AccountCountText.Text = UiText.WidgetAccountsConnected(models.Count);
+        ToolTip = UiText.ProductName + " · " + AccountCountText.Text;
+
+        EmptyStateText.Text = UiText.T("No account to show. Connect one in Manage accounts.",
+            "표시할 계정이 없습니다. 계정 관리에서 연결하세요.");
+        EmptyStateText.Visibility = models.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ModuleScroller.Visibility = models.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+        EnsureModules(models.Count);
+        for (var i = 0; i < models.Count; i++) _modules[i].Bind(accounts[i], models[i]);
+        LastLayout = ArrangeModules(models.Count, workAreas);
     }
 
-    public void BindAccount(CodexAccountView? account, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+    private void EnsureModules(int count)
     {
-        Bind(account?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), preference);
-        AccountName.Text = account?.DisplayName ?? "";
-        AccountName.Visibility = account is not null ? Visibility.Visible : Visibility.Collapsed;
-        if (account is not null) ToolTip = account.DisplayName + Environment.NewLine + ToolTip;
+        while (_modules.Count < count) _modules.Add(new WidgetAccountModuleView());
+        if (_modules.Count > count) _modules.RemoveRange(count, _modules.Count - count);
+    }
+
+    private WidgetGridLayout ArrangeModules(int count, IReadOnlyList<ScreenRect>? workAreas)
+    {
+        var area = CurrentWorkArea(workAreas);
+        WidgetHeader.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var headerHeight = WidgetHeader.DesiredSize.Height + WidgetHeader.Margin.Bottom;
+        var moduleHeight = 0d;
+        if (_modules.Count > 0)
+        {
+            _modules[0].Measure(new System.Windows.Size(WidgetGridLayout.ModuleWidth, double.PositiveInfinity));
+            moduleHeight = _modules[0].DesiredSize.Height;
+        }
+        var layout = WidgetGridLayout.For(count, headerHeight, moduleHeight, area);
+        if (_shape != (count, layout.Columns)) BuildGrid(count, layout.Columns);
+        _shape = (count, layout.Columns);
+        // Only a grid that no longer fits the monitor scrolls; the panel itself never shrinks text.
+        // A grid that fits stays unconstrained, so a sub-pixel rounding difference cannot
+        // introduce a scrollbar the layout did not ask for.
+        ModuleScroller.MaxHeight = layout.Scrolls ? layout.ModuleViewportHeight : double.PositiveInfinity;
+        return layout;
+    }
+
+    private ScreenRect CurrentWorkArea(IReadOnlyList<ScreenRect>? workAreas)
+    {
+        var areas = workAreas ?? DesktopWorkAreas.For(this);
+        var width = ActualWidth > 0 ? ActualWidth : WidgetGridLayout.ModuleWidth;
+        var height = ActualHeight > 0 ? ActualHeight : WidgetGridLayout.ModuleWidth;
+        return WidgetPlacement.AreaFor(Left, Top, width, height, areas);
+    }
+
+    private void BuildGrid(int count, int columns)
+    {
+        ModuleHost.Children.Clear();
+        ModuleHost.ColumnDefinitions.Clear();
+        ModuleHost.RowDefinitions.Clear();
+        if (count == 0) return;
+        var rows = (int)Math.Ceiling(count / (double)columns);
+        for (var column = 0; column < columns; column++)
+        {
+            if (column > 0) ModuleHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            ModuleHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        }
+        for (var row = 0; row < rows; row++)
+        {
+            if (row > 0) ModuleHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            ModuleHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+        // Reading order stays account order: left to right, then down to the next row.
+        for (var index = 0; index < count; index++)
+        {
+            var column = index % columns;
+            var row = index / columns;
+            var module = _modules[index];
+            Grid.SetColumn(module, column * 2);
+            Grid.SetRow(module, row * 2);
+            ModuleHost.Children.Add(module);
+            if (column > 0) ModuleHost.Children.Add(Separator(vertical: true, (column * 2) - 1, row * 2, 1));
+        }
+        for (var row = 1; row < rows; row++)
+            ModuleHost.Children.Add(Separator(vertical: false, 0, (row * 2) - 1, ModuleHost.ColumnDefinitions.Count));
+    }
+
+    private static Border Separator(bool vertical, int column, int row, int span)
+    {
+        var line = new Border
+        {
+            Tag = vertical ? "WidgetModuleSeparator" : "WidgetRowSeparator",
+            Width = vertical ? WidgetGridLayout.SeparatorThickness : double.NaN,
+            Height = vertical ? double.NaN : WidgetGridLayout.SeparatorThickness,
+            Margin = vertical ? new Thickness(0, 6, 0, 6) : new Thickness(6, 4, 6, 4),
+            HorizontalAlignment = vertical ? HorizontalAlignment.Center : HorizontalAlignment.Stretch,
+            VerticalAlignment = vertical ? VerticalAlignment.Stretch : VerticalAlignment.Center
+        };
+        line.SetResourceReference(BackgroundProperty, "LineBrush");
+        Grid.SetColumn(line, column);
+        Grid.SetRow(line, row);
+        Grid.SetColumnSpan(line, span);
+        return line;
+    }
+
+    private void OnSettingsClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        SettingsRequested?.Invoke();
+    }
+
+    // Hides the widget surface only. Turning the setting off is the app's job; this never exits.
+    private void OnCloseClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        CloseRequested?.Invoke();
     }
 
     public void Apply(AppSettings settings)
@@ -252,11 +359,30 @@ public partial class FloatingWidget : Window
 
     private void OnPreviewLeftDown(object sender, MouseButtonEventArgs e)
     {
+        // The header's own buttons keep their click: no drag starts and no account is selected.
+        if (IsChromeButton(e.OriginalSource as DependencyObject)) return;
         _dragFromDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice
             ?? System.Windows.Media.Matrix.Identity;
+        _pressedProfileId = ModuleAt(e.OriginalSource as DependencyObject)?.ProfileId;
         var pointer = PointerOnScreen(e);
         BeginDrag(pointer);
         e.Handled = true;
+    }
+
+    private static bool IsChromeButton(DependencyObject? source) => Ancestors(source).OfType<ButtonBase>().Any();
+
+    private static WidgetAccountModuleView? ModuleAt(DependencyObject? source) =>
+        Ancestors(source).OfType<WidgetAccountModuleView>().FirstOrDefault();
+
+    // Only visual ancestors: a non-visual original source (an inline, say) has no visual parent.
+    private static IEnumerable<DependencyObject> Ancestors(DependencyObject? source)
+    {
+        for (var node = source; node is Visual or System.Windows.Media.Media3D.Visual3D;
+             node = VisualTreeHelper.GetParent(node))
+        {
+            yield return node;
+            if (node is Window) yield break;
+        }
     }
 
     private void OnPreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
@@ -295,10 +421,16 @@ public partial class FloatingWidget : Window
     private void FinishDrag(bool allowClick)
     {
         var gesture = _drag;
+        var pressed = _pressedProfileId;
         _drag = null;
+        _pressedProfileId = null;
         if (IsMouseCaptured) ReleaseMouseCapture();
-        if (gesture?.IsDragging == true) Moved?.Invoke(Left, Top);
-        else if (gesture is not null && allowClick) FlyoutRequested?.Invoke();
+        // A move that ended is a move, never an accidental open.
+        if (gesture?.IsDragging == true) { Moved?.Invoke(Left, Top); return; }
+        if (gesture is null || !allowClick) return;
+        // Selecting reuses the existing selection state; it never starts a login or a request.
+        if (!string.IsNullOrEmpty(pressed)) AccountSelected?.Invoke(pressed);
+        FlyoutRequested?.Invoke();
     }
 
     private void OnMouseDown(object sender, MouseButtonEventArgs e)

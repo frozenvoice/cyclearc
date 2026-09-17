@@ -533,7 +533,12 @@ public partial class App : Application
                 }
                 _settingsStore.Save(_settings);
             };
+            // Clicking a module reuses the shared selection, so tray and detail follow it.
+            // It never triggers a login or an extra usage request.
+            widget.AccountSelected += id => _codex.Select(id);
             widget.FlyoutRequested += ShowMain;
+            widget.SettingsRequested += ShowSettings;
+            widget.CloseRequested += CloseWidget;
             widget.RefreshRequested += () => _ = RefreshCodexAsync();
             widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu();
         }, _log.Info);
