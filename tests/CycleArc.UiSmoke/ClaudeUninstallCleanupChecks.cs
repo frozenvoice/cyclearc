@@ -219,6 +219,14 @@ internal static class ClaudeUninstallCleanupChecks
         return RunProcess(info, input);
     }
 
+    /// <summary>
+    /// Generous on purpose. The first callback runs a freshly installed self-contained single-file
+    /// desktop, so that launch pays for extracting its native libraries before it reads a line of
+    /// input; on a cold runner that alone has exceeded twenty seconds. This is the harness's
+    /// patience, not a product deadline.
+    /// </summary>
+    private static readonly TimeSpan CallbackBudget = TimeSpan.FromSeconds(120);
+
     private static (int Code, string Output, string Error) RunProcess(
         System.Diagnostics.ProcessStartInfo info, string? input)
     {
@@ -229,7 +237,9 @@ internal static class ClaudeUninstallCleanupChecks
         try
         {
             if (input is not null) { process.StandardInput.Write(input); process.StandardInput.Close(); }
-            if (!process.WaitForExit(20000)) throw new TimeoutException("The callback did not exit within 20 seconds.");
+            if (!process.WaitForExit((int)CallbackBudget.TotalMilliseconds))
+                throw new TimeoutException(
+                    $"The callback did not exit within {CallbackBudget.TotalSeconds:F0} seconds: {info.FileName}.");
             Task.WhenAll(output, error).WaitAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
             return (process.ExitCode, output.Result, error.Result);
         }
