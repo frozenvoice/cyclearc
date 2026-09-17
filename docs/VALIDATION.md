@@ -34,15 +34,22 @@
     the isolated local feed exist only in the `CYCLEARC_TEST_E2E` / `CYCLEARC_TEST_FAIL_STARTUP`
     build flavours and are never compiled into a shipped build; HTTPS enforcement and package
     verification are unchanged.
-  - **Not executed in the environment that produced this change.** It was a Linux container with
-    no .NET SDK, and the SDK download host is blocked by that environment's egress policy, so no
-    build, no unit test, no WPF check and no installed-app run was performed here. The following
-    still have to be run on Windows before this is treated as verified:
-    `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "ClaudeUninstallCleanupTests"`,
-    `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch`, and
+  - Nothing was built or run in the environment that produced this change: a Linux container with
+    no .NET SDK, whose egress policy blocks the SDK download host. Windows CI ran it instead.
+    Run 162 on `76a5a24` passed every step: Release guard tests, `dotnet build CycleArc.sln -c
+    Release`, the full `dotnet test` suite including the new `ClaudeUninstallCleanupTests`,
+    production WPF checks, installer recovery tests, the single-file publish and its artifact
+    assertion, the published Claude statusLine receiver, Velopack packaging and the packaged
+    update validation. The first attempt (run 160) failed to compile, which is how the UiSmoke
+    name collision and the blocking test call were found and fixed.
+  - Still not executed anywhere: `scripts/Verify-InstalledUpdate.ps1`, so real Setup installation,
+    the installed-app update, supervisor recovery and removal remain unverified, and the
+    `CYCLEARC_TEST_E2E` / `CYCLEARC_TEST_FAIL_STARTUP` build flavours have never been compiled —
+    CI builds without those constants. Run
     `pwsh -NoProfile -File ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment`
-    on a disposable Windows VM or throwaway user. Installer packages remain unsigned, and the
-    verification script's Claude data is synthetic: it is not evidence of live subscription usage.
+    on a disposable Windows VM or throwaway user before treating removal or installed updates as
+    verified. Installer packages remain unsigned, and that script's Claude data is synthetic: it
+    is not evidence of live subscription usage.
   - Known limits of the new script: it cannot isolate the data root, the single-instance mutex,
     the desktop IPC pipe, the recovery root, the uninstall registry entry or shortcuts, so it
     refuses to run without `-ConfirmDisposableEnvironment` and when it finds an existing
