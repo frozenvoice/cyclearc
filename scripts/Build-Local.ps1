@@ -51,15 +51,22 @@ function Get-BuildLocalGitState([string]$RepoRoot) {
     }
 }
 
+function Test-BuildLocalDotnetSdk([string[]]$SdkList) {
+    foreach ($line in @($SdkList)) {
+        if ($line -match '^\s*(\d+)\.' -and [int]$Matches[1] -ge 8) { return $true }
+    }
+    $false
+}
+
 function Assert-BuildLocalTools {
     foreach ($name in @('pwsh', 'dotnet', 'git')) {
         if (!(Get-Command $name -ErrorAction SilentlyContinue)) {
             throw "Missing required tool '$name'. Install PowerShell 7 and the .NET 8 SDK, then retry. The current installation was not replaced."
         }
     }
-    $dotnet = (& dotnet --version 2>&1 | ForEach-Object { $_.ToString() }) -join ''
-    if ($dotnet -notmatch '^8\.') {
-        throw "The .NET SDK must be 8.x (found '$dotnet'). The current installation was not replaced."
+    $sdks = @(& dotnet --list-sdks 2>&1 | ForEach-Object { $_.ToString() })
+    if (!(Test-BuildLocalDotnetSdk $sdks)) {
+        throw "A .NET SDK 8 or newer is required to build CycleArc (found '$($sdks -join '; ')'). The current installation was not replaced."
     }
 }
 

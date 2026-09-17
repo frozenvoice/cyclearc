@@ -87,6 +87,20 @@ try {
     if ($cmdText -notmatch 'pause') { throw 'build-local.cmd must pause on failure so the window stays open' }
     Write-Host 'PASS: build-local.cmd / Build-Local.ps1 structural guards.'
 
+    if (!(Test-BuildLocalDotnetSdk @('8.0.415 [C:\Program Files\dotnet\sdk\8.0.415]'))) {
+        throw 'An 8.x SDK listing must be accepted'
+    }
+    if (!(Test-BuildLocalDotnetSdk @('10.0.400 [C:\Program Files\dotnet\sdk\10.0.400]'))) {
+        throw 'A newer default SDK must be accepted when it can build net8.0'
+    }
+    if (Test-BuildLocalDotnetSdk @('6.0.428 [C:\Program Files\dotnet\sdk\6.0.428]')) {
+        throw 'A 6.x SDK listing must not be treated as sufficient'
+    }
+    if (!(Test-BuildLocalDotnetSdk @('10.0.400 [C:\Program Files\dotnet\sdk\10.0.400]', '8.0.415 [C:\Program Files\dotnet\sdk\8.0.415]'))) {
+        throw 'A mixed 8.x and 10.x SDK listing must be accepted'
+    }
+    Write-Host 'PASS: .NET SDK 8+ detection ignores a newer default --version.'
+
     $defaultRoot = Get-DefaultManagedInstallRoot
     $log = Join-Path $testRoot 'setup.log'
     $silentDefault = @(Get-SetupArguments -SetupLog $log)
