@@ -41,7 +41,7 @@ internal static class UsagePeriodUiChecks
                     {
                         var overview = UsageAccountOverview.Create([account], account.Profile.Id, preference);
                         flyout.BindAccounts(overview.Accounts, overview.SelectedId, false, overview.Preference);
-                        widget.BindAccount(overview.Selected, overview.Preference);
+                        WidgetFixture.BindOne(widget, overview.Selected, overview.Preference);
                         CheckProjection(flyout, widget, overview, preference == UsagePeriodPreference.Weekly ? 74 : 12);
                         foreach (var zoom in new[] { 80, 100, 150 })
                         {
@@ -83,13 +83,14 @@ internal static class UsagePeriodUiChecks
                         var overview = UsageAccountOverview.Create([account with { Snapshot = snapshot with { Status = status } }],
                             account.Profile.Id, UsagePeriodPreference.Weekly);
                         flyout.BindAccounts(overview.Accounts, overview.SelectedId, status == CodexQuotaStatus.Refreshing, overview.Preference);
-                        widget.BindAccount(overview.Selected, overview.Preference);
+                        WidgetFixture.BindOne(widget, overview.Selected, overview.Preference);
                         CheckProjection(flyout, widget, overview, 74);
                     }
                     var unknown = snapshot with { Windows = snapshot.Windows.Select(w => w with { UsedPercent = (double?)null }).ToArray() };
                     flyout.Bind(unknown, preference: UsagePeriodPreference.FiveHour);
-                    widget.Bind(unknown, UsagePeriodPreference.FiveHour);
-                    Check(Text(flyout, "CodexRingValueText") == "?" && Text(widget, "CodexValue") == "?"
+                    WidgetFixture.BindSnapshot(widget, unknown, UsagePeriodPreference.FiveHour);
+                    Check(Text(flyout, "CodexRingValueText") == "?" && WidgetFixture.RingValue(widget) == "?"
+                        && WidgetFixture.Module(widget).Periods.All(line => line.RemainingText.Text.Contains('?'))
                         && !((Button)flyout.FindName("CyclePeriodButton")).IsEnabled, "Unknown usage was fabricated.");
                     Check(snapshot.LastSuccessfulRefresh == account.Snapshot.LastSuccessfulRefresh
                         && snapshot.Windows[0].UsedPercent == 12 && snapshot.Windows[1].UsedPercent == 74,
@@ -107,8 +108,12 @@ internal static class UsagePeriodUiChecks
         var caption = expected == 12 ? UiText.T("5-hour used", "5시간 사용") : UiText.T("Weekly used", "주간 사용");
         Check(Text(flyout, "CodexRingValueText") == $"{expected}%" && Text(flyout, "CodexRingSubLabel") == caption,
             "Detail uses the wrong period.");
-        Check(Text(widget, "CodexValue").StartsWith($"{expected}%", StringComparison.Ordinal)
-            && Text(widget, "CodexLabel") == caption, "Widget uses the wrong period.");
+        var module = WidgetFixture.Module(widget);
+        Check(module.RingValueText.Text.StartsWith($"{expected}%", StringComparison.Ordinal)
+            && module.Model!.Ring.CenterSubLabel == caption, "Widget uses the wrong period.");
+        // Choosing the ring's period must never hide the other period the account still has.
+        Check(module.Periods.Count == overview.Snapshot.Windows.Count && module.Model!.Periods[0].IsRepresentative,
+            "Widget hid a period the account still reports.");
         Check(overview.Tooltip.Contains($"{expected}%", StringComparison.Ordinal)
             && overview.Tooltip.Length <= 127, "Tray tooltip lost the selected period or exceeded its native limit.");
         var selectedOnly = overview.Snapshot with

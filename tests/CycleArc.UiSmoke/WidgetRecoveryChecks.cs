@@ -226,6 +226,26 @@ internal static class WidgetRecoveryChecks
             controller.Update(settings, overview);
             Check(Visible(window), "Widget did not return when an account became available.");
 
+            // Adding and removing accounts reflows the same window instead of recreating it.
+            var configuredBeforeAccounts = configured;
+            var second = account with { Profile = account.Profile with { Id = "synthetic-widget-2", Label = "Lab" } };
+            var third = account with { Profile = account.Profile with { Id = "synthetic-widget-3", Label = "Kakao" },
+                Snapshot = snapshot with { Provider = UsageProviderId.Claude } };
+            controller.Update(settings, UsageAccountOverview.Create([account, second, third], account.Profile.Id));
+            Pump();
+            Check(configured == configuredBeforeAccounts && ReferenceEquals(controller.CurrentWindow, window),
+                "Adding accounts recreated the widget window.");
+            Check(window.Modules.Count == 3 && window.Modules.Select(m => m.ProfileId)
+                    .SequenceEqual(new[] { account.Profile.Id, second.Profile.Id, third.Profile.Id }),
+                "The widget did not follow the managed account list and order.");
+            controller.Update(settings, UsageAccountOverview.Create([account, third], account.Profile.Id));
+            Pump();
+            Check(configured == configuredBeforeAccounts && window.Modules.Count == 2
+                && window.Modules.All(m => m.ProfileId != second.Profile.Id),
+                "A removed account stayed in the widget.");
+            controller.Update(settings, overview);
+            Check(window.Modules.Count == 1, "The widget did not return to the single displayable account.");
+
             controller.RecoverAfterEnvironmentChange();
             settings.FloatingWidgetEnabled = false;
             controller.Update(settings, overview);
@@ -262,7 +282,7 @@ internal static class WidgetRecoveryChecks
             Check(clicks == 2, "Position reset lost the widget input subscription.");
 
             if (directory is not null && screen.Primary)
-                AccountUiChecks.Render(window, 245, null, Path.Combine(directory, $"widget-recovery-{language}-{theme}.png"));
+                WidgetFixture.RenderWidget(window, Path.Combine(directory, $"widget-recovery-{language}-{theme}.png"));
             controller.RecoverAfterEnvironmentChange();
             controller.Dispose();
             Pump();

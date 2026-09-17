@@ -7,6 +7,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CycleArc.Codex;
 using CycleArc.Models;
+using CycleArc.Providers.Usage;
 using CycleArc.Services;
 using CycleArc.UI;
 
@@ -19,8 +20,19 @@ internal static class WidgetDpiChecks
     {
         if (directory is not null) Directory.CreateDirectory(directory);
         var now = DateTimeOffset.Now;
+        // Both periods and a long nickname, so scaling is tested on the widest real content.
         var snapshot = new CodexQuotaSnapshot(CodexQuotaStatus.Available, "pro", now, now,
-            null, null, 3, [new("codex", 25, 10080, now.AddDays(7), CodexWindowKind.Weekly)], null);
+            null, null, 3,
+            [
+                new("five", 85, CodexWindowClassifier.FiveHourMinutes, now.AddMinutes(35), CodexWindowKind.FiveHour),
+                new("codex", 25, CodexWindowClassifier.WeeklyMinutes, now.AddDays(7), CodexWindowKind.Weekly)
+            ], null);
+        CodexAccountView[] accounts =
+        [
+            WidgetFixture.Synthetic("dpi-main", "Main", snapshot),
+            WidgetFixture.Synthetic("dpi-long", "a-very-long-synthetic-widget-nickname", snapshot),
+            WidgetFixture.Synthetic("dpi-claude", "Work Claude", snapshot with { Provider = UsageProviderId.Claude })
+        ];
         var applyTheme = typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)!;
         var count = 0;
         foreach (var language in Enum.GetValues<UiLanguage>())
@@ -34,12 +46,12 @@ internal static class WidgetDpiChecks
             {
                 // Change the visual's layout DPI, not just the output bitmap resolution.
                 var content = (FrameworkElement)widget.Content;
-                widget.Bind(snapshot);
+                Bind(widget, accounts, snapshot.Status);
                 VisualTreeHelper.SetRootDpi(content, new DpiScale(scale, scale));
                 foreach (var status in new[] { CodexQuotaStatus.Available, CodexQuotaStatus.Stale,
                              CodexQuotaStatus.Available })
                 {
-                    widget.Bind(snapshot with { Status = status });
+                    Bind(widget, accounts, status);
                     content.InvalidateMeasure();
                     content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                     var desired = content.DesiredSize;
@@ -49,7 +61,7 @@ internal static class WidgetDpiChecks
                     {
                         content.Arrange(new Rect(0, 0, desired.Width, desired.Height + extraHeight));
                         content.UpdateLayout();
-                        AssertCentered(widget, $"{language}/{theme}/{scale}/{status}/extra={extraHeight}");
+                        AssertModuleLayout(widget, $"{language}/{theme}/{scale}/{status}/extra={extraHeight}");
                         var bitmap = Render(content, scale);
                         if (directory is not null && status == CodexQuotaStatus.Available)
                         {
@@ -74,14 +86,14 @@ internal static class WidgetDpiChecks
             var widget = new FloatingWidget { ShowActivated = false };
             try
             {
-                widget.Bind(snapshot);
+                Bind(widget, accounts, CodexQuotaStatus.Available);
                 widget.Apply(new AppSettings { WidgetPixelLeft = screen.WorkingArea.Left + 100,
                     WidgetPixelTop = screen.WorkingArea.Top + 100 });
                 widget.Show();
                 foreach (var status in new[] { CodexQuotaStatus.Available, CodexQuotaStatus.Stale,
                              CodexQuotaStatus.Available })
                 {
-                    widget.Bind(snapshot with { Status = status });
+                    Bind(widget, accounts, status);
                     for (var i = 0; i < 3; i++)
                     {
                         var frame = new DispatcherFrame();
@@ -89,7 +101,7 @@ internal static class WidgetDpiChecks
                             new Action(() => frame.Continue = false));
                         Dispatcher.PushFrame(frame);
                     }
-                    AssertCentered(widget, $"native {screen.DeviceName}/{status}");
+                    AssertModuleLayout(widget, $"native {screen.DeviceName}/{status}");
                 }
             }
             finally { widget.Close(); }
@@ -97,30 +109,56 @@ internal static class WidgetDpiChecks
         Console.WriteLine($"PASS: {count} widget DPI/layout renders and centered native windows on {screens.Length} monitor(s).");
     }
 
-    private static void AssertCentered(FloatingWidget widget, string context)
+    private static void Bind(FloatingWidget widget, IReadOnlyList<CodexAccountView> accounts, CodexQuotaStatus status) =>
+        widget.BindAccounts(accounts.Select(account =>
+            account with { Snapshot = account.Snapshot with { Status = status } }).ToArray(),
+            accounts[0].Profile.Id, UsagePeriodPreference.Auto, WidgetFixture.Desktop);
+
+    // Every module keeps its fixed width and readable text at each scale: nothing overlaps,
+    // nothing is clipped, and the header stays above the grid.
+    private static void AssertModuleLayout(FloatingWidget widget, string context)
     {
         var content = (FrameworkElement)widget.Content;
-        var label = (TextBlock)widget.FindName("CodexLabel");
-        var value = (TextBlock)widget.FindName("CodexValue");
-        var row = (FrameworkElement)VisualTreeHelper.GetParent(label);
-        var notice = (TextBlock)widget.FindName("HistoryValue");
         var scale = VisualTreeHelper.GetDpi(content).DpiScaleY;
+        var header = (FrameworkElement)widget.FindName("WidgetHeader");
         var title = (TextBlock)widget.FindName("ProductTitle");
-        var top = title.TranslatePoint(new Point(), content).Y;
-        var last = notice.Visibility == Visibility.Visible ? (FrameworkElement)notice : row;
-        var bottom = content.ActualHeight - last.TranslatePoint(new Point(0, last.ActualHeight), content).Y;
-        if (Math.Abs(top - bottom) * scale > 1.01)
-            throw new InvalidOperationException($"Widget content is not centered ({context}): top={top}, bottom={bottom}.");
-        var labelBaseline = label.TranslatePoint(new Point(0, label.BaselineOffset), content).Y;
-        var valueBaseline = value.TranslatePoint(new Point(0, value.BaselineOffset), content).Y;
-        if (Math.Abs(labelBaseline - valueBaseline) * scale > 1.01)
-            throw new InvalidOperationException($"Widget label/value baselines differ ({context}): {labelBaseline}/{valueBaseline}; heights={label.ActualHeight}/{value.ActualHeight}; textDpi={VisualTreeHelper.GetDpi(label).DpiScaleY}/{VisualTreeHelper.GetDpi(value).DpiScaleY}.");
-        var labelRight = label.TranslatePoint(new Point(label.ActualWidth, 0), content).X;
-        var valueLeft = value.TranslatePoint(new Point(), content).X;
-        if (labelRight > valueLeft + 0.01)
-            throw new InvalidOperationException($"Widget label/value overlap ({context}).");
-        if (Math.Abs(VisualTreeHelper.GetDpi(label).DpiScaleY - scale) > 0.001)
-            throw new InvalidOperationException("Widget text did not inherit the tested DPI.");
+        if (title.Text != "CycleArc") throw new InvalidOperationException($"Widget product title is incorrect ({context}).");
+        if (widget.Modules.Count == 0) throw new InvalidOperationException($"Widget rendered no account module ({context}).");
+        var layout = widget.LastLayout ?? throw new InvalidOperationException($"Widget produced no layout ({context}).");
+        foreach (var module in widget.Modules)
+        {
+            if (Math.Abs(module.ActualWidth - WidgetGridLayout.ModuleWidth) > 0.51)
+                throw new InvalidOperationException(
+                    $"Module width drifted from the fixed {WidgetGridLayout.ModuleWidth} DIP ({context}): {module.ActualWidth}.");
+            var moduleTop = module.TranslatePoint(new Point(), content).Y;
+            var headerBottom = header.TranslatePoint(new Point(0, header.ActualHeight), content).Y;
+            if (moduleTop + 0.01 < headerBottom)
+                throw new InvalidOperationException($"An account module overlaps the header ({context}).");
+            var name = module.NameText;
+            var badge = module.Badge;
+            var nameRight = name.TranslatePoint(new Point(name.ActualWidth, 0), module).X;
+            var badgeLeft = badge.TranslatePoint(new Point(), module).X;
+            if (nameRight > badgeLeft + 0.01)
+                throw new InvalidOperationException($"Account name overlaps its provider badge ({context}).");
+            if (name.ActualWidth <= 0 || badge.ActualWidth <= 0)
+                throw new InvalidOperationException($"Account identity collapsed to nothing ({context}).");
+            foreach (var line in module.Periods)
+            {
+                var periodRight = line.PeriodText.TranslatePoint(new Point(line.PeriodText.ActualWidth, 0), module).X;
+                var remainingLeft = line.RemainingText.TranslatePoint(new Point(), module).X;
+                if (periodRight > remainingLeft + 0.01)
+                    throw new InvalidOperationException($"Period label overlaps its remaining value ({context}).");
+                if (line.RemainingText.ActualWidth + 0.5 < line.RemainingText.DesiredSize.Width
+                    || line.ResetText.ActualWidth + 0.5 < line.ResetText.DesiredSize.Width)
+                    throw new InvalidOperationException($"A quota or reset value is clipped ({context}).");
+            }
+            if (Math.Abs(VisualTreeHelper.GetDpi(name).DpiScaleY - scale) > 0.001)
+                throw new InvalidOperationException("Widget text did not inherit the tested DPI.");
+        }
+        // The wrapped grid must never exceed what the widget said it would take.
+        if (content.DesiredSize.Width > layout.Width + 1.01)
+            throw new InvalidOperationException(
+                $"Rendered widget is wider than its layout ({context}): {content.DesiredSize.Width} > {layout.Width}.");
     }
 
     private static RenderTargetBitmap Render(FrameworkElement content, double scale)

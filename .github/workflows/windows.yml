@@ -35,6 +35,21 @@ jobs:
       - name: Validate desktop resources
         run: dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build
 
+      # Render the production widget from synthetic accounts so a layout regression is visible
+      # in the run's artifacts, not only as a failed assertion.
+      - name: Render floating widget previews
+        run: >
+          dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj
+          -c Release --no-build -- --widget-accounts artifacts/widget-previews
+
+      - name: Upload floating widget previews
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: widget-previews
+          path: artifacts/widget-previews/*
+          if-no-files-found: ignore
+
       # Type-check the test-only code: every other build omits these constants, so without this
       # step it first fails when someone runs the installed-app verification. Compile only, into
       # a throwaway directory, so no shipped output is replaced. %3B is an escaped semicolon; an

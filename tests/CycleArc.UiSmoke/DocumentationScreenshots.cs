@@ -64,8 +64,17 @@ internal static class DocumentationScreenshots
         var widget = new FloatingWidget();
         try
         {
-            widget.Bind(snapshot);
-            Save(widget, Path.Combine(directory, "widget.png"), 220, null);
+            // The documented widget shows the same three accounts the popup manages.
+            var claude = snapshot with { Provider = UsageProviderId.Claude, TechnicalDetail = ClaudeUsagePresentation.LiveDetail,
+                Windows = [new("five", 85, CodexWindowClassifier.FiveHourMinutes, now.AddMinutes(35), CodexWindowKind.FiveHour),
+                    new("week", 23, CodexWindowClassifier.WeeklyMinutes, now.AddHours(12).AddMinutes(45), CodexWindowKind.Weekly)] };
+            widget.BindAccounts(
+            [
+                WidgetFixture.Synthetic("doc-main", "Personal", snapshot),
+                WidgetFixture.Synthetic("doc-lab", "Lab", snapshot with { Windows = [new("five", 62, CodexWindowClassifier.FiveHourMinutes, now.AddHours(1).AddMinutes(20), CodexWindowKind.FiveHour)] }),
+                WidgetFixture.Synthetic("doc-claude", "Work Claude", claude)
+            ], "doc-claude", UsagePeriodPreference.Auto, WidgetFixture.Desktop);
+            Save(widget, Path.Combine(directory, "widget.png"), widget.LastLayout!.Width, null);
         }
         finally { widget.Close(); }
         ExportAccounts(directory, now, applyTheme);

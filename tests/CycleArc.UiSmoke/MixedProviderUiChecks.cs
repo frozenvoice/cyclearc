@@ -95,26 +95,29 @@ internal static class MixedProviderUiChecks
                         }
                         count++;
                     }
-                    widget.BindAccount(selected);
-                    AccountUiChecks.Render(widget, 245, null, directory is not null && selected == accounts[2]
+                    WidgetFixture.BindOne(widget, selected);
+                    WidgetFixture.RenderWidget(widget, directory is not null && selected == accounts[2]
                         ? Path.Combine(directory, $"claude-widget-{language}-{theme}.png") : null);
                     CheckBadges(widget, [selected.Profile.Provider]);
-                    Check(((TextBlock)widget.FindName("AccountName")).Text == selected.DisplayName, "Widget lost the selected alias.");
+                    var module = WidgetFixture.Module(widget);
+                    Check(module.NameText.Text == selected.DisplayName, "Widget lost the selected alias.");
                     if (selected.Profile.Provider == UsageProviderId.Claude)
                     {
-                        Check(widget.ToolTip.ToString()!.Contains(ClaudeUsagePresentation.Title)
-                            && widget.ToolTip.ToString()!.Contains(ClaudeUsagePresentation.SharedScope), "Claude widget hides the shared subscription scope.");
-                        Check(((TextBlock)widget.FindName("HistoryValue")).Visibility == Visibility.Visible,
+                        Check(module.ToolTip!.ToString()!.Contains(ClaudeUsagePresentation.Title)
+                            && module.ToolTip!.ToString()!.Contains(ClaudeUsagePresentation.SharedScope), "Claude widget hides the shared subscription scope.");
+                        Check(module.StatusText.Visibility == Visibility.Visible,
                             "Claude widget hides receipt status.");
-                        CheckStaleText((TextBlock)widget.FindName("HistoryValue"), selected.Snapshot);
-                        var receipt = (TextBlock)widget.FindName("ClaudeReceipt");
-                        Check(receipt.Visibility == Visibility.Visible && receipt.Text == ClaudeUsagePresentation.LastReceivedText(selected.Snapshot),
+                        CheckStaleText(module.StatusText, selected.Snapshot);
+                        // The compact widget keeps the exact receipt stamp in the module tooltip.
+                        Check(module.ToolTip!.ToString()!.Contains(ClaudeUsagePresentation.LastReceivedText(selected.Snapshot)),
                             "Claude widget hides the last receipt date/time.");
-                        Check(receipt.ActualWidth >= receipt.DesiredSize.Width - 1, "Claude widget clips the last receipt date/time.");
                     }
                     if (selected.Snapshot.Status == CodexQuotaStatus.Stale)
-                        Check(((TextBlock)widget.FindName("HistoryValue")).Visibility == Visibility.Visible
-                            && ((TextBlock)widget.FindName("CodexValue")).Text.Contains('~'), "Claude widget hides stale state.");
+                        Check(module.StatusText.Visibility == Visibility.Visible
+                            && module.Model!.IsStale
+                            && ((SolidColorBrush)module.RingValueText.Foreground).Color
+                                == ((SolidColorBrush)Application.Current.FindResource("StaleBrush")).Color,
+                            "Claude widget hides stale state.");
                     count++;
                 }
                 // An unchanged older receipt remains neutral; only a concrete failure raises attention.
@@ -132,12 +135,12 @@ internal static class MixedProviderUiChecks
                 var idleCard = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>().Last();
                 CheckStaleText(AccountUiChecks.Descendants<TextBlock>(idleCard).Single(text =>
                     text.Text == CycleArcPresentation.StatusLabel(idle.Snapshot)), idle.Snapshot);
-                widget.BindAccount(idle);
-                AccountUiChecks.Render(widget, 245, null, directory is null ? null
+                WidgetFixture.BindOne(widget, idle);
+                WidgetFixture.RenderWidget(widget, directory is null ? null
                     : Path.Combine(directory, $"claude-idle-widget-{language}-{theme}.png"));
-                CheckStaleText((TextBlock)widget.FindName("HistoryValue"), idle.Snapshot);
-                Check(!((TextBlock)widget.FindName("CodexValue")).Text.Contains('~')
-                    && ((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(idle.Snapshot),
+                CheckStaleText(WidgetFixture.Module(widget).StatusText, idle.Snapshot);
+                Check(!WidgetFixture.Module(widget).Model!.IsStale
+                    && WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.LastReceivedText(idle.Snapshot)),
                     "Idle Claude values look stale or hide their original receipt.");
                 count += 2;
                 // Desktop supplies real percentages without reset timestamps. Exercise the
@@ -163,9 +166,9 @@ internal static class MixedProviderUiChecks
                     "Desktop reset times were invented.");
                 Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(desktop.Snapshot).CenterValueText,
                     "Desktop quota without a reset time has no ring value.");
-                widget.BindAccount(desktop);
-                AccountUiChecks.Render(widget, 245, null, null);
-                Check(((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(desktop.Snapshot),
+                WidgetFixture.BindOne(widget, desktop);
+                WidgetFixture.RenderWidget(widget, null);
+                Check(WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.LastReceivedText(desktop.Snapshot)),
                     "Desktop widget hides the source observation time.");
                 count += 2;
 
@@ -198,9 +201,9 @@ internal static class MixedProviderUiChecks
                 Check(AccountUiChecks.Descendants<TextBlock>((FrameworkElement)manager.Content)
                     .Any(text => text.Text == UiText.T("Via Claude server refresh", "Claude 서버 새로고침")),
                     "Live Claude account source is not shown in account management.");
-                widget.BindAccount(live);
-                AccountUiChecks.Render(widget, 245, null, null);
-                Check(((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(live.Snapshot),
+                WidgetFixture.BindOne(widget, live);
+                WidgetFixture.RenderWidget(widget, null);
+                Check(WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.LastReceivedText(live.Snapshot)),
                     "Live Claude widget hides the fetched timestamp.");
                 count += 4;
 
@@ -223,12 +226,15 @@ internal static class MixedProviderUiChecks
                     text.Text == CycleArcPresentation.StatusLabel(elapsed.Snapshot)), elapsed.Snapshot);
                 Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(idle.Snapshot).CenterValueText,
                     "Elapsed reset changed the last received percentage.");
-                widget.BindAccount(elapsed);
-                AccountUiChecks.Render(widget, 245, null, directory is null ? null
+                WidgetFixture.BindOne(widget, elapsed);
+                WidgetFixture.RenderWidget(widget, directory is null ? null
                     : Path.Combine(directory, $"claude-reset-elapsed-widget-{language}-{theme}.png"));
-                CheckStaleText((TextBlock)widget.FindName("HistoryValue"), elapsed.Snapshot);
-                Check(!((TextBlock)widget.FindName("CodexValue")).Text.Contains('~')
-                    && ((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(idle.Snapshot),
+                CheckStaleText(WidgetFixture.Module(widget).StatusText, elapsed.Snapshot);
+                // A reset time that has passed waits for the server instead of restarting locally.
+                Check(WidgetFixture.Module(widget).Periods.All(line =>
+                        line.ResetText.Text != UiText.ResetNotProvided && !line.ResetText.Text.Contains('-'))
+                    && !WidgetFixture.Module(widget).Model!.IsStale
+                    && WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.LastReceivedText(idle.Snapshot)),
                     "Elapsed reset adds a warning or renews the original receipt.");
                 count += 2;
 
@@ -240,19 +246,19 @@ internal static class MixedProviderUiChecks
                 CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), failed.Snapshot);
                 Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("1 need attention", "1개 확인 필요"),
                     "A real Claude input failure no longer raises attention.");
-                widget.BindAccount(failed);
-                AccountUiChecks.Render(widget, 245, null, null);
-                CheckStaleText((TextBlock)widget.FindName("HistoryValue"), failed.Snapshot);
+                WidgetFixture.BindOne(widget, failed);
+                WidgetFixture.RenderWidget(widget, null);
+                CheckStaleText(WidgetFixture.Module(widget).StatusText, failed.Snapshot);
                 count += 2;
 
                 var renewed = accounts[1] with { Snapshot = accounts[1].Snapshot with { LastSuccessfulRefresh = DateTimeOffset.Now } };
                 flyout.Bind(renewed.Snapshot);
                 AccountUiChecks.Render(flyout, 440, null, null);
                 CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), renewed.Snapshot);
-                widget.BindAccount(renewed);
-                AccountUiChecks.Render(widget, 245, null, null);
-                CheckStaleText((TextBlock)widget.FindName("HistoryValue"), renewed.Snapshot);
-                Check(((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(renewed.Snapshot),
+                WidgetFixture.BindOne(widget, renewed);
+                WidgetFixture.RenderWidget(widget, null);
+                CheckStaleText(WidgetFixture.Module(widget).StatusText, renewed.Snapshot);
+                Check(WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.LastReceivedText(renewed.Snapshot)),
                     "New sample did not update the receipt timestamp.");
                 count += 2;
                 foreach (var status in new[] { CodexQuotaStatus.Unavailable, CodexQuotaStatus.ProtocolMismatch })
@@ -411,12 +417,12 @@ internal static class MixedProviderUiChecks
             Check(((TextBlock)flyout.FindName("CodexStatusText")).Text.StartsWith(label, StringComparison.Ordinal),
                 "Selected details did not name the authentication failure.");
             Check(snapshot.HasUsablePercentages == cached, "Unknown failed usage was converted into zero.");
-            widget.BindAccount(account);
-            AccountUiChecks.Render(widget, 245, null, null);
-            Check(((TextBlock)widget.FindName("HistoryValue")).Text == label,
+            WidgetFixture.BindOne(widget, account);
+            WidgetFixture.RenderWidget(widget, null);
+            Check(WidgetFixture.Status(widget) == label,
                 "Widget authentication status disagrees with the account/details.");
             if (cached)
-                Check(((TextBlock)widget.FindName("ClaudeReceipt")).Text == ClaudeUsagePresentation.LastReceivedText(fixture.Snapshot),
+                Check(WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.LastReceivedText(fixture.Snapshot)),
                     "Authentication failure changed the displayed last receipt.");
         }
         return 4;

@@ -80,13 +80,21 @@ internal static class AccountUiChecks
                     CheckProviderLabels(window, size);
                     if (size > 0) CheckRenameSurvivesDisplayTick(window, accounts, id);
                     CheckGuidanceAndOrder(window, accounts, directory, language, theme);
-                    widget.BindAccount(accounts.FirstOrDefault());
-                    Render(widget, 245, null, null);
-                    CheckProviderLabels(widget, 1);
+                    widget.BindAccounts(visibleAccounts, id, UsagePeriodPreference.Auto, WidgetFixture.Desktop);
+                    WidgetFixture.RenderWidget(widget, null);
+                    CheckProviderLabels(widget, visibleCount);
                     if (((TextBlock)widget.FindName("ProductTitle")).Text != "CycleArc")
                         throw new InvalidOperationException("Widget product title is incorrect.");
-                    if (((TextBlock)widget.FindName("AccountName")).Visibility != (size > 0 ? Visibility.Visible : Visibility.Collapsed))
-                        throw new InvalidOperationException("Widget does not identify selected account.");
+                    if (widget.Modules.Count != visibleCount
+                        || !widget.Modules.Select(m => m.ProfileId).SequenceEqual(visibleAccounts.Select(a => a.Profile.Id)))
+                        throw new InvalidOperationException("Widget does not show every displayable account in order.");
+                    if (widget.Modules.Any(m => m.NameText.Visibility != Visibility.Visible || m.NameText.Text.Length == 0))
+                        throw new InvalidOperationException("Widget does not identify an account it shows.");
+                    if (visibleCount > 0 && widget.Modules.Count(m => m.Model!.IsSelected) != 1)
+                        throw new InvalidOperationException("Widget lost or duplicated the shared selection.");
+                    if (((TextBlock)widget.FindName("EmptyStateText")).Visibility
+                        != (visibleCount == 0 ? Visibility.Visible : Visibility.Collapsed))
+                        throw new InvalidOperationException("Widget empty state disagrees with the account list.");
                     count += 2;
                 }
                 finally { flyout.Close(); window.Close(); widget.Close(); }
@@ -130,33 +138,37 @@ internal static class AccountUiChecks
         {
             foreach (var item in cases)
             {
-                widget.BindAccount(item.Account);
-                var name = (TextBlock)widget.FindName("AccountName");
+                WidgetFixture.BindOne(widget, item.Account);
+                var module = WidgetFixture.Module(widget);
+                var name = module.NameText;
                 if (name.Visibility != Visibility.Visible || name.Text != item.Expected)
                     throw new InvalidOperationException($"Single-account widget identity missing ({language}/{theme}/{item.Name}).");
                 var content = (FrameworkElement)widget.Content;
-                content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                Render(widget, content.DesiredSize.Width, null, directory is not null
+                WidgetFixture.RenderWidget(widget, directory is not null
                     ? Path.Combine(directory, $"widget-{item.Name}-{language}-{theme}.png") : null);
-                var badge = (UsageProviderBadge)widget.FindName("ProviderBadge");
+                var badge = module.Badge;
                 var nameBounds = name.TransformToAncestor(content).TransformBounds(new Rect(name.RenderSize));
                 var badgeBounds = badge.TransformToAncestor(content).TransformBounds(new Rect(badge.RenderSize));
                 if (name.ActualWidth <= 0 || name.ActualHeight <= 0
-                    || nameBounds.Left < badgeBounds.Right
+                    || nameBounds.Right > badgeBounds.Left + 1
                     || nameBounds.Right > content.ActualWidth + 1
                     || nameBounds.Bottom > content.ActualHeight + 1)
                     throw new InvalidOperationException("Widget account identity overlaps or is clipped.");
+                // A long nickname is trimmed inside its fixed module and never widens the widget.
+                if (Math.Abs(module.ActualWidth - WidgetGridLayout.ModuleWidth) > 0.51)
+                    throw new InvalidOperationException($"A long identity resized the module ({item.Name}).");
                 if (name.TextTrimming != TextTrimming.CharacterEllipsis
-                    || widget.ToolTip is not string tooltip
-                    || !tooltip.StartsWith(item.Expected + Environment.NewLine, StringComparison.Ordinal))
+                    || module.ToolTip is not string tooltip
+                    || !tooltip.StartsWith(item.Expected + Environment.NewLine, StringComparison.Ordinal)
+                    || name.ToolTip as string != item.Expected)
                     throw new InvalidOperationException("Widget must retain the full identity in its tooltip.");
             }
-            widget.BindAccount(null);
-            var cleared = (TextBlock)widget.FindName("AccountName");
-            if (cleared.Visibility != Visibility.Collapsed || cleared.Text.Length != 0
+            WidgetFixture.BindOne(widget, null);
+            if (widget.Modules.Count != 0
+                || ((TextBlock)widget.FindName("EmptyStateText")).Visibility != Visibility.Visible
                 || widget.ToolTip is string clearedTooltip && clearedTooltip.Contains(longEmail, StringComparison.Ordinal))
                 throw new InvalidOperationException("Widget retained a removed account's identity.");
-            Render(widget, 245, null, null);
+            WidgetFixture.RenderWidget(widget, null);
         }
         finally { widget.Close(); }
         return cases.Length + 1;
@@ -223,8 +235,8 @@ internal static class AccountUiChecks
                 if (name.TranslatePoint(new Point(name.ActualWidth, 0), header).X
                     > badge.TranslatePoint(new Point(), header).X + 1)
                     throw new InvalidOperationException("Long selected-account name overlaps its provider.");
-                widget.BindAccount(accounts[0]);
-                Render(widget, 245, null, null);
+                WidgetFixture.BindOne(widget, accounts[0]);
+                WidgetFixture.RenderWidget(widget, null);
                 CheckProviderLabels(widget, 1);
             }
         }
@@ -367,12 +379,14 @@ internal static class AccountUiChecks
                 if (((Expander)window.FindName("ConnectionOptions")).IsExpanded)
                     throw new InvalidOperationException("Existing connection repair must show the profile before new-account setup.");
                 flyout.BindAccounts([account], account.Profile.Id, false);
-                widget.BindAccount(account);
+                WidgetFixture.BindOne(widget, account);
                 var stem = detail == "codex-identity-conflict" && directory is not null
                     ? Path.Combine(directory, $"codex-reconnect-{language}-{theme}") : null;
                 Render(window, 700, 800, stem is null ? null : stem + "-manage.png");
                 Render(flyout, 440, null, stem is null ? null : stem + "-flyout.png");
-                Render(widget, 245, null, null);
+                WidgetFixture.RenderWidget(widget, null);
+                if (WidgetFixture.Module(widget).Periods.Count != 0)
+                    throw new InvalidOperationException("An unverified Codex identity must not show quota in the widget.");
                 var texts = Descendants<TextBlock>((FrameworkElement)flyout.Content).Where(t => t.Visibility == Visibility.Visible).Select(t => t.Text).ToArray();
                 if (!texts.Contains(CodexDisplayFormatting.StatusText(account.Snapshot))
                     || CodexRingPresentation.From(account.Snapshot).IsAvailable

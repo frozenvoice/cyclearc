@@ -5,6 +5,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Input;
 using CycleArc.Codex;
 using CycleArc.Models;
+using CycleArc.Providers.Usage;
 using CycleArc.Services;
 using CycleArc.UI;
 
@@ -99,6 +100,11 @@ internal static class Program
                 TrayIconChecks.Run(trayDirectory);
                 return 0;
             }
+            if (args is ["--widget-accounts", var widgetAccountsDirectory])
+            {
+                WidgetMultiAccountChecks.Run(widgetAccountsDirectory);
+                return 0;
+            }
             if (args is ["--widget-dpi", var dpiDirectory])
             {
                 WidgetDpiChecks.Run(dpiDirectory);
@@ -177,6 +183,7 @@ internal static class Program
             CheckWidgetRecovery();
             CheckWidgetRestart();
             WidgetRecoveryChecks.Run();
+            WidgetMultiAccountChecks.Run();
             TrayIconChecks.Run();
             WidgetDpiChecks.Run();
             CheckPositionReset();
@@ -197,19 +204,21 @@ internal static class Program
                 CheckCreditUse(flyout, snapshot);
                 flyout.Bind(snapshot);
                 CheckZoomShortcuts(flyout);
-                widget.Bind(snapshot);
-                var notice = (System.Windows.Controls.TextBlock)widget.FindName("HistoryValue");
+                WidgetFixture.BindSnapshot(widget, snapshot);
                 foreach (var status in Enum.GetValues<CodexQuotaStatus>())
                 {
-                    widget.Bind(snapshot with { Status = status });
+                    WidgetFixture.BindSnapshot(widget, snapshot with { Status = status });
+                    var notice = WidgetFixture.Module(widget).StatusText;
                     var attention = status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing);
                     if (notice.Visibility != (attention ? Visibility.Visible : Visibility.Collapsed)
                         || string.IsNullOrEmpty(notice.Text) == attention)
                         throw new InvalidOperationException($"Incorrect widget notice for {status}.");
                 }
-                widget.Bind(snapshot); // Recovery must remove the old failure text and its space.
-                if (notice.Visibility != Visibility.Collapsed || notice.Text.Length != 0)
+                WidgetFixture.BindSnapshot(widget, snapshot); // Recovery must remove the old failure text and its space.
+                var recovered = WidgetFixture.Module(widget).StatusText;
+                if (recovered.Visibility != Visibility.Collapsed || recovered.Text.Length != 0)
                     throw new InvalidOperationException("Widget notice remains after recovery.");
+                CheckWidgetAccountBinding(widget, now);
                 Window[] windows = [flyout, widget,
                     new SettingsWindow(AppSettings.CreateDefaults()), new AboutWindow("1.0.0", "synthetic")];
                 foreach (var window in windows)
@@ -326,17 +335,107 @@ internal static class Program
     }
     private static void CheckWidgetTextLayout(FloatingWidget widget, FrameworkElement content)
     {
-        var stack = (FrameworkElement)widget.FindName("WidgetStatusStack");
-        var top = stack.TranslatePoint(new Point(), content).Y;
-        var bottom = content.ActualHeight - top - stack.ActualHeight;
-        if (Math.Abs(top - bottom) > 1)
-            throw new InvalidOperationException($"Widget status stack is not vertically centered: {top}/{bottom}.");
-        foreach (var name in new[] { "ProductTitle", "CodexLabel", "CodexValue" })
+        var header = (FrameworkElement)widget.FindName("WidgetHeader");
+        if (header.ActualHeight <= 0 || header.ActualWidth <= 0)
+            throw new InvalidOperationException("Widget header did not render.");
+        var module = WidgetFixture.Module(widget);
+        System.Windows.Controls.TextBlock[] texts =
+            [(System.Windows.Controls.TextBlock)widget.FindName("ProductTitle"), module.NameText,
+             module.RingValueText, module.Periods[0].RemainingText, module.Periods[0].ResetText];
+        foreach (var text in texts)
         {
-            var text = (System.Windows.Controls.TextBlock)widget.FindName(name);
             if (!text.UseLayoutRounding || !text.SnapsToDevicePixels
                 || TextOptions.GetTextFormattingMode(text) != TextFormattingMode.Display)
                 throw new InvalidOperationException("Widget text must use pixel-aligned display formatting.");
+        }
+        if (module.TranslatePoint(new Point(), content).Y
+            < header.TranslatePoint(new Point(0, header.ActualHeight), content).Y - 0.01)
+            throw new InvalidOperationException("The account module overlaps the single widget header.");
+    }
+
+    // Accounts, their order, their periods and the click-to-select contract, without a native window.
+    private static void CheckWidgetAccountBinding(FloatingWidget widget, DateTimeOffset now)
+    {
+        var both = new CodexQuotaSnapshot(CodexQuotaStatus.Available, "pro", now, now, null, null, null,
+        [
+            new("five", 85, CodexWindowClassifier.FiveHourMinutes, now.AddMinutes(35), CodexWindowKind.FiveHour),
+            new("week", 23, CodexWindowClassifier.WeeklyMinutes, now.AddHours(12).AddMinutes(45), CodexWindowKind.Weekly)
+        ], null);
+        var weeklyOnly = both with { Windows = [both.Windows[1]] };
+        CodexAccountView[] accounts =
+        [
+            WidgetFixture.Synthetic("w-main", "Main", both),
+            WidgetFixture.Synthetic("w-kakao", "Kakao", weeklyOnly),
+            WidgetFixture.Synthetic("w-claude", "Work Claude", both with { Provider = UsageProviderId.Claude })
+        ];
+        widget.BindAccounts(accounts, "w-kakao", UsagePeriodPreference.Auto, WidgetFixture.Desktop);
+        if (widget.Modules.Count != 3) throw new InvalidOperationException("The widget dropped an account module.");
+        if (widget.Modules.Select(m => m.ProfileId).ToArray() is not ["w-main", "w-kakao", "w-claude"])
+            throw new InvalidOperationException("The widget reordered the managed account order.");
+        if (widget.Modules[0].Periods.Count != 2 || widget.Modules[1].Periods.Count != 1
+            || widget.Modules[2].Periods.Count != 2)
+            throw new InvalidOperationException("The widget hid a provided period or invented a missing one.");
+        if (widget.Modules[0].Periods[0].ResetText.Text == widget.Modules[0].Periods[1].ResetText.Text)
+            throw new InvalidOperationException("Both periods share one reset countdown.");
+        if (widget.LastLayout is not { Columns: 3, Rows: 1 })
+            throw new InvalidOperationException($"Three accounts did not share one row: {widget.LastLayout}.");
+
+        // Removing an account must drop its module rather than leave a stale one behind.
+        widget.BindAccounts(accounts.Take(1).ToArray(), "w-main", UsagePeriodPreference.Auto, WidgetFixture.Desktop);
+        if (widget.Modules.Count != 1 || widget.LastLayout is not { Columns: 1, Rows: 1 })
+            throw new InvalidOperationException("A removed account still occupies the widget.");
+        widget.BindAccounts(accounts, "w-kakao", UsagePeriodPreference.Auto, WidgetFixture.Desktop);
+
+        // A narrow monitor wraps by module instead of shrinking the row.
+        widget.BindAccounts(accounts, "w-kakao", UsagePeriodPreference.Auto, [new ScreenRect(0, 0, 560, 1040)]);
+        if (widget.LastLayout is not { Columns: 2, Rows: 2 })
+            throw new InvalidOperationException($"A narrow work area did not wrap: {widget.LastLayout}.");
+        widget.BindAccounts(accounts, "w-kakao", UsagePeriodPreference.Auto, WidgetFixture.Desktop);
+
+        var selections = new List<string>();
+        var opened = 0;
+        void OnSelected(string id) => selections.Add(id);
+        void OnOpened() => opened++;
+        widget.AccountSelected += OnSelected;
+        widget.FlyoutRequested += OnOpened;
+        try
+        {
+            var drag = typeof(FloatingWidget).GetField("_drag", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var pressed = typeof(FloatingWidget).GetField("_pressedProfileId", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var finish = typeof(FloatingWidget).GetMethod("FinishDrag", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            // A click on a module selects that account and opens the existing detail popup.
+            drag.SetValue(widget, new WidgetDragSession(10, 10, 10, 10));
+            pressed.SetValue(widget, "w-claude");
+            finish.Invoke(widget, [true]);
+            if (selections is not ["w-claude"] || opened != 1)
+                throw new InvalidOperationException("A module click did not select its account and open the detail.");
+
+            // A finished drag moves the widget and must not open anything.
+            var moved = new WidgetDragSession(10, 10, 10, 10);
+            moved.Move(200, 200);
+            drag.SetValue(widget, moved);
+            pressed.SetValue(widget, "w-main");
+            finish.Invoke(widget, [true]);
+            if (selections.Count != 1 || opened != 1)
+                throw new InvalidOperationException("A drag selected an account or opened the detail.");
+
+            // The header's own buttons raise their own actions and never select or drag.
+            var hidden = 0;
+            var settings = 0;
+            widget.CloseRequested += () => hidden++;
+            widget.SettingsRequested += () => settings++;
+            ((System.Windows.Controls.Button)widget.FindName("WidgetCloseButton"))
+                .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            ((System.Windows.Controls.Button)widget.FindName("WidgetSettingsButton"))
+                .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            if (hidden != 1 || settings != 1 || selections.Count != 1 || opened != 1)
+                throw new InvalidOperationException("A header button leaked into selection, drag or the detail popup.");
+        }
+        finally
+        {
+            widget.AccountSelected -= OnSelected;
+            widget.FlyoutRequested -= OnOpened;
         }
     }
 

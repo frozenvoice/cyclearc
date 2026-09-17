@@ -50,6 +50,53 @@ public class WidgetInteractionTests
     }
 
     [Fact]
+    public void FloatingWidget_ShowsEveryAccountFromTheSharedOverview()
+    {
+        var widgetCode = File.ReadAllText(Find("src/CycleArc/UI/FloatingWidget.xaml.cs"));
+        Assert.Contains("public void BindAccounts(", widgetCode, StringComparison.Ordinal);
+        Assert.Contains("WidgetAccountModel.All(", widgetCode, StringComparison.Ordinal);
+        Assert.Contains("WidgetGridLayout.For(", widgetCode, StringComparison.Ordinal);
+        // The widget must not build a usage source of its own.
+        Assert.DoesNotContain("HttpClient", widgetCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("DispatcherTimer", widgetCode, StringComparison.Ordinal);
+
+        var controller = File.ReadAllText(Find("src/CycleArc/Services/FloatingWidgetController.cs"));
+        Assert.Contains("BindAccounts(overview.Accounts, overview.SelectedId, overview.Preference)", controller, StringComparison.Ordinal);
+        Assert.DoesNotContain("overview.Selected,", controller, StringComparison.Ordinal);
+
+        var appCode = File.ReadAllText(Find("src/CycleArc/App.xaml.cs"));
+        Assert.Contains("widget.AccountSelected += id => _codex.Select(id)", appCode, StringComparison.Ordinal);
+        Assert.Contains("widget.FlyoutRequested += ShowMain", appCode, StringComparison.Ordinal);
+        Assert.Contains("widget.SettingsRequested += ShowSettings", appCode, StringComparison.Ordinal);
+        Assert.Contains("widget.CloseRequested += CloseWidget", appCode, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FloatingWidgetXaml_HasOneHeaderAndAWrappingModuleHost()
+    {
+        var document = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "FloatingWidget.xaml"));
+        XNamespace ns = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        string?[] Named(string element) => document.Descendants(ns + element)
+            .Select(e => (string?)e.Attribute(x + "Name")).ToArray();
+
+        Assert.Single(Named("Grid").Where(name => name == "WidgetHeader"));
+        Assert.Single(Named("Grid").Where(name => name == "ModuleHost"));
+        var scroller = document.Descendants(ns + "ScrollViewer")
+            .Single(e => (string?)e.Attribute(x + "Name") == "ModuleScroller");
+        Assert.Equal("Auto", (string?)scroller.Attribute("VerticalScrollBarVisibility"));
+        // Horizontal scrolling would hide accounts instead of wrapping them.
+        Assert.Equal("Disabled", (string?)scroller.Attribute("HorizontalScrollBarVisibility"));
+        Assert.Contains("WidgetSettingsButton", document.ToString(), StringComparison.Ordinal);
+        Assert.Contains("WidgetCloseButton", document.ToString(), StringComparison.Ordinal);
+        // No sample account is baked into the markup; modules come from the bound accounts.
+        Assert.DoesNotContain("ImageBrush", document.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("WebView", document.ToString(), StringComparison.Ordinal);
+        foreach (var name in new[] { "메인", "카카오", "frozenvoice" })
+            Assert.DoesNotContain(name, document.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SettingsXaml_RemovesChatControlsAndKeepsSurfaceToggles()
     {
         var document = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "SettingsWindow.xaml"));
