@@ -132,13 +132,18 @@ function Get-CycleArcProcesses {
 # snapshot copy as a second desktop inside the installation. Ask the path API instead - a
 # path outside the root relates to it through '..'. Do not filter on HasExited either: .NET
 # reports a process it cannot open a handle for as exited, which hid the running desktop.
+function Split-PathSegments([string]$Value) {
+    try { $full = [IO.Path]::GetFullPath($Value) } catch { return , @() }
+    , @($full.Split([char[]]@('\', '/'), [StringSplitOptions]::RemoveEmptyEntries))
+}
 function Test-PathUnder([string]$Root, [string]$Path) {
-    try {
-        $relative = [IO.Path]::GetRelativePath([IO.Path]::GetFullPath($Root), [IO.Path]::GetFullPath($Path))
+    $rootParts = Split-PathSegments $Root
+    $pathParts = Split-PathSegments $Path
+    if ($rootParts.Count -eq 0 -or $pathParts.Count -le $rootParts.Count) { return $false }
+    for ($index = 0; $index -lt $rootParts.Count; $index++) {
+        if ($rootParts[$index] -ine $pathParts[$index]) { return $false }
     }
-    catch { return $false }
-    if ($relative -eq '.' -or [IO.Path]::IsPathRooted($relative)) { return $false }
-    return !$relative.StartsWith('..', [StringComparison]::Ordinal)
+    $true
 }
 function Get-ProcessesUnder([string]$Root) {
     $matched = @()
@@ -430,6 +435,9 @@ Assert-True ((Get-Sha256 $Current) -eq $Builds.B.Sha256) 'the failed update left
 Assert-True ((Get-FileVersionText $Current) -eq $Builds.B.FileVersion) 'the restored file version is not the previous build.'
 $installedProcesses = Get-ProcessesUnder $InstallTo
 Write-Fact 'recovered.installedProcesses' (Get-ProcessSummary $installedProcesses)
+# Both lists, so a containment test that answers yes to everything cannot look like a
+# second desktop: the supervisor's notice belongs to the recovery root, not the installation.
+Write-Fact 'recovered.helperProcesses' (Get-ProcessSummary (Get-ProcessesUnder $RecoveryRoot))
 Assert-True ($installedProcesses.Count -eq 1) `
     ("expected exactly one CycleArc desktop under $InstallTo after recovery, found " +
         "$($installedProcesses.Count): $(Get-ProcessSummary $installedProcesses)")
