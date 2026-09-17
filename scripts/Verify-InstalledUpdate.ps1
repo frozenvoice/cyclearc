@@ -129,15 +129,14 @@ function Get-CycleArcProcesses {
 }
 # The boundary separator matters: the recovery root sits beside the installation as
 # 'CycleArc-update-recovery', so a bare prefix test counts the supervisor's own snapshot copy
-# as a second desktop inside the installation. A process that has already exited is not
-# running either, whoever still holds a handle to it.
+# as a second desktop inside the installation. Do not filter on HasExited: .NET reports a
+# process it cannot open a handle for as exited, which hid the running desktop entirely.
 function Get-ProcessesUnder([string]$Root) {
     $full = [IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar)
     $prefix = $full + [IO.Path]::DirectorySeparatorChar
     $matched = @()
     foreach ($process in Get-CycleArcProcesses) {
         $path = $null
-        try { if ($process.HasExited) { continue } } catch { }
         try { $path = $process.Path } catch { $path = $null }
         if ($path -and $path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $matched += $process }
     }
@@ -425,7 +424,8 @@ Assert-True ((Get-FileVersionText $Current) -eq $Builds.B.FileVersion) 'the rest
 $installedProcesses = Get-ProcessesUnder $InstallTo
 Write-Fact 'recovered.installedProcesses' (Get-ProcessSummary $installedProcesses)
 Assert-True ($installedProcesses.Count -eq 1) `
-    "more than one CycleArc desktop is running after recovery: $(Get-ProcessSummary $installedProcesses)"
+    ("expected exactly one CycleArc desktop under the installation after recovery, found " +
+        "$($installedProcesses.Count): $(Get-ProcessSummary $installedProcesses)")
 Assert-True ([IO.Path]::GetFullPath($recovered.ExecutablePath) -ieq [IO.Path]::GetFullPath($Current)) 'the recovered desktop is not the installed executable.'
 Write-Fact 'recovered.fileVersion' (Get-FileVersionText $Current)
 Write-Fact 'recovered.sha256' (Get-Sha256 $Current)
