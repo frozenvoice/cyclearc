@@ -302,22 +302,21 @@ internal static class WidgetLayoutChecks
             Check(widget.LastLayout!.Columns == 5 && Inside(widget.Left, widget.Top, removedWidth, removedHeight, primary),
                 "Removing the secondary monitor did not recover onto the remaining primary.");
 
-            var content = (FrameworkElement)widget.Content;
             foreach (var scale in new[] { 1.0, 1.5, 2.0 })
             {
-                VisualTreeHelper.SetRootDpi(content, new DpiScale(scale, scale));
+                VisualTreeHelper.SetRootDpi(widget, new DpiScale(scale, scale));
                 widget.Left = -400;
                 widget.Top = 40;
                 widget.Relayout(Dual);
                 Pump();
                 Check(widget.LastLayout!.Columns == 3 && widget.LastLayout.Rows == 2,
                     $"{scale:0.0}x drop onto the secondary did not wrap.");
-                var scaledWidth = widget.ActualWidth > 0 ? widget.ActualWidth : content.DesiredSize.Width;
-                var scaledHeight = widget.ActualHeight > 0 ? widget.ActualHeight : content.DesiredSize.Height;
+                var scaledWidth = widget.ActualWidth > 0 ? widget.ActualWidth : ((FrameworkElement)widget.Content).DesiredSize.Width;
+                var scaledHeight = widget.ActualHeight > 0 ? widget.ActualHeight : ((FrameworkElement)widget.Content).DesiredSize.Height;
                 Check(Inside(widget.Left, widget.Top, scaledWidth, scaledHeight, secondary),
                     $"{scale:0.0}x wrapped widget left the secondary at {widget.Left},{widget.Top} {scaledWidth}x{scaledHeight}.");
             }
-            VisualTreeHelper.SetRootDpi(content, new DpiScale(1, 1));
+            VisualTreeHelper.SetRootDpi(widget, new DpiScale(1, 1));
             return 4;
         }
         finally
