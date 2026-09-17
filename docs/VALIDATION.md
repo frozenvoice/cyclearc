@@ -42,6 +42,25 @@
     assertion, the published Claude statusLine receiver, Velopack packaging and the packaged
     update validation. The first attempt (run 160) failed to compile, which is how the UiSmoke
     name collision and the blocking test call were found and fixed.
+  - Review follow-up, two defects found by reading the added branches rather than by running
+    Windows removal. First, the new profile projection returned an empty list both when a data
+    root held no Claude profiles and when the account registry and its backup could not be read,
+    so an unreadable registry was cleaned as "nothing to do", left the dead callback in place and
+    wrote no receipt at all. `CodexAccountStore.ReadClaudeProfiles` now reports whether the
+    registry could be read — absent files mean no accounts, unreadable files mean unknown — and
+    the report carries an `IncompleteReason` (`InstallationRootUnusable`, `AccountsUnavailable`,
+    `Interrupted`), so an unconfirmed list is recorded as incomplete with its cause. Receipt
+    schema version 2. Regression tests cover a damaged registry and backup, a registry held open
+    by another process, and an absent registry as a genuine empty list.
+  - Second, the test-only update driver was read from an environment variable that the recovery
+    helper and the desktop it restarts inherit, so a restored desktop would immediately apply the
+    same failing update again and the recovery assertions would race that retry. The instruction
+    is now consumed once, before anything can inherit it. Test-only build flavour; no shipped
+    build contains that code, and no production update happens without a person approving it.
+  - CI now compiles `CYCLEARC_TEST_E2E` and `CYCLEARC_TEST_FAIL_STARTUP` into a throwaway output,
+    so the test-only code is type-checked on every push instead of first failing when someone runs
+    the installed-app verification. Compilation is not execution: it proves those branches build,
+    not that the installed update, recovery or removal works.
   - Still not executed anywhere: `scripts/Verify-InstalledUpdate.ps1`, so real Setup installation,
     the installed-app update, supervisor recovery and removal remain unverified, and the
     `CYCLEARC_TEST_E2E` / `CYCLEARC_TEST_FAIL_STARTUP` build flavours have never been compiled —

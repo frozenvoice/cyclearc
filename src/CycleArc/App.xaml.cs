@@ -180,7 +180,15 @@ public partial class App : Application
             _updateTask = CheckUpdatesAsync(TimeSpan.FromSeconds(20));
         }
 #if CYCLEARC_TEST_E2E
-        if (Environment.GetEnvironmentVariable("CYCLEARC_TEST_UPDATE_DRIVE") == "1") StartTestUpdateDrive();
+        if (Environment.GetEnvironmentVariable("CYCLEARC_TEST_UPDATE_DRIVE") == "1")
+        {
+            // Consume the instruction before anything can inherit it. The recovery helper and the
+            // desktop it restarts inherit this process's environment, so a drive that is not
+            // one-shot would make a restored desktop immediately apply the same failing update
+            // again instead of staying ready for the verification to inspect.
+            Environment.SetEnvironmentVariable("CYCLEARC_TEST_UPDATE_DRIVE", null);
+            StartTestUpdateDrive();
+        }
 #endif
     }
 

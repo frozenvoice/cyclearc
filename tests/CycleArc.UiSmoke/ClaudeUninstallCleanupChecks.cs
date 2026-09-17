@@ -105,6 +105,8 @@ internal static class ClaudeUninstallCleanupChecks
         var receipt = JsonSerializer.Deserialize<JsonObject>(File.ReadAllText(receiptPath))
             ?? throw new InvalidOperationException("The cleanup receipt is not readable.");
         Check(receipt["Completed"]?.GetValue<bool>() == true, "The cleanup receipt does not report a completed run.");
+        Check(receipt["IncompleteReason"]?.GetValue<string>() == nameof(ClaudeUninstallIncompleteReason.None),
+            "The cleanup receipt reports a reason for not finishing.");
         Check(receipt["Restored"]?.GetValue<int>() >= 1, "The cleanup receipt does not report a restored profile.");
         Check(receipt["Failed"]?.GetValue<int>() == 0, "The cleanup receipt reports a failed profile.");
         Check(!File.ReadAllText(receiptPath).Contains("powershell.exe", StringComparison.OrdinalIgnoreCase),
@@ -126,7 +128,9 @@ internal static class ClaudeUninstallCleanupChecks
     private static void CheckPreservedAccountData(CodexAccountStore accounts, SeedFixture seed)
     {
         Check(accounts.ContainsClaude(seed.ProfileId), "The Claude profile is missing from the account registry.");
-        Check(accounts.ClaudeProfileIds().Contains(seed.ProfileId, StringComparer.Ordinal),
+        var profiles = accounts.ReadClaudeProfiles();
+        Check(profiles.Available, "The account registry could not be read back.");
+        Check(profiles.Ids.Contains(seed.ProfileId, StringComparer.Ordinal),
             "The Claude profile is no longer listed by the account store.");
         var read = new ClaudeConnectionStore(accounts, seed.ProfileId).Read();
         Check(!read.Unavailable && read.Binding is { Disconnected: false }, "The Claude connection record was lost or revoked.");

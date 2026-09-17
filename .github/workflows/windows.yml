@@ -35,6 +35,15 @@ jobs:
       - name: Validate desktop resources
         run: dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build
 
+      # Compile only, into a throwaway directory so no shipped output is replaced. The installed-app
+      # verification builds these flavours itself; without this step their code is never
+      # type-checked, because every other build omits the constants.
+      - name: Compile test-only build flavours
+        run: >
+          dotnet build src/CycleArc/CycleArc.csproj -c Release
+          -p:CycleArcTestBuild="CYCLEARC_TEST_E2E;CYCLEARC_TEST_FAIL_STARTUP"
+          -o artifacts/test-flavour-build
+
       - name: Installer recovery tests
         run: ./tests/LocalInstall.Tests.ps1
 

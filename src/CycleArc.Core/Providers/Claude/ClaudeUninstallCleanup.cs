@@ -17,13 +17,28 @@ public enum ClaudeUninstallStatus
 
 public sealed record ClaudeUninstallCleanupEntry(string ProfileId, string? ConfigDirectory, ClaudeUninstallStatus Status);
 
+/// <summary>Why a cleanup run could not finish. Never guessed: each value has a definite cause.</summary>
+public enum ClaudeUninstallIncompleteReason
+{
+    /// <summary>Every Claude profile was inspected.</summary>
+    None,
+    /// <summary>The installation being removed did not resolve to a usable path.</summary>
+    InstallationRootUnusable,
+    /// <summary>The account registry exists but could not be read, so the profile list is unknown.</summary>
+    AccountsUnavailable,
+    /// <summary>The run stopped before every profile was inspected, through its budget or an error.</summary>
+    Interrupted,
+}
+
 /// <summary>
-/// The result of one uninstall cleanup attempt. <c>Completed</c> is false when the budget ran
-/// out or the installation root was unusable, so an incomplete run is never recorded as a success.
+/// The result of one uninstall cleanup attempt. <c>Completed</c> is true only when every Claude
+/// profile was inspected; otherwise <c>IncompleteReason</c> names what stopped it, so an
+/// unconfirmed account list is never recorded as "nothing to clean up".
 /// Contains no credentials, callback payloads, e-mail addresses or Claude settings content.
 /// </summary>
 public sealed record ClaudeUninstallCleanupReport(int Version, string InstallationRoot, DateTimeOffset CompletedAt,
-    bool Completed, int Inspected, int Restored, int Failed, IReadOnlyList<ClaudeUninstallCleanupEntry> Profiles);
+    bool Completed, ClaudeUninstallIncompleteReason IncompleteReason, int Inspected, int Restored, int Failed,
+    IReadOnlyList<ClaudeUninstallCleanupEntry> Profiles);
 
 /// <summary>
 /// Removes this installation's Claude callbacks before its files are deleted.
@@ -37,6 +52,8 @@ public sealed record ClaudeUninstallCleanupReport(int Version, string Installati
 public static class ClaudeUninstallCleanup
 {
     public const string ReportFileName = "claude-uninstall-cleanup.json";
+    /// <summary>Receipt schema version. 2 added <see cref="ClaudeUninstallCleanupReport.IncompleteReason"/>.</summary>
+    public const int ReportVersion = 2;
     /// <summary>Well under Velopack's 60-second hook timeout, leaving room for process start and exit.</summary>
     public static readonly TimeSpan DefaultBudget = TimeSpan.FromSeconds(20);
     private static readonly JsonSerializerOptions ReportJson =
@@ -54,23 +71,36 @@ public static class ClaudeUninstallCleanup
         var now = (clock ?? SystemClock.Instance).UtcNow;
         var root = ClaudeConnectionPaths.Normalize(installationRoot);
         var entries = new List<ClaudeUninstallCleanupEntry>();
-        var completed = false;
+        var reason = ClaudeUninstallIncompleteReason.InstallationRootUnusable;
         if (root is not null)
         {
             using var timeout = new CancellationTokenSource(budget ?? DefaultBudget);
             try
             {
-                foreach (var profileId in accounts.ClaudeProfileIds())
+                // An unreadable registry leaves the profile list unknown. Inspect nothing, change
+                // nothing, and record why: a dead callback is better than a guessed repair, but it
+                // must not look like a clean removal either.
+                var profiles = accounts.ReadClaudeProfiles();
+                reason = profiles.Available
+                    ? ClaudeUninstallIncompleteReason.None
+                    : ClaudeUninstallIncompleteReason.AccountsUnavailable;
+                if (profiles.Available)
                 {
-                    if (timeout.IsCancellationRequested) break;
-                    entries.Add(await CleanAsync(accounts, profileId, root, timeout.Token).ConfigureAwait(false));
+                    foreach (var profileId in profiles.Ids)
+                    {
+                        if (timeout.IsCancellationRequested) break;
+                        entries.Add(await CleanAsync(accounts, profileId, root, timeout.Token).ConfigureAwait(false));
+                    }
+                    if (timeout.IsCancellationRequested) reason = ClaudeUninstallIncompleteReason.Interrupted;
                 }
-                completed = !timeout.IsCancellationRequested;
             }
-            catch (Exception ex) when (IsExpected(ex)) { completed = false; }
+            // Reading the profile list cannot throw; anything escaping per-profile handling stopped
+            // the run early, leaving the remaining profiles uninspected.
+            catch (Exception ex) when (IsExpected(ex)) { reason = ClaudeUninstallIncompleteReason.Interrupted; }
         }
 
-        var report = new ClaudeUninstallCleanupReport(1, root ?? "", now, completed, entries.Count,
+        var completed = reason == ClaudeUninstallIncompleteReason.None;
+        var report = new ClaudeUninstallCleanupReport(ReportVersion, root ?? "", now, completed, reason, entries.Count,
             entries.Count(entry => entry.Status == ClaudeUninstallStatus.Restored),
             entries.Count(entry => entry.Status is ClaudeUninstallStatus.CleanupFailed or ClaudeUninstallStatus.ConnectionUnavailable),
             entries);

@@ -8,6 +8,9 @@ public sealed record CodexAccountConfiguration(int Version, string SelectedId, I
     public IReadOnlyList<string> IgnoredHomes { get; init; } = [];
 }
 
+/// <summary>A read-only Claude profile list, and whether the account registry could be read at all.</summary>
+public sealed record CodexClaudeProfiles(bool Available, IReadOnlyList<string> Ids);
+
 public sealed class CodexAccountStore
 {
     public const string LegacyProfileId = "default";
@@ -60,12 +63,19 @@ public sealed class CodexAccountStore
 
     // Read-only projection for cleanup paths that must never create or migrate a registry.
     // Uninstall runs after the desktop has been stopped and must leave account data as it is.
-    public IReadOnlyList<string> ClaudeProfileIds()
+    // A registry that cannot be read is reported as unavailable, never as an empty account list:
+    // "no Claude profiles" and "the profiles could not be confirmed" are different answers.
+    public CodexClaudeProfiles ReadClaudeProfiles()
     {
         lock (_gate)
-            return (TryRead(RegistryPath, out var state) || TryRead(RegistryPath + ".bak", out state))
-                ? state!.Profiles.Where(p => p.Provider == UsageProviderId.Claude).Select(p => p.Id).ToArray()
-                : [];
+        {
+            if (TryRead(RegistryPath, out var state) || TryRead(RegistryPath + ".bak", out state))
+                return new(true, state!.Profiles.Where(p => p.Provider == UsageProviderId.Claude)
+                    .Select(p => p.Id).ToArray());
+            // Absent files mean this installation never stored accounts. Files that exist but
+            // cannot be read or parsed leave the list unconfirmed, as LoadOrMigrate also treats them.
+            return new(!File.Exists(RegistryPath) && !File.Exists(RegistryPath + ".bak"), []);
+        }
     }
 
     public string ClaudeStatusLinePath(string id) =>

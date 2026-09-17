@@ -24,6 +24,7 @@ public sealed class ClaudeUninstallCleanupTests
         var report = await ClaudeUninstallCleanup.RunAsync(data.Accounts, installation, data.Clock);
 
         Assert.True(report.Completed);
+        Assert.Equal(ClaudeUninstallIncompleteReason.None, report.IncompleteReason);
         Assert.Equal(1, report.Restored);
         Assert.Equal(0, report.Failed);
         Assert.Equal(ClaudeUninstallStatus.Restored, Assert.Single(report.Profiles).Status);
@@ -215,6 +216,67 @@ public sealed class ClaudeUninstallCleanupTests
     }
 
     [Fact]
+    public async Task ADamagedAccountRegistryAndBackupAreNeverReadAsHavingNoProfiles()
+    {
+        using var data = new ClaudeStatusLineTests.ClaudeTestData();
+        var config = ConfigDirectory(data, "claude-home");
+        var installation = Installation(data, "install");
+        await ConnectAsync(data, data.Profile.Id, config, Callback(installation));
+        var installed = File.ReadAllBytes(SettingsPath(config));
+        var registry = Path.Combine(data.Root, "codex-accounts.json");
+        File.WriteAllText(registry, "{damaged");
+        File.WriteAllText(registry + ".bak", "{damaged too");
+
+        var report = await ClaudeUninstallCleanup.RunAsync(data.Accounts, installation, data.Clock);
+
+        // The callback stays behind because its owner cannot be confirmed. That is a worse
+        // outcome than a clean removal, so it is recorded as one rather than hidden.
+        Assert.False(report.Completed);
+        Assert.Equal(ClaudeUninstallIncompleteReason.AccountsUnavailable, report.IncompleteReason);
+        Assert.Empty(report.Profiles);
+        Assert.Equal(installed, File.ReadAllBytes(SettingsPath(config)));
+        var receipt = JsonNode.Parse(File.ReadAllText(ClaudeUninstallCleanup.ReportPath(data.Accounts)))!;
+        Assert.False(receipt["Completed"]!.GetValue<bool>());
+        Assert.Equal(nameof(ClaudeUninstallIncompleteReason.AccountsUnavailable),
+            receipt["IncompleteReason"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task AnAccountRegistryHeldByAnotherProcessIsReportedAsUnavailable()
+    {
+        using var data = new ClaudeStatusLineTests.ClaudeTestData();
+        var config = ConfigDirectory(data, "claude-home");
+        var installation = Installation(data, "install");
+        await ConnectAsync(data, data.Profile.Id, config, Callback(installation));
+        var installed = File.ReadAllBytes(SettingsPath(config));
+        var registry = Path.Combine(data.Root, "codex-accounts.json");
+
+        ClaudeUninstallCleanupReport report;
+        using (new FileStream(registry, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (new FileStream(registry + ".bak", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            report = await ClaudeUninstallCleanup.RunAsync(data.Accounts, installation, data.Clock);
+
+        Assert.False(report.Completed);
+        Assert.Equal(ClaudeUninstallIncompleteReason.AccountsUnavailable, report.IncompleteReason);
+        Assert.Equal(installed, File.ReadAllBytes(SettingsPath(config)));
+        Assert.True(ClaudeStatusLineInstaller.IsInstalled(config, data.Profile.Id));
+    }
+
+    [Fact]
+    public void AnAbsentAccountRegistryIsNothingToCleanUpRatherThanAFailure()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "cyclearc-uninstall-empty-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var profiles = new CodexAccountStore(root).ReadClaudeProfiles();
+            Assert.True(profiles.Available);
+            Assert.Empty(profiles.Ids);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public async Task AccountSettingsAndConnectionFilesAreNeverDeletedOrRewritten()
     {
         using var data = new ClaudeStatusLineTests.ClaudeTestData();
@@ -262,6 +324,7 @@ public sealed class ClaudeUninstallCleanupTests
         using var data = new ClaudeStatusLineTests.ClaudeTestData();
         var report = await ClaudeUninstallCleanup.RunAsync(data.Accounts, "not-a-full-path", data.Clock);
         Assert.False(report.Completed);
+        Assert.Equal(ClaudeUninstallIncompleteReason.InstallationRootUnusable, report.IncompleteReason);
         Assert.Empty(report.Profiles);
     }
 
