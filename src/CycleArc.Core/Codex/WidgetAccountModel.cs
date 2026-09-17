@@ -45,10 +45,12 @@ public sealed record WidgetAccountModel(
             ? Lines(snapshot, ring, at)
             : [];
 
-        // Same rule as the single-account widget: Claude always names its receipt state, and any
-        // provider names a state that is not plain success, so a stale value never reads as fresh.
+        // Claude always names its receipt state. Codex names any state that is not plain
+        // success, including identity mismatch while Status stays Available, so a
+        // quota-hidden account still says why instead of relying on color or tooltip.
         var showStatus = account.Profile.Provider == UsageProviderId.Claude
-            || snapshot.Status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing);
+            || snapshot.Status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing)
+            || CodexIdentityPresentation.NeedsReconnection(snapshot);
         var status = account.IsSigningIn ? UiText.T("Signing in…", "로그인 중…")
             : showStatus ? CycleArcPresentation.StatusLabel(snapshot) : "";
 
