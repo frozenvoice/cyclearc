@@ -68,7 +68,10 @@
   - Executed end to end on a GitHub-hosted `windows-latest` runner by the `Windows installed E2E`
     workflow, first passing on 2026-09-17 at 06:47 UTC (`8a37d22`, run 14). It runs on request
     only, from the Actions tab against a chosen branch, because it installs and removes a real
-    installation. What that run actually
+    installation, and passed again that way on the merged tree (`4208e6e`, run 16). The check that
+    runs the installed callback now waits two minutes rather than twenty seconds: that callback is
+    the first launch of a freshly installed self-contained single-file build, which unpacks its
+    native libraries before reading input, and on a cold runner that outran the old budget. What that run actually
     did, in order: packaged three genuinely different builds (9.9.1 / 9.9.2 / 9.9.3, distinct file
     versions and distinct executable hashes, not an `sq.version` rewrite); installed 9.9.1 with its
     real `Setup.exe --silent`, which registered the `CycleArc` uninstall entry and both shortcuts;
