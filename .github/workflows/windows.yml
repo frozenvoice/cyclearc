@@ -1,8 +1,29 @@
 name: Windows
 
+# Documentation that no build step reads is excluded: a change to it cannot alter the
+# executable, the installer or the packaged assets, so re-running the whole Windows gate
+# would only re-prove code the change did not touch.
+#
+# release-notes/**/*.md is deliberately NOT excluded: Package.ps1 receives that file as
+# ReleaseNotesPath, so it does affect the packaged output.
+# The two lists are kept identical by hand: GitHub Actions does not expand YAML anchors.
 on:
   push:
+    paths-ignore:
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'README.md'
+      - 'docs/**/*.md'
+      - '.cursor/**'
+      - '.github/**/*.md'
   pull_request:
+    paths-ignore:
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'README.md'
+      - 'docs/**/*.md'
+      - '.cursor/**'
+      - '.github/**/*.md'
 
 jobs:
   build:
