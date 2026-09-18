@@ -44,11 +44,25 @@
     survived, and a failure after Setup.exe started says so.
   - `scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment` and the
     `Windows build-local entry point` workflow run the real CMD entry point on a discarded
-    GitHub-hosted runner: build A with no arguments, build B over it with the same version
-    number but different executable content, installed hash and running managed path checked
-    against each build, the A desktop confirmed stopped, and a broken build checked for a
-    nonzero exit code through CMD with the installation left running. This has not been run on
-    a developer profile, and no failure injection or install/remove cycling was done there.
+    GitHub-hosted runner. Run 35298597072 on a clean windows-latest runner (no pre-existing
+    installation or data root) passed:
+    - Build A: `cmd /c build-local.cmd` with no arguments and no injected scriptblocks ran
+      `pwsh -NoProfile -File dev-run.ps1 -NoLaunch`, published `0.6.0.0` at SHA-256
+      `B4CFFC682A6AB2A147D6B6866D3B72BE58B6C1C054DF0FF9018FDD3BCF7EA30F`, started the packaged
+      `CycleArc-Setup.exe --silent`, and left `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`
+      at that same hash with the desktop ready as PID 908.
+    - Build B: the same entry point with one source file changed, so the version number stayed
+      `0.6.0.0` while the executable became
+      `EDC038F77D8C92E958EA5F338271A568E2C0829385D4194173CB251F07E35918`. It stopped PID 908
+      over desktop IPC before starting Setup.exe, and the installed `current\CycleArc.exe`
+      then matched build B with a new desktop at PID 2884. Two runs of one Setup.exe would not
+      have shown this; the packages differed.
+    - Failure: a deliberately broken source file made `dev-run.ps1 -NoLaunch` exit 1. CMD
+      received exit 1, printed `Stage: build` with the real cause, the running installation was
+      neither stopped nor replaced, and PID 2884 was still serving build B afterwards.
+    Not run: this was never executed on a developer profile, and no failure injection or
+    install/remove cycling was done there. `-Fast` was used for build B, so its unit suite came
+    from build A's run.
 
 - Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
   - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's

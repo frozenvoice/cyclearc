@@ -140,6 +140,11 @@ try {
     if ($scriptText -match '(?m)^\s*\$devRun\s*=') {
         throw 'Build-Local.ps1 must not assign to $devRun; it is the [scriptblock]$DevRun parameter'
     }
+    # A shut-down desktop's PID is gone, which is the success case; raising it
+    # puts a TerminatingError in the transcript the person is told to read.
+    if ($scriptText -match "Get-Process -Id [^\r\n]*-ErrorAction Stop") {
+        throw 'Build-Local.ps1 must not treat an absent desktop PID as a terminating error'
+    }
     Write-Host 'PASS: build-local.cmd reports the recorded stage instead of a blanket claim.'
 
     # PowerShell variable names are case-insensitive, so a local spelled like a

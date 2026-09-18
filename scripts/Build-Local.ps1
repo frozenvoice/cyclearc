@@ -381,21 +381,28 @@ function Stop-VerifiedCycleArcDesktop {
             throw "The running CycleArc did not accept a shutdown request. Close it from the tray and retry. Path: $($status.ExecutablePath)"
         }
         $deadline = [Diagnostics.Stopwatch]::StartNew()
+        $exited = $false
         while ($deadline.Elapsed.TotalSeconds -lt 25) {
-            try {
-                $running = Get-Process -Id ([int]$status.ProcessId) -ErrorAction Stop
-                if ($running.HasExited) { break }
-            }
-            catch { break }
+            # The PID going away is what success looks like, so it is tested
+            # rather than raised: -ErrorAction Stop recorded a TerminatingError
+            # in the transcript every time a shutdown actually worked.
+            $running = Get-Process -Id ([int]$status.ProcessId) -ErrorAction SilentlyContinue
+            if (!$running) { $exited = $true; break }
+            $hasExited = $running.HasExited
+            $running.Dispose()
+            if ($hasExited) { $exited = $true; break }
             Start-Sleep -Milliseconds 400
         }
-        try {
-            $leftover = Get-Process -Id ([int]$status.ProcessId) -ErrorAction Stop
-            if (!$leftover.HasExited) {
-                throw "CycleArc PID $($status.ProcessId) is still running at $($status.ExecutablePath) after shutdown. Close it from the tray. The installer was not started."
+        if (!$exited) {
+            $leftover = Get-Process -Id ([int]$status.ProcessId) -ErrorAction SilentlyContinue
+            if ($leftover) {
+                $stillRunning = !$leftover.HasExited
+                $leftover.Dispose()
+                if ($stillRunning) {
+                    throw "CycleArc PID $($status.ProcessId) is still running at $($status.ExecutablePath) after shutdown. Close it from the tray. The installer was not started."
+                }
             }
         }
-        catch [Microsoft.PowerShell.Commands.ProcessCommandException] { }
         Assert-InstallDesktopMutexAbsent
         return
     }
