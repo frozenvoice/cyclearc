@@ -120,6 +120,35 @@ Run commands from the repository root. Use `--no-build` only for code already bu
   The full gate satisfies the build/test requirements above; `-Fast` skips only unit tests already passed for unchanged code.
 - Synthetic fixtures do not establish real-account receipt/compatibility; Awaiting usage is not received usage.
 
+### Local first
+
+CI is not where a change is first verified. Before every push:
+
+- Run every check in the table above that applies to the current change, and no more: a small change
+  runs the smallest relevant test first, a final executable/installer/distribution change is not
+  pushed until the full gate passes on the final code, and a documentation-only change needs only
+  the documentation checks.
+- On any failure, local or remote, read the log, reproduce it locally, fix it, then rerun the
+  relevant local checks. Never re-run GitHub Actions against a failure whose cause is not yet
+  established, and never raise a timeout to make one pass.
+- Before starting a remote run, answer both questions: is any applicable local check still unrun,
+  and would this run show something local checks cannot? Start it only when the answers are no and
+  yes.
+- Do not run push, pull_request and workflow_dispatch over one SHA for reassurance, and do not
+  repeat a Windows run to re-prove executable code that a documentation or comment change did not
+  touch; reuse the evidence already recorded for that SHA and add only what the change needs.
+- GitHub-hosted runners are for what only they provide: a clean Windows image, Actions events,
+  permissions and the runner environment, artifact upload/download, disposable install/update
+  verification that cannot be isolated safely here, and environments absent from the local machine.
+  None of that excuses skipping a check that runs locally. Synthetic and component tests that can be
+  isolated locally run locally first; destructive installed-app verification still uses a disposable
+  VM or throwaway user as above.
+- If an applicable local check could not be run, report which one and the exact reason, such as
+  operating system, toolchain, permission or hardware, rather than only that it was skipped. Only
+  that gap justifies a remote run in its place.
+- This holds regardless of cost. Actions being free on a public repository does not justify
+  repeating a run.
+
 ## Delivery
 
 - Commit and push intended changes to origin unless instructed otherwise; never force-push.
