@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The installer window the person actually sees. It is a thin wrapper: the Velopack
+    engine installer is embedded verbatim and still performs the installation, so this
+    project owns the confirmation, progress and completion screens and nothing else.
+
+    Native AOT with direct Win32 calls keeps it around 2 MB. A self-contained WPF or
+    WinForms wrapper would roughly double the shipped Setup.exe, which is already ~77 MB
+    because it carries the application itself.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>CycleArc.Setup</RootNamespace>
+    <AssemblyName>CycleArc-Setup</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Not part of the solution's ordinary build: it is published by Package.ps1 once the
+         engine installer exists, and it is never referenced by the app or the tests. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    The engine installer is supplied by Package.ps1 after `vpk pack` has produced it.
+    Without it this project still compiles, and refuses to run, so a stray developer build
+    can never masquerade as a distributable installer.
+  -->
+  <ItemGroup Condition="'$(CycleArcEnginePath)' != '' And Exists('$(CycleArcEnginePath)')">
+    <EmbeddedResource Include="$(CycleArcEnginePath)">
+      <LogicalName>CycleArc.Setup.Engine.exe</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>
