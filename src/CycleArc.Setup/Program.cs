@@ -42,7 +42,9 @@ internal static class Program
 
         if (silent)
         {
+            SetupState.Report(SetupState.Installing);
             var result = EngineRunner.Install(target.Directory, CancellationToken.None);
+            SetupState.Report(result.Succeeded ? SetupState.Done : SetupState.Failed);
             return (int)(result.Succeeded ? SetupExitCode.Succeeded : SetupExitCode.Failed);
         }
 

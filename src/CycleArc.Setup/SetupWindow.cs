@@ -62,6 +62,8 @@ internal sealed class SetupWindow
 
         BuildControls(instance);
         ShowConfirm();
+        // From here the parent's clock is a person's reading time, not an installation.
+        SetupState.Report(SetupState.AwaitingApproval);
         Native.ShowWindow(_window, Native.SW_SHOW);
 
         while (Native.GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
@@ -179,6 +181,7 @@ internal sealed class SetupWindow
     {
         if (_installing) return;
         _installing = true;
+        SetupState.Report(SetupState.Installing);
         ShowProgress();
         var window = _window;
         // Off the message loop, so the window keeps painting while the engine runs.
@@ -199,11 +202,13 @@ internal sealed class SetupWindow
         if (result is null || !result.Succeeded)
         {
             Exit = SetupExitCode.Failed;
+            SetupState.Report(SetupState.Failed);
             ShowFailed(result ?? new EngineResult(EngineOutcome.Failed, -1, "", null));
             return;
         }
 
         Exit = SetupExitCode.Succeeded;
+        SetupState.Report(SetupState.Done);
         ShowDone();
     }
 
@@ -226,6 +231,7 @@ internal sealed class SetupWindow
                     // Cancelling before Install changes nothing: no app was stopped, no file
                     // was written, and no setting was touched.
                     Exit = SetupExitCode.Cancelled;
+                    SetupState.Report(SetupState.Cancelled);
                     Native.DestroyWindow(hWnd);
                     return IntPtr.Zero;
                 }
@@ -239,7 +245,10 @@ internal sealed class SetupWindow
                 // The close box during an install is ignored rather than leaving a half-install.
                 if (_installing) return IntPtr.Zero;
                 if (Exit != SetupExitCode.Succeeded && Exit != SetupExitCode.Failed)
+                {
                     Exit = SetupExitCode.Cancelled;
+                    SetupState.Report(SetupState.Cancelled);
+                }
                 Native.DestroyWindow(hWnd);
                 return IntPtr.Zero;
 

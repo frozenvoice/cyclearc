@@ -252,14 +252,28 @@ try {
 
     $defaultRoot = Get-DefaultManagedInstallRoot
     $log = Join-Path $testRoot 'setup.log'
-    $silentDefault = @(Get-SetupArguments -SetupLog $log)
-    if (($silentDefault -join ' ') -ne "--silent --log $log") { throw "Default Setup arguments were $($silentDefault -join ' ')" }
-    $silentDefaultRoot = @(Get-SetupArguments -SetupLog $log -ExistingRoot $defaultRoot -DefaultRoot $defaultRoot)
+    # The default run shows the installer and waits for a person. Unattended is opt-in.
+    $interactiveDefault = @(Get-SetupArguments -SetupLog $log)
+    if ($interactiveDefault -contains '--silent') {
+        throw "The default Setup run must not be silent, got $($interactiveDefault -join ' ')"
+    }
+    if (($interactiveDefault -join ' ') -ne "--log $log") {
+        throw "Default Setup arguments were $($interactiveDefault -join ' ')"
+    }
+    $silent = @(Get-SetupArguments -SetupLog $log -Silent)
+    if (($silent -join ' ') -ne "--silent --log $log") { throw "Silent Setup arguments were $($silent -join ' ')" }
+    $silentDefaultRoot = @(Get-SetupArguments -SetupLog $log -ExistingRoot $defaultRoot -DefaultRoot $defaultRoot -Silent)
     if ($silentDefaultRoot -contains '--installto') { throw 'Default managed root must not pass --installto' }
     $custom = Join-Path $testRoot 'custom-install'
     $withCustom = @(Get-SetupArguments -SetupLog $log -ExistingRoot $custom -DefaultRoot $defaultRoot)
     if ($withCustom -notcontains '--installto') { throw 'A custom managed root must be passed to Setup.exe --installto' }
-    Write-Host 'PASS: Setup.exe argument selection for default vs custom install roots.'
+    # New installs go under Programs; an existing installation keeps its own location.
+    $normalizedDefault = ([IO.Path]::GetFullPath($defaultRoot)).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $expectedSuffix = [IO.Path]::Combine('Programs', 'CycleArc')
+    if (!$normalizedDefault.EndsWith($expectedSuffix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The new-install default is $normalizedDefault, expected it to end with $expectedSuffix"
+    }
+    Write-Host 'PASS: Setup.exe shows its window by default, is silent only on request, and keeps an existing root.'
 
     $missing = Join-Path $testRoot 'missing-root'
     if (Test-ManagedInstallRoot $missing) { throw 'An absent directory was treated as a managed install' }
@@ -296,7 +310,8 @@ try {
     Assert-Throws {
         Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installC -DevRun { } -PackagedSetup { $packC } -StopDesktop { } -RunSetup {
             param($setup, $arguments)
-            if ($arguments -notcontains '--silent') { throw 'Setup.exe was not invoked silently' }
+            # The default run shows the installer; only -SilentInstall suppresses it.
+            if ($arguments -contains '--silent') { throw 'The default run must not install silently' }
             New-Item -ItemType Directory -Path (Join-Path $installC 'current') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $installC 'current/CycleArc.exe') -Value 'stale-previous-build'
             Set-Content -LiteralPath (Join-Path $installC 'CycleArc.exe') -Value 'launcher'
@@ -405,10 +420,77 @@ try {
     if ($devRunText -notmatch [regex]::Escape($defaultTree)) {
         throw "dev-run.ps1 did not run in the repository root: $devRunText"
     }
-    if (!$defaultResult.HashMatched -or !$defaultStopped) {
+    if (!$defaultResult.HashMatched) {
         throw 'The default -DevRun branch did not complete the install path'
     }
-    Write-Host 'PASS: the default branch starts the real dev-run.ps1 with no -DevRun scriptblock.'
+    # Approval comes first: the parent must not stop a running CycleArc before the person
+    # has agreed to install. The installer stops it after that, and cancelling leaves it be.
+    if ($defaultStopped) {
+        throw 'The default run stopped the running app before the installation was approved'
+    }
+    Write-Host 'PASS: the default branch starts the real dev-run.ps1 and stops nothing before approval.'
+
+    # The unattended path keeps stopping the desktop itself, because no window will do it.
+    $silentTree = Join-Path $testRoot 'silent entry'
+    New-GitCycleArcTree $silentTree
+    New-TestDevRun $silentTree (Join-Path $silentTree 'dev-run-marker.txt') 0 | Out-Null
+    $silentManagedRoot = Join-Path $testRoot 'install silent'
+    $silentPack = New-FakePublished $silentTree 'published-silent' 'setup-silent'
+    $script:silentStopped = $false
+    $script:silentArguments = @()
+    $silentResult = Invoke-BuildLocal -RepoRoot $silentTree -ManagedRoot $silentManagedRoot -SilentInstall `
+        -PackagedSetup { $silentPack } -StopDesktop { $script:silentStopped = $true } -RunSetup {
+            param($setup, $arguments)
+            $script:silentArguments = @($arguments)
+            New-Item -ItemType Directory -Path (Join-Path $silentManagedRoot 'current') -Force | Out-Null
+            Copy-Item -LiteralPath $silentPack.StagingExe -Destination (Join-Path $silentManagedRoot 'current/CycleArc.exe')
+            Set-Content -LiteralPath (Join-Path $silentManagedRoot 'CycleArc.exe') -Value 'launcher'
+            0
+        } -StartLauncher { } -ProbeStatus {
+            [pscustomobject]@{
+                Succeeded = $true
+                ProcessId = 4321
+                ExecutablePath = (Join-Path $silentManagedRoot 'current/CycleArc.exe')
+                Version = '0.6.0'
+                InstanceId = 'silent'
+            }
+        }
+    if (!$silentResult.HashMatched) { throw '-SilentInstall did not complete the install path' }
+    if (!$silentStopped) { throw '-SilentInstall must stop the running desktop itself' }
+    if ($silentArguments -notcontains '--silent') {
+        throw "-SilentInstall did not pass --silent: $($silentArguments -join ' ')"
+    }
+    Write-Host 'PASS: -SilentInstall is the only path that installs unattended and stops the desktop itself.'
+
+    # Cancelling in the setup window is neither success nor failure.
+    $cancelTree = Join-Path $testRoot 'cancel entry'
+    New-GitCycleArcTree $cancelTree
+    New-TestDevRun $cancelTree (Join-Path $cancelTree 'dev-run-marker.txt') 0 | Out-Null
+    $cancelInstall = Join-Path $testRoot 'install cancel'
+    $cancelPack = New-FakePublished $cancelTree 'published-cancel' 'setup-cancel'
+    $script:cancelStopped = $false
+    $script:cancelStarted = $false
+    $cancelResult = Invoke-BuildLocal -RepoRoot $cancelTree -ManagedRoot $cancelInstall `
+        -PackagedSetup { $cancelPack } -StopDesktop { $script:cancelStopped = $true } `
+        -StartLauncher { $script:cancelStarted = $true } -RunSetup {
+            param($setup, $arguments)
+            2
+        }
+    if (!$cancelResult.Cancelled) { throw 'A cancelled installation was not reported as cancelled' }
+    if ($cancelStopped) { throw 'A cancelled installation stopped the running app' }
+    if ($cancelStarted) { throw 'A cancelled installation still started the app' }
+    if (Test-Path -LiteralPath (Join-Path $cancelInstall 'current/CycleArc.exe')) {
+        throw 'A cancelled installation still wrote an installation'
+    }
+    Write-Host 'PASS: cancelling before install changes nothing and is reported as cancelled, not failed.'
+
+    # A real installer failure is still a failure, and is not confused with cancelling.
+    $failInstall = Join-Path $testRoot 'install setup-failure'
+    Assert-Throws {
+        Invoke-BuildLocal -RepoRoot $cancelTree -ManagedRoot $failInstall `
+            -PackagedSetup { $cancelPack } -StopDesktop { } -RunSetup { param($setup, $arguments) 1 }
+    } 'CycleArc-Setup.exe failed (exit 1)'
+    Write-Host 'PASS: an installer failure is reported as failure, separately from cancellation.'
 
     $fastTree = Join-Path $testRoot 'default fast'
     New-GitCycleArcTree $fastTree
@@ -609,14 +691,16 @@ exit 0
         if (!$setupResult.HashMatched) { throw 'The real installer launch did not install this build' }
         $installerLog = Join-Path $setupTree 'artifacts/build-local/setup.log'
         $installerText = Get-Content -LiteralPath $installerLog -Raw
-        if ($installerText -notmatch '--silent') { throw "The installer was not invoked silently: $installerText" }
+        if ($installerText -match '--silent') {
+            throw "The default run invoked the installer silently: $installerText"
+        }
         if ($installerText -notmatch [regex]::Escape($installerLog)) {
             throw "The installer did not receive its log path intact: $installerText"
         }
         if ($installerText -notmatch [regex]::Escape((Split-Path -Parent $realSetup))) {
             throw "The installer did not start in the installer directory: $installerText"
         }
-        Write-Host 'PASS: the installer is launched through Invoke-WindowedProcess with no -RunSetup override.'
+        Write-Host 'PASS: the installer is launched with its window and its log path, with no -RunSetup override.'
     }
     else {
         Write-Host 'SKIP: direct script launch is unavailable here; the CMD end-to-end job covers the real Setup.exe launch.'

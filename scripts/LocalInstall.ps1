@@ -352,8 +352,13 @@ function Resolve-InstallLayout {
     }
 }
 
+# The installation that already exists, in the order the setup window uses: the registered
+# uninstall entry, then a recognisable installation at either known root. The default for a
+# new install moved under Programs, so an installation still at the former root has to keep
+# being found rather than being left behind or installed over a second time.
 function Get-ManagedInstallRoot {
-    $defaultRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CycleArc'
+    $localAppData = [Environment]::GetFolderPath('LocalApplicationData')
+    $roots = @((Join-Path $localAppData 'Programs/CycleArc'), (Join-Path $localAppData 'CycleArc'))
     $uninstall = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CycleArc' -ErrorAction SilentlyContinue
     $fromRegistry = ''
     if ($uninstall) {
@@ -362,10 +367,12 @@ function Get-ManagedInstallRoot {
     if (![string]::IsNullOrWhiteSpace($fromRegistry)) {
         return ConvertTo-InstallAbsolutePath $fromRegistry
     }
-    $current = Join-Path $defaultRoot 'current/CycleArc.exe'
-    $updater = Join-Path $defaultRoot 'Update.exe'
-    if ((Test-Path -LiteralPath $current -PathType Leaf) -and (Test-Path -LiteralPath $updater -PathType Leaf)) {
-        return ConvertTo-InstallAbsolutePath $defaultRoot
+    foreach ($root in $roots) {
+        $current = Join-Path $root 'current/CycleArc.exe'
+        $updater = Join-Path $root 'Update.exe'
+        if ((Test-Path -LiteralPath $current -PathType Leaf) -and (Test-Path -LiteralPath $updater -PathType Leaf)) {
+            return ConvertTo-InstallAbsolutePath $root
+        }
     }
     $null
 }

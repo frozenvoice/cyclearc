@@ -1,14 +1,18 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Build the current checkout, package CycleArc-Setup.exe, install the managed
-    app under the existing Velopack location, and start it.
+    Build the current checkout, package the distributable CycleArc-Setup.exe, then open
+    that installer so the person can approve or cancel the installation.
 
 .PARAMETER Fast
     Forwarded to dev-run.ps1: skip unit tests only after they have already passed.
 
 .PARAMETER NoInstall
-    Stop after a successful package. Does not stop a running desktop or run Setup.exe.
+    Stop after a successful package. Does not open the installer or run Setup.exe.
+
+.PARAMETER SilentInstall
+    Install without the setup window, for CI and scripted runs. The default path always
+    shows the installer and waits for the person to approve or cancel it.
 
 .PARAMETER LoadOnly
     Dot-source the functions without running the default path.
@@ -17,6 +21,7 @@
 param(
     [switch]$Fast,
     [switch]$NoInstall,
+    [switch]$SilentInstall,
     [switch]$LoadOnly
 )
 
@@ -27,8 +32,10 @@ function Get-BuildLocalRepoRoot {
     [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 }
 
+# Where a brand new installation goes. An installation that already exists keeps its own
+# location: Get-ManagedInstallRoot is consulted first, and this default never moves it.
 function Get-DefaultManagedInstallRoot {
-    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CycleArc'
+    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc'
 }
 
 function ConvertTo-BuildLocalArgument([string]$Value) {
@@ -701,13 +708,83 @@ function Stop-VerifiedCycleArcDesktop {
     }
 }
 
+function Get-SetupStateValue([string]$StateFile) {
+    if (!$StateFile -or !(Test-Path -LiteralPath $StateFile -PathType Leaf)) { return $null }
+    $value = @(Get-Content -LiteralPath $StateFile -TotalCount 1 -ErrorAction SilentlyContinue)
+    if ($value.Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$value[0])) { return $null }
+    ([string]$value[0]).Trim()
+}
+
+<#
+.SYNOPSIS
+    Runs CycleArc-Setup.exe and waits for it correctly.
+.DESCRIPTION
+    The setup window waits for a person before it installs anything, and that wait is not a
+    stalled build. The installer reports which of the two it is through its state file, so
+    the time spent on the confirmation screen gets a person-sized budget and the installation
+    itself gets a much shorter one. Without a state file - an older installer, or a stub in a
+    test - the whole run falls back to the approval budget rather than being cut short.
+#>
+function Invoke-SetupProcess {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [string]$WorkingDirectory,
+        [string]$StateFile,
+        [int]$ApprovalTimeoutSeconds = 3600,
+        [int]$InstallTimeoutSeconds = 1200
+    )
+    Write-Host ("    > {0} {1}" -f $FilePath, ($ArgumentList -join ' '))
+    $startParameters = @{ FilePath = $FilePath; PassThru = $true }
+    if ($ArgumentList.Count -gt 0) {
+        $startParameters['ArgumentList'] = @($ArgumentList | ForEach-Object { ConvertTo-BuildLocalArgument $_ })
+    }
+    if ($WorkingDirectory) { $startParameters['WorkingDirectory'] = $WorkingDirectory }
+    $process = Start-Process @startParameters
+    if (!$process) { throw "Could not start $FilePath" }
+
+    $waited = [Diagnostics.Stopwatch]::StartNew()
+    $installStarted = $null
+    $announced = $false
+    try {
+        while (!$process.WaitForExit(250)) {
+            $state = Get-SetupStateValue $StateFile
+            if ($state -eq 'installing' -and !$installStarted) {
+                $installStarted = [Diagnostics.Stopwatch]::StartNew()
+                Write-BuildLocalTiming 'install approved; installing'
+            }
+            elseif (!$announced -and $state -eq 'awaiting-approval') {
+                $announced = $true
+                Write-BuildLocalTiming 'waiting for you to approve or cancel the installer'
+            }
+
+            if ($installStarted) {
+                if ($installStarted.Elapsed.TotalSeconds -ge $InstallTimeoutSeconds) {
+                    try { $process.Kill($true) } catch { }
+                    throw "CycleArc-Setup.exe did not finish installing within $InstallTimeoutSeconds seconds."
+                }
+            }
+            elseif ($waited.Elapsed.TotalSeconds -ge $ApprovalTimeoutSeconds) {
+                try { $process.Kill($true) } catch { }
+                throw "CycleArc-Setup.exe was left unanswered for $ApprovalTimeoutSeconds seconds; nothing was installed."
+            }
+        }
+
+        [int]$process.ExitCode
+    }
+    finally { $process.Dispose() }
+}
+
 function Get-SetupArguments {
     param(
         [Parameter(Mandatory)][string]$SetupLog,
         [string]$ExistingRoot,
-        [string]$DefaultRoot
+        [string]$DefaultRoot,
+        [switch]$Silent
     )
-    $arguments = @('--silent', '--log', $SetupLog)
+    # No --silent by default: running the installer has to show its confirmation screen and
+    # wait for the person. Unattended runs opt in explicitly.
+    $arguments = if ($Silent) { @('--silent', '--log', $SetupLog) } else { @('--log', $SetupLog) }
     if (!$DefaultRoot) { $DefaultRoot = Get-DefaultManagedInstallRoot }
     if ($ExistingRoot -and !(ConvertTo-InstallAbsolutePath $ExistingRoot).Equals(
         (ConvertTo-InstallAbsolutePath $DefaultRoot), [StringComparison]::OrdinalIgnoreCase)) {
@@ -736,6 +813,7 @@ function Invoke-BuildLocal {
         [Parameter(Mandatory)][string]$RepoRoot,
         [switch]$Fast,
         [switch]$NoInstall,
+        [switch]$SilentInstall,
         [string]$ManagedRoot,
         [scriptblock]$DevRun,
         [scriptblock]$PackagedSetup,
@@ -862,25 +940,65 @@ function Invoke-BuildLocal {
             (Join-Path $installRoot 'current/CycleArc.exe'),
             (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc/CycleArc.exe')
         )
-        # Only now, after a green gate and a packaged Setup.exe, is the running
-        # installation touched. A failed build above leaves it running.
-        Set-BuildLocalStage 'stop-desktop'
-        if ($StopDesktop) { & $StopDesktop }
-        else {
-            Stop-VerifiedCycleArcDesktop -ProbeExecutable $stagingExe -LogDirectory $logDirectory -KnownExecutablePaths $known
+        # An unattended run still stops the desktop itself. The interactive path must not:
+        # the person approves the installation first, and the installer stops the app after
+        # that, so cancelling leaves a running CycleArc exactly as it was.
+        if ($SilentInstall) {
+            # Only now, after a green gate and a packaged Setup.exe, is the running
+            # installation touched. A failed build above leaves it running.
+            Set-BuildLocalStage 'stop-desktop'
+            if ($StopDesktop) { & $StopDesktop }
+            else {
+                Stop-VerifiedCycleArcDesktop -ProbeExecutable $stagingExe -LogDirectory $logDirectory -KnownExecutablePaths $known
+            }
         }
 
         Set-BuildLocalStage 'install'
         $setupLog = Join-Path $logDirectory 'setup.log'
-        $setupArgs = Get-SetupArguments -SetupLog $setupLog -ExistingRoot $existingRoot -DefaultRoot $defaultRoot
-        $setupExit = if ($RunSetup) {
-            & $RunSetup $setupPath $setupArgs
+        $setupStateFile = Join-Path $logDirectory 'setup.state'
+        if (Test-Path -LiteralPath $setupStateFile -PathType Leaf) { Remove-Item -LiteralPath $setupStateFile -Force }
+        $setupArgs = Get-SetupArguments -SetupLog $setupLog -ExistingRoot $existingRoot -DefaultRoot $defaultRoot `
+            -Silent:$SilentInstall
+        $previousSetupState = $env:CYCLEARC_SETUP_STATE_FILE
+        $env:CYCLEARC_SETUP_STATE_FILE = $setupStateFile
+        try {
+            $setupExit = if ($RunSetup) {
+                & $RunSetup $setupPath $setupArgs
+            }
+            elseif ($SilentInstall) {
+                # The installer's own directory: Setup.exe is launched detached from
+                # this script's working directory, and an unnamed one is not ''.
+                Invoke-WindowedProcess -FilePath $setupPath -ArgumentList $setupArgs `
+                    -WorkingDirectory (Split-Path -Parent (ConvertTo-InstallAbsolutePath $setupPath)) -TimeoutSeconds 600
+            }
+            else {
+                Invoke-SetupProcess -FilePath $setupPath -ArgumentList $setupArgs `
+                    -WorkingDirectory (Split-Path -Parent (ConvertTo-InstallAbsolutePath $setupPath)) `
+                    -StateFile $setupStateFile
+            }
         }
-        else {
-            # The installer's own directory: Setup.exe is launched detached from
-            # this script's working directory, and an unnamed one is not ''.
-            Invoke-WindowedProcess -FilePath $setupPath -ArgumentList $setupArgs `
-                -WorkingDirectory (Split-Path -Parent (ConvertTo-InstallAbsolutePath $setupPath)) -TimeoutSeconds 600
+        finally {
+            if ($null -eq $previousSetupState) { Remove-Item Env:CYCLEARC_SETUP_STATE_FILE -ErrorAction SilentlyContinue }
+            else { $env:CYCLEARC_SETUP_STATE_FILE = $previousSetupState }
+        }
+
+        # Cancelling is neither success nor failure: nothing was installed and the previous
+        # installation is untouched, so this run stops here and says so.
+        if (!$SilentInstall -and $setupExit -eq 2) {
+            Set-BuildLocalStage 'install-cancelled' -Quiet
+            Write-Host ''
+            Write-Host 'Installation cancelled in the setup window.'
+            Write-Host "Setup: $setupPath"
+            Write-Host 'Nothing was installed and the previous installation is unchanged.'
+            Write-Host "Log: $logPath"
+            return [pscustomobject]@{
+                Branch = $git.Branch
+                Head = $git.Head
+                Setup = $setupPath
+                Cancelled = $true
+                InstallRoot = $installRoot
+                Log = $logPath
+            }
         }
         if ($setupExit -ne 0) {
             throw "CycleArc-Setup.exe failed (exit $setupExit). See $setupLog. The previous installation was not reported as replaced."
@@ -901,6 +1019,34 @@ function Invoke-BuildLocal {
         }
 
         Set-BuildLocalStage 'start'
+        # The setup window owns whether the app runs: its completion page has a Run
+        # checkbox. Starting it again here would ignore a person who cleared that box, and
+        # requiring a readiness answer would turn their choice into a build failure.
+        if (!$SilentInstall -and !$StartLauncher -and !$ProbeStatus) {
+            $status = Invoke-DesktopStatus -Executable $installedExe -LogDirectory $logDirectory
+            $running = $status -and [bool]$status.Succeeded
+            Write-Host ''
+            Write-Host 'CycleArc is installed.'
+            Write-Host "Branch: $($git.Branch)"
+            Write-Host "HEAD: $($git.Head)"
+            Write-Host "Setup: $setupPath"
+            Write-Host "Installed: $installedExe"
+            Write-Host "SHA-256 match: $publishedHash"
+            Write-Host ("Running: {0}" -f $(if ($running) { "yes, PID $($status.ProcessId) path $($status.ExecutablePath)" } else { 'no (not selected in the installer)' }))
+            Write-Host "Log: $logPath"
+            return [pscustomobject]@{
+                Branch = $git.Branch
+                Head = $git.Head
+                Setup = $setupPath
+                Installed = $installedExe
+                Sha256 = $publishedHash
+                InstallRoot = $installRoot
+                Running = [bool]$running
+                ProcessId = $(if ($running) { [int]$status.ProcessId } else { 0 })
+                Log = $logPath
+            }
+        }
+
         if ($StartLauncher) { & $StartLauncher $launcher }
         else {
             $null = Start-Process -FilePath $launcher -ArgumentList @('--show') -WorkingDirectory $installRoot
@@ -965,7 +1111,7 @@ if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
     # Invoke-BuildLocal already printed the stage, cause and guidance, and wrote
     # them to artifacts/build-local/last-failure.txt for build-local.cmd to show.
     # Only the nonzero exit code still has to reach CMD.
-    try { Invoke-BuildLocal -RepoRoot $root -Fast:$Fast -NoInstall:$NoInstall | Out-Null }
+    try { Invoke-BuildLocal -RepoRoot $root -Fast:$Fast -NoInstall:$NoInstall -SilentInstall:$SilentInstall | Out-Null }
     catch { exit 1 }
     exit 0
 }
