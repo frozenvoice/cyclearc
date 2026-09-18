@@ -227,7 +227,7 @@ try {
     # --- A: the plain double-click, with no arguments and nothing injected. ---
     Write-Step 'Build A: build-local.cmd with no arguments'
     New-MarkerSource 'build-a'
-    $runA = Invoke-BuildLocalEntryPoint -Label 'build-a'
+    $runA = Invoke-BuildLocalEntryPoint -Label 'build-a' -Arguments @('-SilentInstall')
     if ($runA.ExitCode -ne 0) { throw "build-local.cmd (A) exited $($runA.ExitCode); see $($runA.StandardOutput)" }
     if (Test-Path -LiteralPath $failureMarker -PathType Leaf) { throw 'A successful run still left a failure marker behind.' }
     $liveStages = Assert-StageProgressReachedCmd -Path $runA.StandardOutput -Label 'Build A'
@@ -243,7 +243,7 @@ try {
     # --- B: the same version number, different executable content. ---
     Write-Step 'Build B: same version, different content, installed over A'
     New-MarkerSource 'build-b-replaces-a'
-    $runB = Invoke-BuildLocalEntryPoint -Label 'build-b' -Arguments @('-Fast')
+    $runB = Invoke-BuildLocalEntryPoint -Label 'build-b' -Arguments @('-Fast', '-SilentInstall')
     if ($runB.ExitCode -ne 0) { throw "build-local.cmd (B) exited $($runB.ExitCode); see $($runB.StandardOutput)" }
     $hashB = Get-BuildLocalSha256 $stagingExe
     $versionB = [Diagnostics.FileVersionInfo]::GetVersionInfo($stagingExe).FileVersion
@@ -264,7 +264,7 @@ try {
     # --- Failure: a broken build must not touch the installed, running app. ---
     Write-Step 'Failure: a broken build keeps the running installation'
     Set-MarkerSource "namespace CycleArc; this is deliberately not valid C#"
-    $runFail = Invoke-BuildLocalEntryPoint -Label 'build-failure'
+    $runFail = Invoke-BuildLocalEntryPoint -Label 'build-failure' -Arguments @('-SilentInstall')
     if ($runFail.ExitCode -eq 0) { throw 'A broken build still reported success through CMD.' }
     if (!(Test-Path -LiteralPath $failureMarker -PathType Leaf)) { throw 'The failed run wrote no stage marker for build-local.cmd.' }
     $failureText = Get-Content -LiteralPath $failureMarker -Raw

@@ -54,6 +54,18 @@ jobs:
           try { ./scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment -WorkRoot $artifacts }
           finally { Stop-Transcript | Out-Null }
 
+      # The screens a person actually sees when they double-click the downloaded installer.
+      # This installs for real, which is why it only runs on this disposable runner.
+      - name: Verify the setup window on the distributable installer
+        run: |
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/build-local-entry/setup-ui'
+          $setup = Join-Path $env:GITHUB_WORKSPACE 'publish/.dev-velopack/CycleArc-Setup.exe'
+          if (!(Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw "The packaged installer is missing at $setup"
+          }
+          "Installer: $setup ({0:n1} MB)" -f ((Get-Item $setup).Length / 1MB)
+          ./scripts/Verify-SetupUi.ps1 -SetupPath $setup -OutputDirectory $artifacts -ConfirmDisposableEnvironment
+
       # Collected for a failed run as well, so a failure is diagnosable from the log alone.
       - name: Collect logs
         if: always()
