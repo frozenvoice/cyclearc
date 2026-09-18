@@ -396,6 +396,15 @@ function Get-PackagedArtifact {
     }
     $deltas = @($files | Where-Object { $_.Name -match '(?i)-delta\.nupkg$' })
     if ($deltas.Count -gt 0) { throw "CI artifact contains forbidden delta package(s): $($deltas.Name -join ', ')" }
+    # Same rule Package.ps1 applies to its own output directory: the four required files
+    # plus the optional Velopack asset list and legacy index, and nothing else. Anything
+    # else in the artifact is rejected here rather than being uploaded and then allowed.
+    $permitted = @(Get-ExpectedReleaseAssetNames -VersionValue $VersionValue -PackageId $PackageId -Channel $Channel) +
+        @(Get-OptionalReleaseAssetNames -Channel $Channel)
+    $unexpected = @($files | Where-Object { $_.Name -cnotin $permitted })
+    if ($unexpected.Count -gt 0) {
+        throw "CI artifact contains unexpected file(s): $($unexpected.Name -join ', ')"
+    }
     Assert-PackagedReleaseFeed -FeedPath $feed[0].FullName -VersionValue $VersionValue -PackageId $PackageId -PackageName $packageName -PackagePath $full[0].FullName | Out-Null
     $assetPaths = @($files | Where-Object { $_.Name -cne 'SHA256SUMS.txt' } | ForEach-Object { $_.FullName })
     Assert-PackagedChecksumManifest -ManifestPath $manifest[0].FullName -AssetPaths $assetPaths | Out-Null
@@ -562,6 +571,31 @@ function Get-ExpectedReleaseAssetNames {
     )
 }
 
+# Velopack also emits an asset list and a legacy RELEASES index. Package.ps1 accepts both as
+# ordinary outputs, so a normally produced release carries six files, not four. They are
+# optional rather than required: a package that predates them, or a channel that does not
+# emit them, is still complete.
+function Get-OptionalReleaseAssetNames {
+    param([string]$Channel = 'win')
+    @(
+        "assets.$Channel.json",
+        'RELEASES'
+    )
+}
+
+# The names a release may carry: everything required plus everything optional. Used wherever
+# an existing draft or public release is inspected, so that a release built by this pipeline
+# is never rejected as carrying "unexpected assets".
+function Get-AllowedReleaseAssetNames {
+    param(
+        [Parameter(Mandatory)][string]$VersionValue,
+        [string]$PackageId = 'CycleArc',
+        [string]$Channel = 'win'
+    )
+    @(Get-ExpectedReleaseAssetNames -VersionValue $VersionValue -PackageId $PackageId -Channel $Channel) +
+    @(Get-OptionalReleaseAssetNames -Channel $Channel)
+}
+
 function Assert-ReleaseNotesForNewDraft {
     param(
         $Release,
@@ -667,7 +701,12 @@ function Invoke-Release {
 
         $NotesFile = Assert-ReleaseNotesForNewDraft -Release $release -NotesFile $NotesFile -TagName $tag
         $expectedAssetNames = @(Get-ExpectedReleaseAssetNames -VersionValue $version)
-        if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $expectedAssetNames }
+        # Name-check an existing release against everything the pipeline may legitimately
+        # upload. The narrower required list is what the CI artifact must satisfy below;
+        # using it here would reject a normally built release for carrying its own
+        # optional outputs.
+        $allowedAssetNames = @(Get-AllowedReleaseAssetNames -VersionValue $version)
+        if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssetNames }
 
         $runJson = Invoke-GhJson -Arguments @(
             'run', 'list', '--repo', $RepositoryName, '--workflow', $WorkflowFile,
@@ -701,7 +740,7 @@ function Invoke-Release {
         if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets }
 
         if ($isPublic) {
-            Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete
+            Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete | Out-Null
             $latestTag = Get-LatestReleaseTag -RepositoryName $RepositoryName
             if ($latestTag -cne $tag) {
                 throw "Public release '$tag' is not GitHub's latest release (latest is '$latestTag')"
@@ -753,7 +792,7 @@ function Invoke-Release {
         ) + $assetPaths + @('--repo', $RepositoryName, '--clobber')) | Out-Null
         $release = Get-ReleaseSnapshot -RepositoryName $RepositoryName -TagName $tag
         if (!$release -or !$release.isDraft) { throw "Release '$tag' became public before asset validation" }
-        Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete
+        Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete | Out-Null
         if ($DraftOnly) {
             Write-ReleasePhase 'publish' 'passed'
             Write-Host "Draft ready: $tag for $commitSha with verified installer assets."
@@ -767,7 +806,7 @@ function Invoke-Release {
         ) | Out-Null
         $published = Get-ReleaseSnapshot -RepositoryName $RepositoryName -TagName $tag
         if (!$published -or [bool]$published.isDraft) { throw "Release '$tag' did not become public" }
-        Assert-ReleaseAssets -Release $published -ExpectedAssets $assets -RequireComplete
+        Assert-ReleaseAssets -Release $published -ExpectedAssets $assets -RequireComplete | Out-Null
         $latestTag = Get-LatestReleaseTag -RepositoryName $RepositoryName
         if ($latestTag -cne $tag) {
             throw "Published release '$tag' is not GitHub's latest release (latest is '$latestTag')"

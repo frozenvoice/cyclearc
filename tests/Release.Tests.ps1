@@ -203,6 +203,236 @@ finally {
     if (Test-Path -LiteralPath $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
 }
 
+
+# --- Required vs allowed release assets, exercised through the real decision path ---------
+#
+# These drive Invoke-Release -Preflight with only the external process boundary
+# (Invoke-NativeCommand) replaced, so the asset-name, checksum, size and digest decisions
+# are the production ones. Assert-FullPackageFileVersion is stubbed because a representative
+# fixture cannot carry real PE version metadata; every asset rule under test stays live.
+# Nothing here creates, edits or publishes a GitHub release.
+
+$assetTestRoot = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-release-assets-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $assetTestRoot | Out-Null
+$nativeBeforeAssetTests = (Get-Command Invoke-NativeCommand -CommandType Function).ScriptBlock
+$fileVersionBeforeAssetTests = (Get-Command Assert-FullPackageFileVersion -CommandType Function).ScriptBlock
+try {
+    $assetVersion = '0.6.0'
+    $assetTag = "v$assetVersion"
+    $script:fixtureCommit = 'd' * 40
+    $script:fixtureTag = $assetTag
+    $script:ghCommands = @()
+
+    function New-StagedArtifact {
+        param(
+            [Parameter(Mandatory)][string]$Directory,
+            [switch]$OmitOptional,
+            [switch]$AddStrayFile,
+            [switch]$OmitFeed
+        )
+        New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $Directory 'CycleArc-Setup.exe'), [byte[]](4, 5, 6, 7))
+        $fullName = "CycleArc-$script:fixtureVersion-full.nupkg"
+        $fullPath = Join-Path $Directory $fullName
+        $stream = [IO.File]::Open($fullPath, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            $entryStream = $archive.CreateEntry('CycleArc.exe').Open()
+            try { $entryStream.Write([byte[]](1, 2, 3, 4), 0, 4) } finally { $entryStream.Dispose() }
+        }
+        finally { $archive.Dispose(); $stream.Dispose() }
+        if (!$OmitFeed) {
+            $feed = @{ Assets = @(@{
+                PackageId = 'CycleArc'
+                Version   = $script:fixtureVersion
+                Type      = 'Full'
+                FileName  = $fullName
+                SHA1      = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA1).Hash
+                SHA256    = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash
+                Size      = (Get-Item $fullPath).Length
+            }) }
+            $feed | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Directory 'releases.win.json') -Encoding utf8
+        }
+        if (!$OmitOptional) {
+            # Exactly the two extra outputs Package.ps1 already accepts next to the required four.
+            @(@{ RelativeFileName = 'CycleArc-Setup.exe'; Type = 'Setup' }) |
+                ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Directory 'assets.win.json') -Encoding utf8
+            Set-Content -LiteralPath (Join-Path $Directory 'RELEASES') -Value "0000 $fullName 4" -Encoding utf8
+        }
+        if ($AddStrayFile) {
+            Set-Content -LiteralPath (Join-Path $Directory 'leftover.zip') -Value 'stray' -Encoding utf8
+        }
+        $targets = @(Get-ChildItem -LiteralPath $Directory -File | Where-Object { $_.Name -cne 'SHA256SUMS.txt' })
+        $lines = foreach ($asset in $targets) {
+            "$((Get-FileHash -LiteralPath $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($asset.Name)"
+        }
+        $lines | Set-Content -LiteralPath (Join-Path $Directory 'SHA256SUMS.txt') -Encoding utf8
+    }
+
+    function New-ReleaseAssetsFrom {
+        param(
+            [Parameter(Mandatory)][string]$Directory,
+            [string[]]$Only,
+            [string]$CorruptName,
+            [string]$WrongSizeName
+        )
+        foreach ($file in Get-ChildItem -LiteralPath $Directory -File) {
+            if ($Only -and $file.Name -cnotin $Only) { continue }
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($file.Name -ceq $CorruptName) { $hash = 'f' * 64 }
+            $size = [int64]$file.Length
+            if ($file.Name -ceq $WrongSizeName) { $size = $size + 1 }
+            [pscustomobject]@{ name = $file.Name; size = $size; digest = "sha256:$hash" }
+        }
+    }
+
+    # The only boundary that leaves this process. Every call is recorded so a test can assert
+    # that Preflight performed no remote change at all.
+    function Invoke-NativeCommand {
+        param([string]$FilePath, [string[]]$Arguments, [switch]$AllowFailure)
+        $script:ghCommands += , (@($FilePath) + $Arguments)
+        $joined = $Arguments -join ' '
+        if ($FilePath -eq 'git') {
+            if ($joined -match '^status ') { return [pscustomobject]@{ ExitCode = 0; Output = '' } }
+            if ($joined -match '^rev-parse ') { return [pscustomobject]@{ ExitCode = 0; Output = $script:fixtureCommit } }
+            if ($joined -match '^ls-remote --heads') {
+                return [pscustomobject]@{ ExitCode = 0; Output = ($script:fixtureCommit + "`t" + 'refs/heads/main') }
+            }
+            if ($joined -match '^ls-remote --tags') {
+                return [pscustomobject]@{ ExitCode = 0; Output = ($script:fixtureCommit + "`t" + "refs/tags/$script:fixtureTag") }
+            }
+            throw "Unexpected git call in a preflight test: $joined"
+        }
+        if ($FilePath -eq 'gh') {
+            if ($joined -match '^auth status') { return [pscustomobject]@{ ExitCode = 0; Output = 'Logged in to github.com' } }
+            if ($joined -match '^release view') {
+                return [pscustomobject]@{ ExitCode = 0; Output = ($script:fixtureRelease | ConvertTo-Json -Depth 30) }
+            }
+            if ($joined -match '^run list') {
+                $run = @(@{
+                    databaseId = 4242; headSha = $script:fixtureCommit; event = 'push'; status = 'completed'
+                    conclusion = 'success'; createdAt = '2026-09-15T10:00:00Z'; workflowName = 'Windows'
+                    url = 'https://example.invalid/run/4242'
+                })
+                return [pscustomobject]@{ ExitCode = 0; Output = ($run | ConvertTo-Json -Depth 30) }
+            }
+            if ($joined -match '^run download') {
+                $dirIndex = [array]::IndexOf([array]$Arguments, '--dir')
+                if ($dirIndex -lt 0) { throw 'gh run download was called without --dir' }
+                Copy-Item -Path (Join-Path $script:fixtureArtifact '*') -Destination $Arguments[$dirIndex + 1] -Force
+                return [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            if ($joined -match '^api repos/.+/releases/latest') {
+                return [pscustomobject]@{ ExitCode = 0; Output = (@{ tag_name = $script:fixtureTag } | ConvertTo-Json) }
+            }
+            throw "Unexpected gh call in a preflight test: $joined"
+        }
+        throw "Unexpected process in a preflight test: $FilePath"
+    }
+
+    # A representative fixture cannot carry real PE version metadata; that check has its own
+    # coverage above and is not what these cases decide.
+    function Assert-FullPackageFileVersion {
+        param([string]$PackagePath, [string]$ExpectedFileVersion)
+    }
+
+    $script:fixtureVersion = $assetVersion
+
+    function Invoke-PreflightFixture {
+        param(
+            [Parameter(Mandatory)][string]$Name,
+            [switch]$OmitOptional,
+            [switch]$AddStrayFile,
+            [switch]$OmitFeed,
+            [switch]$Public,
+            [string]$CorruptName,
+            [string]$WrongSizeName,
+            [string[]]$ReleaseOnly,
+            [object[]]$ExtraReleaseAssets
+        )
+        $caseRoot = Join-Path $assetTestRoot $Name
+        $script:fixtureArtifact = Join-Path $caseRoot 'artifact'
+        New-StagedArtifact -Directory $script:fixtureArtifact -OmitOptional:$OmitOptional `
+            -AddStrayFile:$AddStrayFile -OmitFeed:$OmitFeed
+        $assets = @(New-ReleaseAssetsFrom -Directory $script:fixtureArtifact -Only $ReleaseOnly `
+            -CorruptName $CorruptName -WrongSizeName $WrongSizeName)
+        if ($ExtraReleaseAssets) { $assets = @($assets + $ExtraReleaseAssets) }
+        $script:fixtureRelease = [pscustomobject]@{
+            isDraft         = !$Public
+            isPrerelease    = $false
+            tagName         = $script:fixtureTag
+            targetCommitish = $script:fixtureCommit
+            name            = "CycleArc $script:fixtureVersion"
+            body            = 'notes'
+            assets          = $assets
+        }
+        $script:ghCommands = @()
+        Invoke-Release -VersionValue $script:fixtureVersion -Commitish 'HEAD' `
+            -RepositoryName 'frozenvoice/cyclearc' -RemoteName 'origin' -Preflight -RepositoryRoot $caseRoot
+    }
+
+    function Assert-NoRemoteMutation {
+        $mutations = @($script:ghCommands | Where-Object {
+            $text = $_ -join ' '
+            $text -match 'release (create|edit|upload|delete)' -or
+            $text -match 'git (tag|push)' -or
+            $text -match '--draft=false'
+        })
+        $shown = ($mutations | ForEach-Object { $_ -join ' ' }) -join '; '
+        Assert-Equal 0 $mutations.Count "Preflight must not change anything on GitHub (saw: $shown)"
+    }
+
+    # A normally produced draft carries six files; the name check must not reject it.
+    $draft = Invoke-PreflightFixture -Name 'draft-six-files'
+    Assert-Equal 'Preflight' $draft.Status 'a six-file draft passes preflight'
+    Assert-NoRemoteMutation
+
+    # The same six files, already public and matching, need no further work.
+    $complete = Invoke-PreflightFixture -Name 'public-six-files' -Public
+    Assert-Equal 'AlreadyComplete' $complete.Status 'a matching public six-file release is already complete'
+    Assert-NoRemoteMutation
+
+    # A package without the optional outputs is still a complete package.
+    Assert-Equal 'Preflight' (Invoke-PreflightFixture -Name 'draft-four-files' -OmitOptional).Status `
+        'a four-file package is handled by the same contract'
+    Assert-Equal 'AlreadyComplete' (Invoke-PreflightFixture -Name 'public-four-files' -OmitOptional -Public).Status `
+        'a matching public four-file release is already complete'
+    Assert-NoRemoteMutation
+
+    # Anything outside required-plus-optional is still refused, in the build output...
+    # The release itself is clean here, so the stray reaches the build-output check.
+    Assert-Throws {
+        Invoke-PreflightFixture -Name 'stray-artifact-file' -AddStrayFile -ReleaseOnly @(
+            'CycleArc-Setup.exe', "CycleArc-$assetVersion-full.nupkg", 'releases.win.json',
+            'SHA256SUMS.txt', 'assets.win.json', 'RELEASES')
+    } 'unexpected file'
+    # ...and on the release being inspected.
+    Assert-Throws {
+        Invoke-PreflightFixture -Name 'stray-release-asset' -ExtraReleaseAssets @(
+            [pscustomobject]@{ name = 'old-installer.zip'; size = 10; digest = "sha256:$hashA" })
+    } 'unexpected assets'
+
+    # A public release missing a required file is not complete.
+    Assert-Throws {
+        Invoke-PreflightFixture -Name 'public-missing-required' -Public -ReleaseOnly @(
+            'CycleArc-Setup.exe', 'releases.win.json', 'SHA256SUMS.txt', 'assets.win.json', 'RELEASES')
+    } 'missing expected asset'
+
+    # A build output missing a required file never reaches a release at all.
+    Assert-Throws { Invoke-PreflightFixture -Name 'artifact-missing-required' -OmitFeed } 'release feed'
+
+    # Digest and size verification against the uploaded assets stays in force, including for
+    # an optional asset.
+    Assert-Throws { Invoke-PreflightFixture -Name 'public-bad-digest' -Public -CorruptName 'CycleArc-Setup.exe' } 'digest'
+    Assert-Throws { Invoke-PreflightFixture -Name 'public-bad-size' -Public -WrongSizeName 'RELEASES' } 'size'
+    Assert-NoRemoteMutation
+}
+finally {
+    Set-Item -Path Function:\Invoke-NativeCommand -Value $nativeBeforeAssetTests
+    Set-Item -Path Function:\Assert-FullPackageFileVersion -Value $fileVersionBeforeAssetTests
+    if (Test-Path -LiteralPath $assetTestRoot) { Remove-Item -LiteralPath $assetTestRoot -Recurse -Force }
+}
+
 $releaseScript = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/Release.ps1') -Raw
 if ($releaseScript -notmatch '\[switch\]\$Preflight') { throw 'Release.ps1 must expose -Preflight' }
 $invoke = $releaseScript.IndexOf('function Invoke-Release')
