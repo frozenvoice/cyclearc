@@ -12,11 +12,18 @@
     exact commit SHA, push event, and Windows workflow; a failed or in-progress
     run is an error and is never rerun by this script.
 
+    -Preflight runs local, package and remote verification without creating tags,
+    drafts, uploads or public releases. Publish starts only after that gate and
+    never starts a new build, test or packaging run.
+
 .EXAMPLE
     pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7 -NotesPath ./release-notes/0.5.7.md
 
     Commit defaults to HEAD. An explicit -Commit must resolve to the checked-out
     HEAD; check out an older version before releasing it.
+
+.EXAMPLE
+    pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7 -NotesPath ./release-notes/0.5.7.md -Preflight
 #>
 [CmdletBinding()]
 param(
@@ -27,6 +34,7 @@ param(
     [string]$Remote = 'origin',
     [string]$Workflow = '.github/workflows/windows.yml',
     [switch]$DraftOnly,
+    [switch]$Preflight,
     [switch]$LoadOnly
 )
 
@@ -523,6 +531,52 @@ function Get-LatestReleaseTag {
     [string]$latest.tag_name
 }
 
+function Assert-ReleaseTools {
+    foreach ($name in @('git', 'gh')) {
+        if (!(Get-Command $name -ErrorAction SilentlyContinue)) {
+            throw "Missing required tool '$name'. Install Git and the GitHub CLI, then retry. No GitHub release was created."
+        }
+    }
+}
+
+function Assert-GitHubCliAuth {
+    $result = Invoke-NativeCommand -FilePath 'gh' -Arguments @('auth', 'status') -AllowFailure
+    if ($result.ExitCode -ne 0) {
+        $detail = if ($result.Output) { ": $($result.Output)" } else { '' }
+        throw "GitHub CLI is not authenticated$detail"
+    }
+    $true
+}
+
+function Get-ExpectedReleaseAssetNames {
+    param(
+        [Parameter(Mandatory)][string]$VersionValue,
+        [string]$PackageId = 'CycleArc',
+        [string]$Channel = 'win'
+    )
+    @(
+        "$PackageId-Setup.exe",
+        "$PackageId-$VersionValue-full.nupkg",
+        "releases.$Channel.json",
+        'SHA256SUMS.txt'
+    )
+}
+
+function Assert-ReleaseNotesForNewDraft {
+    param(
+        $Release,
+        [string]$NotesFile,
+        [Parameter(Mandatory)][string]$TagName
+    )
+    if ($Release) { return $NotesFile }
+    if ([string]::IsNullOrWhiteSpace($NotesFile)) {
+        throw "A notes file is required when creating a new draft release ($TagName)"
+    }
+    $notes = Get-Item -LiteralPath $NotesFile -ErrorAction Stop
+    if ($notes.PSIsContainer) { throw "Notes path is a directory: $NotesFile" }
+    $notes.FullName
+}
+
 function Ensure-TagPublished {
     param(
         [Parameter(Mandatory)][string]$TagName,
@@ -559,6 +613,7 @@ function Invoke-Release {
         [string]$RemoteName = 'origin',
         [string]$WorkflowFile = '.github/workflows/windows.yml',
         [switch]$DraftOnly,
+        [switch]$Preflight,
         [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot)
     )
 
@@ -566,8 +621,22 @@ function Invoke-Release {
     $tag = Get-ReleaseTagName $version
     $expectedFileVersion = "$version.0"
     $root = [IO.Path]::GetFullPath($RepositoryRoot)
+    $started = [Diagnostics.Stopwatch]::StartNew()
+    $script:ReleaseCurrentPhase = 'release-preflight'
+    function Get-ReleaseElapsedStamp {
+        $elapsed = $started.Elapsed
+        '{0:00}:{1:00}.{2}' -f [int][math]::Floor($elapsed.TotalMinutes), $elapsed.Seconds, [int][math]::Floor($elapsed.Milliseconds / 100.0)
+    }
+    function Write-ReleasePhase([string]$Phase, [string]$Status) {
+        $script:ReleaseCurrentPhase = $Phase
+        Write-Host ('[{0}] {1} {2}' -f (Get-ReleaseElapsedStamp), $Phase, $Status)
+    }
+
     Push-Location -LiteralPath $root
     try {
+        Write-ReleasePhase 'release-preflight' 'start'
+        Assert-ReleaseTools
+        Assert-GitHubCliAuth | Out-Null
         if ([string]::IsNullOrWhiteSpace($NotesFile)) {
             $defaultNotes = Join-Path $root "release-notes/$version.md"
             if (Test-Path -LiteralPath $defaultNotes -PathType Leaf) { $NotesFile = $defaultNotes }
@@ -596,13 +665,19 @@ function Invoke-Release {
             throw "Public release '$tag' has no matching remote tag; refusing to repair it"
         }
 
+        $NotesFile = Assert-ReleaseNotesForNewDraft -Release $release -NotesFile $NotesFile -TagName $tag
+        $expectedAssetNames = @(Get-ExpectedReleaseAssetNames -VersionValue $version)
+        if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $expectedAssetNames }
+
         $runJson = Invoke-GhJson -Arguments @(
             'run', 'list', '--repo', $RepositoryName, '--workflow', $WorkflowFile,
             '--commit', $commitSha, '--event', 'push', '--limit', '20',
             '--json', 'databaseId,status,conclusion,headSha,event,workflowName,createdAt,url'
         )
         $run = Select-SuccessfulWindowsPushRun -Runs @($runJson) -CommitSha $commitSha
+        Write-ReleasePhase 'release-preflight' 'passed'
 
+        Write-ReleasePhase 'package-verify' 'start'
         $stagingRoot = Join-Path $root 'publish/.release-staging'
         Assert-OwnedDirectory -RepoRoot $root -Target $stagingRoot
         New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
@@ -616,6 +691,13 @@ function Invoke-Release {
         $assets = Get-PackagedArtifact -StagingDirectory $staging -VersionValue $version -ExpectedFileVersion $expectedFileVersion
         $assetPaths = @($assets.Values | ForEach-Object { $_.Path })
         $allowedAssets = @($assets.Keys | ForEach-Object { [string]$_ })
+        $missingExpected = @($expectedAssetNames | Where-Object { $_ -cnotin $allowedAssets })
+        if ($missingExpected.Count -gt 0) {
+            throw "CI artifact is missing expected release asset(s): $($missingExpected -join ', ')"
+        }
+        Write-ReleasePhase 'package-verify' 'passed'
+
+        Write-ReleasePhase 'remote-state-verify' 'start'
         if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets }
 
         if ($isPublic) {
@@ -624,18 +706,20 @@ function Invoke-Release {
             if ($latestTag -cne $tag) {
                 throw "Public release '$tag' is not GitHub's latest release (latest is '$latestTag')"
             }
+            Write-ReleasePhase 'remote-state-verify' 'passed'
             Write-Host "Already complete: public release $tag matches commit $commitSha and uploaded asset digests."
             return [pscustomobject]@{ Status = 'AlreadyComplete'; Tag = $tag; Commit = $commitSha; Staging = $staging }
         }
+        Write-ReleasePhase 'remote-state-verify' 'passed'
 
-        if (!$release) {
-            if ([string]::IsNullOrWhiteSpace($NotesFile)) {
-                throw "A notes file is required when creating a new draft release ($tag)"
-            }
-            $notes = Get-Item -LiteralPath $NotesFile -ErrorAction Stop
-            if (!$notes.PSIsContainer) { $NotesFile = $notes.FullName } else { throw "Notes path is a directory: $NotesFile" }
+        if ($Preflight) {
+            Write-Host "Preflight passed: $tag for $commitSha. No GitHub tags, drafts, uploads or publishes were performed."
+            return [pscustomobject]@{ Status = 'Preflight'; Tag = $tag; Commit = $commitSha; Staging = $staging }
         }
 
+        # Publish uses the already-verified SHA and CI artifacts. It does not
+        # start a new build, test or packaging run.
+        Write-ReleasePhase 'publish' 'start'
         Ensure-TagPublished -TagName $tag -CommitSha $commitSha -VersionValue $version -RemoteName $RemoteName | Out-Null
 
         if (!$release) {
@@ -671,6 +755,7 @@ function Invoke-Release {
         if (!$release -or !$release.isDraft) { throw "Release '$tag' became public before asset validation" }
         Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete
         if ($DraftOnly) {
+            Write-ReleasePhase 'publish' 'passed'
             Write-Host "Draft ready: $tag for $commitSha with verified installer assets."
             return [pscustomobject]@{ Status = 'DraftReady'; Tag = $tag; Commit = $commitSha; Staging = $staging }
         }
@@ -687,8 +772,14 @@ function Invoke-Release {
         if ($latestTag -cne $tag) {
             throw "Published release '$tag' is not GitHub's latest release (latest is '$latestTag')"
         }
+        Write-ReleasePhase 'publish' 'passed'
         Write-Host "Published $tag for $commitSha with verified installer assets."
         [pscustomobject]@{ Status = 'Published'; Tag = $tag; Commit = $commitSha; Staging = $staging }
+    }
+    catch {
+        Write-Host ("Failed at: {0}" -f $script:ReleaseCurrentPhase)
+        Write-Host ("Elapsed: {0}" -f $started.Elapsed.ToString('mm\:ss\.fff'))
+        throw
     }
     finally {
         Pop-Location
@@ -697,7 +788,7 @@ function Invoke-Release {
 
 if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
     if ([string]::IsNullOrWhiteSpace($Version)) {
-        throw 'Usage: pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> [-Commit <sha-or-ref>] [-NotesPath <file>]'
+        throw 'Usage: pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> [-Commit <sha-or-ref>] [-NotesPath <file>] [-DraftOnly] [-Preflight]'
     }
-    Invoke-Release -VersionValue $Version -Commitish $Commit -NotesFile $NotesPath -RepositoryName $Repository -RemoteName $Remote -WorkflowFile $Workflow -DraftOnly:$DraftOnly
+    Invoke-Release -VersionValue $Version -Commitish $Commit -NotesFile $NotesPath -RepositoryName $Repository -RemoteName $Remote -WorkflowFile $Workflow -DraftOnly:$DraftOnly -Preflight:$Preflight
 }

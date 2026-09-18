@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 
@@ -122,6 +123,7 @@ internal static class ChildProcessReportWait
         {
             heading + ".",
             $"pid={TryId(process)} HasExited={hasExited} exit={exit}",
+            "command: " + TryCommandLine(process),
             "stdout: " + FormatBlock(output.StandardOutput),
             "stderr: " + FormatBlock(output.StandardError),
             "report: " + FormatBlock(report)
@@ -156,6 +158,30 @@ internal static class ChildProcessReportWait
     {
         try { return process.Id.ToString(System.Globalization.CultureInfo.InvariantCulture); }
         catch (InvalidOperationException) { return "unknown"; }
+    }
+
+    private static string TryCommandLine(Process process)
+    {
+        try
+        {
+            var info = process.StartInfo;
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(info.FileName)) parts.Add(info.FileName);
+            if (info.ArgumentList.Count > 0)
+            {
+                parts.AddRange(info.ArgumentList);
+            }
+            else if (!string.IsNullOrWhiteSpace(info.Arguments))
+            {
+                parts.Add(info.Arguments);
+            }
+
+            return parts.Count == 0 ? "unknown" : string.Join(" ", parts);
+        }
+        catch (InvalidOperationException)
+        {
+            return "unknown";
+        }
     }
 
     private static bool TryHasExited(Process process, out bool exited)

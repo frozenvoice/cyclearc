@@ -85,13 +85,17 @@ function New-TestLaunchableScript([string]$Name, [string]$BodyPath) {
     $path
 }
 
-function New-TestDevRun([string]$Directory, [string]$MarkerPath, [int]$ExitCode, [string]$ErrorText = '') {
+function New-TestDevRun([string]$Directory, [string]$MarkerPath, [int]$ExitCode, [string]$ErrorText = '', [string]$StageName = '') {
     $body = @(
         '[CmdletBinding()]',
         'param([switch]$Fast, [switch]$NoLaunch)',
         'Set-StrictMode -Version Latest',
         ('Set-Content -LiteralPath "{0}" -Value "NoLaunch=$NoLaunch Fast=$Fast cwd=$((Get-Location).Path)"' -f $MarkerPath)
     )
+    if ($StageName) {
+        $body += '$stageFile = $env:CYCLEARC_DEV_RUN_STAGE_FILE'
+        $body += ('if ($stageFile) {{ [IO.File]::WriteAllText($stageFile, ''{0}'' + [Environment]::NewLine) }}' -f ($StageName -replace "'", "''"))
+    }
     if ($ErrorText) {
         $body += ('[Console]::Error.WriteLine(''{0}'')' -f ($ErrorText -replace "'", "''"))
         $body += '[Console]::Error.Flush()'
@@ -136,6 +140,29 @@ try {
     }
     if ($scriptText -notmatch 'CopyToAsync') {
         throw 'Build-Local.ps1 must drain captured streams asynchronously instead of a blocking ReadToEnd'
+    }
+    if ($scriptText -notmatch 'CYCLEARC_DEV_RUN_STAGE_FILE' -or $scriptText -notmatch 'dev-run\.stage') {
+        throw 'Build-Local.ps1 must record the child sub-stage so a UiSmoke timeout is not reported as Stage: build'
+    }
+    if ($scriptText -notmatch 'Failed at:') {
+        throw 'Build-Local.ps1 must print Failed at: for the recorded sub-stage'
+    }
+    $devRunText = Get-Content -LiteralPath (Join-Path $repoRoot 'dev-run.ps1') -Raw
+    foreach ($stage in @(
+        'preflight', 'release-guard', 'restore', 'tool-restore', 'build', 'ui-smoke-desktop-instance',
+        'local-install-regression', 'build-local-regression', 'unit-test', 'ui-smoke-full',
+        'publish', 'package', 'package-verify'
+    )) {
+        if ($devRunText -notmatch [regex]::Escape("Invoke-DevRunStep '$stage'")) {
+            throw "dev-run.ps1 is missing fail-fast step '$stage'"
+        }
+    }
+    $desktopStep = $devRunText.IndexOf("Invoke-DevRunStep 'ui-smoke-desktop-instance'")
+    $unitStep = $devRunText.IndexOf("Invoke-DevRunStep 'unit-test'")
+    $fullSmoke = $devRunText.IndexOf("Invoke-DevRunStep 'ui-smoke-full'")
+    $packageStep = $devRunText.IndexOf("Invoke-DevRunStep 'package'")
+    if ($desktopStep -lt 0 -or $unitStep -le $desktopStep -or $fullSmoke -le $unitStep -or $packageStep -le $fullSmoke) {
+        throw 'dev-run.ps1 must run desktop-instance before unit tests, full UiSmoke and packaging'
     }
     if ($cmdText -notmatch 'scripts\\Build-Local.ps1') { throw 'build-local.cmd must call scripts\\Build-Local.ps1' }
     if ($cmdText -notmatch 'pause') { throw 'build-local.cmd must pause on failure so the window stays open' }
@@ -436,6 +463,43 @@ try {
     }
     Write-Host 'PASS: a real dev-run.ps1 failure stops before the desktop and Setup.exe.'
 
+    # --- Regression: a child sub-stage is the reported failure, not Stage: build. ---
+    $stageTree = Join-Path $testRoot 'sub-stage failure'
+    New-GitCycleArcTree $stageTree
+    $stageMarker = 'UISMOKE-SYNTHETIC: Timed out waiting for desktop instance report first.jsonl'
+    New-TestDevRun $stageTree (Join-Path $stageTree 'dev-run-marker.txt') 1 $stageMarker 'ui-smoke-desktop-instance' | Out-Null
+    $script:stageStopped = $false
+    $script:stageSetup = $false
+    Assert-Throws {
+        Invoke-BuildLocal -RepoRoot $stageTree -ManagedRoot (Join-Path $testRoot 'install sub-stage') `
+            -StopDesktop { $script:stageStopped = $true } -RunSetup { $script:stageSetup = $true; 0 }
+    } 'dev-run.ps1 -NoLaunch failed (exit 1)'
+    if ($stageStopped) { throw 'An early targeted-check failure still stopped the running desktop' }
+    if ($stageSetup) { throw 'An early targeted-check failure still started Setup.exe' }
+    if ((Get-BuildLocalStage) -ne 'ui-smoke-desktop-instance') {
+        throw "A desktop-instance failure was recorded at stage '$(Get-BuildLocalStage)'"
+    }
+    $stageText = Get-Content -LiteralPath (Join-Path $stageTree 'artifacts/build-local/last-failure.txt') -Raw
+    if ($stageText -notmatch 'Failed at: ui-smoke-desktop-instance') {
+        throw "last-failure.txt did not expose the sub-stage: $stageText"
+    }
+    if ($stageText -notmatch 'Stage: ui-smoke-desktop-instance') {
+        throw "last-failure.txt Stage: still collapsed the failure: $stageText"
+    }
+    if ($stageText -match 'Stage: build') {
+        throw "A desktop-instance timeout must not be reported as Stage: build: $stageText"
+    }
+    if ($stageText -notmatch 'Child log:') {
+        throw "last-failure.txt did not name the child log: $stageText"
+    }
+    if ($stageText -notmatch [regex]::Escape($stageMarker)) {
+        throw "last-failure.txt did not include the child root cause: $stageText"
+    }
+    if ($stageText -notmatch 'installed version is unchanged') {
+        throw "An early targeted-check failure must leave the installation unchanged: $stageText"
+    }
+    Write-Host 'PASS: a desktop-instance child failure is reported as ui-smoke-desktop-instance, not Stage: build.'
+
     # --- Regression: a post-Setup failure never claims the old install survived. ---
     $lateTree = Join-Path $testRoot 'late failure'
     New-GitCycleArcTree $lateTree
@@ -655,6 +719,55 @@ exit 0
         if ($ipcText -notmatch [regex]::Escape($ipcStage)) { throw "The IPC log does not record the $ipcStage step" }
     }
     Write-Host 'PASS: unusable desktop IPC answers are logged with their step and cause.'
+
+    # --- Regression: Invoke-ExternalProcess drains stderr and honours its timeout. ---
+    $extOut = Join-Path $testRoot 'ext-out.log'
+    $extErr = Join-Path $testRoot 'ext-err.log'
+    $floodBody = New-TestPowerShellBody 'ext-flood' (@(
+        '$line = "e" * 1024',
+        'for ($i = 0; $i -lt 1024; $i++) { [Console]::Error.WriteLine($line) }',
+        '[Console]::Error.Flush()',
+        'exit 7'
+    ) -join "`n")
+    $floodWatch = [Diagnostics.Stopwatch]::StartNew()
+    $floodExit = Invoke-ExternalProcess -FilePath $pwshPath -TimeoutSeconds 60 -NoNewWindow `
+        -StandardOutputPath $extOut -StandardErrorPath $extErr `
+        -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $floodBody)
+    $floodWatch.Stop()
+    if ($floodExit -ne 7) { throw "A large-stderr child returned exit $floodExit" }
+    if ($floodWatch.Elapsed.TotalSeconds -gt 25) {
+        throw "Draining 1 MB of stderr deadlocked or stalled ($($floodWatch.Elapsed.TotalSeconds)s)"
+    }
+    if ((Get-Item -LiteralPath $extErr).Length -lt 1000000) {
+        throw "Captured stderr was truncated: $((Get-Item -LiteralPath $extErr).Length) bytes"
+    }
+    Write-Host 'PASS: Invoke-ExternalProcess drains a 1 MB stderr child without deadlocking.'
+
+    $hangOut = Join-Path $testRoot 'ext-hang.out.log'
+    $hangErr = Join-Path $testRoot 'ext-hang.err.log'
+    $hangPidFile = Join-Path $testRoot 'ext-hang.pid'
+    $hangBody = New-TestPowerShellBody 'ext-hang' (@(
+        ('$PID | Set-Content -LiteralPath "{0}"' -f $hangPidFile),
+        'Start-Sleep -Seconds 600'
+    ) -join "`n")
+    $hangWatch = [Diagnostics.Stopwatch]::StartNew()
+    Assert-Throws {
+        Invoke-ExternalProcess -FilePath $pwshPath -TimeoutSeconds 3 -NoNewWindow `
+            -StandardOutputPath $hangOut -StandardErrorPath $hangErr `
+            -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $hangBody)
+    } 'did not finish within'
+    $hangWatch.Stop()
+    if ($hangWatch.Elapsed.TotalSeconds -gt 25) {
+        throw "Invoke-ExternalProcess timeout took $($hangWatch.Elapsed.TotalSeconds)s"
+    }
+    $extHangPid = [int]((Get-Content -LiteralPath $hangPidFile -Raw).Trim())
+    $leftoverHang = Get-TestProcessById $extHangPid
+    if ($leftoverHang) {
+        $leftoverHang.Dispose()
+        Stop-TestProcessById $extHangPid
+        throw "The timed-out Invoke-ExternalProcess child PID $extHangPid was left running"
+    }
+    Write-Host 'PASS: Invoke-ExternalProcess stops a hanging child inside its time limit.'
 
 }
 finally {

@@ -75,6 +75,8 @@ public sealed class DesktopInstanceProcessWaitTests
         Assert.Contains("exit=n/a", text, StringComparison.Ordinal);
         Assert.Contains("timeout-child-stdout", text, StringComparison.Ordinal);
         Assert.Contains("timeout-child-stderr", text, StringComparison.Ordinal);
+        Assert.Contains("command:", text, StringComparison.Ordinal);
+        Assert.Contains(run.Process.StartInfo.FileName, text, StringComparison.Ordinal);
         Assert.Contains(run.ReportPath, text, StringComparison.Ordinal);
         Assert.Contains("report: (missing)", text, StringComparison.Ordinal);
         Assert.False(run.Process.HasExited, "Timeout diagnostics must not kill a child the test did not stop.");

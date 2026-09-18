@@ -29,6 +29,17 @@ jobs:
       - name: Build
         run: dotnet build CycleArc.sln -c Release
 
+      - name: Desktop instance process checks
+        run: >
+          dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj
+          -c Release --no-build -- --desktop-instance
+
+      - name: Installer recovery tests
+        run: ./tests/LocalInstall.Tests.ps1
+
+      - name: Local Setup one-click tests
+        run: ./tests/BuildLocal.Tests.ps1
+
       - name: Test
         run: dotnet test CycleArc.sln -c Release --no-build --logger trx --results-directory TestResults
 
@@ -59,12 +70,6 @@ jobs:
           dotnet build src/CycleArc/CycleArc.csproj -c Release
           -p:CycleArcTestBuild=CYCLEARC_TEST_E2E%3BCYCLEARC_TEST_FAIL_STARTUP
           -o artifacts/test-flavour-build
-
-      - name: Installer recovery tests
-        run: ./tests/LocalInstall.Tests.ps1
-
-      - name: Local Setup one-click tests
-        run: ./tests/BuildLocal.Tests.ps1
 
       - name: Publish win-x64
         run: >

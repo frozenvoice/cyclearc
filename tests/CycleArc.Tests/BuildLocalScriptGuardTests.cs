@@ -56,7 +56,11 @@ public class BuildLocalScriptGuardTests
         Assert.Contains("CopyToAsync", text, StringComparison.Ordinal);
         Assert.Contains("dev-run.out.log", text, StringComparison.Ordinal);
         Assert.Contains("dev-run.err.log", text, StringComparison.Ordinal);
+        Assert.Contains("dev-run.stage", text, StringComparison.Ordinal);
+        Assert.Contains("CYCLEARC_DEV_RUN_STAGE_FILE", text, StringComparison.Ordinal);
         Assert.Contains("Write-BuildLocalLogTail", text, StringComparison.Ordinal);
+        Assert.Contains("Failed at:", text, StringComparison.Ordinal);
+        Assert.Contains("Resolve-BuildLocalReportedStage", text, StringComparison.Ordinal);
         Assert.DoesNotContain("StandardOutput.ReadToEnd()", text, StringComparison.Ordinal);
         Assert.DoesNotContain("StandardError.ReadToEnd()", text, StringComparison.Ordinal);
     }
