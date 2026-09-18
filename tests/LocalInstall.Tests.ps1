@@ -144,6 +144,54 @@ try {
     if ($released.ElapsedSeconds -gt 2) { throw "An already-released installation waited $($released.ElapsedSeconds)s" }
     Write-Host 'PASS: an already-released installation returns at once.'
 
+    # --- Regression: a handle inside the installation blocks the release wait. ----------------
+    # Waiting only for the process and the mutex let a same-version repair start while something
+    # still held the directory, which Velopack then reported as Windows error 5 on rename. These
+    # use a real handle on a real file, held by this process, and never touch a real installation.
+    $lockRoot = Join-Path $testRoot 'install-lock'
+    New-Item -ItemType Directory -Path (Join-Path $lockRoot 'current') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $lockRoot 'current/CycleArc.exe') -Value 'current'
+    Set-Content -LiteralPath (Join-Path $lockRoot 'Update.exe') -Value 'updater'
+
+    # Nothing holds it yet.
+    $idle = @(Get-InstallDirectoryLock -InstallRoot $lockRoot)
+    if ($idle.Count -ne 0) { throw "An untouched installation was reported as held: $(Format-InstallDirectoryLock $idle)" }
+
+    $held = [IO.File]::Open((Join-Path $lockRoot 'current/CycleArc.exe'), 'Open', 'Read', 'None')
+    try {
+        $lock = @(Get-InstallDirectoryLock -InstallRoot $lockRoot)
+        if ($lock.Count -eq 0) { throw 'A held installation file was not detected' }
+        if ($lock[0].ProcessId -ne $PID) {
+            throw "The holder was reported as PID $($lock[0].ProcessId), expected this process ($PID)"
+        }
+        $described = Format-InstallDirectoryLock $lock
+        if ($described -notmatch [regex]::Escape("PID $PID")) { throw "The holder was not named: $described" }
+
+        # The wait refuses to declare the installation free while that handle is open, and says
+        # who holds it. No process is running and no mutex is held, so the old check would pass.
+        $waitError = ''
+        try {
+            Wait-InstallDesktopReleased -ProcessId 0 -MutexName 'Local\CycleArc-test-absent-mutex' `
+                -TimeoutSeconds 2 -PollMilliseconds 200 -InstallRoot $lockRoot | Out-Null
+        }
+        catch { $waitError = $_.Exception.Message }
+        if (!$waitError) { throw 'The release wait passed while the installation was still held' }
+        if ($waitError -notmatch 'held by') { throw "The wait did not report the holder: $waitError" }
+        if ($waitError -notmatch [regex]::Escape("PID $PID")) { throw "The wait did not name the holder: $waitError" }
+    }
+    finally { $held.Dispose() }
+
+    # Released again: the same wait now succeeds.
+    $freed = Wait-InstallDesktopReleased -ProcessId 0 -MutexName 'Local\CycleArc-test-absent-mutex' `
+        -TimeoutSeconds 5 -PollMilliseconds 200 -InstallRoot $lockRoot
+    if ($null -eq $freed) { throw 'The release wait did not succeed after the handle was closed' }
+    if ($freed.InstallRoot -ne $lockRoot) { throw 'The release result did not report the installation it checked' }
+
+    # An installation path that does not exist is not reported as held.
+    $absent = @(Get-InstallDirectoryLock -InstallRoot (Join-Path $testRoot 'install-lock-absent'))
+    if ($absent.Count -ne 0) { throw 'A missing installation was reported as held' }
+    Write-Host 'PASS: a handle inside the installation is detected, named, and waited out.'
+
     $heldMutexName = 'CycleArc-test-held-' + [guid]::NewGuid().ToString('N')
     $heldMutex = [Threading.Mutex]::new($false, $heldMutexName)
     try {

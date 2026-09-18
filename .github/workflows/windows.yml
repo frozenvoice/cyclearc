@@ -225,7 +225,7 @@ jobs:
           # does not establish the cause. When the wait times out this fails the
           # job instead of running Setup.exe over a live installation, and the
           # Setup logs printed below say what actually blocked the rename.
-          $released = Wait-InstallDesktopReleased -ProcessId ([int]$status.ProcessId)
+          $released = Wait-InstallDesktopReleased -ProcessId ([int]$status.ProcessId) -InstallRoot $installRoot
           Write-Host "Desktop released its installation after $($released.ElapsedSeconds)s"
 
           # Same-version silent repair of this identical package must keep current\CycleArc.exe.
@@ -238,7 +238,8 @@ jobs:
           if ($repair.ExitCode -ne 0) {
             # Artifact downloads are not always reachable, so the cause goes in the log.
             if (Test-Path -LiteralPath $repairLog -PathType Leaf) {
-              Write-Host '----- setup-repair.log -----'
+              Write-Host "Holding the installation now: $(Format-InstallDirectoryLock (Get-InstallDirectoryLock -InstallRoot $installRoot))"
+            Write-Host '----- setup-repair.log -----'
               Get-Content -LiteralPath $repairLog -Tail 120 -ErrorAction SilentlyContinue
             }
             throw "Same-version Setup.exe exited $($repair.ExitCode). See $repairLog"
