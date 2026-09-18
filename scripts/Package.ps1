@@ -28,6 +28,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Shared with Build-Local.ps1 so both demand the same Native AOT prerequisites.
+. (Join-Path $PSScriptRoot 'SetupUiToolchain.ps1')
+
 function Assert-PackageVersion {
     param([Parameter(Mandatory)][string]$Value)
     if ($Value -notmatch '^\d+\.\d+\.\d+$') {
@@ -223,22 +226,6 @@ function Get-SetupUiProjectPath {
     Join-Path $RepoRoot 'src/CycleArc.Setup/CycleArc.Setup.csproj'
 }
 
-# Native AOT links with MSVC, which the .NET SDK locates through vswhere. A machine that has
-# the Build Tools but not vswhere on PATH fails with a bare "'vswhere.exe' is not recognized",
-# so the well-known Installer directory is added when it is missing.
-function Add-VsWhereToPath {
-    if (Get-Command vswhere -ErrorAction SilentlyContinue) { return $true }
-    foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
-        if (!$base) { continue }
-        $candidate = Join-Path $base 'Microsoft Visual Studio/Installer'
-        if (Test-Path -LiteralPath (Join-Path $candidate 'vswhere.exe') -PathType Leaf) {
-            $env:PATH = "$env:PATH;$candidate"
-            return $true
-        }
-    }
-    return $false
-}
-
 <#
 .SYNOPSIS
     Wraps the Velopack engine installer in the CycleArc setup window.
@@ -263,9 +250,7 @@ function New-SetupUiInstaller {
     if (!(Test-Path -LiteralPath $engineFull -PathType Leaf)) {
         throw "The Velopack engine installer is missing at $engineFull"
     }
-    if (!(Add-VsWhereToPath)) {
-        throw 'Native AOT needs the Visual Studio Build Tools (vswhere.exe was not found). Install the C++ build tools, then retry.'
-    }
+    Assert-SetupUiToolchain | Out-Null
 
     $projectDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($ProjectPath))
     $work = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-setup-ui-' + [guid]::NewGuid().ToString('N'))

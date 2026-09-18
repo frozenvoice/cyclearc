@@ -5,9 +5,16 @@ namespace CycleArc.Setup;
 
 internal enum EngineOutcome { Succeeded, Failed }
 
-internal sealed record EngineResult(EngineOutcome Outcome, int ExitCode, string LogPath, string? Detail)
+/// <param name="LogPath">Where the log really is, or empty when none could be written.</param>
+/// <param name="LogError">
+/// Why no log exists, when that is the case. Kept apart from <paramref name="Detail"/> so a
+/// logging problem never overwrites the installation's own error.
+/// </param>
+internal sealed record EngineResult(
+    EngineOutcome Outcome, int ExitCode, string LogPath, string? Detail, string? LogError = null)
 {
     public bool Succeeded => Outcome == EngineOutcome.Succeeded;
+    public bool HasLog => !string.IsNullOrWhiteSpace(LogPath) && File.Exists(LogPath);
 }
 
 /// <summary>
@@ -36,19 +43,16 @@ internal static class EngineRunner
     public static EngineResult Install(string directory, CancellationToken token, string? logPath = null)
     {
         var work = Path.Combine(Path.GetTempPath(), "CycleArc-setup-" + Guid.NewGuid().ToString("N"));
-        var requested = !string.IsNullOrWhiteSpace(logPath);
-        logPath = requested ? Path.GetFullPath(logPath!) : Path.Combine(work, "CycleArc-install.log");
+        string? logError = null;
         try
         {
             Directory.CreateDirectory(work);
-            if (requested)
-            {
-                var logDirectory = Path.GetDirectoryName(logPath);
-                if (!string.IsNullOrEmpty(logDirectory)) Directory.CreateDirectory(logDirectory);
-            }
+            // Settled before the engine runs and never moved afterwards, so the path reported
+            // on a failure is the path the log is actually at.
+            logPath = PrepareLogPath(logPath, work, out logError);
             var enginePath = Path.Combine(work, "CycleArc-Setup-engine.exe");
             if (!TryExtract(enginePath, out var extractError))
-                return new EngineResult(EngineOutcome.Failed, -1, logPath, extractError);
+                return new EngineResult(EngineOutcome.Failed, -1, logPath ?? "", extractError, logError);
 
             var start = new ProcessStartInfo(enginePath)
             {
@@ -66,7 +70,7 @@ internal static class EngineRunner
 
             using var process = Process.Start(start);
             if (process is null)
-                return new EngineResult(EngineOutcome.Failed, -1, logPath, "The installer engine did not start.");
+                return new EngineResult(EngineOutcome.Failed, -1, logPath ?? "", "The installer engine did not start.", logError);
 
             // No wall-clock limit here: this is the real installation, and the time a person
             // spends on the confirmation screen is not part of it.
@@ -80,22 +84,22 @@ internal static class EngineRunner
 
             var exit = process.ExitCode;
             if (exit != 0)
-                return new EngineResult(EngineOutcome.Failed, exit, logPath, ReadTail(logPath));
+                return new EngineResult(EngineOutcome.Failed, exit, logPath ?? "",
+                    logPath is null ? null : ReadTail(logPath), logError);
             if (!InstallTargets.Looks(directory))
-                return new EngineResult(EngineOutcome.Failed, exit, logPath,
-                    "The installer finished but no installation is present at " + directory + ".");
-            return new EngineResult(EngineOutcome.Succeeded, 0, logPath, null);
+                return new EngineResult(EngineOutcome.Failed, exit, logPath ?? "",
+                    "The installer finished but no installation is present at " + directory + ".", logError);
+            return new EngineResult(EngineOutcome.Succeeded, 0, logPath ?? "", null, logError);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            return new EngineResult(EngineOutcome.Failed, -1, logPath, ex.Message);
+            return new EngineResult(EngineOutcome.Failed, -1, logPath ?? "", ex.Message, logError);
         }
         finally
         {
-            // A caller that named the log keeps it where it asked; otherwise a copy is left
-            // beside the installation before the work directory goes.
-            if (!requested) TryKeepLog(logPath, directory);
+            // Only the extracted engine goes. The log was written outside this directory, so
+            // nothing has to be rescued from it and a failed rescue cannot lose the log.
             try { if (Directory.Exists(work)) Directory.Delete(work, recursive: true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
@@ -171,21 +175,64 @@ internal static class EngineRunner
     }
 
     /// <summary>
-    /// Keeps the engine log where the completion and failure screens say it is. It goes beside
-    /// the installation, never inside the user data directory.
+    /// Where a run that was not given --log writes its engine log.
+    ///
+    /// Not the installation directory and not the temporary work directory: the installation
+    /// may be exactly what is failing, and the work directory is deleted on the way out. A
+    /// failure whose cause is the install target would otherwise take the log explaining it
+    /// down with it. This is beside the user's own temp directory, is never the ProMeter data
+    /// directory, and is written to directly rather than copied into afterwards.
     /// </summary>
-    public static string KeptLogPath(string directory) => Path.Combine(directory, "CycleArc-install.log");
+    public static string DefaultLogDirectory => Path.Combine(Path.GetTempPath(), "CycleArc-setup-logs");
 
-    private static void TryKeepLog(string logPath, string directory)
+    public static string DefaultLogPath =>
+        Path.Combine(DefaultLogDirectory, "CycleArc-install.log");
+
+    /// <summary>
+    /// Picks the log path and makes sure it can be written, falling back in order so a single
+    /// unwritable location never leaves a failure undiagnosable. Returns null only when
+    /// nothing at all is writable, which the caller reports rather than hiding.
+    /// </summary>
+    private static string? PrepareLogPath(string? requested, string work, out string? logError)
     {
-        try
+        logError = null;
+        var attempts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(requested))
         {
-            if (!File.Exists(logPath) || string.IsNullOrWhiteSpace(directory)) return;
-            Directory.CreateDirectory(directory);
-            File.Copy(logPath, KeptLogPath(directory), overwrite: true);
+            // An explicit --log is honoured first and is not silently replaced.
+            attempts.Add(Path.GetFullPath(requested!));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        else
         {
+            attempts.Add(DefaultLogPath);
+            // Last resort, still outside the install target.
+            attempts.Add(Path.Combine(work, "CycleArc-install.log"));
         }
+
+        var problems = new List<string>();
+        foreach (var candidate in attempts)
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(candidate);
+                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+                // Proven writable now, so the engine's own failure to write is the only
+                // remaining way this can come up empty.
+                using (var probe = new FileStream(candidate, FileMode.Create, FileAccess.Write,
+                    FileShare.ReadWrite | FileShare.Delete))
+                {
+                }
+
+                return candidate;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                problems.Add(candidate + ": " + ex.Message);
+            }
+        }
+
+        logError = "No installer log could be written (" + string.Join("; ", problems) + ").";
+        return null;
     }
 }

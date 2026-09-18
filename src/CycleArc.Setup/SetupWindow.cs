@@ -191,11 +191,12 @@ internal sealed class SetupWindow
         Native.SetWindowText(_heading, Strings.FailedHeading);
         Native.SetWindowText(_body, Strings.FailedBodyPrefix);
         var text = (result.Detail ?? "").Replace("\n", "\r\n", StringComparison.Ordinal);
-        // The engine's actual log first - including one the caller named with --log.
-        var log = result.LogPath;
-        if (string.IsNullOrWhiteSpace(log) || !File.Exists(log)) log = EngineRunner.KeptLogPath(_target.Directory);
-        Native.SetWindowText(_detail,
-            text + (text.Length > 0 ? "\r\n\r\n" : "") + Strings.LogLabel + ": " + log);
+        // Only point at a log that is really there. A log that could not be written is
+        // said so plainly, and never replaces the installation's own error.
+        var tail = result.HasLog
+            ? Strings.LogLabel + ": " + result.LogPath
+            : result.LogError ?? Strings.NoLogWritten;
+        Native.SetWindowText(_detail, text + (text.Length > 0 ? "\r\n\r\n" : "") + tail);
         Show(_progress, false); Show(_status, false); Show(_locationLabel, false); Show(_location, false);
         Show(_runCheck, false); Show(_detail, true);
         Native.SetWindowText(_primary, Strings.CloseButton);

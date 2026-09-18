@@ -1,7 +1,9 @@
 # CycleArc agent instructions
 
 CycleArc is a Windows-only .NET 8 WPF tray app for Codex and Claude subscription limits.
-Use Windows, the .NET 8 SDK and PowerShell 7+. The solution is `CycleArc.sln`;
+Use Windows, the .NET 8 SDK and PowerShell 7+. Building the installer from source also needs
+Visual Studio 2022 with the Desktop development with C++ workload (the setup window is Native
+AOT); running the shipped installer does not. The solution is `CycleArc.sln`;
 `src/CycleArc` is the desktop app, `src/CycleArc.Core` holds provider/shared logic,
 and `tests/CycleArc.Tests` / `tests/CycleArc.UiSmoke` cover unit / production WPF checks.
 Ship the Windows x64 `CycleArc-Setup.exe` Velopack installer for the stable channel. Keep the

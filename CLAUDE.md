@@ -23,7 +23,10 @@ them; everything else stays in AGENTS.md and the scoped documents.
 ## Commands
 
 Windows, PowerShell 7 and the .NET 8 SDK are required; the desktop and UiSmoke projects do not
-build on other platforms.
+build on other platforms. Building `CycleArc-Setup.exe` from source also needs Visual Studio 2022
+with the **Desktop development with C++** workload, because the setup window is published with
+Native AOT; `dev-run.ps1` and `Package.ps1` check for the MSVC linker and a Windows SDK before
+they build anything. People who run the finished `CycleArc-Setup.exe` need none of that.
 
 ```powershell
 dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "<test-name>"

@@ -50,6 +50,9 @@ internal static class Strings
     public static string FailedBodyPrefix => T(
         "CycleArc was not installed.", "CycleArc를 설치하지 못했습니다.");
     public static string LogLabel => T("Log", "로그");
+    public static string NoLogWritten => T(
+        "No installer log could be written, so there is no log file to read.",
+        "설치 로그를 기록하지 못해 읽을 로그 파일이 없습니다.");
 
     public static string NoEngineHeading => T("This installer is incomplete", "설치 파일이 불완전합니다");
     public static string NoEngineBody => T(

@@ -28,6 +28,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Shared with Package.ps1 so both demand the same Native AOT prerequisites.
+. (Join-Path $PSScriptRoot 'SetupUiToolchain.ps1')
+
 function Get-BuildLocalRepoRoot {
     [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 }
@@ -300,36 +303,6 @@ function Test-BuildLocalDotnetSdk([string[]]$SdkList) {
         if ($line -match '^\s*(\d+)\.' -and [int]$Matches[1] -ge 8) { return $true }
     }
     $false
-}
-
-# Native AOT links with MSVC, which the .NET SDK locates through vswhere. A machine with the
-# Build Tools but no vswhere on PATH otherwise fails with a bare "'vswhere.exe' is not
-# recognized". Package.ps1 carries the same helper so each script runs on its own.
-function Add-VsWhereToPath {
-    if (Get-Command vswhere -ErrorAction SilentlyContinue) { return $true }
-    foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
-        if (!$base) { continue }
-        $candidate = Join-Path $base 'Microsoft Visual Studio/Installer'
-        if (Test-Path -LiteralPath (Join-Path $candidate 'vswhere.exe') -PathType Leaf) {
-            $env:PATH = "$env:PATH;$candidate"
-            return $true
-        }
-    }
-    return $false
-}
-
-# The setup UI is Native AOT, which links with MSVC through vswhere. Checking this up front
-# turns a failure forty minutes into the run - at packaging - into an immediate, actionable one.
-function Assert-SetupUiToolchain {
-    param([string]$RepoRoot)
-    $project = Join-Path $RepoRoot 'src/CycleArc.Setup/CycleArc.Setup.csproj'
-    if (!(Test-Path -LiteralPath $project -PathType Leaf)) {
-        throw "The setup UI project is missing at $project. Nothing was built, stopped or installed."
-    }
-    if (Add-VsWhereToPath) { return $true }
-    throw ('Building CycleArc-Setup.exe needs the Visual Studio Build Tools with the C++ workload ' +
-        '(vswhere.exe was not found under Program Files). Install "Desktop development with C++", ' +
-        'then retry. Nothing was built, stopped or installed.')
 }
 
 function Assert-BuildLocalTools {
@@ -749,11 +722,23 @@ function Get-SetupStateValue([string]$StateFile) {
 .SYNOPSIS
     Runs CycleArc-Setup.exe and waits for it correctly.
 .DESCRIPTION
-    The setup window waits for a person before it installs anything, and that wait is not a
-    stalled build. The installer reports which of the two it is through its state file, so
-    the time spent on the confirmation screen gets a person-sized budget and the installation
-    itself gets a much shorter one. Without a state file - an older installer, or a stub in a
-    test - the whole run falls back to the approval budget rather than being cut short.
+    The installer's lifetime is three different waits, and only one of them is the
+    installation. It reports which through its state file:
+
+      awaiting-approval  a person is reading the confirmation screen
+      installing         the engine is running - this is the only work with a deadline
+      done / failed      the installation is over; the window stays up for the Run choice,
+                         the Finish button, or for the person to read the error
+      cancelled          declined before anything was installed
+
+    Applying the install deadline past done or failed would report an installation that has
+    already succeeded as a timeout, and would bury a real error under a timeout message. So
+    the install timer stops the moment either is observed. A separate, generous budget covers
+    the time someone spends on that last screen, and exceeding it is reported as what it is -
+    the window was left open - never as an install failure.
+
+    Without a state file - an older installer, or a stub in a test - the whole run falls back
+    to the approval budget rather than being cut short.
 #>
 function Invoke-SetupProcess {
     param(
@@ -762,7 +747,9 @@ function Invoke-SetupProcess {
         [string]$WorkingDirectory,
         [string]$StateFile,
         [int]$ApprovalTimeoutSeconds = 3600,
-        [int]$InstallTimeoutSeconds = 1200
+        [int]$InstallTimeoutSeconds = 1200,
+        [int]$CompletionTimeoutSeconds = 3600,
+        [int]$PollMilliseconds = 250
     )
     Write-Host ("    > {0} {1}" -f $FilePath, ($ArgumentList -join ' '))
     $startParameters = @{ FilePath = $FilePath; PassThru = $true }
@@ -775,23 +762,51 @@ function Invoke-SetupProcess {
 
     $waited = [Diagnostics.Stopwatch]::StartNew()
     $installStarted = $null
-    $announced = $false
+    $finishedAt = $null
+    $lastState = $null
     try {
-        while (!$process.WaitForExit(250)) {
+        while (!$process.WaitForExit($PollMilliseconds)) {
             $state = Get-SetupStateValue $StateFile
-            if ($state -eq 'installing' -and !$installStarted) {
-                $installStarted = [Diagnostics.Stopwatch]::StartNew()
-                Write-BuildLocalTiming 'install approved; installing'
-            }
-            elseif (!$announced -and $state -eq 'awaiting-approval') {
-                $announced = $true
-                Write-BuildLocalTiming 'waiting for you to approve or cancel the installer'
+            if ($state -and $state -ne $lastState) {
+                $lastState = $state
+                switch ($state) {
+                    'awaiting-approval' { Write-BuildLocalTiming 'waiting for you to approve or cancel the installer' }
+                    'installing' {
+                        $installStarted = [Diagnostics.Stopwatch]::StartNew()
+                        Write-BuildLocalTiming 'install approved; installing'
+                    }
+                    'done' {
+                        # The installation is over. Stop holding it to the install deadline;
+                        # the Run choice and Finish are the person's time, not the engine's.
+                        $installStarted = $null
+                        $finishedAt = [Diagnostics.Stopwatch]::StartNew()
+                        Write-BuildLocalTiming 'installed; waiting for you to close the installer'
+                    }
+                    'failed' {
+                        # Same for the error screen: the failure is already decided, and the
+                        # installer's own exit code will carry it.
+                        $installStarted = $null
+                        $finishedAt = [Diagnostics.Stopwatch]::StartNew()
+                        Write-BuildLocalTiming 'install failed; waiting for you to close the installer'
+                    }
+                    'cancelled' { Write-BuildLocalTiming 'installation cancelled' }
+                }
             }
 
             if ($installStarted) {
                 if ($installStarted.Elapsed.TotalSeconds -ge $InstallTimeoutSeconds) {
                     try { $process.Kill($true) } catch { }
                     throw "CycleArc-Setup.exe did not finish installing within $InstallTimeoutSeconds seconds."
+                }
+            }
+            elseif ($finishedAt) {
+                if ($finishedAt.Elapsed.TotalSeconds -ge $CompletionTimeoutSeconds) {
+                    # Not an install failure: say which screen was left open and let the caller
+                    # read the real outcome from the state file.
+                    try { $process.Kill($true) } catch { }
+                    throw ("CycleArc-Setup.exe reported '$lastState' and its last screen was left open for " +
+                        "$CompletionTimeoutSeconds seconds. The installation itself already finished; " +
+                        "see the state above for its result.")
                 }
             }
             elseif ($waited.Elapsed.TotalSeconds -ge $ApprovalTimeoutSeconds) {

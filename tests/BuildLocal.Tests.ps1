@@ -917,6 +917,241 @@ exit 0
     if ($faultReader.Fault -ne 'synthetic read failure') { throw 'A recorded progress fault was cleared.' }
     Write-Host 'PASS: a progress-reading fault is kept distinct from the child result.'
 
+    # --- Regression: the AOT prerequisite check looks at components, not at vswhere.exe. ---
+    # The probes are injected, so each outcome is exercised without installing or removing
+    # any part of Visual Studio.
+    $fakeVsWhere = Join-Path $testRoot 'fake-vswhere.exe'
+    Set-Content -LiteralPath $fakeVsWhere -Value 'not a real vswhere'
+    $fakeInstall = Join-Path $testRoot 'fake-vs'
+    $fakeLinker = Join-Path $fakeInstall 'link.exe'
+    $fakeSdk = Join-Path $testRoot 'fake-kernel32.lib'
+
+    # A. No vswhere at all.
+    $noVsWhere = Resolve-SetupUiToolchain -VsWhereLocator { $null }
+    if ($noVsWhere.Ok) { throw 'A machine without vswhere was reported as ready' }
+    if ($noVsWhere.Missing -notmatch 'vswhere') { throw "Unexpected reason: $($noVsWhere.Missing)" }
+
+    # B. vswhere present, but no installation carries the C++ tools. This is the case the old
+    #    check passed: vswhere.exe existed, so it declared the machine ready.
+    $noCpp = Resolve-SetupUiToolchain -VsWhereLocator { $fakeVsWhere } -VsWhereInvoker { param($p, $a) @() }
+    if ($noCpp.Ok) { throw 'Visual Studio without the C++ tools was reported as ready' }
+    if ($noCpp.Missing -notmatch 'VC\.Tools\.x86\.x64') { throw "Unexpected reason: $($noCpp.Missing)" }
+    # The component really is what it asks vswhere for.
+    $script:observedVsWhereArgs = @()
+    $null = Resolve-SetupUiToolchain -VsWhereLocator { $fakeVsWhere } `
+        -VsWhereInvoker { param($p, $a) $script:observedVsWhereArgs = @($a); @() }
+    if ($observedVsWhereArgs -notcontains '-requires') { throw 'vswhere was not asked to require a component' }
+    if ($observedVsWhereArgs -notcontains 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64') {
+        throw "vswhere was not asked for the C++ tools: $($observedVsWhereArgs -join ' ')"
+    }
+
+    # C. The component is reported but the linker is not on disk.
+    $noLinker = Resolve-SetupUiToolchain -VsWhereLocator { $fakeVsWhere } `
+        -VsWhereInvoker { param($p, $a) @($fakeInstall) } -LinkerProbe { param($i) $null }
+    if ($noLinker.Ok) { throw 'A missing MSVC linker was reported as ready' }
+    if ($noLinker.Missing -notmatch 'link\.exe') { throw "Unexpected reason: $($noLinker.Missing)" }
+
+    # C2. Linker present, Windows SDK missing.
+    $noSdk = Resolve-SetupUiToolchain -VsWhereLocator { $fakeVsWhere } `
+        -VsWhereInvoker { param($p, $a) @($fakeInstall) } -LinkerProbe { param($i) $fakeLinker } -SdkProbe { $null }
+    if ($noSdk.Ok) { throw 'A missing Windows SDK was reported as ready' }
+    if ($noSdk.Missing -notmatch 'Windows SDK') { throw "Unexpected reason: $($noSdk.Missing)" }
+
+    # D. Everything present.
+    $ready = Resolve-SetupUiToolchain -VsWhereLocator { $fakeVsWhere } `
+        -VsWhereInvoker { param($p, $a) @($fakeInstall) } -LinkerProbe { param($i) $fakeLinker } -SdkProbe { $fakeSdk }
+    if (!$ready.Ok) { throw "A complete toolchain was rejected: $($ready.Missing)" }
+    if ($ready.Linker -ne $fakeLinker -or $ready.SdkLibrary -ne $fakeSdk) {
+        throw 'The resolved toolchain did not report the components it found'
+    }
+
+    # E. vswhere only in its fixed install location, not on PATH, is still found.
+    $installerDir = Join-Path $testRoot 'pf/Microsoft Visual Studio/Installer'
+    New-Item -ItemType Directory -Path $installerDir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $installerDir 'vswhere.exe') -Value 'stub'
+    # PATH and both Program Files roots are isolated, so this really exercises the fixed
+    # location rather than finding the machine's own vswhere.
+    $previousProgramFilesX86 = ${env:ProgramFiles(x86)}
+    $previousProgramFiles = $env:ProgramFiles
+    $previousPath = $env:PATH
+    ${env:ProgramFiles(x86)} = Join-Path $testRoot 'pf'
+    $env:ProgramFiles = Join-Path $testRoot 'pf-none'
+    $env:PATH = Join-Path $testRoot 'empty-path'
+    try {
+        $located = Find-VsWhere
+        if (!$located) { throw 'vswhere in its standard location was not found' }
+        if ((Split-Path -Parent $located) -ne $installerDir) { throw "Found the wrong vswhere: $located" }
+    }
+    finally {
+        ${env:ProgramFiles(x86)} = $previousProgramFilesX86
+        $env:ProgramFiles = $previousProgramFiles
+        $env:PATH = $previousPath
+    }
+
+    # The failure message has to say what to install, and must not imply that running the
+    # finished installer needs the C++ tools.
+    $assertMessage = ''
+    try { Assert-SetupUiToolchain -Resolver { [pscustomobject]@{ Ok = $false; Missing = 'test reason' } } }
+    catch { $assertMessage = $_.Exception.Message }
+    foreach ($fragment in @('Desktop development with C++', 'test reason', 'build the installer from source')) {
+        if ($assertMessage -notmatch [regex]::Escape($fragment)) {
+            throw "The prerequisite failure did not mention '$fragment': $assertMessage"
+        }
+    }
+    Write-Host 'PASS: the AOT prerequisite check verifies the C++ components, not just vswhere.exe.'
+
+    # --- Regression: only 'installing' is held to the install deadline. -------------------
+    # A synthetic installer walks the real state file through the real states. The budgets are
+    # seconds, not minutes, and every step is released by a file the test writes, so no case
+    # depends on timing luck and none of them waits out a real 20-minute timeout.
+    function New-TestSetupStub {
+        param(
+            [Parameter(Mandatory)][string]$Directory,
+            [Parameter(Mandatory)][string]$Name,
+            [Parameter(Mandatory)][string[]]$States,
+            [int]$ExitCode = 0,
+            [string]$HangInState
+        )
+        New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+        $release = Join-Path $Directory "$Name.release"
+        $body = @(
+            '$ErrorActionPreference = ''Stop''',
+            '$state = $env:CYCLEARC_SETUP_STATE_FILE',
+            'function Report([string]$value) {',
+            '    if ($state) { [IO.File]::WriteAllText($state, $value + [Environment]::NewLine) }',
+            '}'
+        )
+        foreach ($stateName in $States) {
+            $body += ("Report '{0}'" -f $stateName)
+            if ($HangInState -and $stateName -eq $HangInState) {
+                # Never released: this is the hang the install deadline has to catch.
+                $body += 'Start-Sleep -Seconds 600'
+            }
+            else {
+                $body += ('while (!(Test-Path -LiteralPath "{0}.{1}")) {{ Start-Sleep -Milliseconds 50 }}' -f $release, $stateName)
+            }
+        }
+        $body += "exit $ExitCode"
+        $path = Join-Path $Directory "$Name.ps1"
+        Set-Content -LiteralPath $path -Value ($body -join "`n") -Encoding utf8
+        [pscustomobject]@{ Script = $path; Release = $release }
+    }
+
+    function Start-TestSetup {
+        param(
+            [Parameter(Mandatory)]$Stub,
+            [Parameter(Mandatory)][string]$StateFile,
+            [int]$Approval = 30,
+            [int]$Install = 3,
+            [int]$Completion = 3
+        )
+        if (Test-Path -LiteralPath $StateFile) { Remove-Item -LiteralPath $StateFile -Force }
+        $job = Start-ThreadJob -ScriptBlock {
+            param($repoRoot, $pwshPath, $script, $stateFile, $approval, $install, $completion)
+            . (Join-Path $repoRoot 'scripts/LocalInstall.ps1')
+            . (Join-Path $repoRoot 'scripts/Build-Local.ps1') -LoadOnly
+            # Set here, not in the caller: the child inherits it when Invoke-SetupProcess
+            # starts it, and restoring it in the caller would race that start.
+            $env:CYCLEARC_SETUP_STATE_FILE = $stateFile
+            try {
+                $code = Invoke-SetupProcess -FilePath $pwshPath -StateFile $stateFile `
+                    -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $script) `
+                    -ApprovalTimeoutSeconds $approval -InstallTimeoutSeconds $install `
+                    -CompletionTimeoutSeconds $completion -PollMilliseconds 50
+                [pscustomobject]@{ ExitCode = $code; Error = $null }
+            }
+            catch { [pscustomobject]@{ ExitCode = $null; Error = $_.Exception.Message } }
+        } -ArgumentList $repoRoot, $pwshPath, $Stub.Script, $StateFile, $Approval, $Install, $Completion
+        $job
+    }
+
+    function Wait-TestState {
+        param([Parameter(Mandatory)][string]$StateFile, [Parameter(Mandatory)][string]$Expected, [int]$Seconds = 20)
+        $deadline = [Diagnostics.Stopwatch]::StartNew()
+        while ($deadline.Elapsed.TotalSeconds -lt $Seconds) {
+            if ((Get-SetupStateValue $StateFile) -eq $Expected) { return }
+            Start-Sleep -Milliseconds 50
+        }
+        throw "The installer never reported '$Expected' (last was '$(Get-SetupStateValue $StateFile)')."
+    }
+
+    $setupStateRoot = Join-Path $testRoot 'setup-state'
+    New-Item -ItemType Directory -Path $setupStateRoot -Force | Out-Null
+
+    # A. Waiting for approval does not spend the install budget.
+    $approvalState = Join-Path $setupStateRoot 'approval.state'
+    $approvalStub = New-TestSetupStub -Directory $setupStateRoot -Name 'approval' -States @('awaiting-approval', 'installing', 'done')
+    $approvalJob = Start-TestSetup -Stub $approvalStub -StateFile $approvalState -Install 2 -Completion 20
+    Wait-TestState -StateFile $approvalState -Expected 'awaiting-approval'
+    # Longer than the install budget, entirely inside the approval wait.
+    Start-Sleep -Seconds 3
+    foreach ($stateName in @('awaiting-approval', 'installing', 'done')) {
+        Set-Content -LiteralPath "$($approvalStub.Release).$stateName" -Value 'go'
+        Start-Sleep -Milliseconds 150
+    }
+    $approvalResult = Receive-Job -Job $approvalJob -Wait -AutoRemoveJob
+    if ($approvalResult.Error) { throw "Approval wait consumed the install budget: $($approvalResult.Error)" }
+    if ($approvalResult.ExitCode -ne 0) { throw "Approval case exited $($approvalResult.ExitCode)" }
+    Write-Host 'PASS: waiting for approval does not spend the install timeout.'
+
+    # B. A finished install left on the completion screen is not an install timeout.
+    $doneState = Join-Path $setupStateRoot 'done.state'
+    $doneStub = New-TestSetupStub -Directory $setupStateRoot -Name 'done' -States @('installing', 'done')
+    $doneJob = Start-TestSetup -Stub $doneStub -StateFile $doneState -Install 2 -Completion 30
+    Wait-TestState -StateFile $doneState -Expected 'installing'
+    Set-Content -LiteralPath "$($doneStub.Release).installing" -Value 'go'
+    Wait-TestState -StateFile $doneState -Expected 'done'
+    # Hold the completion screen well past the install budget.
+    Start-Sleep -Seconds 4
+    Set-Content -LiteralPath "$($doneStub.Release).done" -Value 'go'
+    $doneResult = Receive-Job -Job $doneJob -Wait -AutoRemoveJob
+    if ($doneResult.Error) { throw "A finished install was reported as a timeout: $($doneResult.Error)" }
+    if ($doneResult.ExitCode -ne 0) { throw "Completion case exited $($doneResult.ExitCode)" }
+    Write-Host 'PASS: holding the completion screen does not turn a finished install into a timeout.'
+
+    # C. Reading the error screen does not bury the real failure under a timeout.
+    $failState = Join-Path $setupStateRoot 'failed.state'
+    $failStub = New-TestSetupStub -Directory $setupStateRoot -Name 'failed' -States @('installing', 'failed') -ExitCode 1
+    $failJob = Start-TestSetup -Stub $failStub -StateFile $failState -Install 2 -Completion 30
+    Wait-TestState -StateFile $failState -Expected 'installing'
+    Set-Content -LiteralPath "$($failStub.Release).installing" -Value 'go'
+    Wait-TestState -StateFile $failState -Expected 'failed'
+    Start-Sleep -Seconds 4
+    Set-Content -LiteralPath "$($failStub.Release).failed" -Value 'go'
+    $failResult = Receive-Job -Job $failJob -Wait -AutoRemoveJob
+    if ($failResult.Error) { throw "The error screen wait replaced the real failure: $($failResult.Error)" }
+    if ($failResult.ExitCode -ne 1) { throw "The installer's own exit code was lost (got $($failResult.ExitCode))" }
+    Write-Host 'PASS: reading the error screen keeps the installer''s own failure exit code.'
+
+    # D. A genuine hang while installing still fails inside the install budget.
+    $hangState = Join-Path $setupStateRoot 'hang.state'
+    $hangStub = New-TestSetupStub -Directory $setupStateRoot -Name 'hang' -States @('installing') -HangInState 'installing'
+    $hangWatch = [Diagnostics.Stopwatch]::StartNew()
+    $hangJob = Start-TestSetup -Stub $hangStub -StateFile $hangState -Install 2 -Completion 30
+    $hangResult = Receive-Job -Job $hangJob -Wait -AutoRemoveJob
+    $hangWatch.Stop()
+    if (!$hangResult.Error) { throw 'A hang while installing did not fail.' }
+    if ($hangResult.Error -notmatch 'did not finish installing') {
+        throw "A hang while installing was misreported: $($hangResult.Error)"
+    }
+    if ($hangWatch.Elapsed.TotalSeconds -gt 25) {
+        throw "The install timeout took $($hangWatch.Elapsed.TotalSeconds)s"
+    }
+    Write-Host 'PASS: a hang while installing still fails inside the install timeout.'
+
+    # E. Cancelling before install keeps its own result contract.
+    $cancelState = Join-Path $setupStateRoot 'cancelled.state'
+    $cancelStub = New-TestSetupStub -Directory $setupStateRoot -Name 'cancelled' -States @('awaiting-approval', 'cancelled') -ExitCode 2
+    $cancelJob = Start-TestSetup -Stub $cancelStub -StateFile $cancelState -Install 2 -Completion 20
+    Wait-TestState -StateFile $cancelState -Expected 'awaiting-approval'
+    Set-Content -LiteralPath "$($cancelStub.Release).awaiting-approval" -Value 'go'
+    Wait-TestState -StateFile $cancelState -Expected 'cancelled'
+    Set-Content -LiteralPath "$($cancelStub.Release).cancelled" -Value 'go'
+    $cancelResult = Receive-Job -Job $cancelJob -Wait -AutoRemoveJob
+    if ($cancelResult.Error) { throw "Cancelling reported an error: $($cancelResult.Error)" }
+    if ($cancelResult.ExitCode -ne 2) { throw "Cancel exited $($cancelResult.ExitCode), expected 2" }
+    Write-Host 'PASS: cancelling before install still returns its own exit code.'
+
     # --- Regression: Invoke-ExternalProcess drains stderr and honours its timeout. ---
     $extOut = Join-Path $testRoot 'ext-out.log'
     $extErr = Join-Path $testRoot 'ext-err.log'
