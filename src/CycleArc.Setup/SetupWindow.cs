@@ -13,6 +13,7 @@ internal sealed class SetupWindow
     private const int IdRun = 102;
 
     private readonly InstallTarget _target;
+    private readonly string? _logPath;
     private readonly Native.WndProc _proc;
     private IntPtr _window;
     private IntPtr _heading, _body, _locationLabel, _location, _progress, _status, _detail, _runCheck, _primary, _secondary;
@@ -22,9 +23,10 @@ internal sealed class SetupWindow
 
     public SetupExitCode Exit { get; private set; } = SetupExitCode.Cancelled;
 
-    public SetupWindow(InstallTarget target)
+    public SetupWindow(InstallTarget target, string? logPath = null)
     {
         _target = target;
+        _logPath = logPath;
         _proc = WindowProc;
     }
 
@@ -52,15 +54,15 @@ internal sealed class SetupWindow
         if (Native.RegisterClassEx(ref wcx) == 0)
             return SetupExitCode.Failed;
 
-        const int width = 560, height = 340;
-        var x = Math.Max(0, (Native.GetSystemMetrics(Native.SM_CXSCREEN) - width) / 2);
-        var y = Math.Max(0, (Native.GetSystemMetrics(Native.SM_CYSCREEN) - height) / 2);
+        // Created off-screen at a nominal size first: the window's DPI is only knowable once
+        // it exists, and the frame is then resized to match the scale its controls use.
         _window = Native.CreateWindowEx(0, className, Strings.WindowTitle,
             Native.WS_OVERLAPPED | Native.WS_CAPTION | Native.WS_SYSMENU | Native.WS_MINIMIZEBOX,
-            x, y, width, height, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
+            0, 0, SetupLayout.ClientWidth, SetupLayout.ClientHeight, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
         if (_window == IntPtr.Zero) return SetupExitCode.Failed;
 
         BuildControls(instance);
+        SizeAndCentre();
         ShowConfirm();
         // From here the parent's clock is a person's reading time, not an installation.
         SetupState.Report(SetupState.AwaitingApproval);
@@ -78,33 +80,59 @@ internal sealed class SetupWindow
         return Exit;
     }
 
+    private uint _dpi = 96;
+
+    private int Scaled(int value) => SetupLayout.Scale(value, _dpi);
+
+    /// <summary>Sizes the frame for the client area the controls were laid out in, then centres it.</summary>
+    private void SizeAndCentre()
+    {
+        var rect = new Native.RECT
+        {
+            Left = 0,
+            Top = 0,
+            Right = Scaled(SetupLayout.ClientWidth),
+            Bottom = Scaled(SetupLayout.ClientHeight),
+        };
+        var style = Native.WS_OVERLAPPED | Native.WS_CAPTION | Native.WS_SYSMENU | Native.WS_MINIMIZEBOX;
+        // The caption and borders are outside the client area and are themselves DPI-scaled.
+        if (!Native.AdjustWindowRectExForDpi(ref rect, style, false, 0, _dpi))
+            Native.AdjustWindowRect(ref rect, style, false);
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        var x = Math.Max(0, (Native.GetSystemMetrics(Native.SM_CXSCREEN) - width) / 2);
+        var y = Math.Max(0, (Native.GetSystemMetrics(Native.SM_CYSCREEN) - height) / 2);
+        Native.SetWindowPos(_window, IntPtr.Zero, x, y, width, height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+    }
+
     private void BuildControls(IntPtr instance)
     {
-        var dpi = Native.GetDpiForWindow(_window);
-        if (dpi == 0) dpi = 96;
-        int Scaled(int value) => (int)Math.Round(value * dpi / 96.0);
+        _dpi = Native.GetDpiForWindow(_window);
+        if (_dpi == 0) _dpi = 96;
 
         _titleFont = Native.CreateFont(-Scaled(19), 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
         _bodyFont = Native.CreateFont(-Scaled(13), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
 
-        IntPtr Child(string cls, string text, int style, int cx, int cy, int cw, int ch, int id = 0) =>
+        IntPtr Child(string cls, string text, int style, LayoutBox box, int id = 0) =>
             Native.CreateWindowEx(0, cls, text, Native.WS_CHILD | style,
-                Scaled(cx), Scaled(cy), Scaled(cw), Scaled(ch), _window, id, instance, IntPtr.Zero);
+                Scaled(box.X), Scaled(box.Y), Scaled(box.Width), Scaled(box.Height),
+                _window, id, instance, IntPtr.Zero);
 
-        _heading = Child("STATIC", "", Native.SS_LEFT, 24, 22, 490, 30);
-        _body = Child("STATIC", "", Native.SS_LEFT, 24, 58, 490, 44);
-        _locationLabel = Child("STATIC", Strings.LocationLabel, Native.SS_LEFT, 24, 112, 490, 18);
+        _heading = Child("STATIC", "", Native.SS_LEFT, SetupLayout.Heading);
+        _body = Child("STATIC", "", Native.SS_LEFT, SetupLayout.Body);
+        _locationLabel = Child("STATIC", Strings.LocationLabel, Native.SS_LEFT, SetupLayout.LocationLabel);
         _location = Child("EDIT", _target.Directory,
-            Native.ES_READONLY | Native.ES_AUTOHSCROLL | Native.WS_BORDER, 24, 132, 490, 24);
-        _progress = Child("msctls_progress32", "", Native.PBS_MARQUEE, 24, 132, 490, 18);
-        _status = Child("STATIC", "", Native.SS_LEFT | Native.SS_PATHELLIPSIS, 24, 158, 490, 20);
+            Native.ES_READONLY | Native.ES_AUTOHSCROLL | Native.WS_BORDER, SetupLayout.Location);
+        _progress = Child("msctls_progress32", "", Native.PBS_MARQUEE, SetupLayout.Progress);
+        _status = Child("STATIC", "", Native.SS_LEFT | Native.SS_PATHELLIPSIS, SetupLayout.Status);
         _detail = Child("EDIT", "",
-            Native.ES_READONLY | Native.ES_MULTILINE | Native.WS_BORDER | Native.WS_VSCROLL, 24, 112, 490, 100);
-        _runCheck = Child("BUTTON", Strings.RunCheckbox, Native.BS_AUTOCHECKBOX, 24, 132, 300, 24, IdRun);
+            Native.ES_READONLY | Native.ES_MULTILINE | Native.WS_BORDER | Native.WS_VSCROLL, SetupLayout.Detail);
+        // Below the location box on the completion page, not on top of it.
+        _runCheck = Child("BUTTON", Strings.RunCheckbox, Native.BS_AUTOCHECKBOX, SetupLayout.RunCheck, IdRun);
         _primary = Child("BUTTON", Strings.InstallButton,
-            Native.BS_DEFPUSHBUTTON | Native.WS_TABSTOP, 318, 244, 96, 32, IdInstall);
+            Native.BS_DEFPUSHBUTTON | Native.WS_TABSTOP, SetupLayout.Primary, IdInstall);
         _secondary = Child("BUTTON", Strings.CancelButton,
-            Native.BS_PUSHBUTTON | Native.WS_TABSTOP, 420, 244, 96, 32, IdCancel);
+            Native.BS_PUSHBUTTON | Native.WS_TABSTOP, SetupLayout.Secondary, IdCancel);
 
         foreach (var control in new[] { _body, _locationLabel, _location, _status, _detail, _runCheck, _primary, _secondary })
             Native.SendMessage(control, Native.WM_SETFONT, _bodyFont, 1);
@@ -152,9 +180,6 @@ internal sealed class SetupWindow
         Show(_progress, false); Show(_status, false); Show(_detail, false);
         Show(_locationLabel, true); Show(_location, true);
         Native.SetWindowText(_location, _target.Directory);
-        Show(_runCheck, false);
-        // The checkbox sits under the location on this page.
-        Native.SetWindowPos(_runCheck, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0004);
         Show(_runCheck, true);
         Native.SetWindowText(_primary, Strings.FinishButton);
         Show(_primary, true); Show(_secondary, false);
@@ -166,8 +191,9 @@ internal sealed class SetupWindow
         Native.SetWindowText(_heading, Strings.FailedHeading);
         Native.SetWindowText(_body, Strings.FailedBodyPrefix);
         var text = (result.Detail ?? "").Replace("\n", "\r\n", StringComparison.Ordinal);
-        var log = EngineRunner.KeptLogPath(_target.Directory);
-        if (!File.Exists(log)) log = result.LogPath;
+        // The engine's actual log first - including one the caller named with --log.
+        var log = result.LogPath;
+        if (string.IsNullOrWhiteSpace(log) || !File.Exists(log)) log = EngineRunner.KeptLogPath(_target.Directory);
         Native.SetWindowText(_detail,
             text + (text.Length > 0 ? "\r\n\r\n" : "") + Strings.LogLabel + ": " + log);
         Show(_progress, false); Show(_status, false); Show(_locationLabel, false); Show(_location, false);
@@ -184,10 +210,11 @@ internal sealed class SetupWindow
         SetupState.Report(SetupState.Installing);
         ShowProgress();
         var window = _window;
+        var log = _logPath;
         // Off the message loop, so the window keeps painting while the engine runs.
         var worker = new Thread(() =>
         {
-            var result = EngineRunner.Install(_target.Directory, CancellationToken.None);
+            var result = EngineRunner.Install(_target.Directory, CancellationToken.None, log);
             _result = result;
             Native.PostMessage(window, Native.WM_INSTALL_DONE, IntPtr.Zero, IntPtr.Zero);
         })

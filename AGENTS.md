@@ -5,10 +5,15 @@ Use Windows, the .NET 8 SDK and PowerShell 7+. The solution is `CycleArc.sln`;
 `src/CycleArc` is the desktop app, `src/CycleArc.Core` holds provider/shared logic,
 and `tests/CycleArc.Tests` / `tests/CycleArc.UiSmoke` cover unit / production WPF checks.
 Ship the Windows x64 `CycleArc-Setup.exe` Velopack installer for the stable channel. Keep the
-development publish check for one self-contained `CycleArc.exe`; the installed app runs from
-`%LOCALAPPDATA%\CycleArc\current\CycleArc.exe` and the stable root launcher is used for desktop/
-autorun forwarding. The former `%LOCALAPPDATA%\Programs\CycleArc` path remains development-only
-compatibility and is excluded from GitHub update checks.
+development publish check for one self-contained `CycleArc.exe`. A new installation goes to
+`%LOCALAPPDATA%\Programs\CycleArc`; an installation that already exists keeps its own
+location, found by its registered uninstall entry and then at either known root, so the former
+`%LOCALAPPDATA%\CycleArc` stays in use where it is. Never assume a root - resolve it with
+`Get-ManagedInstallRoot`. The app runs from `current\CycleArc.exe` under that root and the
+stable root launcher forwards desktop/autorun entry points. The development single-file build
+replaces itself in `%LOCALAPPDATA%\Programs\CycleArc-dev`, which must stay a different directory:
+both would otherwise own a `CycleArc.exe` at the root of the same one. It is excluded from
+GitHub update checks.
 Do not hand-edit or commit generated/local output in `bin/`, `obj/`, `publish/`, `artifacts/` or `.tmp/`.
 
 ## Read on demand

@@ -109,6 +109,16 @@ function Get-ControlText([IntPtr]$Handle) {
 }
 
 $report = [ordered]@{}
+
+# The scaled layout, checked by the shipped binary itself. Installs nothing.
+Write-Host '=== Layout self-test ==='
+$selfTest = Start-Process -FilePath $SetupPath -ArgumentList @('--selftest') -PassThru -Wait -NoNewWindow
+if ($selfTest.ExitCode -ne 0) {
+    throw "CycleArc-Setup.exe --selftest reported a layout problem (exit $($selfTest.ExitCode))."
+}
+$report['selfTestExitCode'] = $selfTest.ExitCode
+Write-Host 'Layout self-test passed.'
+
 $before = Get-CycleArcState
 Write-Host "Before: $($before | ConvertTo-Json -Compress)"
 $report['before'] = $before
@@ -143,7 +153,9 @@ Write-Host 'Cancel before install changed nothing.'
 
 # --- 2. Install for real, clearing the Run checkbox on the completion page. ----------------
 Write-Host '=== Install ==='
-$installProcess = Start-Process -FilePath $SetupPath -PassThru
+$requestedLog = Join-Path $OutputDirectory 'requested-install.log'
+if (Test-Path -LiteralPath $requestedLog) { Remove-Item -LiteralPath $requestedLog -Force }
+$installProcess = Start-Process -FilePath $SetupPath -ArgumentList @('--log', $requestedLog) -PassThru
 try {
     $handle = Wait-SetupWindow $installProcess
     $installButton = [SetupUi]::GetDlgItem($handle, $idInstall)
@@ -203,6 +215,16 @@ if ($running.Count -gt $before.Running) {
     throw 'The installer started CycleArc even though Run was cleared on the completion page.'
 }
 Write-Host 'The cleared Run choice was honoured.'
+
+# --log is a contract, not decoration: the log has to be where the caller asked for it.
+if (!(Test-Path -LiteralPath $requestedLog -PathType Leaf)) {
+    throw "The installer ignored --log; nothing was written to $requestedLog"
+}
+$requestedLogLength = (Get-Item -LiteralPath $requestedLog).Length
+if ($requestedLogLength -le 0) { throw "The installer wrote an empty log at $requestedLog" }
+$report['requestedLog'] = $requestedLog
+$report['requestedLogBytes'] = $requestedLogLength
+Write-Host "The installer honoured --log ($requestedLogLength bytes at $requestedLog)."
 
 $reportPath = Join-Path $OutputDirectory 'setup-ui-report.json'
 $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reportPath -Encoding utf8

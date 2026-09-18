@@ -302,6 +302,36 @@ function Test-BuildLocalDotnetSdk([string[]]$SdkList) {
     $false
 }
 
+# Native AOT links with MSVC, which the .NET SDK locates through vswhere. A machine with the
+# Build Tools but no vswhere on PATH otherwise fails with a bare "'vswhere.exe' is not
+# recognized". Package.ps1 carries the same helper so each script runs on its own.
+function Add-VsWhereToPath {
+    if (Get-Command vswhere -ErrorAction SilentlyContinue) { return $true }
+    foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+        if (!$base) { continue }
+        $candidate = Join-Path $base 'Microsoft Visual Studio/Installer'
+        if (Test-Path -LiteralPath (Join-Path $candidate 'vswhere.exe') -PathType Leaf) {
+            $env:PATH = "$env:PATH;$candidate"
+            return $true
+        }
+    }
+    return $false
+}
+
+# The setup UI is Native AOT, which links with MSVC through vswhere. Checking this up front
+# turns a failure forty minutes into the run - at packaging - into an immediate, actionable one.
+function Assert-SetupUiToolchain {
+    param([string]$RepoRoot)
+    $project = Join-Path $RepoRoot 'src/CycleArc.Setup/CycleArc.Setup.csproj'
+    if (!(Test-Path -LiteralPath $project -PathType Leaf)) {
+        throw "The setup UI project is missing at $project. Nothing was built, stopped or installed."
+    }
+    if (Add-VsWhereToPath) { return $true }
+    throw ('Building CycleArc-Setup.exe needs the Visual Studio Build Tools with the C++ workload ' +
+        '(vswhere.exe was not found under Program Files). Install "Desktop development with C++", ' +
+        'then retry. Nothing was built, stopped or installed.')
+}
+
 function Assert-BuildLocalTools {
     foreach ($name in @('pwsh', 'dotnet', 'git')) {
         if (!(Get-Command $name -ErrorAction SilentlyContinue)) {
@@ -832,6 +862,9 @@ function Invoke-BuildLocal {
         $RepoRoot = ConvertTo-InstallAbsolutePath $RepoRoot
         Assert-CycleArcTree -Root $RepoRoot
         Assert-BuildLocalTools
+        # Only when this run will really package the installer. A caller that supplies its
+        # own packaged Setup.exe never builds the setup UI, so it must not need the toolchain.
+        if (!$PackagedSetup) { Assert-SetupUiToolchain -RepoRoot $RepoRoot | Out-Null }
         $layout = Resolve-InstallLayout -RepoRoot $RepoRoot
         $lease = New-InstallLease -InstallRoot $layout.InstallRoot -AllowedRoots @($layout.InstallRoot)
         $logDirectory = New-BuildLocalLogDirectory $RepoRoot
@@ -938,7 +971,7 @@ function Invoke-BuildLocal {
         $known = @(
             (Join-Path $installRoot 'CycleArc.exe'),
             (Join-Path $installRoot 'current/CycleArc.exe'),
-            (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc/CycleArc.exe')
+            (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc-dev/CycleArc.exe')
         )
         # An unattended run still stops the desktop itself. The interactive path must not:
         # the person approves the installation first, and the installer stops the app after

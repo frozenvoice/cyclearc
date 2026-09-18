@@ -20,10 +20,17 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // A build-time check of the scaled layout: no control may fall outside the client
+        // area or overlap another at any supported scale. Installs nothing.
+        if (args.Any(argument => argument.Equals("--selftest", StringComparison.OrdinalIgnoreCase)))
+            return SelfTest();
+
         var silent = args.Any(argument =>
             argument.Equals("--silent", StringComparison.OrdinalIgnoreCase)
             || argument.Equals("-s", StringComparison.OrdinalIgnoreCase));
-        var directory = ReadInstallTo(args);
+        var directory = ReadValue(args, "--installto", "-t");
+        // Honoured rather than ignored: a parent that passes --log must find the log there.
+        var logPath = ReadValue(args, "--log", "-l");
 
         var target = directory is null
             ? InstallTargets.Resolve()
@@ -43,24 +50,36 @@ internal static class Program
         if (silent)
         {
             SetupState.Report(SetupState.Installing);
-            var result = EngineRunner.Install(target.Directory, CancellationToken.None);
+            var result = EngineRunner.Install(target.Directory, CancellationToken.None, logPath);
             SetupState.Report(result.Succeeded ? SetupState.Done : SetupState.Failed);
             return (int)(result.Succeeded ? SetupExitCode.Succeeded : SetupExitCode.Failed);
         }
 
-        return (int)new SetupWindow(target).Run();
+        return (int)new SetupWindow(target, logPath).Run();
+    }
+
+    private static int SelfTest()
+    {
+        var failures = new List<string>();
+        foreach (var dpi in new uint[] { 96, 120, 144, 168, 192, 240 })
+            failures.AddRange(SetupLayout.Problems(dpi));
+        foreach (var failure in failures) Console.Error.WriteLine(failure);
+        Console.Out.WriteLine(failures.Count == 0
+            ? "setup layout ok at 96-240 dpi"
+            : $"setup layout has {failures.Count} problem(s)");
+        return failures.Count == 0 ? 0 : 1;
     }
 
     /// <summary>
-    /// --installto is accepted so the engine's own contract still works for callers that
-    /// already use it. Interactive runs never ask for a path: there is no location page.
+    /// Reads one of the engine's own option pairs, so a caller that already uses --installto
+    /// or --log keeps working. Interactive runs never ask for a path: there is no location page.
     /// </summary>
-    private static string? ReadInstallTo(string[] args)
+    private static string? ReadValue(string[] args, string longName, string shortName)
     {
         for (var i = 0; i < args.Length; i++)
         {
-            var isFlag = args[i].Equals("--installto", StringComparison.OrdinalIgnoreCase)
-                || args[i].Equals("-t", StringComparison.OrdinalIgnoreCase);
+            var isFlag = args[i].Equals(longName, StringComparison.OrdinalIgnoreCase)
+                || args[i].Equals(shortName, StringComparison.OrdinalIgnoreCase);
             if (!isFlag || i + 1 >= args.Length) continue;
             var value = args[i + 1];
             if (string.IsNullOrWhiteSpace(value)) continue;

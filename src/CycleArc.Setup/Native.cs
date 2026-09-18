@@ -53,6 +53,20 @@ internal static partial class Native
     public const int SM_CXSCREEN = 0;
     public const int SM_CYSCREEN = 1;
 
+    public const int SWP_NOSIZE = 0x0001;
+    public const int SWP_NOMOVE = 0x0002;
+    public const int SWP_NOZORDER = 0x0004;
+    public const int SWP_NOACTIVATE = 0x0010;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct WNDCLASSEX
     {
@@ -145,6 +159,17 @@ internal static partial class Native
 
     [LibraryImport("user32.dll", EntryPoint = "GetDpiForWindow")]
     public static partial uint GetDpiForWindow(IntPtr hWnd);
+
+    // Windows 10 1607 and later. Falls back to the unscaled call when unavailable.
+    [LibraryImport("user32.dll", EntryPoint = "AdjustWindowRectExForDpi", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AdjustWindowRectExForDpi(ref RECT rect,
+        int style, [MarshalAs(UnmanagedType.Bool)] bool menu, int exStyle, uint dpi);
+
+    [LibraryImport("user32.dll", EntryPoint = "AdjustWindowRect")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AdjustWindowRect(ref RECT rect,
+        int style, [MarshalAs(UnmanagedType.Bool)] bool menu);
 
     [LibraryImport("gdi32.dll", EntryPoint = "CreateFontW", StringMarshalling = StringMarshalling.Utf16)]
     public static partial IntPtr CreateFont(int height, int width, int escapement, int orientation, int weight,

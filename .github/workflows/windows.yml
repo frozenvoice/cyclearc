@@ -182,8 +182,14 @@ jobs:
             }
             throw "Setup.exe exited $($process.ExitCode). See $log"
           }
-          $current = Join-Path $env:LOCALAPPDATA 'CycleArc/current/CycleArc.exe'
-          $launcher = Join-Path $env:LOCALAPPDATA 'CycleArc/CycleArc.exe'
+          # Resolve where it actually installed. The new-install default moved under
+          # Programs, and an existing installation keeps its own root, so neither may be
+          # assumed here.
+          $installRoot = Get-ManagedInstallRoot
+          if (!$installRoot) { throw 'Setup.exe finished but no managed installation was found.' }
+          Write-Host "Managed install root: $installRoot"
+          $current = Join-Path $installRoot 'current/CycleArc.exe'
+          $launcher = Join-Path $installRoot 'CycleArc.exe'
           if (!(Test-Path -LiteralPath $current -PathType Leaf) -or !(Test-Path -LiteralPath $launcher -PathType Leaf)) {
             throw "Managed install is missing $current or $launcher"
           }

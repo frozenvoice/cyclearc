@@ -39,6 +39,10 @@ function New-TestCycleArcTree([string]$Directory) {
     New-Item -ItemType Directory -Path (Join-Path $Directory 'src/CycleArc') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $Directory 'CycleArc.sln') -Value 'synthetic solution'
     Set-Content -LiteralPath (Join-Path $Directory 'src/CycleArc/CycleArc.csproj') -Value 'synthetic project'
+    # The installer project the preflight toolchain check looks for. Never built here: every
+    # test that reaches packaging supplies its own -PackagedSetup.
+    New-Item -ItemType Directory -Path (Join-Path $Directory 'src/CycleArc.Setup') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $Directory 'src/CycleArc.Setup/CycleArc.Setup.csproj') -Value 'synthetic setup project'
 }
 
 function New-GitCycleArcTree([string]$Directory) {

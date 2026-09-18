@@ -147,7 +147,9 @@ public class DevRunScriptGuardTests
         var start = text.IndexOf("[Diagnostics.Process]::Start", StringComparison.Ordinal);
         Assert.True(noLaunch >= 0 && exit > noLaunch && start > exit);
         Assert.DoesNotContain("Resolve-InstallLayout", text);
-        Assert.Contains("'Programs/CycleArc'", text);
+        // The development build's own directory, kept apart from the managed install root.
+        Assert.Contains("'Programs/CycleArc-dev'", text);
+        Assert.DoesNotContain("'Programs/CycleArc'", text);
     }
     [Fact]
     public void Script_MatchesRunningProcessByExactNameOnly()

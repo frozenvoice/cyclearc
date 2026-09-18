@@ -45,7 +45,10 @@ New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
 $entryPoint = Join-Path $repoRoot 'build-local.cmd'
 $stagingExe = Join-Path $repoRoot 'publish/.dev-staging/CycleArc.exe'
 $failureMarker = Join-Path $repoRoot 'artifacts/build-local/last-failure.txt'
-$installRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CycleArc'
+# Resolved, not assumed: the new-install default is under Programs and an existing
+# installation keeps its own root. Falls back to the default for a runner with neither.
+$installRoot = Get-ManagedInstallRoot
+if (!$installRoot) { $installRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc' }
 $installedExe = Join-Path $installRoot 'current/CycleArc.exe'
 $developmentExe = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc/CycleArc.exe'
 # A source file this script owns: the A/B builds differ by its contents only, so

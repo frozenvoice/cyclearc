@@ -38,9 +38,12 @@ user. Run it only on a disposable VM or throwaway user; see its help for what it
 
 ## Installation and update boundaries
 
-- Velopack owns the packaged installation under `%LOCALAPPDATA%\CycleArc`. The desktop runs from
-  `current\CycleArc.exe`; the root `CycleArc.exe` is the launcher used for shortcuts and Windows
-  startup. `%LOCALAPPDATA%\Programs\CycleArc` is the separate development installation.
+- Velopack owns the packaged installation. A new install goes to `%LOCALAPPDATA%\Programs\CycleArc`;
+  one that already exists keeps its location, including the former `%LOCALAPPDATA%\CycleArc`,
+  so resolve it with `Get-ManagedInstallRoot` rather than assuming either. The desktop runs from
+  `current\CycleArc.exe` under that root; the root `CycleArc.exe` is the launcher used for
+  shortcuts and Windows startup. The development single-file build replaces itself in
+  `%LOCALAPPDATA%\Programs\CycleArc-dev` and must never share a directory with a managed install.
 - CycleArc owns approval, verification and recovery: the update window asks before downloading and
   before restarting, packages are SHA-256 checked after download and again before apply, and
   `ManagedUpdateSupervisor` runs outside the installation so it can restore and restart the previous

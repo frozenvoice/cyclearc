@@ -7,11 +7,17 @@ using System.Threading;
 
 namespace CycleArc.Services;
 
-/// <summary>One desktop location for downloads and development builds. Claude modes bypass this class.</summary>
+/// <summary>
+/// The development desktop location: the single-file build replaces itself here. A packaged
+/// installation is Velopack's and lives elsewhere, which InstalledApp.IsManaged distinguishes.
+/// These two must not share a directory - both want to own a file called CycleArc.exe in it,
+/// and the managed default for a new install is now %LOCALAPPDATA%\Programs\CycleArc.
+/// Claude modes bypass this class.
+/// </summary>
 public static class DesktopBootstrap
 {
     public static string InstallDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "CycleArc");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "CycleArc-dev");
     public static string ExecutablePath => Path.Combine(InstallDirectory, "CycleArc.exe");
     private static string MigrationPath => Path.Combine(InstallDirectory, "tray-migration.json");
     private static string PipeName => DesktopInstancePipe.ForCurrentUserSession();

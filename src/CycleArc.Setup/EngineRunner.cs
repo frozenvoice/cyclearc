@@ -28,13 +28,24 @@ internal static class EngineRunner
         }
     }
 
-    public static EngineResult Install(string directory, CancellationToken token)
+    /// <param name="logPath">
+    /// Where the engine writes its log. A caller that passed --log gets exactly that file, so
+    /// a build script finds the log where it asked for it; otherwise one is made alongside the
+    /// extracted engine and copied next to the installation afterwards.
+    /// </param>
+    public static EngineResult Install(string directory, CancellationToken token, string? logPath = null)
     {
         var work = Path.Combine(Path.GetTempPath(), "CycleArc-setup-" + Guid.NewGuid().ToString("N"));
-        var logPath = Path.Combine(work, "CycleArc-install.log");
+        var requested = !string.IsNullOrWhiteSpace(logPath);
+        logPath = requested ? Path.GetFullPath(logPath!) : Path.Combine(work, "CycleArc-install.log");
         try
         {
             Directory.CreateDirectory(work);
+            if (requested)
+            {
+                var logDirectory = Path.GetDirectoryName(logPath);
+                if (!string.IsNullOrEmpty(logDirectory)) Directory.CreateDirectory(logDirectory);
+            }
             var enginePath = Path.Combine(work, "CycleArc-Setup-engine.exe");
             if (!TryExtract(enginePath, out var extractError))
                 return new EngineResult(EngineOutcome.Failed, -1, logPath, extractError);
@@ -82,8 +93,9 @@ internal static class EngineRunner
         }
         finally
         {
-            // The log is copied next to the installation target before the work directory goes.
-            TryKeepLog(logPath, directory);
+            // A caller that named the log keeps it where it asked; otherwise a copy is left
+            // beside the installation before the work directory goes.
+            if (!requested) TryKeepLog(logPath, directory);
             try { if (Directory.Exists(work)) Directory.Delete(work, recursive: true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }

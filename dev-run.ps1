@@ -17,7 +17,10 @@ $localInstallScript = Join-Path $RepoRoot 'scripts/LocalInstall.ps1'
 . $localInstallScript
 $StagingDir = Join-Path $RepoRoot 'publish/.dev-staging'
 $CurrentLocalDir = Join-Path $RepoRoot 'publish/local'
-$LocalDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc'
+# The development single-file build replaces itself here. Kept apart from the managed
+# install, whose new-install default is %LOCALAPPDATA%\Programs\CycleArc: both would
+# otherwise own a CycleArc.exe in the same directory.
+$LocalDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc-dev'
 $AllowedRoots = @($RepoRoot)
 
 function Assert-DevRunPath([string]$Target) {

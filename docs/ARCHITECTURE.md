@@ -11,12 +11,23 @@ unchanged legacy mutex. A later ordinary launch requests activation over a bound
 current-user/session named pipe; autorun only probes it. The popup shows the running assembly
 version. There is no dev/release precedence.
 
-`CycleArc-Setup.exe` installs Velopack 1.2.0 under `%LOCALAPPDATA%\CycleArc`. The stable launcher
-at `%LOCALAPPDATA%\CycleArc\CycleArc.exe` owns desktop and Windows-startup entry points; the
-actual app runs from `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`. Claude callbacks use the
-current executable directly because statusLine stdin/stdout forwarding must remain synchronous.
-The former `%LOCALAPPDATA%\Programs\CycleArc` path remains a development compatibility install
-and is excluded from the GitHub update channel.
+`CycleArc-Setup.exe` is the distributed installer: a small Native AOT window that shows the
+confirmation, progress and completion screens and runs the embedded Velopack 1.2.0 engine with
+`--silent`. Velopack's own installer is one-click by design and has no confirmation screen, which
+is why the window is a wrapper rather than an engine option. The engine still performs the
+installation, and the wrapper is what the checksum manifest and the release asset list describe.
+
+A new installation goes to `%LOCALAPPDATA%\Programs\CycleArc`. An installation that already
+exists keeps its own location - resolved from its registered uninstall entry, then from a Velopack
+layout at either known root - so one at the former `%LOCALAPPDATA%\CycleArc` is updated in place
+rather than moved or duplicated. Nothing may assume a root; `Get-ManagedInstallRoot` resolves it.
+The stable launcher at the root of that directory owns desktop and Windows-startup entry points;
+the actual app runs from `current\CycleArc.exe` beneath it. Claude callbacks use the current
+executable directly because statusLine stdin/stdout forwarding must remain synchronous.
+
+The development single-file build replaces itself in `%LOCALAPPDATA%\Programs\CycleArc-dev`, a
+different directory from every managed root: both would otherwise own a `CycleArc.exe` at the root
+of the same one. It is excluded from the GitHub update channel.
 
 The update client checks the stable GitHub Releases channel 20 seconds after startup and every six
 hours, downloads only after explicit user action, verifies the complete `.nupkg` SHA-256 after
