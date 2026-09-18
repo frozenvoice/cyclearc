@@ -63,11 +63,15 @@ function Get-BuildLocalStageGuidance([string]$Stage) {
 
 function Write-BuildLocalFailure {
     param(
-        [Parameter(Mandatory)][string]$Stage,
-        [Parameter(Mandatory)][string]$Message,
+        [string]$Stage = 'unknown',
+        [string]$Message = '',
         [string]$LogDirectory,
         [string]$LogPath
     )
+    # Never let reporting a failure fail: an empty stage or message still has to
+    # produce a readable line rather than a parameter binding error.
+    if (!$Stage) { $Stage = 'unknown' }
+    if (!$Message) { $Message = 'no error message was available' }
     $lines = @(
         'CycleArc build-local failed.',
         "Stage: $Stage",
@@ -196,9 +200,10 @@ function Write-DesktopIpcDiagnostic {
     param(
         [Parameter(Mandatory)][string]$LogDirectory,
         [Parameter(Mandatory)][string]$Stage,
-        [Parameter(Mandatory)][string]$Reason,
+        [string]$Reason = '',
         [object]$Result
     )
+    if (!$Reason) { $Reason = 'no cause was recorded' }
     $builder = [Text.StringBuilder]::new()
     [void]$builder.AppendLine(('[{0:yyyy-MM-dd HH:mm:ss.fff}] {1}: {2}' -f (Get-Date), $Stage, $Reason))
     if ($Result) {
