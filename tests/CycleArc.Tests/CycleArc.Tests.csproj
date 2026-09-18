@@ -16,6 +16,9 @@
     <ProjectReference Include="..\..\src\CycleArc.Core\CycleArc.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\CycleArc.UiSmoke\ChildProcessOutput.cs" Link="ChildProcessOutput.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CycleArc\UI\Themes.xaml" Link="Themes.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CycleArc\UI\FlyoutWindow.xaml" Link="FlyoutWindow.xaml" CopyToOutputDirectory="PreserveNewest" />

@@ -2,6 +2,24 @@
 
 ## Current release — Codex and Claude Code
 
+- Desktop instance UiSmoke ready wait (unreleased): `DesktopInstanceProcessChecks`
+  waited 10 seconds for a child to write `first.jsonl`, which failed under
+  `build-local.cmd` / `dev-run.ps1 -NoLaunch` load even though the same
+  `--desktop-instance` check passed immediately afterwards. The process-ready
+  timeout is now 30 seconds and stays separate from the 3-second IPC request
+  timeout. Redirected child stdout/stderr are drained asynchronously with a
+  32 KiB snapshot; a wait timeout includes pid, HasExited, exit code when
+  known, both streams and the current report file, and the test still stops
+  only the children it started. `DesktopInstanceProcessWaitTests` covers a
+  synthetic child that becomes ready after the old 10-second budget, a real
+  timeout whose message keeps stdout/stderr/pid, and a 64 KiB stderr flood
+  that must not stall the wait. `Invoke-ExternalProcess` now copies `dev-run`
+  stdout/stderr to `artifacts/build-local/dev-run.out.log` and `dev-run.err.log`
+  with a bounded drain; a failed gate prints a tail and `last-failure.txt`
+  includes it so the CMD window shows the UiSmoke error instead of only
+  `dev-run.ps1 -NoLaunch failed (exit 1)`. Windows CI on this change is the
+  executable/UiSmoke proof; this Linux environment cannot build the WPF smoke
+  project.
 - Widget bind applies the arranged HWND size (unreleased): `FloatingWidget.BindAccounts` now
   calls the existing Relayout path when the arranged DIP size changed, so
   `FloatingWidgetController.Update()` grows or shrinks the same native window when accounts,

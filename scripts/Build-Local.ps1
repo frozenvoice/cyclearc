@@ -61,6 +61,21 @@ function Get-BuildLocalStageGuidance([string]$Stage) {
     }
 }
 
+function Get-BuildLocalLogTail {
+    param([string]$Path, [int]$Lines = 80)
+    if (!$Path -or !(Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+    if ((Get-Item -LiteralPath $Path).Length -eq 0) { return @() }
+    @(Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue)
+}
+
+function Write-BuildLocalLogTail {
+    param([string]$Path, [int]$Lines = 80)
+    $tail = @(Get-BuildLocalLogTail -Path $Path -Lines $Lines)
+    if ($tail.Count -eq 0) { return }
+    Write-Host "----- $Path (last $Lines lines) -----"
+    foreach ($line in $tail) { Write-Host $line }
+}
+
 function Write-BuildLocalFailure {
     param(
         [string]$Stage = 'unknown',
@@ -79,6 +94,18 @@ function Write-BuildLocalFailure {
         (Get-BuildLocalStageGuidance $Stage)
     )
     if ($LogPath) { $lines += "Log: $LogPath" }
+    if ($LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
+        foreach ($name in @('dev-run.err.log', 'dev-run.out.log')) {
+            $captured = Join-Path $LogDirectory $name
+            if (!(Test-Path -LiteralPath $captured -PathType Leaf)) { continue }
+            $lines += "Captured ${name}: $captured"
+            $tail = @(Get-BuildLocalLogTail -Path $captured)
+            if ($tail.Count -gt 0) {
+                $lines += "----- $name (tail) -----"
+                $lines += $tail
+            }
+        }
+    }
     $text = ($lines -join [Environment]::NewLine)
     if ($LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
         # build-local.cmd prints this file instead of a blanket claim about the
@@ -131,24 +158,82 @@ function Invoke-ExternalProcess {
         [string[]]$ArgumentList = @(),
         [string]$WorkingDirectory,
         [int]$TimeoutSeconds = 1800,
-        [switch]$NoNewWindow
+        [switch]$NoNewWindow,
+        [string]$StandardOutputPath,
+        [string]$StandardErrorPath,
+        [int]$OutputDrainMilliseconds = 15000
     )
     Write-Host ("    > {0} {1}" -f $FilePath, ($ArgumentList -join ' '))
+    $captureOutput = ![string]::IsNullOrWhiteSpace($StandardOutputPath)
+    $captureError = ![string]::IsNullOrWhiteSpace($StandardErrorPath)
+    if ($captureOutput) { Write-Host "    capturing stdout: $StandardOutputPath" }
+    if ($captureError) { Write-Host "    capturing stderr: $StandardErrorPath" }
     $start = [Diagnostics.ProcessStartInfo]::new($FilePath)
     $start.UseShellExecute = $false
     $start.CreateNoWindow = [bool]$NoNewWindow
     if ($WorkingDirectory) { $start.WorkingDirectory = $WorkingDirectory }
     foreach ($argument in $ArgumentList) { [void]$start.ArgumentList.Add($argument) }
+    # Redirect both streams together so a child that writes one pipe cannot fill
+    # the other unread buffer and stall before WaitForExit sees it leave.
+    if ($captureOutput -or $captureError) {
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+    }
     $process = [Diagnostics.Process]::Start($start)
     if (!$process) { throw "Could not start $FilePath" }
+    $outFile = $null
+    $errFile = $null
+    $stdoutTask = $null
+    $stderrTask = $null
     try {
+        if ($start.RedirectStandardOutput) {
+            if ($captureOutput) {
+                $outFile = [IO.File]::Create($StandardOutputPath)
+                $stdoutTask = $process.StandardOutput.BaseStream.CopyToAsync($outFile)
+            }
+            else {
+                $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            }
+        }
+        if ($start.RedirectStandardError) {
+            if ($captureError) {
+                $errFile = [IO.File]::Create($StandardErrorPath)
+                $stderrTask = $process.StandardError.BaseStream.CopyToAsync($errFile)
+            }
+            else {
+                $stderrTask = $process.StandardError.ReadToEndAsync()
+            }
+        }
+        $timedOut = $false
         if (!$process.WaitForExit($TimeoutSeconds * 1000)) {
             try { $process.Kill($true) } catch { }
+            $timedOut = $true
+        }
+        $drainTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+        if ($stdoutTask) { [void]$drainTasks.Add($stdoutTask) }
+        if ($stderrTask) { [void]$drainTasks.Add($stderrTask) }
+        if ($drainTasks.Count -gt 0) {
+            try { [void][Threading.Tasks.Task]::WaitAll($drainTasks.ToArray(), $OutputDrainMilliseconds) } catch { }
+        }
+        if ($outFile) { try { $outFile.Dispose() } catch { }; $outFile = $null }
+        if ($errFile) { try { $errFile.Dispose() } catch { }; $errFile = $null }
+        if ($timedOut) {
+            Write-BuildLocalLogTail -Path $StandardErrorPath
+            Write-BuildLocalLogTail -Path $StandardOutputPath
             throw "$FilePath did not finish within $TimeoutSeconds seconds (PID $($process.Id))."
         }
-        return [int]$process.ExitCode
+        $exitCode = [int]$process.ExitCode
+        if ($exitCode -ne 0) {
+            Write-BuildLocalLogTail -Path $StandardErrorPath
+            Write-BuildLocalLogTail -Path $StandardOutputPath
+        }
+        return $exitCode
     }
-    finally { $process.Dispose() }
+    finally {
+        if ($outFile) { try { $outFile.Dispose() } catch { } }
+        if ($errFile) { try { $errFile.Dispose() } catch { } }
+        $process.Dispose()
+    }
 }
 
 function Invoke-WindowedProcess {
@@ -503,9 +588,12 @@ function Invoke-BuildLocal {
             }
             $arguments = @('-NoProfile', '-File', $devRunPath, '-NoLaunch')
             if ($Fast) { $arguments += '-Fast' }
-            $exitCode = Invoke-ExternalProcess -FilePath $pwsh -ArgumentList $arguments -WorkingDirectory $RepoRoot -TimeoutSeconds 1800 -NoNewWindow
+            $devRunOut = Join-Path $logDirectory 'dev-run.out.log'
+            $devRunErr = Join-Path $logDirectory 'dev-run.err.log'
+            $exitCode = Invoke-ExternalProcess -FilePath $pwsh -ArgumentList $arguments -WorkingDirectory $RepoRoot `
+                -TimeoutSeconds 1800 -NoNewWindow -StandardOutputPath $devRunOut -StandardErrorPath $devRunErr
             if ($exitCode -ne 0) {
-                throw "dev-run.ps1 -NoLaunch failed (exit $exitCode). Setup.exe was not started; the running installation was left unchanged. Log: $logPath"
+                throw "dev-run.ps1 -NoLaunch failed (exit $exitCode). Setup.exe was not started; the running installation was left unchanged. Log: $logPath stdout: $devRunOut stderr: $devRunErr"
             }
         }
 

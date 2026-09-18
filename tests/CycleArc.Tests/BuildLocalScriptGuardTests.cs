@@ -53,6 +53,10 @@ public class BuildLocalScriptGuardTests
 
         // A synchronous ReadToEnd before WaitForExit never reaches the timeout.
         Assert.Contains("ReadToEndAsync", text, StringComparison.Ordinal);
+        Assert.Contains("CopyToAsync", text, StringComparison.Ordinal);
+        Assert.Contains("dev-run.out.log", text, StringComparison.Ordinal);
+        Assert.Contains("dev-run.err.log", text, StringComparison.Ordinal);
+        Assert.Contains("Write-BuildLocalLogTail", text, StringComparison.Ordinal);
         Assert.DoesNotContain("StandardOutput.ReadToEnd()", text, StringComparison.Ordinal);
         Assert.DoesNotContain("StandardError.ReadToEnd()", text, StringComparison.Ordinal);
     }

@@ -85,14 +85,18 @@ function New-TestLaunchableScript([string]$Name, [string]$BodyPath) {
     $path
 }
 
-function New-TestDevRun([string]$Directory, [string]$MarkerPath, [int]$ExitCode) {
+function New-TestDevRun([string]$Directory, [string]$MarkerPath, [int]$ExitCode, [string]$ErrorText = '') {
     $body = @(
         '[CmdletBinding()]',
         'param([switch]$Fast, [switch]$NoLaunch)',
         'Set-StrictMode -Version Latest',
-        ('Set-Content -LiteralPath "{0}" -Value "NoLaunch=$NoLaunch Fast=$Fast cwd=$((Get-Location).Path)"' -f $MarkerPath),
-        "exit $ExitCode"
+        ('Set-Content -LiteralPath "{0}" -Value "NoLaunch=$NoLaunch Fast=$Fast cwd=$((Get-Location).Path)"' -f $MarkerPath)
     )
+    if ($ErrorText) {
+        $body += ('[Console]::Error.WriteLine(''{0}'')' -f ($ErrorText -replace "'", "''"))
+        $body += '[Console]::Error.Flush()'
+    }
+    $body += "exit $ExitCode"
     $path = Join-Path $Directory 'dev-run.ps1'
     Set-Content -LiteralPath $path -Value ($body -join "`n") -Encoding utf8
     $path
@@ -124,8 +128,14 @@ try {
     if ($scriptText -match 'Copy-ValidatedExecutable' -or $scriptText -match 'Install-StagedApp') {
         throw 'Build-Local.ps1 must not copy a development EXE over the managed Velopack install'
     }
-    if ($scriptText -notmatch 'current/CycleArc.exe') {
-        throw 'Build-Local.ps1 must verify the managed current\\CycleArc.exe'
+    if ($scriptText -notmatch 'dev-run\.out\.log' -or $scriptText -notmatch 'dev-run\.err\.log') {
+        throw 'Build-Local.ps1 must capture dev-run stdout/stderr under artifacts/build-local'
+    }
+    if ($scriptText -notmatch 'Write-BuildLocalLogTail') {
+        throw 'Build-Local.ps1 must print a tail of captured dev-run output when that process fails'
+    }
+    if ($scriptText -notmatch 'CopyToAsync') {
+        throw 'Build-Local.ps1 must drain captured streams asynchronously instead of a blocking ReadToEnd'
     }
     if ($cmdText -notmatch 'scripts\\Build-Local.ps1') { throw 'build-local.cmd must call scripts\\Build-Local.ps1' }
     if ($cmdText -notmatch 'pause') { throw 'build-local.cmd must pause on failure so the window stays open' }
@@ -388,7 +398,8 @@ try {
     # --- Regression: a failing real dev-run.ps1 leaves the installed app alone. ---
     $failTree = Join-Path $testRoot 'default failure'
     New-GitCycleArcTree $failTree
-    New-TestDevRun $failTree (Join-Path $failTree 'dev-run-marker.txt') 3 | Out-Null
+    $failMarker = 'UISMOKE-SYNTHETIC: Timed out waiting for desktop instance report first.jsonl'
+    New-TestDevRun $failTree (Join-Path $failTree 'dev-run-marker.txt') 3 $failMarker | Out-Null
     $script:failStopped = $false
     $script:failSetup = $false
     Assert-Throws {
@@ -408,6 +419,20 @@ try {
     }
     if ($failureText -notmatch 'installed version is unchanged') {
         throw "A pre-install failure must say the installation is unchanged: $failureText"
+    }
+    $devRunErr = Join-Path $failTree 'artifacts/build-local/dev-run.err.log'
+    if (!(Test-Path -LiteralPath $devRunErr -PathType Leaf)) {
+        throw 'A failed dev-run did not capture stderr under artifacts/build-local'
+    }
+    $capturedErr = Get-Content -LiteralPath $devRunErr -Raw
+    if ($capturedErr -notmatch [regex]::Escape($failMarker)) {
+        throw "Captured stderr did not contain the child error: $capturedErr"
+    }
+    if ($failureText -notmatch [regex]::Escape($failMarker)) {
+        throw "last-failure.txt did not include the captured stderr tail: $failureText"
+    }
+    if ($failureText -notmatch 'dev-run.err.log \(tail\)') {
+        throw "last-failure.txt did not label the captured stderr tail: $failureText"
     }
     Write-Host 'PASS: a real dev-run.ps1 failure stops before the desktop and Setup.exe.'
 
