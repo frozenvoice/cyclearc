@@ -44,21 +44,91 @@ function Get-BuildLocalSha256([string]$Path) {
 # installation is intact while the run never got as far as starting Setup.exe.
 $script:BuildLocalStage = 'preflight'
 
-function Set-BuildLocalStage([string]$Stage) { $script:BuildLocalStage = $Stage }
+$script:BuildLocalStarted = $null
+
+function Format-BuildLocalElapsed([Diagnostics.Stopwatch]$Stopwatch) {
+    if (!$Stopwatch) { return '00:00.0' }
+    $elapsed = $Stopwatch.Elapsed
+    '{0:00}:{1:00}.{2}' -f [int][math]::Floor($elapsed.TotalMinutes), $elapsed.Seconds, [int][math]::Floor($elapsed.Milliseconds / 100.0)
+}
+
+function Write-BuildLocalTiming([string]$Message) {
+    Write-Host ('[{0}] {1}' -f (Format-BuildLocalElapsed $script:BuildLocalStarted), $Message)
+}
+
+function Set-BuildLocalStage {
+    param([string]$Stage, [switch]$Quiet)
+    $script:BuildLocalStage = $Stage
+    if ($Stage -and !$Quiet) { Write-BuildLocalTiming $Stage }
+}
 
 function Get-BuildLocalStage { $script:BuildLocalStage }
+
+function Test-BuildLocalVerificationStage([string]$Stage) {
+    @(
+        'preflight', 'release-guard', 'restore', 'tool-restore', 'build',
+        'ui-smoke-desktop-instance', 'local-install-regression', 'build-local-regression',
+        'unit-test', 'ui-smoke-full', 'publish', 'package', 'package-verify'
+    ) -contains $Stage
+}
 
 function Get-BuildLocalStageGuidance([string]$Stage) {
     switch ($Stage) {
         'preflight' { 'Nothing was built, stopped or installed. The installed CycleArc is unchanged and still running.' }
-        'build' { 'dev-run.ps1 failed before packaging. Setup.exe was not started, the running CycleArc was not stopped, and the installed version is unchanged.' }
-        'package' { 'This run did not produce a usable CycleArc-Setup.exe. Setup.exe was not started, the running CycleArc was not stopped, and the installed version is unchanged.' }
         'stop-desktop' { 'The running CycleArc could not be stopped over desktop IPC. Setup.exe was not started and the installed version is unchanged; that desktop may still be running. Close it from its tray and retry.' }
         'install' { 'CycleArc-Setup.exe was already started, so the installation may be partially replaced. Read the Setup log before assuming the previous version is intact.' }
         'verify-install' { 'CycleArc-Setup.exe already ran and changed the installation, but the result is not this build. Do not assume the previous version is intact.' }
         'start' { 'This build is installed. Only starting it or confirming readiness failed, so the previous version is already gone.' }
-        default { 'See the log for the failing step; do not assume the previous installation is intact.' }
+        'package' { 'This run did not produce a usable CycleArc-Setup.exe. Setup.exe was not started, the running CycleArc was not stopped, and the installed version is unchanged.' }
+        default {
+            if (Test-BuildLocalVerificationStage $Stage) {
+                "dev-run.ps1 failed at $Stage. Setup.exe was not started, the running CycleArc was not stopped, and the installed version is unchanged."
+            }
+            else {
+                'See the log for the failing step; do not assume the previous installation is intact.'
+            }
+        }
     }
+}
+
+function Get-DevRunChildStage([string]$LogDirectory) {
+    if (!$LogDirectory) { return $null }
+    $path = Join-Path $LogDirectory 'dev-run.stage'
+    if (!(Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    $value = @(Get-Content -LiteralPath $path -TotalCount 1 -ErrorAction SilentlyContinue)
+    if ($value.Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$value[0])) { return $null }
+    ([string]$value[0]).Trim()
+}
+
+function Resolve-BuildLocalReportedStage([string]$ParentStage, [string]$LogDirectory) {
+    if ($ParentStage -eq 'build') {
+        $child = Get-DevRunChildStage $LogDirectory
+        if ($child) { return $child }
+    }
+    $ParentStage
+}
+
+function Write-BuildLocalCapturedProgress([string]$Path) {
+    if (!$Path -or !(Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    $lines = @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue | Where-Object {
+        $_ -match '^\[[0-9]{2}:[0-9]{2}\.[0-9]\]' -or $_ -match '^Failed at:' -or $_ -match '^Elapsed:'
+    })
+    foreach ($line in $lines) { Write-Host $line }
+}
+
+function Get-BuildLocalLogTail {
+    param([string]$Path, [int]$Lines = 80)
+    if (!$Path -or !(Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+    if ((Get-Item -LiteralPath $Path).Length -eq 0) { return @() }
+    @(Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue)
+}
+
+function Write-BuildLocalLogTail {
+    param([string]$Path, [int]$Lines = 80)
+    $tail = @(Get-BuildLocalLogTail -Path $Path -Lines $Lines)
+    if ($tail.Count -eq 0) { return }
+    Write-Host "----- $Path (last $Lines lines) -----"
+    foreach ($line in $tail) { Write-Host $line }
 }
 
 function Write-BuildLocalFailure {
@@ -66,7 +136,8 @@ function Write-BuildLocalFailure {
         [string]$Stage = 'unknown',
         [string]$Message = '',
         [string]$LogDirectory,
-        [string]$LogPath
+        [string]$LogPath,
+        [string]$Elapsed = ''
     )
     # Never let reporting a failure fail: an empty stage or message still has to
     # produce a readable line rather than a parameter binding error.
@@ -74,11 +145,31 @@ function Write-BuildLocalFailure {
     if (!$Message) { $Message = 'no error message was available' }
     $lines = @(
         'CycleArc build-local failed.',
-        "Stage: $Stage",
+        "Failed at: $Stage",
+        "Stage: $Stage"
+    )
+    if ($Elapsed) { $lines += "Elapsed: $Elapsed" }
+    $lines += @(
         "Cause: $Message",
         (Get-BuildLocalStageGuidance $Stage)
     )
     if ($LogPath) { $lines += "Log: $LogPath" }
+    if ($LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
+        $childLog = Join-Path $LogDirectory 'dev-run.err.log'
+        if (Test-Path -LiteralPath $childLog -PathType Leaf) {
+            $lines += "Child log: $childLog"
+        }
+        foreach ($name in @('dev-run.err.log', 'dev-run.out.log')) {
+            $captured = Join-Path $LogDirectory $name
+            if (!(Test-Path -LiteralPath $captured -PathType Leaf)) { continue }
+            $lines += "Captured ${name}: $captured"
+            $tail = @(Get-BuildLocalLogTail -Path $captured)
+            if ($tail.Count -gt 0) {
+                $lines += "----- $name (tail) -----"
+                $lines += $tail
+            }
+        }
+    }
     $text = ($lines -join [Environment]::NewLine)
     if ($LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
         # build-local.cmd prints this file instead of a blanket claim about the
@@ -131,24 +222,82 @@ function Invoke-ExternalProcess {
         [string[]]$ArgumentList = @(),
         [string]$WorkingDirectory,
         [int]$TimeoutSeconds = 1800,
-        [switch]$NoNewWindow
+        [switch]$NoNewWindow,
+        [string]$StandardOutputPath,
+        [string]$StandardErrorPath,
+        [int]$OutputDrainMilliseconds = 15000
     )
     Write-Host ("    > {0} {1}" -f $FilePath, ($ArgumentList -join ' '))
+    $captureOutput = ![string]::IsNullOrWhiteSpace($StandardOutputPath)
+    $captureError = ![string]::IsNullOrWhiteSpace($StandardErrorPath)
+    if ($captureOutput) { Write-Host "    capturing stdout: $StandardOutputPath" }
+    if ($captureError) { Write-Host "    capturing stderr: $StandardErrorPath" }
     $start = [Diagnostics.ProcessStartInfo]::new($FilePath)
     $start.UseShellExecute = $false
     $start.CreateNoWindow = [bool]$NoNewWindow
     if ($WorkingDirectory) { $start.WorkingDirectory = $WorkingDirectory }
     foreach ($argument in $ArgumentList) { [void]$start.ArgumentList.Add($argument) }
+    # Redirect both streams together so a child that writes one pipe cannot fill
+    # the other unread buffer and stall before WaitForExit sees it leave.
+    if ($captureOutput -or $captureError) {
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+    }
     $process = [Diagnostics.Process]::Start($start)
     if (!$process) { throw "Could not start $FilePath" }
+    $outFile = $null
+    $errFile = $null
+    $stdoutTask = $null
+    $stderrTask = $null
     try {
+        if ($start.RedirectStandardOutput) {
+            if ($captureOutput) {
+                $outFile = [IO.File]::Create($StandardOutputPath)
+                $stdoutTask = $process.StandardOutput.BaseStream.CopyToAsync($outFile)
+            }
+            else {
+                $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            }
+        }
+        if ($start.RedirectStandardError) {
+            if ($captureError) {
+                $errFile = [IO.File]::Create($StandardErrorPath)
+                $stderrTask = $process.StandardError.BaseStream.CopyToAsync($errFile)
+            }
+            else {
+                $stderrTask = $process.StandardError.ReadToEndAsync()
+            }
+        }
+        $timedOut = $false
         if (!$process.WaitForExit($TimeoutSeconds * 1000)) {
             try { $process.Kill($true) } catch { }
+            $timedOut = $true
+        }
+        $drainTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+        if ($stdoutTask) { [void]$drainTasks.Add($stdoutTask) }
+        if ($stderrTask) { [void]$drainTasks.Add($stderrTask) }
+        if ($drainTasks.Count -gt 0) {
+            try { [void][Threading.Tasks.Task]::WaitAll($drainTasks.ToArray(), $OutputDrainMilliseconds) } catch { }
+        }
+        if ($outFile) { try { $outFile.Dispose() } catch { }; $outFile = $null }
+        if ($errFile) { try { $errFile.Dispose() } catch { }; $errFile = $null }
+        if ($timedOut) {
+            Write-BuildLocalLogTail -Path $StandardErrorPath
+            Write-BuildLocalLogTail -Path $StandardOutputPath
             throw "$FilePath did not finish within $TimeoutSeconds seconds (PID $($process.Id))."
         }
-        return [int]$process.ExitCode
+        $exitCode = [int]$process.ExitCode
+        if ($exitCode -ne 0) {
+            Write-BuildLocalLogTail -Path $StandardErrorPath
+            Write-BuildLocalLogTail -Path $StandardOutputPath
+        }
+        return $exitCode
     }
-    finally { $process.Dispose() }
+    finally {
+        if ($outFile) { try { $outFile.Dispose() } catch { } }
+        if ($errFile) { try { $errFile.Dispose() } catch { } }
+        $process.Dispose()
+    }
 }
 
 function Invoke-WindowedProcess {
@@ -463,6 +612,7 @@ function Invoke-BuildLocal {
         [scriptblock]$StartLauncher,
         [scriptblock]$ProbeStatus
     )
+    $script:BuildLocalStarted = [Diagnostics.Stopwatch]::StartNew()
     Set-BuildLocalStage 'preflight'
     $lease = $null
     $logDirectory = $null
@@ -503,10 +653,24 @@ function Invoke-BuildLocal {
             }
             $arguments = @('-NoProfile', '-File', $devRunPath, '-NoLaunch')
             if ($Fast) { $arguments += '-Fast' }
-            $exitCode = Invoke-ExternalProcess -FilePath $pwsh -ArgumentList $arguments -WorkingDirectory $RepoRoot -TimeoutSeconds 1800 -NoNewWindow
-            if ($exitCode -ne 0) {
-                throw "dev-run.ps1 -NoLaunch failed (exit $exitCode). Setup.exe was not started; the running installation was left unchanged. Log: $logPath"
+            $devRunOut = Join-Path $logDirectory 'dev-run.out.log'
+            $devRunErr = Join-Path $logDirectory 'dev-run.err.log'
+            $devRunStage = Join-Path $logDirectory 'dev-run.stage'
+            if (Test-Path -LiteralPath $devRunStage -PathType Leaf) { Remove-Item -LiteralPath $devRunStage -Force }
+            $previousStageFile = $env:CYCLEARC_DEV_RUN_STAGE_FILE
+            $env:CYCLEARC_DEV_RUN_STAGE_FILE = $devRunStage
+            try {
+                $exitCode = Invoke-ExternalProcess -FilePath $pwsh -ArgumentList $arguments -WorkingDirectory $RepoRoot `
+                    -TimeoutSeconds 1800 -NoNewWindow -StandardOutputPath $devRunOut -StandardErrorPath $devRunErr
             }
+            finally {
+                if ($null -eq $previousStageFile) { Remove-Item Env:CYCLEARC_DEV_RUN_STAGE_FILE -ErrorAction SilentlyContinue }
+                else { $env:CYCLEARC_DEV_RUN_STAGE_FILE = $previousStageFile }
+            }
+            if ($exitCode -ne 0) {
+                throw "dev-run.ps1 -NoLaunch failed (exit $exitCode). Setup.exe was not started; the running installation was left unchanged. Log: $logPath stdout: $devRunOut stderr: $devRunErr"
+            }
+            Write-BuildLocalCapturedProgress $devRunOut
         }
 
         Set-BuildLocalStage 'package'
@@ -646,9 +810,11 @@ function Invoke-BuildLocal {
         }
     }
     catch {
+        $stage = Resolve-BuildLocalReportedStage (Get-BuildLocalStage) $logDirectory
+        Set-BuildLocalStage $stage -Quiet
         Write-Host ''
-        Write-Host (Write-BuildLocalFailure -Stage (Get-BuildLocalStage) -Message $_.Exception.Message `
-            -LogDirectory $logDirectory -LogPath $logPath)
+        Write-Host (Write-BuildLocalFailure -Stage $stage -Message $_.Exception.Message `
+            -LogDirectory $logDirectory -LogPath $logPath -Elapsed (Format-BuildLocalElapsed $script:BuildLocalStarted))
         throw
     }
     finally {

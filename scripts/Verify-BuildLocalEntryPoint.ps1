@@ -73,6 +73,9 @@ function Show-BuildLocalTranscript {
     param([int]$Lines = 120)
     $directory = Join-Path $repoRoot 'artifacts/build-local'
     if (!(Test-Path -LiteralPath $directory -PathType Container)) { return }
+    foreach ($name in @('dev-run.err.log', 'dev-run.out.log')) {
+        Show-LogTail -Path (Join-Path $directory $name) -Lines 80
+    }
     $transcript = @(Get-ChildItem -LiteralPath $directory -Filter 'build-local-*.log' -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
     if ($transcript.Count -eq 0) { return }

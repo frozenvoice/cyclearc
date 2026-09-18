@@ -178,9 +178,50 @@ try {
     New-Item -ItemType Directory -Path $owned -Force | Out-Null
     Assert-OwnedDirectory -RepoRoot $testRoot -Target $owned
     Assert-Throws { Assert-OwnedDirectory -RepoRoot $testRoot -Target (Join-Path $testRoot '..') } 'outside the repository'
+
+    Assert-Equal 'CycleArc-Setup.exe' (Get-ExpectedReleaseAssetNames -VersionValue '0.6.0')[0] 'setup asset name'
+    $expectedAssets = @(Get-ExpectedReleaseAssetNames -VersionValue '0.6.0')
+    Assert-True ($expectedAssets -contains 'CycleArc-0.6.0-full.nupkg') 'full package asset name'
+    Assert-True ($expectedAssets -contains 'releases.win.json') 'feed asset name'
+    Assert-True ($expectedAssets -contains 'SHA256SUMS.txt') 'checksum asset name'
+
+    $notesPath = Join-Path $testRoot 'notes.md'
+    Set-Content -LiteralPath $notesPath -Value 'notes'
+    Assert-Equal (Get-Item -LiteralPath $notesPath).FullName (Assert-ReleaseNotesForNewDraft -Release $null -NotesFile $notesPath -TagName 'v0.6.0') 'new drafts require a notes file'
+    Assert-Throws { Assert-ReleaseNotesForNewDraft -Release $null -NotesFile '' -TagName 'v0.6.0' } 'notes file is required'
+    Assert-True ([string]::IsNullOrWhiteSpace((Assert-ReleaseNotesForNewDraft -Release $release -NotesFile '' -TagName 'v0.6.0'))) 'existing releases do not require notes'
+
+    $authInvoker = (Get-Command Invoke-NativeCommand -CommandType Function).ScriptBlock
+    function Invoke-NativeCommand {
+        param([string]$FilePath, [string[]]$Arguments, [switch]$AllowFailure)
+        [pscustomobject]@{ ExitCode = 1; Output = 'not logged in' }
+    }
+    Assert-Throws { Assert-GitHubCliAuth } 'not authenticated'
+    Set-Item -Path Function:\Invoke-NativeCommand -Value $authInvoker
 }
 finally {
     if (Test-Path -LiteralPath $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
 }
 
-Write-Host 'PASS: isolated release validation, CI-state, checksum, asset, and staging-ownership tests.'
+$releaseScript = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/Release.ps1') -Raw
+if ($releaseScript -notmatch '\[switch\]\$Preflight') { throw 'Release.ps1 must expose -Preflight' }
+$invoke = $releaseScript.IndexOf('function Invoke-Release')
+if ($invoke -lt 0) { throw 'Release.ps1 is missing Invoke-Release' }
+$invokeBody = $releaseScript.Substring($invoke)
+$preflightReturn = $invokeBody.IndexOf("Status = 'Preflight'")
+$ensureTag = $invokeBody.IndexOf('Ensure-TagPublished -TagName')
+$create = $invokeBody.IndexOf("'release', 'create'")
+$upload = $invokeBody.IndexOf("'release', 'upload'")
+$publish = $invokeBody.IndexOf("'--draft=false'")
+if ($preflightReturn -lt 0) { throw 'Release.ps1 must return a Preflight status without mutating GitHub' }
+if ($ensureTag -lt $preflightReturn -or $create -lt $preflightReturn -or $upload -lt $preflightReturn -or $publish -lt $preflightReturn) {
+    throw 'Release.ps1 must not create tags, drafts or uploads before the Preflight return'
+}
+if ($invokeBody -match 'dotnet (build|test|publish)' -or $invokeBody -match 'Package\.ps1') {
+    throw 'Release publish must not start a new build, test or packaging run'
+}
+if ($invokeBody -notmatch 'release-preflight' -or $invokeBody -notmatch 'package-verify' -or $invokeBody -notmatch 'remote-state-verify') {
+    throw 'Release.ps1 must expose preflight, package-verify and remote-state-verify phases'
+}
+
+Write-Host 'PASS: isolated release validation, CI-state, checksum, asset, staging-ownership and preflight-boundary tests.'

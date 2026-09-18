@@ -99,9 +99,10 @@ Run commands from the repository root. Use `--no-build` only for code already bu
 - Targeted tests: `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "<matching-filter>"`.
   Use an existing test name/category for the filter. WPF checks: `dotnet build CycleArc.sln -c Release`, then
   `dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build`.
+  Desktop-instance process checks: add `-- --desktop-instance` to that `dotnet run`.
 - Full gate: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` on final executable changes.
-  It restores, builds/tests Release, checks WPF/installer assets and validates the development
-  `publish/.dev-staging/CycleArc.exe` receiver.
+  It is fail-fast: restore, Release compile, `--desktop-instance`, installer/build-local script
+  regressions, the unit suite, remaining WPF checks, then publish/package/package-verify.
   If installation/run is requested, use `pwsh -NoProfile -File ./dev-run.ps1` instead: the same gate runs
   before installation. Choose the mode upfront to avoid repeating the gate.
 - Installed-app end to end: `pwsh -NoProfile -File ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment`.
@@ -118,6 +119,7 @@ Run commands from the repository root. Use `--no-build` only for code already bu
   Configure upstream (`git push -u origin <branch>` on first push), verify remote HEAD/tracking and check CI for that SHA.
 - Publish with `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -NotesPath <file>` after
   the final local gate and successful Windows push CI; new drafts require the notes file.
+  `-Preflight` runs local/package/remote verification without creating tags or uploading.
   Verify all CI executable/installer assets, their versions, commit/tag and uploaded SHA-256 before publication.
   Versions are centralized in `Directory.Build.props`.
 - Install/restart only when requested. Use the Velopack installer/update path, verify the target

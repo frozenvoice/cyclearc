@@ -18,14 +18,14 @@ namespace CycleArc.UiSmoke;
 internal static class DesktopInstanceProcessChecks
 {
     private const string ChildArgument = "--desktop-instance-child";
-    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(3);
 
     public static void Run()
     {
         var temporaryRoot = Path.Combine(Path.GetTempPath(), "cyclearc-desktop-instance-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryRoot);
-        var children = new List<Process>();
+        var children = new List<Child>();
 
         try
         {
@@ -33,8 +33,8 @@ internal static class DesktopInstanceProcessChecks
 
             var key = Guid.NewGuid().ToString("N");
             var first = StartChild(key, Path.Combine(temporaryRoot, "first.jsonl"));
-            children.Add(first.Process);
-            var ready = WaitForReport(first.ReportPath, report => report.State == "ready", first.Process);
+            children.Add(first);
+            var ready = WaitForReport(first, report => report.State == "ready");
 
             Check(ready.ProcessId == first.Process.Id, "Desktop instance child reported the wrong process ID.");
             Check(!string.IsNullOrWhiteSpace(ready.ExecutablePath), "Desktop instance child did not report its executable path.");
@@ -59,11 +59,11 @@ internal static class DesktopInstanceProcessChecks
             var activated = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Activate, RequestTimeout)
                 .GetAwaiter().GetResult();
             Check(activated.Succeeded, $"Desktop instance activation failed: {activated.Error}");
-            WaitForReport(first.ReportPath, report => report.State == "activate" && report.ActivationCount == 1, first.Process);
+            WaitForReport(first, report => report.State == "activate" && report.ActivationCount == 1);
 
             var second = StartChild(key, Path.Combine(temporaryRoot, "second.jsonl"));
-            children.Add(second.Process);
-            WaitForReport(second.ReportPath, report => report.State == "busy", second.Process);
+            children.Add(second);
+            WaitForReport(second, report => report.State == "busy");
             Check(second.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "Second desktop instance child did not exit after losing the lease.");
             Check(!first.Process.HasExited, "The first desktop instance child exited when a second instance started.");
 
@@ -71,12 +71,12 @@ internal static class DesktopInstanceProcessChecks
                 expectedInstance: expectedInstance)
                 .GetAwaiter().GetResult();
             Check(shutdown.Succeeded, $"Desktop instance shutdown failed: {shutdown.Error}");
-            WaitForReport(first.ReportPath, report => report.State == "shutdown", first.Process);
+            WaitForReport(first, report => report.State == "shutdown");
             Check(first.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "Desktop instance child did not exit after shutdown.");
 
             var replacement = StartChild(key, Path.Combine(temporaryRoot, "replacement.jsonl"));
-            children.Add(replacement.Process);
-            var replacementReady = WaitForReport(replacement.ReportPath, report => report.State == "ready", replacement.Process);
+            children.Add(replacement);
+            var replacementReady = WaitForReport(replacement, report => report.State == "ready");
             Check(replacementReady.ProcessId == replacement.Process.Id, "The desktop instance lease was not released after process exit.");
             var replacementStatus = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Status, RequestTimeout)
                 .GetAwaiter().GetResult();
@@ -93,19 +93,7 @@ internal static class DesktopInstanceProcessChecks
         finally
         {
             foreach (var child in children)
-            {
-                try
-                {
-                    if (!child.HasExited)
-                    {
-                        child.Kill(entireProcessTree: true);
-                        child.WaitForExit(3000);
-                    }
-                }
-                catch (InvalidOperationException) { }
-                catch (System.ComponentModel.Win32Exception) { }
-                finally { child.Dispose(); }
-            }
+                StopChild(child);
 
             // This directory was generated above and is the only path this check may remove.
             try
@@ -200,13 +188,13 @@ internal static class DesktopInstanceProcessChecks
         finally { UiText.SetLanguage(previousLanguage); }
     }
 
-    private static void RunFirstLaunchRace(string temporaryRoot, List<Process> children)
+    private static void RunFirstLaunchRace(string temporaryRoot, List<Child> children)
     {
         var key = Guid.NewGuid().ToString("N");
         var left = StartChild(key, Path.Combine(temporaryRoot, "race-left.jsonl"));
         var right = StartChild(key, Path.Combine(temporaryRoot, "race-right.jsonl"));
-        children.Add(left.Process);
-        children.Add(right.Process);
+        children.Add(left);
+        children.Add(right);
 
         var deadline = Stopwatch.StartNew();
         Child? winner = null;
@@ -235,12 +223,25 @@ internal static class DesktopInstanceProcessChecks
                 break;
             }
             if ((left.Process.HasExited && leftReports.Length == 0) || (right.Process.HasExited && rightReports.Length == 0))
-                throw new InvalidOperationException("A first-launch desktop instance race child exited without a report.");
+            {
+                throw new InvalidOperationException(
+                    ChildProcessReportWait.Describe(left.Process, left.Output, left.ReportPath,
+                        "A first-launch desktop instance race child exited without a report")
+                    + Environment.NewLine
+                    + ChildProcessReportWait.Describe(right.Process, right.Output, right.ReportPath, "other race child"));
+            }
             Thread.Sleep(25);
         }
 
-        Check(winner is not null && loser is not null && ready is not null,
-            "A first-launch desktop instance race did not produce exactly one owner.");
+        if (winner is null || loser is null || ready is null)
+        {
+            throw new TimeoutException(
+                ChildProcessReportWait.Describe(left.Process, left.Output, left.ReportPath, "first-launch race left")
+                + Environment.NewLine
+                + ChildProcessReportWait.Describe(right.Process, right.Output, right.ReportPath, "first-launch race right")
+                + Environment.NewLine
+                + "A first-launch desktop instance race did not produce exactly one owner.");
+        }
         var raceWinner = winner!;
         var raceLoser = loser!;
         var raceReady = ready!;
@@ -256,7 +257,7 @@ internal static class DesktopInstanceProcessChecks
             expectedInstance: status)
             .GetAwaiter().GetResult();
         Check(shutdown.Succeeded, $"First-launch race winner shutdown failed: {shutdown.Error}");
-        WaitForReport(raceWinner.ReportPath, report => report.State == "shutdown", raceWinner.Process);
+        WaitForReport(raceWinner, report => report.State == "shutdown");
         Check(raceWinner.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "First-launch race winner did not exit.");
         Check(raceLoser.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "First-launch race loser did not exit.");
     }
@@ -380,23 +381,38 @@ internal static class DesktopInstanceProcessChecks
         startInfo.ArgumentList.Add(Path.GetFullPath(reportPath));
 
         var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start the desktop instance child process.");
-        return new Child(process, reportPath);
+        return new Child(process, reportPath, new ChildProcessOutput(process));
     }
 
-    private static Report WaitForReport(string reportPath, Func<Report, bool> predicate, Process process)
+    private static Report WaitForReport(Child child, Func<Report, bool> predicate)
     {
-        var deadline = Stopwatch.StartNew();
-        while (deadline.Elapsed < ProcessTimeout)
-        {
-            var reports = ReadReports(reportPath);
-            var match = reports.LastOrDefault(predicate);
-            if (match is not null) return match;
-            if (process.HasExited)
-                throw new InvalidOperationException($"Desktop instance child exited before writing the expected report (exit code {process.ExitCode}).");
-            Thread.Sleep(25);
-        }
+        return ChildProcessReportWait.WaitFor(
+            () => ReadReports(child.ReportPath).LastOrDefault(predicate),
+            child.Process,
+            child.Output,
+            child.ReportPath,
+            ProcessTimeout,
+            $"desktop instance report '{child.ReportPath}'");
+    }
 
-        throw new TimeoutException($"Timed out waiting for desktop instance report '{reportPath}'.");
+    private static void StopChild(Child child)
+    {
+        try
+        {
+            if (!child.Process.HasExited)
+            {
+                child.Process.Kill(entireProcessTree: true);
+                child.Process.WaitForExit(3000);
+            }
+        }
+        catch (InvalidOperationException) { }
+        catch (System.ComponentModel.Win32Exception) { }
+        finally
+        {
+            child.Output.CollectRemaining(ChildProcessOutput.DrainBudget);
+            child.Output.Dispose();
+            child.Process.Dispose();
+        }
     }
 
     private static Report[] ReadReports(string reportPath)
@@ -454,7 +470,7 @@ internal static class DesktopInstanceProcessChecks
         if (!condition) throw new InvalidOperationException(message);
     }
 
-    private sealed record Child(Process Process, string ReportPath);
+    private sealed record Child(Process Process, string ReportPath, ChildProcessOutput Output);
 
     private sealed record Report(string State, int ProcessId, string ExecutablePath, string VersionText, int ActivationCount, string PipeName);
 

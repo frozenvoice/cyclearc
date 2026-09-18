@@ -2,6 +2,35 @@
 
 ## Current release — Codex and Claude Code
 
+- Desktop instance UiSmoke ready wait and fail-fast local gate (unreleased):
+  `DesktopInstanceProcessChecks` waited 10 seconds for a child to write `first.jsonl`,
+  which failed under `build-local.cmd` / `dev-run.ps1 -NoLaunch` load even though the
+  same `--desktop-instance` check passed immediately afterwards. The process-ready
+  timeout is now 30 seconds and stays separate from the 3-second IPC request
+  timeout. Redirected child stdout/stderr are drained asynchronously with a
+  32 KiB snapshot; a wait timeout includes pid, HasExited, exit code when
+  known, command line, both streams and the current report file, and the test still
+  stops only the children it started. `DesktopInstanceProcessWaitTests` covers a
+  synthetic child that becomes ready after the old 10-second budget, a real
+  timeout whose message keeps stdout/stderr/pid/command, and a 64 KiB stderr flood
+  that must not stall the wait. There is no retry-to-green.
+  The local/CI gate is now fail-fast: after Release compile it runs
+  `--desktop-instance` before LocalInstall/BuildLocal regressions, the unit suite
+  and the rest of UiSmoke. Empty-args UiSmoke no longer repeats that process
+  check. Each `dev-run` step prints `[mm:ss.f]` elapsed time and `Failed at:`.
+  `Invoke-ExternalProcess` copies `dev-run` stdout/stderr to
+  `artifacts/build-local/dev-run.out.log` and `dev-run.err.log` with a bounded
+  drain; the child sub-stage is stored in `dev-run.stage` so a UiSmoke timeout is
+  reported as `ui-smoke-desktop-instance` rather than `Stage: build`. A failed
+  gate prints a tail and `last-failure.txt` includes `Failed at`, `Child log` and
+  the captured stderr. Successful runs print the timing lines instead of dumping
+  those logs. `scripts/Release.ps1 -Preflight` runs local, package and remote
+  verification without creating tags, drafts or uploads; publish does not start a
+  new build, test or packaging run. Linux can run
+  `DesktopInstanceProcessWaitTests`, `tests/BuildLocal.Tests.ps1` and
+  `tests/Release.Tests.ps1`. Windows CI is the executable/UiSmoke proof; this
+  environment cannot build the WPF smoke project. `build-local.cmd` end-to-end
+  and `Verify-InstalledUpdate.ps1` were not run here.
 - Widget bind applies the arranged HWND size (unreleased): `FloatingWidget.BindAccounts` now
   calls the existing Relayout path when the arranged DIP size changed, so
   `FloatingWidgetController.Update()` grows or shrinks the same native window when accounts,

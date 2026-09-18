@@ -69,15 +69,8 @@ internal static class Program
         }
         if (args is ["--live-accounts", "read" or "login" or "relogin"])
             return LiveAccountChecks.RunAsync(args[1]).GetAwaiter().GetResult();
-        if (args.Length == 0)
-        {
-            try { DesktopInstanceProcessChecks.Run(); }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine(ex);
-                return 1;
-            }
-        }
+        // Process/IPC checks run from --desktop-instance immediately after compile.
+        // Empty-args UiSmoke keeps WPF/version UI checks and does not repeat that wait.
         // Load production WPF views/resources with startup overridden: no account access,
         // settings writes, tray registration or background refresh occurs.
         var app = new OfflineApp();
