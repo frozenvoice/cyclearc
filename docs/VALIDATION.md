@@ -66,6 +66,17 @@
     from build A's run. The workflow is `workflow_dispatch` only, which GitHub offers once the
     file is on the default branch; until then it has to be dispatched from a branch that
     triggers it.
+  - `managed-setup-install` same-version repair (unreleased): the job ran `--desktop-shutdown`
+    and started `Setup.exe` again immediately, checking only the shutdown command's exit code.
+    That command waits for the desktop process, but not for the single-instance mutex to be
+    released, so Setup.exe could find the installation still occupied and exit 1. It reproduced
+    twice on `c5212bc` (run 35300856288, attempts 2 and 3) and passed on `3d64f19`, whose
+    sources are identical, so it is a race rather than a code regression -- an earlier note in
+    this session calling it intermittent was withdrawn once it reproduced. The job now waits
+    for the recorded PID to disappear and the mutex to be free before repairing, which is what
+    `Stop-VerifiedCycleArcDesktop` already did for build-local.cmd, and prints `setup.log` and
+    `setup-repair.log` to the job output on failure because artifact downloads are not always
+    reachable.
 
 - Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
   - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's

@@ -164,7 +164,13 @@ jobs:
             try { $process.Kill($true) } catch { }
             throw 'Setup.exe did not finish within 600 seconds.'
           }
-          if ($process.ExitCode -ne 0) { throw "Setup.exe exited $($process.ExitCode). See $log" }
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              Write-Host '----- setup.log -----'
+              Get-Content -LiteralPath $log -Tail 120 -ErrorAction SilentlyContinue
+            }
+            throw "Setup.exe exited $($process.ExitCode). See $log"
+          }
           $current = Join-Path $env:LOCALAPPDATA 'CycleArc/current/CycleArc.exe'
           $launcher = Join-Path $env:LOCALAPPDATA 'CycleArc/CycleArc.exe'
           if (!(Test-Path -LiteralPath $current -PathType Leaf) -or !(Test-Path -LiteralPath $launcher -PathType Leaf)) {
@@ -194,6 +200,24 @@ jobs:
             throw "desktop-shutdown failed with exit $($stop.ExitCode)"
           }
 
+          # --desktop-shutdown acknowledges the desktop's own exit, but Setup.exe
+          # cannot re-enter an installation whose single-instance mutex is still
+          # held, and on a slow runner that lingers. Wait for the PID and the
+          # mutex to go, the way Build-Local.ps1 does before starting Setup.exe.
+          $mutexName = 'Local\ProMeter.SingleInstance'
+          $settled = [Diagnostics.Stopwatch]::StartNew()
+          while ($settled.Elapsed.TotalSeconds -lt 30) {
+            $alive = Get-Process -Id ([int]$status.ProcessId) -ErrorAction SilentlyContinue
+            if ($alive) { $alive.Dispose() }
+            $held = $true
+            try { $mutex = [Threading.Mutex]::OpenExisting($mutexName); $mutex.Dispose() }
+            catch [Threading.WaitHandleCannotBeOpenedException] { $held = $false }
+            if (!$alive -and !$held) { break }
+            Start-Sleep -Milliseconds 500
+          }
+          Write-Host ("Desktop settled after {0:n1}s (process gone: {1}, mutex free: {2})" -f `
+            $settled.Elapsed.TotalSeconds, (!$alive), (!$held))
+
           # Same-version silent repair of this identical package must keep current\CycleArc.exe.
           $repairLog = Join-Path $PWD 'artifacts/setup-install/setup-repair.log'
           $repair = Start-Process -FilePath $setup -ArgumentList @('--silent', '--log', $repairLog) -PassThru
@@ -201,7 +225,14 @@ jobs:
             try { $repair.Kill($true) } catch { }
             throw 'Same-version Setup.exe repair did not finish within 600 seconds.'
           }
-          if ($repair.ExitCode -ne 0) { throw "Same-version Setup.exe exited $($repair.ExitCode). See $repairLog" }
+          if ($repair.ExitCode -ne 0) {
+            # Artifact downloads are not always reachable, so the cause goes in the log.
+            if (Test-Path -LiteralPath $repairLog -PathType Leaf) {
+              Write-Host '----- setup-repair.log -----'
+              Get-Content -LiteralPath $repairLog -Tail 120 -ErrorAction SilentlyContinue
+            }
+            throw "Same-version Setup.exe exited $($repair.ExitCode). See $repairLog"
+          }
           $repaired = (Get-FileHash -LiteralPath $current -Algorithm SHA256).Hash.ToUpperInvariant()
           if ($repaired -cne $expected) {
             throw "Same-version repair SHA-256 $repaired does not match packed $expected"
