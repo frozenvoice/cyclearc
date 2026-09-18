@@ -727,13 +727,12 @@ exit 0
     $liveErr = Join-Path $testRoot 'live-progress.err.log'
     $liveReleaseFile = Join-Path $testRoot 'live-progress.release'
     $liveBody = New-TestPowerShellBody 'live-progress' (@(
-        '[Console]::Out.WriteLine("[00:00.1] restore")',
-        '[Console]::Out.WriteLine("[00:02.5] restore passed")',
-        '[Console]::Out.WriteLine("[00:02.6] build")',
-        '[Console]::Out.Flush()',
+        # Write-Host with no explicit flush, exactly as dev-run.ps1 announces its stages.
+        'Write-Host "[00:00.1] restore"',
+        'Write-Host "[00:02.5] restore passed"',
+        'Write-Host "[00:02.6] build"',
         ('while (!(Test-Path -LiteralPath "{0}")) {{ Start-Sleep -Milliseconds 50 }}' -f $liveReleaseFile),
-        '[Console]::Out.WriteLine("[00:09.9] build passed")',
-        '[Console]::Out.Flush()',
+        'Write-Host "[00:09.9] build passed"',
         'exit 0'
     ) -join "`n")
 
