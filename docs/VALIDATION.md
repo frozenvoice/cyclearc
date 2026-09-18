@@ -2,12 +2,134 @@
 
 ## Current release — Codex and Claude Code
 
-- Desktop instance UiSmoke ready wait and fail-fast local gate (unreleased):
-  `DesktopInstanceProcessChecks` waited 10 seconds for a child to write `first.jsonl`,
-  which failed under `build-local.cmd` / `dev-run.ps1 -NoLaunch` load even though the
-  same `--desktop-instance` check passed immediately afterwards. The process-ready
-  timeout is now 30 seconds and stays separate from the 3-second IPC request
-  timeout. Redirected child stdout/stderr are drained asynchronously with a
+- Desktop-instance shutdown-report race, release asset lists and live build-local progress (unreleased):
+  - **Correction to the previous entry.** The earlier note said the reported failure was a
+    child that did not write `first.jsonl` within 10 seconds. The user's stack does not
+    show that. It was `WaitForReport(...)` at `DesktopInstanceProcessChecks.cs:399` called
+    from `Run()` at line 74, and at that commit (`beea096`) line 74 was
+    `WaitForReport(first.ReportPath, report => report.State == "shutdown", first.Process)`.
+    So the child had already reported ready, answered status and activate, and returned a
+    successful shutdown response; the wait that expired was the one for the *shutdown*
+    report. Startup delay, Defender and machine load are not established as the cause by
+    that log, and are not claimed here. Widening the process budget to 30 seconds remains a
+    reasonable budget change, but it is not a fix for what the stack shows.
+  - **Reproduced defect (report file read/write race).** The parent read reports with
+    `File.ReadLines`, which holds `FileShare.Read` for the life of the enumeration and
+    therefore refuses the child's `FileAccess.Write` open. The child's shutdown callback ran
+    `Report(...)` before `stop.TrySetResult()`, and `DesktopInstanceServer` flushes the
+    acknowledgement *before* invoking the callback and then swallows callback exceptions
+    (`InvokeCallbackAsync`). A denied append therefore produced: successful shutdown
+    response → lost report → no stop signal → child alive → parent waits out its budget.
+    `ChildReportFileTests.LegacyReadLinesEnumeration_RefusesTheChildsAppendOpen` reproduces
+    the denial against a live `File.ReadLines` enumerator rather than asserting on source text.
+  - **Fix.** Report reads and appends go through one `ChildReportFile` helper:
+    `FileShare.ReadWrite | Delete` both ways, records exposed only once their newline has
+    landed (decoding stops at the last newline, so a torn UTF-8 sequence never reaches a
+    record), and a bounded retry for a transient sharing denial that still throws rather
+    than reporting success. The child now wraps each report: a failure is written to stderr
+    with the exception, recorded, and the stop signal is released so the child exits with a
+    distinct code 6 instead of hanging. The shutdown report is still required — a successful
+    shutdown response alone never passes the check, and no `finally` converts a failure to
+    success. The production IPC ack/shutdown contract is unchanged.
+  - **Before/after.** With the child guard removed, the new `RunLostShutdownReportCheck`
+    scenario reproduces the original symptom exactly: `--desktop-instance` fails after
+    31.5 s with "A child that could not write its shutdown report kept waiting for a stop
+    signal instead of exiting." With the guard, the whole `--desktop-instance` suite passes
+    in 1.7 s. Seven `ChildReportFileTests` cases cover the shared-mode overlap, a withheld
+    partial record, a truncated multi-byte sequence, a surfaced write failure and a
+    200-record interleave driven by a synchronisation point rather than by repetition.
+  - **Release asset lists.** `Get-ExpectedReleaseAssetNames` returned four names and was
+    also used as the *allow* list for an existing release, while packaging accepts
+    `assets.<channel>.json` and `RELEASES` as ordinary outputs. A real 0.6.0 package
+    contains all six. Required and allowed are now separate
+    (`Get-OptionalReleaseAssetNames`, `Get-AllowedReleaseAssetNames`); the remote name gate
+    uses the allow list, and the CI-artifact check applies the same required-plus-optional
+    rule `Package.ps1` applies to its own output, so an unexpected file is still refused.
+    Checksum, size and GitHub digest verification, the public-release edit refusal and the
+    draft-continuation behaviour are unchanged. Before the fix, a six-file draft failed
+    preflight with "Release contains unexpected assets; refusing to delete them:
+    assets.win.json, RELEASES"; after it, the same fixture returns `Preflight`, and the
+    matching public release returns `AlreadyComplete`.
+  - `Release.Tests.ps1` now drives `Invoke-Release -Preflight` end to end with only
+    `Invoke-NativeCommand` replaced, using a representative release response and a real
+    staged artifact: six-file draft, six-file public (AlreadyComplete), four-file package,
+    stray artifact file, stray release asset, public release missing a required file, build
+    output missing a required file, wrong digest and wrong size. Every case asserts that no
+    tag, draft, upload or publish command was issued. `Assert-FullPackageFileVersion` is the
+    one stub, because a fixture cannot carry real PE version metadata; that check has its
+    own coverage. No GitHub release was created or modified.
+  - **Live build-local progress.** `Invoke-ExternalProcess` captured dev-run's stdout to a
+    file and only read it back after `WaitForExit`, so the console was silent for the whole
+    run. It now streams the stage lines out of the capture file while the child runs: the
+    capture handle shares reads and is unbuffered, a 250 ms poll interval blocks in
+    `WaitForExit` rather than spinning, a stateful UTF-8 decoder and a retained partial line
+    keep a split character or line from being mangled or repeated, and each completed stage
+    prints once. dev-run's cumulative stamp and the stage's own cost are printed as separate
+    labelled numbers (`dev-run 00:02.5 elapsed | restore passed (stage took 00:02.4)`). The
+    overall timeout, both-stream draining and the failure log tails are unchanged; a
+    progress-read failure is reported as its own warning and falls back to the captured
+    dump rather than being hidden or blamed on the build.
+  - Regression: a synthetic child announces two stages and then blocks until a watcher
+    confirms the in-flight stage is already on the parent console; the child is released
+    only after that, so an end-of-run dump cannot pass. Without `-StreamProgress` the same
+    test fails with "the parent console never showed the running stage". Split-UTF-8 and
+    progress-fault cases are covered separately, alongside the existing 1 MB stderr flood
+    and hanging-child timeout checks.
+  - **Two further defects, found by Windows CI on `e39892d` and fixed.**
+    - *Exit checked against a stale read.* Both report waits read the report file and only
+      then check `HasExited`, so a child that writes its record and exits in that gap was
+      reported as having exited without one. The push run failed exactly that way while the
+      pull_request run on the same SHA passed — the failure message itself printed the race
+      loser's `{"state":"busy","pid":8656}` from the file it had just called empty. An
+      observed exit is now decisive only after a fresh look still finds nothing, in both
+      `RunFirstLaunchRace` and `ChildProcessReportWait.WaitFor`.
+      `WaitFor_ReturnsARecordThatLandedBetweenTheMatchAndTheExitCheck` makes the record
+      appear in exactly that gap rather than waiting for a real child to hit it; without the
+      fix it fails with the same "exited before" message CI produced.
+      `WaitFor_StillFailsWhenAnExitedChildLeftNoRecord` keeps a genuinely empty exit a failure.
+    - *Nested stage lines streamed as this run's progress.* The live-progress filter matched
+      any `[mm:ss.d] name` line, but dev-run's `release-guard` and `build-local-regression`
+      stages run nested scripts that print stage lines of that same shape from their own
+      synthetic runs. The real `build-local.cmd` run showed nested stages interleaved with
+      dev-run's own and reported `package-verify` passed eight times. dev-run now emits a
+      `##dev-run##` marker alongside its unchanged human-readable line, and only that marker
+      is streamed. The regression fixture emits both shapes and asserts the nested one is
+      not reported. This was caught by the new entry-point assertion, not by a person
+      reading the log.
+  - **Timing claims.** The earlier "build 27 s + 4 s check, so a failure is known within
+    30 s" framing is withdrawn: 4 s was a *passing* check, and tooling/restore time and a
+    failing check's own timeout budget are not in it. The verifiable improvement is only
+    that `--desktop-instance` now runs before the full unit suite and the rest of UiSmoke.
+  - Verification: `dotnet test --filter ChildReportFileTests` (7 passed), `--desktop-instance`
+    UiSmoke (passes; fails in 31.5 s with the guard removed), `tests/Release.Tests.ps1`,
+    `tests/BuildLocal.Tests.ps1` (30 PASS), and the full `dev-run.ps1 -NoLaunch` gate through
+    package-verify on this machine. The real `build-local.cmd` entry point runs only on the
+    disposable Windows runner in the build-local entry point workflow; this developer machine
+    is a working profile, so it was not run here.
+  - Real entry point, run
+    [35357386422](https://github.com/frozenvoice/cyclearc/actions/runs/35357386422) on
+    `719d9a183aee9bce1e4f424c6f1131bb65ca3b2a`: passed. It drove `cmd /c build-local.cmd`
+    with nothing injected — real `dev-run.ps1`, real `CycleArc-Setup.exe`, real managed
+    install under `%LOCALAPPDATA%\CycleArc`. Build A installed and answered as the managed
+    build (`3A0F588B…`, PID 9192); build B installed over it at the same version with
+    different content (`817D58D6…`, PID 8076) and A's process was gone. A deliberately broken
+    build then exited 1 through CMD at `Stage: build`, carried the failing sub-stage, the real
+    compiler error and the captured log path to the CMD window, and left B still running and
+    unchanged. The stages shown live in that CMD console were exactly dev-run's own thirteen —
+    preflight, release-guard, restore, tool-restore, build, ui-smoke-desktop-instance,
+    local-install-regression, build-local-regression, unit-test, ui-smoke-full, publish,
+    package, package-verify — with no nested run's stages and none reported passed twice.
+    The two earlier runs of this workflow, `35355737192` and `35355980076`, are what surfaced
+    the nested-stage defect; they are not evidence for the fixed code.
+- Desktop instance UiSmoke wait budget and fail-fast local gate (unreleased):
+  `DesktopInstanceProcessChecks` allowed 10 seconds for a child report under
+  `build-local.cmd` / `dev-run.ps1 -NoLaunch`, while the same `--desktop-instance` check
+  passed immediately afterwards on its own. **Corrected:** this entry originally attributed
+  the reported failure to a slow child that could not write `first.jsonl` in time. The
+  user's stack does not support that — see the shutdown-report entry below for what the
+  line numbers actually show. The budget change stands on its own as a budget change, not
+  as the diagnosis. The process wait is now 30 seconds and stays separate from the
+  3-second IPC request timeout. Redirected child stdout/stderr are drained asynchronously with a
   32 KiB snapshot; a wait timeout includes pid, HasExited, exit code when
   known, command line, both streams and the current report file, and the test still
   stops only the children it started. `DesktopInstanceProcessWaitTests` covers a

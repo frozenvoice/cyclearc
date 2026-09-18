@@ -137,6 +137,44 @@ function Invoke-BuildLocalEntryPoint {
     [pscustomobject]@{ ExitCode = $exitCode; StandardOutput = $stdout; StandardError = $stderr }
 }
 
+function Assert-StageProgressReachedCmd {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Label
+    )
+    # build-local.cmd's own console, not the transcript: this is what the person
+    # double-clicking actually watches. dev-run's stage lines have to arrive here
+    # while the run is in flight, not only in a log afterwards.
+    $text = if (Test-Path -LiteralPath $Path -PathType Leaf) { Get-Content -LiteralPath $Path -Raw } else { '' }
+    $running = [regex]::Matches($text, 'dev-run \d\d:\d\d\.\d elapsed \| (?<stage>[^\r\n]+?) running\.\.\.')
+    $passed = [regex]::Matches($text, 'dev-run \d\d:\d\d\.\d elapsed \| (?<stage>[^\r\n]+?) passed')
+    $stagesSeen = @($running | ForEach-Object { $_.Groups['stage'].Value })
+    Write-Host ("${Label}: stages shown live in CMD: {0}" -f ($stagesSeen -join ', '))
+    if ($running.Count -lt 2) {
+        throw "${Label}: the CMD console showed $($running.Count) in-flight dev-run stages; progress did not stream."
+    }
+    if ($passed.Count -lt 1) {
+        throw "${Label}: no completed dev-run stage reached the CMD console."
+    }
+    # Only dev-run's own '##dev-run##' markers are streamed, so a nested regression run's
+    # stages must not appear here and dev-run's own must.
+    foreach ($expected in @('restore', 'build', 'ui-smoke-desktop-instance', 'package-verify')) {
+        if ($stagesSeen -notcontains $expected) {
+            throw "${Label}: dev-run stage '$expected' never appeared live in the CMD console."
+        }
+    }
+    # The stage's own cost is reported separately from the cumulative elapsed time.
+    if ($text -notmatch 'passed \(stage took \d\d:\d\d\.\d\)') {
+        throw "${Label}: stage cost was not reported separately from cumulative elapsed time."
+    }
+    # A completed stage is announced once, not replayed at the end of the run.
+    foreach ($stage in ($stagesSeen | Select-Object -Unique)) {
+        $repeats = ([regex]::Matches($text, [regex]::Escape("| $stage passed"))).Count
+        if ($repeats -gt 1) { throw "${Label}: stage '$stage' was reported passed $repeats times." }
+    }
+    $stagesSeen
+}
+
 function Get-ManagedDesktopStatus {
     param([int]$TimeoutSeconds = 30)
     $deadline = [Diagnostics.Stopwatch]::StartNew()
@@ -192,6 +230,8 @@ try {
     $runA = Invoke-BuildLocalEntryPoint -Label 'build-a'
     if ($runA.ExitCode -ne 0) { throw "build-local.cmd (A) exited $($runA.ExitCode); see $($runA.StandardOutput)" }
     if (Test-Path -LiteralPath $failureMarker -PathType Leaf) { throw 'A successful run still left a failure marker behind.' }
+    $liveStages = Assert-StageProgressReachedCmd -Path $runA.StandardOutput -Label 'Build A'
+    $summary['A live stages in CMD'] = ($liveStages -join ', ')
     $hashA = Get-BuildLocalSha256 $stagingExe
     $versionA = [Diagnostics.FileVersionInfo]::GetVersionInfo($stagingExe).FileVersion
     $statusA = Assert-RunningManagedBuild -ExpectedHash $hashA -Label 'Build A'
@@ -236,6 +276,21 @@ try {
     }
     $cmdOutput = Get-Content -LiteralPath $runFail.StandardOutput -Raw
     if ($cmdOutput -notmatch 'Stage: build') { throw 'The stage and cause did not reach the CMD window.' }
+    # The person watching CMD has to see which sub-stage failed and what the child said,
+    # not just that something failed.
+    if ($cmdOutput -notmatch 'dev-run \d\d:\d\d\.\d elapsed \| build running\.\.\.') {
+        throw 'The failing sub-stage was never shown live in the CMD window.'
+    }
+    if ($cmdOutput -notmatch 'dev-run \d\d:\d\d\.\d elapsed \| build FAILED') {
+        throw "dev-run's own failing stage did not reach the CMD window."
+    }
+    if ($cmdOutput -notmatch 'error CS') {
+        throw 'The real compiler error from the child never reached the CMD window.'
+    }
+    if ($cmdOutput -notmatch 'dev-run\.out\.log') {
+        throw 'The captured log path was not reported to the CMD window.'
+    }
+    $summary['failure detail in CMD'] = 'sub-stage, child error and log path'
     $statusStill = Assert-RunningManagedBuild -ExpectedHash $hashB -Label 'After the failed build'
     if ([int]$statusStill.ProcessId -ne $pidB) {
         throw "A failed build replaced the running desktop (PID $pidB -> $($statusStill.ProcessId))."

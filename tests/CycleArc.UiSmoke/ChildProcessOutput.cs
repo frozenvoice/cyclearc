@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -83,6 +84,95 @@ internal sealed class ChildProcessOutput : IDisposable
     }
 }
 
+/// <summary>
+/// Shared access to a child's JSON-lines report file. The child appends records while the
+/// parent polls the same file, so every open here has to admit the other side's handle:
+/// <see cref="File.ReadLines(string)"/> takes <see cref="FileShare.Read"/>, which denies the
+/// child's write open and makes an append fail for as long as the parent is reading.
+/// A record that is only half on disk stays invisible until its newline lands, so a torn
+/// read is never mistaken for a malformed record or for a missing one.
+/// </summary>
+internal static class ChildReportFile
+{
+    internal const int AppendAttempts = 12;
+    internal static readonly TimeSpan AppendRetryDelay = TimeSpan.FromMilliseconds(20);
+
+    /// <summary>Opens the report for reading without locking out the appending child.</summary>
+    public static FileStream OpenRead(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+    /// <summary>Opens the report for appending without locking out a reading parent.</summary>
+    public static FileStream OpenAppend(string path) =>
+        new(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+
+    /// <summary>
+    /// Returns only the newline-terminated records. Bytes after the last newline are a record
+    /// still being written, so they are withheld rather than parsed and rejected.
+    /// </summary>
+    public static string[] ReadCompleteLines(string path)
+    {
+        var text = ReadCompletedText(path);
+        if (text.Length == 0) return Array.Empty<string>();
+        return text.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.Length > 0)
+            .ToArray();
+    }
+
+    /// <summary>The report text up to and including its last newline, or an empty string.</summary>
+    public static string ReadCompletedText(string path)
+    {
+        var bytes = ReadAllBytesShared(path);
+        // Decode only up to the last newline: a truncated trailing UTF-8 sequence would
+        // otherwise decode to a replacement character and corrupt an otherwise good record.
+        var end = Array.LastIndexOf(bytes, (byte)'\n');
+        return end < 0 ? string.Empty : Encoding.UTF8.GetString(bytes, 0, end + 1);
+    }
+
+    /// <summary>The whole report, including any partial trailing record, for diagnostics only.</summary>
+    public static string ReadAllTextShared(string path)
+    {
+        var bytes = ReadAllBytesShared(path);
+        return bytes.Length == 0 ? string.Empty : Encoding.UTF8.GetString(bytes);
+    }
+
+    private static byte[] ReadAllBytesShared(string path)
+    {
+        using var stream = OpenRead(path);
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    /// <summary>
+    /// Appends one record. A parent that is mid-read still briefly denies this handle on
+    /// Windows, so a sharing violation is retried within a bounded budget; anything left
+    /// after that is a real failure and is thrown to the caller, never swallowed.
+    /// </summary>
+    public static void Append(string path, string line)
+    {
+        var payload = Encoding.UTF8.GetBytes(line + Environment.NewLine);
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                using var stream = OpenAppend(path);
+                stream.Write(payload, 0, payload.Length);
+                stream.Flush(flushToDisk: true);
+                return;
+            }
+            catch (IOException) when (attempt < AppendAttempts)
+            {
+                Thread.Sleep(AppendRetryDelay);
+            }
+            catch (UnauthorizedAccessException) when (attempt < AppendAttempts)
+            {
+                Thread.Sleep(AppendRetryDelay);
+            }
+        }
+    }
+}
+
 internal static class ChildProcessReportWait
 {
     public static T WaitFor<T>(
@@ -104,6 +194,10 @@ internal static class ChildProcessReportWait
             if (match is not null) return match;
             if (TryHasExited(process, out var exited) && exited)
             {
+                // The child can write its record and leave between the match above and this
+                // check, so an exit is only decisive once a fresh look still finds nothing.
+                var afterExit = tryMatch();
+                if (afterExit is not null) return afterExit;
                 throw new InvalidOperationException(
                     Describe(process, output, reportPath,
                         $"Desktop instance child exited before {expectedDescription}"));
@@ -144,7 +238,7 @@ internal static class ChildProcessReportWait
         try
         {
             if (!File.Exists(reportPath)) return "(missing)";
-            var text = File.ReadAllText(reportPath);
+            var text = ChildReportFile.ReadAllTextShared(reportPath);
             return text.Length <= ChildProcessOutput.DefaultMaxChars
                 ? text
                 : text[..ChildProcessOutput.DefaultMaxChars];

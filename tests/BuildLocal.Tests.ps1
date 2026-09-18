@@ -720,6 +720,115 @@ exit 0
     }
     Write-Host 'PASS: unusable desktop IPC answers are logged with their step and cause.'
 
+    # --- Regression: stage progress is visible while the child is still running. ---------
+    # A long-lived synthetic child announces two stages, then holds. The parent console is
+    # inspected before that child is allowed to finish, so an end-of-run dump cannot pass.
+    $liveOut = Join-Path $testRoot 'live-progress.out.log'
+    $liveErr = Join-Path $testRoot 'live-progress.err.log'
+    $liveReleaseFile = Join-Path $testRoot 'live-progress.release'
+    $liveBody = New-TestPowerShellBody 'live-progress' (@(
+        # Write-Host with no explicit flush, in dev-run.ps1's exact output shape: the
+        # human-readable line plus the '##dev-run##' marker a parent matches. The bare
+        # '[mm:ss.d] name' line of a nested run must not be mistaken for a stage of this one.
+        'Write-Host "[00:00.1] restore"',
+        'Write-Host "##dev-run## 00:00.1 start restore"',
+        'Write-Host "[00:02.5] restore passed"',
+        'Write-Host "##dev-run## 00:02.5 passed restore"',
+        'Write-Host "[00:01.0] package-verify"',
+        'Write-Host "[00:01.1] package-verify passed"',
+        'Write-Host "[00:02.6] build"',
+        'Write-Host "##dev-run## 00:02.6 start build"',
+        ('while (!(Test-Path -LiteralPath "{0}")) {{ Start-Sleep -Milliseconds 50 }}' -f $liveReleaseFile),
+        'Write-Host "[00:09.9] build passed"',
+        'Write-Host "##dev-run## 00:09.9 passed build"',
+        'exit 0'
+    ) -join "`n")
+
+    # Capture the parent's own console while the child is still blocked.
+    $liveTranscript = Join-Path $testRoot 'live-progress.transcript.log'
+    $liveWatcher = Start-ThreadJob -ScriptBlock {
+        param($transcript, $release)
+        $deadline = [Diagnostics.Stopwatch]::StartNew()
+        while ($deadline.Elapsed.TotalSeconds -lt 60) {
+            if (Test-Path -LiteralPath $transcript -PathType Leaf) {
+                $stream = [IO.File]::Open($transcript, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+                    ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+                try {
+                    $reader = [IO.StreamReader]::new($stream)
+                    $text = $reader.ReadToEnd()
+                }
+                finally { $stream.Dispose() }
+                if ($text -match 'build running') {
+                    Set-Content -LiteralPath $release -Value 'go'
+                    return $text
+                }
+            }
+            Start-Sleep -Milliseconds 100
+        }
+        Set-Content -LiteralPath $release -Value 'timeout'
+        return '(the parent console never showed the running stage)'
+    } -ArgumentList $liveTranscript, $liveReleaseFile
+
+    Start-Transcript -Path $liveTranscript | Out-Null
+    try {
+        $liveExit = Invoke-ExternalProcess -FilePath $pwshPath -TimeoutSeconds 90 -NoNewWindow -StreamProgress `
+            -StandardOutputPath $liveOut -StandardErrorPath $liveErr `
+            -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $liveBody)
+    }
+    finally { Stop-Transcript | Out-Null }
+    $liveObserved = Receive-Job -Job $liveWatcher -Wait -AutoRemoveJob
+
+    if ($liveExit -ne 0) { throw "The live-progress child returned exit $liveExit" }
+    if ($liveObserved -notmatch 'restore passed') {
+        throw "A completed stage was not shown while the child was still running: $liveObserved"
+    }
+    if ($liveObserved -notmatch 'build running') {
+        throw "The in-flight stage was not shown while the child was still running: $liveObserved"
+    }
+    if ($liveObserved -match 'build passed') {
+        throw 'The watcher released the child too late to prove the output was live.'
+    }
+    # Cumulative elapsed and the stage's own cost are shown as separate, labelled numbers.
+    if ($liveObserved -notmatch 'dev-run 00:02\.5 elapsed \| restore passed \(stage took 00:02\.4\)') {
+        throw "Stage elapsed/cost was not reported distinctly: $liveObserved"
+    }
+    $liveFinal = Get-Content -LiteralPath $liveTranscript -Raw
+    if ($liveFinal -notmatch 'build passed') { throw 'The final stage never reached the console.' }
+    if ($liveFinal -match 'package-verify') {
+        throw "A nested run's stage line was reported as this run's progress."
+    }
+    # Each completed stage appears exactly once.
+    foreach ($once in @('restore passed', 'build passed')) {
+        $hits = ([regex]::Matches($liveFinal, [regex]::Escape("| $once"))).Count
+        if ($hits -ne 1) { throw "'$once' was printed $hits times instead of once." }
+    }
+    Write-Host 'PASS: dev-run stage progress reaches the console while the child is still running.'
+
+    # --- Regression: a split UTF-8 sequence is neither mangled nor duplicated. -----------
+    $splitLog = Join-Path $testRoot 'split-utf8.log'
+    $splitBytes = [Text.Encoding]::UTF8.GetBytes("##dev-run## 00:00.1 start 준비" + "`n" + "##dev-run## 00:01.0 passed 준비" + "`n")
+    [IO.File]::WriteAllBytes($splitLog, $splitBytes[0..($splitBytes.Length - 6)])
+    $splitReader = New-BuildLocalProgressReader $splitLog
+    Reset-BuildLocalChildProgress
+    $firstHalf = & { Invoke-BuildLocalProgressPump -Reader $splitReader } 6>&1 | Out-String
+    [IO.File]::WriteAllBytes($splitLog, $splitBytes)
+    $secondHalf = & { Invoke-BuildLocalProgressPump -Reader $splitReader -Final } 6>&1 | Out-String
+    $splitAll = $firstHalf + $secondHalf
+    if ($splitAll -match [char]0xFFFD) { throw "A split UTF-8 sequence decoded to a replacement character: $splitAll" }
+    if ($splitAll -notmatch '준비 passed') { throw "The split line never completed: $splitAll" }
+    if (([regex]::Matches($splitAll, '준비 running')).Count -ne 1) {
+        throw "A partially written line was printed more than once: $splitAll"
+    }
+    if ($splitReader.Fault) { throw "Reading a live log reported a fault: $($splitReader.Fault)" }
+    Write-Host 'PASS: a partially written UTF-8 stage line is neither mangled nor repeated.'
+
+    # --- Regression: a progress-reading failure is reported apart from the child's own. ---
+    $faultReader = New-BuildLocalProgressReader (Join-Path $testRoot 'no-such-directory/never.log')
+    $faultReader.Fault = 'synthetic read failure'
+    Invoke-BuildLocalProgressPump -Reader $faultReader -Final
+    if ($faultReader.Fault -ne 'synthetic read failure') { throw 'A recorded progress fault was cleared.' }
+    Write-Host 'PASS: a progress-reading fault is kept distinct from the child result.'
+
     # --- Regression: Invoke-ExternalProcess drains stderr and honours its timeout. ---
     $extOut = Join-Path $testRoot 'ext-out.log'
     $extErr = Join-Path $testRoot 'ext-err.log'

@@ -116,6 +116,104 @@ function Write-BuildLocalCapturedProgress([string]$Path) {
     foreach ($line in $lines) { Write-Host $line }
 }
 
+# --- Live child progress -----------------------------------------------------------------
+# dev-run.ps1 announces every stage on stdout as it starts and finishes, but the parent
+# captured that stdout to a file and only read it back after the whole run had ended. The
+# stage lines are therefore streamed out of the capture file while the child is still
+# running, so the console shows the current step rather than going silent for minutes.
+
+$script:BuildLocalChildStage = $null
+$script:BuildLocalChildStageAt = $null
+
+function Reset-BuildLocalChildProgress {
+    $script:BuildLocalChildStage = $null
+    $script:BuildLocalChildStageAt = $null
+}
+
+function Format-BuildLocalSpan([TimeSpan]$Span) {
+    if ($Span.Ticks -lt 0) { $Span = [TimeSpan]::Zero }
+    '{0:00}:{1:00}.{2}' -f [int][math]::Floor($Span.TotalMinutes), $Span.Seconds, [int][math]::Floor($Span.Milliseconds / 100.0)
+}
+
+# One line of child output. Only dev-run.ps1's own '##dev-run##' markers are shown: several
+# of its stages run nested regression scripts that print '[mm:ss.d] name' stage lines of
+# their own, and those are a different run's stages, not this one's progress. dev-run's
+# stamp is time since it started, so the stage's own cost is derived here and labelled
+# separately; the two are never shown as one number.
+function Write-BuildLocalChildProgressLine([string]$Line) {
+    if ([string]::IsNullOrWhiteSpace($Line)) { return }
+    if ($Line -notmatch '##dev-run##\s+([0-9]{2}):([0-9]{2})\.([0-9])\s+(start|passed|failed)\s+(.+)$') { return }
+    $sinceStart = [TimeSpan]::FromMilliseconds(([int]$Matches[1] * 60000) + ([int]$Matches[2] * 1000) + ([int]$Matches[3] * 100))
+    $state = $Matches[4]
+    $stage = $Matches[5].Trim()
+    if ($state -eq 'start') {
+        $script:BuildLocalChildStage = $stage
+        $script:BuildLocalChildStageAt = $sinceStart
+        Write-Host ('    dev-run {0} elapsed | {1} running...' -f (Format-BuildLocalSpan $sinceStart), $stage)
+        return
+    }
+    $cost = ''
+    if ($script:BuildLocalChildStage -eq $stage -and $null -ne $script:BuildLocalChildStageAt) {
+        $cost = ' (stage took {0})' -f (Format-BuildLocalSpan ($sinceStart - $script:BuildLocalChildStageAt))
+    }
+    $outcome = if ($state -eq 'passed') { 'passed' } else { 'FAILED' }
+    Write-Host ('    dev-run {0} elapsed | {1} {2}{3}' -f (Format-BuildLocalSpan $sinceStart), $stage, $outcome, $cost)
+    Reset-BuildLocalChildProgress
+}
+
+function New-BuildLocalProgressReader([string]$Path) {
+    [pscustomobject]@{
+        Path    = $Path
+        Offset  = [int64]0
+        Decoder = [Text.UTF8Encoding]::new($false).GetDecoder()
+        Partial = ''
+        Fault   = $null
+    }
+}
+
+# Emits every newline-terminated line that appeared since the last pump, exactly once.
+# A UTF-8 sequence or a line split across two reads is carried over rather than printed
+# twice or mangled: the decoder keeps the partial character, $Partial keeps the partial line.
+function Invoke-BuildLocalProgressPump {
+    param([Parameter(Mandatory)]$Reader, [switch]$Final)
+    if (!$Reader -or $Reader.Fault) { return }
+    try {
+        if (Test-Path -LiteralPath $Reader.Path -PathType Leaf) {
+            # The child's capture file is open for writing, so this read has to share it.
+            $stream = [IO.File]::Open($Reader.Path, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+                ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+            try {
+                $pending = $stream.Length - $Reader.Offset
+                if ($pending -gt 0) {
+                    $stream.Position = $Reader.Offset
+                    $buffer = [byte[]]::new([int][math]::Min([int64]1048576, $pending))
+                    $read = $stream.Read($buffer, 0, $buffer.Length)
+                    if ($read -gt 0) {
+                        $Reader.Offset += $read
+                        $chars = [char[]]::new($Reader.Decoder.GetCharCount($buffer, 0, $read, $false))
+                        [void]$Reader.Decoder.GetChars($buffer, 0, $read, $chars, 0, $false)
+                        $Reader.Partial = $Reader.Partial + (-join $chars)
+                    }
+                }
+            }
+            finally { $stream.Dispose() }
+        }
+        if (!$Reader.Partial) { return }
+        $segments = ($Reader.Partial -replace "`r`n", "`n") -split "`n"
+        for ($i = 0; $i -lt $segments.Count - 1; $i++) { Write-BuildLocalChildProgressLine $segments[$i] }
+        $Reader.Partial = $segments[$segments.Count - 1]
+        if ($Final -and $Reader.Partial) {
+            Write-BuildLocalChildProgressLine $Reader.Partial
+            $Reader.Partial = ''
+        }
+    }
+    catch {
+        # A progress-reading failure is not the child's failure. Record it, stop reading, and
+        # let the caller report it separately instead of losing it or blaming the build.
+        $Reader.Fault = $_.Exception.Message
+    }
+}
+
 function Get-BuildLocalLogTail {
     param([string]$Path, [int]$Lines = 80)
     if (!$Path -or !(Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
@@ -225,7 +323,9 @@ function Invoke-ExternalProcess {
         [switch]$NoNewWindow,
         [string]$StandardOutputPath,
         [string]$StandardErrorPath,
-        [int]$OutputDrainMilliseconds = 15000
+        [int]$OutputDrainMilliseconds = 15000,
+        [switch]$StreamProgress,
+        [int]$ProgressIntervalMilliseconds = 250
     )
     Write-Host ("    > {0} {1}" -f $FilePath, ($ArgumentList -join ' '))
     $captureOutput = ![string]::IsNullOrWhiteSpace($StandardOutputPath)
@@ -249,10 +349,15 @@ function Invoke-ExternalProcess {
     $errFile = $null
     $stdoutTask = $null
     $stderrTask = $null
+    $progress = $null
     try {
         if ($start.RedirectStandardOutput) {
             if ($captureOutput) {
-                $outFile = [IO.File]::Create($StandardOutputPath)
+                # FileShare.Read so progress can be read back while this run writes it, and an
+                # unbuffered handle so a stage line reaches the file when the child emits it
+                # rather than sitting in a 4 KB buffer until the run ends.
+                $outFile = [IO.FileStream]::new($StandardOutputPath, [IO.FileMode]::Create,
+                    [IO.FileAccess]::Write, [IO.FileShare]::Read, 1, $true)
                 $stdoutTask = $process.StandardOutput.BaseStream.CopyToAsync($outFile)
             }
             else {
@@ -261,15 +366,34 @@ function Invoke-ExternalProcess {
         }
         if ($start.RedirectStandardError) {
             if ($captureError) {
-                $errFile = [IO.File]::Create($StandardErrorPath)
+                $errFile = [IO.FileStream]::new($StandardErrorPath, [IO.FileMode]::Create,
+                    [IO.FileAccess]::Write, [IO.FileShare]::Read, 1, $true)
                 $stderrTask = $process.StandardError.BaseStream.CopyToAsync($errFile)
             }
             else {
                 $stderrTask = $process.StandardError.ReadToEndAsync()
             }
         }
+        if ($StreamProgress -and $captureOutput) {
+            Reset-BuildLocalChildProgress
+            $progress = New-BuildLocalProgressReader $StandardOutputPath
+        }
         $timedOut = $false
-        if (!$process.WaitForExit($TimeoutSeconds * 1000)) {
+        if ($progress) {
+            # Short waits keep the console current without spinning: each one blocks in the OS
+            # until the child exits or the interval elapses. The overall budget is unchanged.
+            $budget = [Diagnostics.Stopwatch]::StartNew()
+            $interval = [math]::Max(50, $ProgressIntervalMilliseconds)
+            while (!$process.WaitForExit($interval)) {
+                Invoke-BuildLocalProgressPump -Reader $progress
+                if ($budget.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+                    try { $process.Kill($true) } catch { }
+                    $timedOut = $true
+                    break
+                }
+            }
+        }
+        elseif (!$process.WaitForExit($TimeoutSeconds * 1000)) {
             try { $process.Kill($true) } catch { }
             $timedOut = $true
         }
@@ -281,6 +405,14 @@ function Invoke-ExternalProcess {
         }
         if ($outFile) { try { $outFile.Dispose() } catch { }; $outFile = $null }
         if ($errFile) { try { $errFile.Dispose() } catch { }; $errFile = $null }
+        if ($progress) {
+            Invoke-BuildLocalProgressPump -Reader $progress -Final
+            if ($progress.Fault) {
+                # Distinct from the child's own outcome, and never silent.
+                Write-Host "    warning: live progress could not be read from $StandardOutputPath ($($progress.Fault)); the captured log below is complete."
+                Write-BuildLocalCapturedProgress $StandardOutputPath
+            }
+        }
         if ($timedOut) {
             Write-BuildLocalLogTail -Path $StandardErrorPath
             Write-BuildLocalLogTail -Path $StandardOutputPath
@@ -661,7 +793,8 @@ function Invoke-BuildLocal {
             $env:CYCLEARC_DEV_RUN_STAGE_FILE = $devRunStage
             try {
                 $exitCode = Invoke-ExternalProcess -FilePath $pwsh -ArgumentList $arguments -WorkingDirectory $RepoRoot `
-                    -TimeoutSeconds 1800 -NoNewWindow -StandardOutputPath $devRunOut -StandardErrorPath $devRunErr
+                    -TimeoutSeconds 1800 -NoNewWindow -StandardOutputPath $devRunOut -StandardErrorPath $devRunErr `
+                    -StreamProgress
             }
             finally {
                 if ($null -eq $previousStageFile) { Remove-Item Env:CYCLEARC_DEV_RUN_STAGE_FILE -ErrorAction SilentlyContinue }
@@ -670,7 +803,8 @@ function Invoke-BuildLocal {
             if ($exitCode -ne 0) {
                 throw "dev-run.ps1 -NoLaunch failed (exit $exitCode). Setup.exe was not started; the running installation was left unchanged. Log: $logPath stdout: $devRunOut stderr: $devRunErr"
             }
-            Write-BuildLocalCapturedProgress $devRunOut
+            # Stage progress was printed while dev-run was running; repeating the captured
+            # copy here would only duplicate it.
         }
 
         Set-BuildLocalStage 'package'

@@ -51,14 +51,24 @@ function Write-DevRunStageFile([string]$Stage) {
     try { [IO.File]::WriteAllText($path, $Stage + [Environment]::NewLine) } catch { }
 }
 
+# A marker only this script emits. Stages of this gate run nested scripts that print
+# stage lines of the same '[mm:ss.d] name' shape from their own synthetic runs, so a
+# parent watching the output cannot tell those apart from this gate's stages by format.
+# The human-readable line above is unchanged; this one is what a parent matches.
+function Write-DevRunStageEvent([string]$Stage, [string]$State) {
+    Write-Host ('##dev-run## {0} {1} {2}' -f (Get-DevRunElapsedStamp), $State, $Stage)
+}
+
 function Set-DevRunStage([string]$Stage) {
     $script:DevRunStage = $Stage
     Write-DevRunStageFile $Stage
     Write-Host ('[{0}] {1}' -f (Get-DevRunElapsedStamp), $Stage)
+    Write-DevRunStageEvent $Stage 'start'
 }
 
 function Complete-DevRunStage([string]$Stage) {
     Write-Host ('[{0}] {1} passed' -f (Get-DevRunElapsedStamp), $Stage)
+    Write-DevRunStageEvent $Stage 'passed'
 }
 
 function Invoke-DevRunStep {
@@ -74,6 +84,7 @@ function Invoke-DevRunStep {
     catch {
         Write-Host ("Failed at: {0}" -f $Stage)
         Write-Host ("Elapsed: {0}" -f $script:DevRunStarted.Elapsed.ToString('mm\:ss\.fff'))
+        Write-DevRunStageEvent $Stage 'failed'
         throw
     }
 }

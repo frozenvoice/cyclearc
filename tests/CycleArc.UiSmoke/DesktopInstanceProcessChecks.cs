@@ -88,7 +88,9 @@ internal static class DesktopInstanceProcessChecks
             Check(replacementShutdown.Succeeded, $"Replacement desktop instance shutdown failed: {replacementShutdown.Error}");
             Check(replacement.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds), "Replacement desktop instance child did not exit.");
 
-            Console.WriteLine("PASS: desktop instance lease, status, activation, shutdown, and replacement process checks.");
+            RunLostShutdownReportCheck(temporaryRoot, children);
+
+            Console.WriteLine("PASS: desktop instance lease, status, activation, shutdown, replacement and lost-report process checks.");
         }
         finally
         {
@@ -188,6 +190,49 @@ internal static class DesktopInstanceProcessChecks
         finally { UiText.SetLanguage(previousLanguage); }
     }
 
+    /// <summary>
+    /// A child whose shutdown report cannot be written must fail loudly. The IPC server
+    /// acknowledges a shutdown before it runs the callback and then swallows whatever the
+    /// callback throws, so without the child's own guard a failed report would leave it
+    /// waiting for a stop signal that never arrives and the parent waiting out its whole
+    /// budget on a shutdown that already returned success.
+    /// </summary>
+    private static void RunLostShutdownReportCheck(string temporaryRoot, List<Child> children)
+    {
+        var key = Guid.NewGuid().ToString("N");
+        var reportPath = Path.Combine(temporaryRoot, "lost-report.jsonl");
+        var child = StartChild(key, reportPath);
+        children.Add(child);
+        var ready = WaitForReport(child, report => report.State == "ready");
+
+        // Make only the shutdown report unwritable, after the child is already serving.
+        // A directory at the report path fails every append without touching the child.
+        File.Delete(reportPath);
+        Directory.CreateDirectory(reportPath);
+
+        var pipeName = DesktopInstancePipe.ForTests(key);
+        var status = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Status, RequestTimeout)
+            .GetAwaiter().GetResult();
+        Check(status.Succeeded && status.ProcessId == ready.ProcessId,
+            $"The lost-report child did not answer status: {status.Error}");
+        var shutdown = DesktopInstanceClient.RequestAsync(pipeName, DesktopInstanceCommand.Shutdown, RequestTimeout,
+            expectedInstance: status)
+            .GetAwaiter().GetResult();
+        // The acknowledgement still succeeds; that is exactly why it cannot stand in for the report.
+        Check(shutdown.Succeeded, $"The lost-report child refused a valid shutdown: {shutdown.Error}");
+
+        Check(child.Process.WaitForExit((int)ProcessTimeout.TotalMilliseconds),
+            "A child that could not write its shutdown report kept waiting for a stop signal instead of exiting.");
+        child.Output.CollectRemaining(ChildProcessOutput.DrainBudget);
+        Check(child.Process.ExitCode == 6,
+            $"A lost shutdown report must exit 6, not {child.Process.ExitCode}.");
+        var stderr = child.Output.StandardError;
+        Check(stderr.Contains("failed to write the shutdown report", StringComparison.Ordinal),
+            $"A lost shutdown report left no diagnostic on stderr: {(stderr.Length == 0 ? "(empty)" : stderr)}");
+
+        Directory.Delete(reportPath, recursive: true);
+    }
+
     private static void RunFirstLaunchRace(string temporaryRoot, List<Child> children)
     {
         var key = Guid.NewGuid().ToString("N");
@@ -200,36 +245,55 @@ internal static class DesktopInstanceProcessChecks
         Child? winner = null;
         Child? loser = null;
         Report? ready = null;
-        while (deadline.Elapsed < ProcessTimeout)
+
+        // Reads both reports and applies the two win conditions to that one snapshot.
+        bool TryResolveRace()
         {
             var leftReports = ReadReports(left.ReportPath);
             var rightReports = ReadReports(right.ReportPath);
-            var leftReady = leftReports.LastOrDefault(report => report.State == "ready");
-            var rightReady = rightReports.LastOrDefault(report => report.State == "ready");
-            var leftBusy = leftReports.LastOrDefault(report => report.State == "busy");
-            var rightBusy = rightReports.LastOrDefault(report => report.State == "busy");
-            if (leftReady is not null && rightBusy is not null)
+            if (leftReports.LastOrDefault(report => report.State == "ready") is { } leftReady
+                && rightReports.Any(report => report.State == "busy"))
             {
                 winner = left;
                 loser = right;
                 ready = leftReady;
-                break;
+                return true;
             }
-            if (rightReady is not null && leftBusy is not null)
+            if (rightReports.LastOrDefault(report => report.State == "ready") is { } rightReady
+                && leftReports.Any(report => report.State == "busy"))
             {
                 winner = right;
                 loser = left;
                 ready = rightReady;
-                break;
+                return true;
             }
-            if ((left.Process.HasExited && leftReports.Length == 0) || (right.Process.HasExited && rightReports.Length == 0))
+
+            return false;
+        }
+
+        while (deadline.Elapsed < ProcessTimeout)
+        {
+            if (TryResolveRace()) break;
+            var leftExited = left.Process.HasExited;
+            var rightExited = right.Process.HasExited;
+            if (leftExited || rightExited)
             {
-                throw new InvalidOperationException(
-                    ChildProcessReportWait.Describe(left.Process, left.Output, left.ReportPath,
-                        "A first-launch desktop instance race child exited without a report")
-                    + Environment.NewLine
-                    + ChildProcessReportWait.Describe(right.Process, right.Output, right.ReportPath, "other race child"));
+                // A child writes its record and exits immediately afterwards, so the snapshot
+                // above can predate a record that is on disk by the time the exit is observed.
+                // Re-read before calling an exit unexplained; otherwise the loser's ordinary
+                // "busy" record is reported as a child that exited without one.
+                if (TryResolveRace()) break;
+                if ((leftExited && ReadReports(left.ReportPath).Length == 0)
+                    || (rightExited && ReadReports(right.ReportPath).Length == 0))
+                {
+                    throw new InvalidOperationException(
+                        ChildProcessReportWait.Describe(left.Process, left.Output, left.ReportPath,
+                            "A first-launch desktop instance race child exited without a report")
+                        + Environment.NewLine
+                        + ChildProcessReportWait.Describe(right.Process, right.Output, right.ReportPath, "other race child"));
+                }
             }
+
             Thread.Sleep(25);
         }
 
@@ -290,9 +354,31 @@ internal static class DesktopInstanceProcessChecks
             var stop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var reportGate = new object();
             var activationTotal = 0;
+            var reportFailed = 0;
             void Report(object value)
             {
                 lock (reportGate) AppendReport(reportPath, value);
+            }
+
+            // The IPC server answers before it runs a callback and then swallows whatever the
+            // callback throws, so a report that cannot be written would otherwise disappear:
+            // the parent sees a successful shutdown response and then waits out its whole
+            // budget for a record this child never managed to append. Record the real
+            // exception on stderr and let the child leave with a distinct exit code, so the
+            // parent fails on a diagnosable exit instead of an unexplained timeout.
+            bool TryReport(object value, string description)
+            {
+                try
+                {
+                    Report(value);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Volatile.Write(ref reportFailed, 1);
+                    Console.Error.WriteLine($"desktop-instance child failed to write the {description} report to '{reportPath}': {ex}");
+                    return false;
+                }
             }
 
             var instanceInfo = DesktopInstanceInfo.Current();
@@ -307,12 +393,16 @@ internal static class DesktopInstanceProcessChecks
                     onActivate: () =>
                     {
                         var count = Interlocked.Increment(ref activationTotal);
-                        Report(new { state = "activate", activateCount = count });
+                        // A lost activation report can only end in a parent timeout, so stop here too.
+                        if (!TryReport(new { state = "activate", activateCount = count }, "activate")) stop.TrySetResult();
                         return Task.CompletedTask;
                     },
                     onShutdown: () =>
                     {
-                        Report(new { state = "shutdown", activateCount = Volatile.Read(ref activationTotal) });
+                        // The report is this child's shutdown evidence. Releasing the stop signal
+                        // in either case keeps a write failure from turning into a hang, and the
+                        // recorded failure keeps it from being mistaken for a clean shutdown.
+                        TryReport(new { state = "shutdown", activateCount = Volatile.Read(ref activationTotal) }, "shutdown");
                         stop.TrySetResult();
                         return Task.CompletedTask;
                     });
@@ -325,7 +415,8 @@ internal static class DesktopInstanceProcessChecks
                     pipeName = DesktopInstancePipe.ForTests(key),
                 });
                 stop.Task.GetAwaiter().GetResult();
-                return 0;
+                // A child that could not record its reports never reports success.
+                return Volatile.Read(ref reportFailed) == 0 ? 0 : 6;
             }
             catch (Exception)
             {
@@ -417,6 +508,8 @@ internal static class DesktopInstanceProcessChecks
 
     private static Report[] ReadReports(string reportPath)
     {
+        // A report the child has not created yet is an ordinary "not there yet", not a failure.
+        if (!File.Exists(reportPath)) return Array.Empty<Report>();
         try
         {
             var reports = new List<Report>();
@@ -452,10 +545,7 @@ internal static class DesktopInstanceProcessChecks
 
     private static void AppendReport(string reportPath, object value)
     {
-        var payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value) + Environment.NewLine);
-        using var stream = new FileStream(reportPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-        stream.Write(payload, 0, payload.Length);
-        stream.Flush(flushToDisk: true);
+        ChildReportFile.Append(reportPath, JsonSerializer.Serialize(value));
     }
 
     private static void TryAppendReport(string reportPath, object value)
