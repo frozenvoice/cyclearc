@@ -15,6 +15,40 @@
   match this publish. `tests/BuildLocal.Tests.ps1` covers failed build (no Setup), leftover
   Setup refusal, same-version hash mismatch, Setup failure, lock overlap and paths with
   spaces. Real Setup.exe replacement against a developer profile was not run here.
+- build-local.cmd double-click failures (unreleased): three defects that stopped the run before
+  the build began or hid a stall.
+  - `Invoke-BuildLocal` assigned the `dev-run.ps1` path to `$devRun`, which is the
+    `[scriptblock]$DevRun` parameter under PowerShell's case-insensitive variable names, so the
+    default branch failed with "Cannot convert ... System.String ... to ...ScriptBlock" before
+    any build step ran. The path now uses `$devRunPath`; the type constraint is unchanged and no
+    `Invoke-Expression` or coercion was added. Every earlier test injected `-DevRun`, so
+    `tests/BuildLocal.Tests.ps1` now drives the default branch against a real `dev-run.ps1` for
+    both success and a nonzero exit, and an AST check fails any local that shadows a parameter
+    by spelling in `Build-Local.ps1`, `LocalInstall.ps1`, `Package.ps1` and `dev-run.ps1`.
+  - `Invoke-WindowedProcess` always passed `-WorkingDirectory`, which `Start-Process` rejects
+    when it is empty, and the ordinary Setup call named no directory. The parameter is now
+    omitted when unset, a named directory must exist, the installer runs in its own directory,
+    and the process object is still disposed and its exit code returned. Covered with real
+    external processes, including a working directory containing spaces and Hangul.
+  - `Invoke-DesktopStatus` / `Invoke-DesktopShutdown` called `ReadToEnd()` before
+    `WaitForExit(timeout)`, so a stalled probe or a full stderr pipe never reached the timeout
+    check. Both streams are now read concurrently, the wait comes first, output collection has
+    its own budget, and only the probe process this script started is stopped; the cause, step
+    and streams are appended to `artifacts/build-local/desktop-ipc.log`. Verified that the old
+    ordering hangs indefinitely on a 1 MB stderr writer, and that the new code reports a
+    timeout, kills only the probe, returns the status past 1 MB of stderr, and bounds output
+    collection when a leftover child holds the pipe open.
+  - Failure guidance now follows the stage the run reached (`preflight`, `build`, `package`,
+    `stop-desktop`, `install`, `verify-install`, `start`). `build-local.cmd` prints
+    `artifacts\build-local\last-failure.txt` instead of claiming the previous installation
+    survived, and a failure after Setup.exe started says so.
+  - `scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment` and the
+    `Windows build-local entry point` workflow run the real CMD entry point on a discarded
+    GitHub-hosted runner: build A with no arguments, build B over it with the same version
+    number but different executable content, installed hash and running managed path checked
+    against each build, the A desktop confirmed stopped, and a broken build checked for a
+    nonzero exit code through CMD with the installation left running. This has not been run on
+    a developer profile, and no failure injection or install/remove cycling was done there.
 
 - Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
   - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's

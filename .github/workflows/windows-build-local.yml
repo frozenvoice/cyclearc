@@ -1,0 +1,96 @@
+name: Windows build-local entry point
+
+# Runs the real build-local.cmd double-click path on a GitHub-hosted windows-latest
+# runner: no injected DevRun/RunSetup/StartLauncher scriptblocks, the real
+# dev-run.ps1 gate, the real CycleArc-Setup.exe and the real managed install under
+# %LOCALAPPDATA%\CycleArc. It installs build A, installs build B over it with the
+# same version number but different executable content, and then breaks the build
+# to check that the failure reaches CMD with a nonzero exit code and leaves the
+# running installation alone.
+#
+# The runner is discarded afterwards, which is why it may leave a real installation
+# for the runner's own Windows user. It is deliberately NOT part of the ordinary
+# Windows workflow and runs on request only.
+#
+# Run it from the Actions tab, choosing the branch to verify.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-local-entry-point:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Record the runner's pre-existing CycleArc state
+        run: |
+          $report = [ordered]@{
+            localAppData   = $env:LOCALAPPDATA
+            installation   = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'CycleArc')
+            dataRoot       = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'ProMeter')
+            uninstallEntry = Test-Path -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CycleArc'
+            processes      = @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue).Count
+          }
+          $report.GetEnumerator() | ForEach-Object { "$($_.Key) = $($_.Value)" }
+
+      - name: Focused build-local regression tests
+        run: ./tests/BuildLocal.Tests.ps1
+
+      - name: Drive build-local.cmd end to end
+        run: |
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/build-local-entry'
+          New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+          # A transcript, not Tee-Object: the script reports through Write-Host,
+          # which does not flow through the pipeline.
+          Start-Transcript -Path (Join-Path $artifacts 'entry-point.log') | Out-Null
+          try { ./scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment -WorkRoot $artifacts }
+          finally { Stop-Transcript | Out-Null }
+
+      # Collected for a failed run as well, so a failure is diagnosable from the log alone.
+      - name: Collect logs
+        if: always()
+        run: |
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/build-local-entry'
+          New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+          $buildLocal = Join-Path $env:GITHUB_WORKSPACE 'artifacts/build-local'
+          if (Test-Path -LiteralPath $buildLocal) {
+            Copy-Item -LiteralPath $buildLocal -Destination (Join-Path $artifacts 'build-local') -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          $installation = Join-Path $env:LOCALAPPDATA 'CycleArc'
+          if (Test-Path -LiteralPath $installation) {
+            Get-ChildItem -LiteralPath $installation -Recurse -ErrorAction SilentlyContinue |
+              Select-Object FullName, Length, LastWriteTimeUtc |
+              ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $artifacts 'installation-tree.json')
+          }
+          # Velopack's own log is the first place a Setup failure shows up.
+          foreach ($velopack in @(Get-ChildItem -LiteralPath $env:LOCALAPPDATA -Filter 'Velopack.log' -Recurse -Depth 3 -ErrorAction SilentlyContinue)) {
+            Copy-Item -LiteralPath $velopack.FullName -Destination (Join-Path $artifacts ('velopack-' + [Guid]::NewGuid().ToString('N') + '.log')) -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem -LiteralPath $artifacts -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '(?i)\.(exe|dll|nupkg)$' } |
+            Select-Object -ExpandProperty FullName
+          # Artifact downloads are not always reachable, so the evidence goes in the log too.
+          foreach ($name in @('entry-point.log', 'build-a.out.log', 'build-b.out.log', 'build-failure.out.log')) {
+            $file = Join-Path $artifacts $name
+            if (Test-Path -LiteralPath $file -PathType Leaf) {
+              Write-Host "===== $name (tail) ====="
+              Get-Content -LiteralPath $file -Tail 80 -ErrorAction SilentlyContinue
+            }
+          }
+
+      - name: Upload build-local entry point logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-local-entry-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/build-local-entry
+          if-no-files-found: warn
+          retention-days: 14
