@@ -57,6 +57,28 @@ function Write-Step([string]$Text) {
     Write-Host "=== $Text ==="
 }
 
+# Write-Host, never the pipeline: these helpers are called from functions whose
+# return value is the result object.
+function Show-LogTail {
+    param([Parameter(Mandatory)][string]$Path, [int]$Lines = 60)
+    if (!(Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    if ((Get-Item -LiteralPath $Path).Length -eq 0) { return }
+    Write-Host "----- $Path (last $Lines lines) -----"
+    foreach ($line in @(Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue)) {
+        Write-Host $line
+    }
+}
+
+function Show-BuildLocalTranscript {
+    param([int]$Lines = 120)
+    $directory = Join-Path $repoRoot 'artifacts/build-local'
+    if (!(Test-Path -LiteralPath $directory -PathType Container)) { return }
+    $transcript = @(Get-ChildItem -LiteralPath $directory -Filter 'build-local-*.log' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+    if ($transcript.Count -eq 0) { return }
+    Show-LogTail -Path $transcript[0].FullName -Lines $Lines
+}
+
 function Set-MarkerSource([string]$Body) {
     [IO.File]::WriteAllText($markerSource, $Body, [Text.UTF8Encoding]::new($false))
 }
@@ -105,12 +127,10 @@ function Invoke-BuildLocalEntryPoint {
     finally { $process.Dispose() }
     $elapsed = (Get-Date) - $started
     Write-Host ("build-local.cmd {0} exited {1} after {2:n1} minutes" -f $Label, $exitCode, $elapsed.TotalMinutes)
-    foreach ($log in @($stdout, $stderr)) {
-        if ((Test-Path -LiteralPath $log -PathType Leaf) -and (Get-Item -LiteralPath $log).Length -gt 0) {
-            Write-Host "----- $log (tail) -----"
-            Get-Content -LiteralPath $log -Tail 40
-        }
-    }
+    foreach ($log in @($stdout, $stderr)) { Show-LogTail -Path $log -Lines 60 }
+    # dev-run.ps1 runs as a grandchild, so its own output is in the transcript
+    # rather than in the console this script captured.
+    Show-BuildLocalTranscript
     [pscustomobject]@{ ExitCode = $exitCode; StandardOutput = $stdout; StandardError = $stderr }
 }
 
@@ -130,6 +150,9 @@ function Assert-RunningManagedBuild {
         [Parameter(Mandatory)][string]$ExpectedHash,
         [Parameter(Mandatory)][string]$Label
     )
+    if (!(Test-Path -LiteralPath $installedExe -PathType Leaf)) {
+        throw "${Label}: Setup.exe left no $installedExe."
+    }
     $status = Get-ManagedDesktopStatus
     if (!$status) { throw "${Label}: the installed CycleArc did not report desktop readiness." }
     $runningPath = ConvertTo-InstallAbsolutePath ([string]$status.ExecutablePath)
@@ -147,6 +170,7 @@ function Assert-RunningManagedBuild {
 }
 
 function Stop-ManagedDesktop {
+    if (!(Test-Path -LiteralPath $installedExe -PathType Leaf)) { return }
     $status = Invoke-DesktopStatus -Executable $installedExe -LogDirectory $WorkRoot
     if (!$status -or ![bool]$status.Succeeded) { return }
     Invoke-DesktopShutdown -Executable $installedExe -LogDirectory $WorkRoot | Out-Null
