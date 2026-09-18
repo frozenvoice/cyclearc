@@ -75,6 +75,27 @@
     test fails with "the parent console never showed the running stage". Split-UTF-8 and
     progress-fault cases are covered separately, alongside the existing 1 MB stderr flood
     and hanging-child timeout checks.
+  - **Two further defects, found by Windows CI on `e39892d` and fixed.**
+    - *Exit checked against a stale read.* Both report waits read the report file and only
+      then check `HasExited`, so a child that writes its record and exits in that gap was
+      reported as having exited without one. The push run failed exactly that way while the
+      pull_request run on the same SHA passed — the failure message itself printed the race
+      loser's `{"state":"busy","pid":8656}` from the file it had just called empty. An
+      observed exit is now decisive only after a fresh look still finds nothing, in both
+      `RunFirstLaunchRace` and `ChildProcessReportWait.WaitFor`.
+      `WaitFor_ReturnsARecordThatLandedBetweenTheMatchAndTheExitCheck` makes the record
+      appear in exactly that gap rather than waiting for a real child to hit it; without the
+      fix it fails with the same "exited before" message CI produced.
+      `WaitFor_StillFailsWhenAnExitedChildLeftNoRecord` keeps a genuinely empty exit a failure.
+    - *Nested stage lines streamed as this run's progress.* The live-progress filter matched
+      any `[mm:ss.d] name` line, but dev-run's `release-guard` and `build-local-regression`
+      stages run nested scripts that print stage lines of that same shape from their own
+      synthetic runs. The real `build-local.cmd` run showed nested stages interleaved with
+      dev-run's own and reported `package-verify` passed eight times. dev-run now emits a
+      `##dev-run##` marker alongside its unchanged human-readable line, and only that marker
+      is streamed. The regression fixture emits both shapes and asserts the nested one is
+      not reported. This was caught by the new entry-point assertion, not by a person
+      reading the log.
   - **Timing claims.** The earlier "build 27 s + 4 s check, so a failure is known within
     30 s" framing is withdrawn: 4 s was a *passing* check, and tooling/restore time and a
     failing check's own timeout budget are not in it. The verifiable improvement is only
@@ -82,9 +103,24 @@
   - Verification: `dotnet test --filter ChildReportFileTests` (7 passed), `--desktop-instance`
     UiSmoke (passes; fails in 31.5 s with the guard removed), `tests/Release.Tests.ps1`,
     `tests/BuildLocal.Tests.ps1` (30 PASS), and the full `dev-run.ps1 -NoLaunch` gate through
-    package-verify on this machine. The real `build-local.cmd` entry point was exercised by
-    the Windows build-local entry point workflow; this developer machine is not a disposable
-    environment, so it was not run here.
+    package-verify on this machine. The real `build-local.cmd` entry point runs only on the
+    disposable Windows runner in the build-local entry point workflow; this developer machine
+    is a working profile, so it was not run here.
+  - Real entry point, run
+    [35357386422](https://github.com/frozenvoice/cyclearc/actions/runs/35357386422) on
+    `719d9a183aee9bce1e4f424c6f1131bb65ca3b2a`: passed. It drove `cmd /c build-local.cmd`
+    with nothing injected — real `dev-run.ps1`, real `CycleArc-Setup.exe`, real managed
+    install under `%LOCALAPPDATA%\CycleArc`. Build A installed and answered as the managed
+    build (`3A0F588B…`, PID 9192); build B installed over it at the same version with
+    different content (`817D58D6…`, PID 8076) and A's process was gone. A deliberately broken
+    build then exited 1 through CMD at `Stage: build`, carried the failing sub-stage, the real
+    compiler error and the captured log path to the CMD window, and left B still running and
+    unchanged. The stages shown live in that CMD console were exactly dev-run's own thirteen —
+    preflight, release-guard, restore, tool-restore, build, ui-smoke-desktop-instance,
+    local-install-regression, build-local-regression, unit-test, ui-smoke-full, publish,
+    package, package-verify — with no nested run's stages and none reported passed twice.
+    The two earlier runs of this workflow, `35355737192` and `35355980076`, are what surfaced
+    the nested-stage defect; they are not evidence for the fixed code.
 - Desktop instance UiSmoke wait budget and fail-fast local gate (unreleased):
   `DesktopInstanceProcessChecks` allowed 10 seconds for a child report under
   `build-local.cmd` / `dev-run.ps1 -NoLaunch`, while the same `--desktop-instance` check
