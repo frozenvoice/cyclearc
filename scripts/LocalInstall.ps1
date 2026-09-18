@@ -228,6 +228,56 @@ function Assert-InstallDesktopMutexAbsent {
     catch [UnauthorizedAccessException] { throw "Could not verify CycleArc single-instance mutex: $MutexName" }
 }
 
+function Wait-InstallDesktopReleased {
+    param(
+        [int]$ProcessId = 0,
+        [string]$MutexName = 'Local\ProMeter.SingleInstance',
+        [int]$TimeoutSeconds = 30,
+        [int]$PollMilliseconds = 500
+    )
+    # Observation only: a desktop that will not let go is reported, never
+    # terminated. Both conditions are necessary before an installer may touch a
+    # live installation, and neither proves the installation directory can
+    # actually be replaced -- a directory rename can still be denied by a handle
+    # this check cannot see. Setup's own log says what finally blocked it.
+    $deadline = [Diagnostics.Stopwatch]::StartNew()
+    $processAlive = $false
+    $mutexHeld = $false
+    while ($true) {
+        $processAlive = $false
+        if ($ProcessId -gt 0) {
+            $running = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+            if ($running) {
+                $processAlive = !$running.HasExited
+                $running.Dispose()
+            }
+        }
+        $mutexHeld = $true
+        try {
+            $mutex = [Threading.Mutex]::OpenExisting($MutexName)
+            $mutex.Dispose()
+        }
+        catch [Threading.WaitHandleCannotBeOpenedException] { $mutexHeld = $false }
+        # An unreadable mutex is treated as held: failing closed keeps an
+        # installer away from a desktop whose state could not be confirmed.
+        catch [UnauthorizedAccessException] { $mutexHeld = $true }
+        if (!$processAlive -and !$mutexHeld) {
+            return [pscustomobject]@{
+                ElapsedSeconds = [math]::Round($deadline.Elapsed.TotalSeconds, 1)
+                ProcessId = $ProcessId
+                MutexName = $MutexName
+            }
+        }
+        if ($deadline.Elapsed.TotalSeconds -ge $TimeoutSeconds) { break }
+        Start-Sleep -Milliseconds $PollMilliseconds
+    }
+    $remaining = @()
+    if ($processAlive) { $remaining += "PID $ProcessId is still running" }
+    if ($mutexHeld) { $remaining += "single-instance mutex $MutexName is still held" }
+    throw ("CycleArc did not release its installation within $TimeoutSeconds seconds: " +
+        ($remaining -join '; ') + '. Refusing to run the installer over a live installation.')
+}
+
 function Invoke-InstallGit {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,

@@ -68,15 +68,28 @@
     triggers it.
   - `managed-setup-install` same-version repair (unreleased): the job ran `--desktop-shutdown`
     and started `Setup.exe` again immediately, checking only the shutdown command's exit code.
-    That command waits for the desktop process, but not for the single-instance mutex to be
-    released, so Setup.exe could find the installation still occupied and exit 1. It reproduced
-    twice on `c5212bc` (run 35300856288, attempts 2 and 3) and passed on `3d64f19`, whose
-    sources are identical, so it is a race rather than a code regression -- an earlier note in
-    this session calling it intermittent was withdrawn once it reproduced. The job now waits
-    for the recorded PID to disappear and the mutex to be free before repairing, which is what
-    `Stop-VerifiedCycleArcDesktop` already did for build-local.cmd, and prints `setup.log` and
-    `setup-repair.log` to the job output on failure because artifact downloads are not always
-    reachable.
+    It failed twice on `c5212bc` (run 35300856288, attempts 2 and 3) and passed on `3d64f19`,
+    whose sources are identical, so it is a race rather than a code regression -- an earlier
+    note in this session calling it intermittent was withdrawn once it reproduced.
+    - Root cause, from the two captured `setup-repair.log` files: Velopack failed renaming the
+      existing CycleArc directory with Windows error 5 (access denied). Something still held
+      that directory. An earlier claim in this session that the single-instance mutex was the
+      cause was not supported by those logs and is withdrawn.
+    - The job now calls `Wait-InstallDesktopReleased` before repairing, which waits for the
+      recorded desktop PID to exit and the single-instance mutex to be released. Both are
+      necessary preconditions for replacing a live installation, and neither proves the
+      directory can actually be renamed -- a handle this check cannot see can still deny it.
+      The wait narrows the window; it does not establish or remove the cause.
+    - A wait that times out throws and the job fails without starting `Setup.exe`, rather than
+      running the installer over an installation that has not been released. It observes only
+      and never terminates the desktop. `tests/LocalInstall.Tests.ps1` covers the released
+      case, a still-held mutex (message names the mutex and says the installer was not
+      started), and a still-running PID (message names the PID, and the process is verified to
+      be left alive).
+    - `setup.log` and `setup-repair.log` are printed to the job output on failure, because the
+      artifact download was not reachable from the environment that diagnosed this and the
+      cause was invisible without them. The job stays enabled; nothing here disables a check to
+      hide the failure.
 
 - Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
   - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's

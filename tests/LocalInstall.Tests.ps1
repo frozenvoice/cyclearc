@@ -136,6 +136,53 @@ try {
     Invoke-TestGit $primaryRoot @('worktree', 'remove', '--force', $linkedRoot) | Out-Null
     Write-Host 'PASS: Git primary/linked-worktree, non-Git fallback, malformed metadata, path-boundary, and install-lease guards.'
 
+    # --- Wait-InstallDesktopReleased: the installer must not run over a live
+    # installation, and a desktop that never lets go has to fail the caller
+    # rather than be waited out silently. ---
+    $freeMutexName = 'CycleArc-test-free-' + [guid]::NewGuid().ToString('N')
+    $released = Wait-InstallDesktopReleased -ProcessId 0 -MutexName $freeMutexName -TimeoutSeconds 5
+    if ($released.ElapsedSeconds -gt 2) { throw "An already-released installation waited $($released.ElapsedSeconds)s" }
+    Write-Host 'PASS: an already-released installation returns at once.'
+
+    $heldMutexName = 'CycleArc-test-held-' + [guid]::NewGuid().ToString('N')
+    $heldMutex = [Threading.Mutex]::new($false, $heldMutexName)
+    try {
+        $heldWatch = [Diagnostics.Stopwatch]::StartNew()
+        Assert-Throws {
+            Wait-InstallDesktopReleased -ProcessId 0 -MutexName $heldMutexName -TimeoutSeconds 2 -PollMilliseconds 200
+        } 'single-instance mutex'
+        $heldWatch.Stop()
+        if ($heldWatch.Elapsed.TotalSeconds -lt 2) { throw 'The held mutex was not actually waited for' }
+        if ($heldWatch.Elapsed.TotalSeconds -gt 15) { throw "The timeout took $($heldWatch.Elapsed.TotalSeconds)s" }
+        # Still inside the held-mutex scope: the caller has to be told the
+        # installer was not started, not just that the wait expired.
+        Assert-Throws {
+            Wait-InstallDesktopReleased -ProcessId 0 -MutexName $heldMutexName -TimeoutSeconds 2 -PollMilliseconds 200
+        } 'Refusing to run the installer over a live installation'
+    }
+    finally { $heldMutex.Dispose() }
+    Write-Host 'PASS: a still-held single-instance mutex fails, saying the installer was not started.'
+
+    $liveStart = [Diagnostics.ProcessStartInfo]::new((Get-Command pwsh).Source)
+    $liveStart.UseShellExecute = $false
+    $liveStart.CreateNoWindow = $true
+    foreach ($liveArgument in @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 30')) {
+        [void]$liveStart.ArgumentList.Add($liveArgument)
+    }
+    $liveChild = [Diagnostics.Process]::Start($liveStart)
+    try {
+        Assert-Throws {
+            Wait-InstallDesktopReleased -ProcessId $liveChild.Id -MutexName $freeMutexName -TimeoutSeconds 2 -PollMilliseconds 200
+        } "PID $($liveChild.Id) is still running"
+        Write-Host 'PASS: a desktop process that is still running fails by PID, and is never terminated.'
+        if ($liveChild.HasExited) { throw 'The wait terminated the process it was only supposed to observe' }
+    }
+    finally {
+        try { if (!$liveChild.HasExited) { $liveChild.Kill($true) } } catch { }
+        try { $null = $liveChild.WaitForExit(5000) } catch { }
+        $liveChild.Dispose()
+    }
+
     # A desktop outside publish/local must be found without selecting callbacks,
     # another Windows session, or an unrelated program with the same filename.
     $session = [Diagnostics.Process]::GetCurrentProcess().SessionId

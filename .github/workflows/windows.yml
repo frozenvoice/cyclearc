@@ -128,6 +128,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
+      # Checked out for scripts/LocalInstall.ps1 only; the installer under test
+      # is still the packaged artifact, never a locally built one.
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Download installer assets
         uses: actions/download-artifact@v6
         with:
@@ -139,6 +144,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Set-StrictMode -Version Latest
+          . ./scripts/LocalInstall.ps1
           $setup = Join-Path $PWD 'publish/velopack/CycleArc-Setup.exe'
           $nupkg = Get-ChildItem -LiteralPath (Join-Path $PWD 'publish/velopack') -Filter 'CycleArc-*-full.nupkg' |
             Select-Object -First 1
@@ -200,23 +206,16 @@ jobs:
             throw "desktop-shutdown failed with exit $($stop.ExitCode)"
           }
 
-          # --desktop-shutdown acknowledges the desktop's own exit, but Setup.exe
-          # cannot re-enter an installation whose single-instance mutex is still
-          # held, and on a slow runner that lingers. Wait for the PID and the
-          # mutex to go, the way Build-Local.ps1 does before starting Setup.exe.
-          $mutexName = 'Local\ProMeter.SingleInstance'
-          $settled = [Diagnostics.Stopwatch]::StartNew()
-          while ($settled.Elapsed.TotalSeconds -lt 30) {
-            $alive = Get-Process -Id ([int]$status.ProcessId) -ErrorAction SilentlyContinue
-            if ($alive) { $alive.Dispose() }
-            $held = $true
-            try { $mutex = [Threading.Mutex]::OpenExisting($mutexName); $mutex.Dispose() }
-            catch [Threading.WaitHandleCannotBeOpenedException] { $held = $false }
-            if (!$alive -and !$held) { break }
-            Start-Sleep -Milliseconds 500
-          }
-          Write-Host ("Desktop settled after {0:n1}s (process gone: {1}, mutex free: {2})" -f `
-            $settled.Elapsed.TotalSeconds, (!$alive), (!$held))
+          # The observed repair failure was Velopack renaming the existing
+          # CycleArc directory and getting Windows error 5 (access denied), so
+          # something still held that directory. Waiting for the desktop process
+          # and its single-instance mutex is a necessary precondition, not a
+          # proof that the directory can be renamed: it narrows the window, it
+          # does not establish the cause. When the wait times out this fails the
+          # job instead of running Setup.exe over a live installation, and the
+          # Setup logs printed below say what actually blocked the rename.
+          $released = Wait-InstallDesktopReleased -ProcessId ([int]$status.ProcessId)
+          Write-Host "Desktop released its installation after $($released.ElapsedSeconds)s"
 
           # Same-version silent repair of this identical package must keep current\CycleArc.exe.
           $repairLog = Join-Path $PWD 'artifacts/setup-install/setup-repair.log'
