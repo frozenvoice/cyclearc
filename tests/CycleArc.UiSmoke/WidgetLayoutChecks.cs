@@ -44,13 +44,111 @@ internal static class WidgetLayoutChecks
             count += MixedHeightScroll(directory, suffix);
             count += RelayoutWithoutBind(directory, suffix);
             count += ScrollbarDoesNotDragWindow();
+            count += HeaderRefreshButton(directory, suffix);
         }
         UiText.SetLanguage(UiLanguage.English);
         applyTheme.Invoke(null, [AppTheme.Dark]);
         count += RelayoutOrder(directory);
         count += RelayoutQueueDoesNotTouchAClosedWindow();
         count += BindingResizesTheShownWindow();
-        Console.WriteLine($"PASS: {count} widget layout checks; mixed-height work-area scroll, monitor relayout without a usage bind, scrollbar thumb vs window drag, account-bind native resize; synthetic accounts only.");
+        Console.WriteLine($"PASS: {count} widget layout checks; mixed-height work-area scroll, monitor relayout without a usage bind, scrollbar thumb vs window drag, header refresh button at 1/3/5 accounts, account-bind native resize; synthetic accounts only.");
+    }
+
+    /// <summary>
+    /// The single header refresh control: one event per click, no duplicate request from a
+    /// second click, no drag or flyout from the click, and a header that still fits at one,
+    /// three and five accounts.
+    /// </summary>
+    private static int HeaderRefreshButton(string? directory, string suffix)
+    {
+        var checks = 0;
+        foreach (var accountCount in new[] { 1, 3, 5 })
+        {
+            var accounts = MixedHeights().Take(accountCount).ToArray();
+            var widget = new FloatingWidget { ShowActivated = false };
+            try
+            {
+                var raised = 0;
+                widget.RefreshRequested += () => Interlocked.Increment(ref raised);
+                widget.FlyoutRequested += () => throw new InvalidOperationException(
+                    "The refresh button opened the detail window.");
+                widget.SettingsRequested += () => throw new InvalidOperationException(
+                    "The refresh button opened settings.");
+                widget.CloseRequested += () => throw new InvalidOperationException(
+                    "The refresh button closed the widget.");
+                widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, Wide, Now);
+                Layout(widget);
+
+                var button = (Button)widget.FindName("WidgetRefreshButton");
+                var settings = (Button)widget.FindName("WidgetSettingsButton");
+                var close = (Button)widget.FindName("WidgetCloseButton");
+                Check(button.Visibility == Visibility.Visible && button.IsEnabled,
+                    $"The widget refresh button is not available at {accountCount} account(s).");
+                checks++;
+
+                // Left of Settings, which stays left of Close.
+                var header = (FrameworkElement)widget.FindName("WidgetHeader");
+                var buttonBox = button.TransformToAncestor(header).TransformBounds(new Rect(button.RenderSize));
+                var settingsBox = settings.TransformToAncestor(header).TransformBounds(new Rect(settings.RenderSize));
+                var closeBox = close.TransformToAncestor(header).TransformBounds(new Rect(close.RenderSize));
+                Check(buttonBox.Right <= settingsBox.Left + 0.1 && settingsBox.Right <= closeBox.Left + 0.1,
+                    $"Header order is not refresh, settings, close at {accountCount} account(s).");
+                checks++;
+
+                // Nothing in the header may be clipped by the widget at any account count.
+                Check(buttonBox.Left >= -0.1 && buttonBox.Top >= -0.1
+                    && buttonBox.Right <= header.ActualWidth + 0.1 && buttonBox.Bottom <= header.ActualHeight + 0.1,
+                    $"The widget refresh button is clipped at {accountCount} account(s).");
+                checks++;
+
+                // A click on the button is not a window drag and not an account press.
+                Check(!FloatingWidget.ShouldBeginWindowDrag(button),
+                    "The refresh button is classified as a window-drag source.");
+                checks++;
+
+                button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Check(Volatile.Read(ref raised) == 1,
+                    $"One refresh click raised {Volatile.Read(ref raised)} refresh requests.");
+                checks++;
+
+                // A disabled button takes no mouse input, so a second click cannot reach the
+                // handler at all. Requests that still arrive by another route - middle click,
+                // tray, the timer - are merged by CodexRefreshCoordinator, which has its own
+                // coverage; raising the Click event directly here would bypass IsEnabled and
+                // test neither of those things.
+                widget.SetRefreshing(true);
+                Check(!button.IsEnabled, "The refresh button stayed enabled during a refresh.");
+                checks++;
+                Check(!button.IsHitTestVisible || !button.IsEnabled,
+                    "The refresh button still accepts pointer input during a refresh.");
+                checks++;
+
+                // Restored the same way after success, failure or cancellation: the coordinator
+                // reports every transition and this only mirrors it.
+                widget.SetRefreshing(false);
+                Check(button.IsEnabled, "The refresh button was not restored after a refresh ended.");
+                checks++;
+                button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Check(Volatile.Read(ref raised) == 2, "The restored refresh button did not raise a request.");
+                checks++;
+
+                // The existing middle-click refresh and right-click menu are untouched.
+                var menus = 0;
+                widget.ContextMenuRequested += () => menus++;
+                widget.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Middle)
+                {
+                    RoutedEvent = UIElement.MouseDownEvent
+                });
+                Check(Volatile.Read(ref raised) == 3, "Middle click no longer refreshes.");
+                checks++;
+
+                if (directory is not null && accountCount == 3)
+                    WidgetFixture.RenderWidget(widget, Path.Combine(directory, $"widget-refresh-{suffix}.png"));
+            }
+            finally { widget.Close(); }
+        }
+
+        return checks;
     }
 
     private static int MixedHeightScroll(string? directory, string suffix)

@@ -314,7 +314,7 @@ public partial class App : Application
         _tray.Update(overview, _settings.TrayIconStyle);
         _flyout?.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing, overview.Preference);
         _accountsWindow?.Bind(accounts, overview.SelectedId);
-        _widgetController?.Update(_settings, overview);
+        _widgetController?.Update(_settings, overview, refreshing: _refresh.IsRefreshing);
     }
 
     private void ToggleFlyout()
