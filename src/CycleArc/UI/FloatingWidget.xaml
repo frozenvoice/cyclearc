@@ -35,6 +35,11 @@
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource SelectionBrush}"/>
                             </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="WidgetIconChrome" Property="Background" Value="Transparent"/>
+                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -56,6 +61,7 @@
                     <ColumnDefinition Width="*" MinWidth="0"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Viewbox Width="15" Height="15" Stretch="Uniform" Margin="1,0,7,0">
@@ -71,12 +77,17 @@
                 <TextBlock x:Name="AccountCountText" Grid.Column="1" Margin="10,0,10,0" FontSize="10.5"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
                            Foreground="{DynamicResource MutedBrush}"/>
-                <Button x:Name="WidgetSettingsButton" Grid.Column="2" Style="{StaticResource WidgetIconButton}"
+                <Button x:Name="WidgetRefreshButton" Grid.Column="2" Style="{StaticResource WidgetIconButton}"
+                        Click="OnRefreshClick" Margin="0,0,2,0">
+                    <TextBlock x:Name="WidgetRefreshGlyph" Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                               Foreground="{DynamicResource MutedBrush}"/>
+                </Button>
+                <Button x:Name="WidgetSettingsButton" Grid.Column="3" Style="{StaticResource WidgetIconButton}"
                         Click="OnSettingsClick" Margin="0,0,2,0">
                     <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="12"
                                Foreground="{DynamicResource MutedBrush}"/>
                 </Button>
-                <Button x:Name="WidgetCloseButton" Grid.Column="3" Style="{StaticResource WidgetIconButton}"
+                <Button x:Name="WidgetCloseButton" Grid.Column="4" Style="{StaticResource WidgetIconButton}"
                         Click="OnCloseClick">
                     <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="12"
                                Foreground="{DynamicResource MutedBrush}"/>

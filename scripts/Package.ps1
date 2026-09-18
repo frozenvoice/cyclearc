@@ -28,6 +28,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Shared with Build-Local.ps1 so both demand the same Native AOT prerequisites.
+. (Join-Path $PSScriptRoot 'SetupUiToolchain.ps1')
+
 function Assert-PackageVersion {
     param([Parameter(Mandatory)][string]$Value)
     if ($Value -notmatch '^\d+\.\d+\.\d+$') {
@@ -217,12 +220,87 @@ function Assert-ReleaseFeed {
     $true
 }
 
+function Get-SetupUiProjectPath {
+    param([string]$RepoRoot)
+    if (!$RepoRoot) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
+    Join-Path $RepoRoot 'src/CycleArc.Setup/CycleArc.Setup.csproj'
+}
+
+<#
+.SYNOPSIS
+    Wraps the Velopack engine installer in the CycleArc setup window.
+.DESCRIPTION
+    The engine keeps performing the installation; it is embedded verbatim in a small Native
+    AOT wrapper that shows the confirmation, progress and completion screens. The wrapper
+    replaces the engine under the shipped name, so the checksum manifest, the asset list and
+    every later verification describe the file people actually download - never the engine.
+#>
+function New-SetupUiInstaller {
+    param(
+        [Parameter(Mandatory)][string]$EnginePath,
+        [Parameter(Mandatory)][string]$OutputPath,
+        [string]$ProjectPath,
+        [string]$Command = 'dotnet'
+    )
+    if (!$ProjectPath) { $ProjectPath = Get-SetupUiProjectPath }
+    if (!(Test-Path -LiteralPath $ProjectPath -PathType Leaf)) {
+        throw "The setup UI project is missing at $ProjectPath"
+    }
+    $engineFull = [IO.Path]::GetFullPath($EnginePath)
+    if (!(Test-Path -LiteralPath $engineFull -PathType Leaf)) {
+        throw "The Velopack engine installer is missing at $engineFull"
+    }
+    Assert-SetupUiToolchain | Out-Null
+
+    $projectDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($ProjectPath))
+    $work = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-setup-ui-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    try {
+        # A stale obj from a build without the engine silently produces a wrapper with no
+        # application inside it, so this always starts from a clean intermediate directory.
+        foreach ($stale in @('obj', 'bin')) {
+            $path = Join-Path $projectDirectory $stale
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+        }
+
+        $arguments = @(
+            'publish', $ProjectPath, '-c', 'Release', '--nologo',
+            "-p:CycleArcEnginePath=$engineFull", '-o', $work
+        )
+        & $Command @arguments | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Building the setup UI failed (exit $LASTEXITCODE)" }
+
+        $built = Join-Path $work 'CycleArc-Setup.exe'
+        if (!(Test-Path -LiteralPath $built -PathType Leaf)) {
+            throw "The setup UI build produced no CycleArc-Setup.exe in $work"
+        }
+        # The engine is the bulk of the wrapper; a wrapper near the engine's size proves it
+        # was embedded, and one near the bare binary's size proves it was not.
+        $engineSize = (Get-Item -LiteralPath $engineFull).Length
+        $builtSize = (Get-Item -LiteralPath $built).Length
+        if ($builtSize -lt $engineSize) {
+            throw "The setup UI ($builtSize bytes) is smaller than the engine it must contain ($engineSize bytes); the engine was not embedded."
+        }
+
+        Copy-Item -LiteralPath $built -Destination $OutputPath -Force
+        [pscustomobject]@{
+            Path       = [IO.Path]::GetFullPath($OutputPath)
+            Size       = $builtSize
+            EngineSize = $engineSize
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 function Assert-PackageOutput {
     param(
         [Parameter(Mandatory)][string]$Directory,
         [Parameter(Mandatory)][string]$PackageVersion,
         [Parameter(Mandatory)][string]$PackageId,
-        [Parameter(Mandatory)][string]$ChannelName
+        [Parameter(Mandatory)][string]$ChannelName,
+        [scriptblock]$WrapSetup
     )
     $expectedSetupName = "$PackageId-Setup.exe"
     $setup = @(Get-ChildItem -LiteralPath $Directory -File -Filter '*-Setup.exe')
@@ -241,6 +319,10 @@ function Assert-PackageOutput {
             }
             [IO.File]::WriteAllText($assetListPath, (ConvertTo-Json -InputObject $assetList -Depth 10 -Compress), [Text.UTF8Encoding]::new($false))
         }
+        $setup = Get-Item -LiteralPath (Join-Path $Directory $expectedSetupName)
+    }
+    if ($WrapSetup) {
+        & $WrapSetup $setup.FullName | Out-Null
         $setup = Get-Item -LiteralPath (Join-Path $Directory $expectedSetupName)
     }
     $packageName = "$PackageId-$PackageVersion-full.nupkg"
@@ -282,7 +364,9 @@ function Invoke-Package {
         [string]$PackageIdValue = 'CycleArc',
         [string]$EntryPoint = 'CycleArc.exe',
         [string]$ChannelName = 'win',
-        [string]$Command = 'dotnet'
+        [string]$Command = 'dotnet',
+        [switch]$NoSetupUi,
+        [string]$SetupUiProject
     )
     $version = Assert-PackageVersion $PackageVersion
     $published = Resolve-PublishExecutable -Directory $PublishedDirectory -ExecutableName $EntryPoint
@@ -305,7 +389,15 @@ function Invoke-Package {
         $NotesPath = $notes.FullName
     }
     Invoke-VpkPack -Command $Command -PackIdValue $PackageIdValue -PackVersion $version -PackDirectory $publishedFull -OutputDirectory $output -EntryPoint $EntryPoint -ChannelName $ChannelName -NotesPath $NotesPath
-    Assert-PackageOutput -Directory $output -PackageVersion $version -PackageId $PackageIdValue -ChannelName $ChannelName
+    # The distributed installer is the setup window with the engine inside it. -NoSetupUi
+    # leaves the bare engine in place, for tests that only exercise the packaging contract.
+    $wrap = if ($NoSetupUi) { $null } else {
+        {
+            param([string]$enginePath)
+            New-SetupUiInstaller -EnginePath $enginePath -OutputPath $enginePath -ProjectPath $SetupUiProject -Command $Command
+        }
+    }
+    Assert-PackageOutput -Directory $output -PackageVersion $version -PackageId $PackageIdValue -ChannelName $ChannelName -WrapSetup $wrap
 }
 
 if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {

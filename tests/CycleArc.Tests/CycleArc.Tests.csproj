@@ -17,6 +17,11 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\CycleArc.UiSmoke\ChildProcessOutput.cs" Link="ChildProcessOutput.cs" />
+    <!-- The installer's layout is pure arithmetic; linking it keeps the DPI invariants under
+         the unit suite without referencing the Native AOT project. -->
+    <Compile Include="..\..\src\CycleArc.Setup\SetupLayout.cs" Link="SetupLayout.cs" />
+    <!-- The installer's log-location choice, so production and these tests run the same code. -->
+    <Compile Include="..\..\src\CycleArc.Setup\SetupLogPaths.cs" Link="SetupLogPaths.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />

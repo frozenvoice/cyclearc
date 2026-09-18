@@ -45,7 +45,10 @@ New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
 $entryPoint = Join-Path $repoRoot 'build-local.cmd'
 $stagingExe = Join-Path $repoRoot 'publish/.dev-staging/CycleArc.exe'
 $failureMarker = Join-Path $repoRoot 'artifacts/build-local/last-failure.txt'
-$installRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CycleArc'
+# Resolved, not assumed: the new-install default is under Programs and an existing
+# installation keeps its own root. Falls back to the default for a runner with neither.
+$installRoot = Get-ManagedInstallRoot
+if (!$installRoot) { $installRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc' }
 $installedExe = Join-Path $installRoot 'current/CycleArc.exe'
 $developmentExe = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc/CycleArc.exe'
 # A source file this script owns: the A/B builds differ by its contents only, so
@@ -175,6 +178,148 @@ function Assert-StageProgressReachedCmd {
     $stagesSeen
 }
 
+# Win32 access to the installer's own controls. The installer is driven by posting BM_CLICK to
+# the control IDs it declares, which is the same path a mouse click takes once the button is hit
+# tested - no synthetic cursor movement, no SendKeys, no coordinates.
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class EntryPointUi {
+    [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+}
+'@
+
+function Save-EntryPointWindow {
+    param([IntPtr]$Handle, [string]$Path)
+    try {
+        Add-Type -AssemblyName System.Drawing
+        [void][EntryPointUi]::SetForegroundWindow($Handle)
+        Start-Sleep -Milliseconds 500
+        $rect = New-Object EntryPointUi+RECT
+        [void][EntryPointUi]::GetWindowRect($Handle, [ref]$rect)
+        $bitmap = New-Object Drawing.Bitmap([Math]::Max(1, $rect.R - $rect.L), [Math]::Max(1, $rect.B - $rect.T))
+        $graphics = [Drawing.Graphics]::FromImage($bitmap)
+        $dc = $graphics.GetHdc()
+        [void][EntryPointUi]::PrintWindow($Handle, $dc, 2)
+        $graphics.ReleaseHdc($dc); $graphics.Dispose()
+        New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
+        $bitmap.Save($Path, [Drawing.Imaging.ImageFormat]::Png)
+        $bitmap.Dispose()
+        Write-Host "Captured $Path"
+    }
+    catch { Write-Host "Could not capture $Path : $($_.Exception.Message)" }
+}
+
+# The installer this run started. Nothing else on a disposable runner is called CycleArc-Setup,
+# and this only reads the window handle - it never stops any process by name.
+function Wait-EntryPointSetupWindow {
+    param([Parameter(Mandatory)][Diagnostics.Process]$Cmd, [int]$Seconds = 1800)
+    $deadline = [Diagnostics.Stopwatch]::StartNew()
+    while ($deadline.Elapsed.TotalSeconds -lt $Seconds) {
+        if ($Cmd.HasExited) { throw "build-local.cmd exited ($($Cmd.ExitCode)) before the installer window appeared." }
+        foreach ($candidate in @(Get-Process -Name 'CycleArc-Setup' -ErrorAction SilentlyContinue)) {
+            $candidate.Refresh()
+            if ($candidate.MainWindowHandle -ne [IntPtr]::Zero -and [EntryPointUi]::IsWindowVisible($candidate.MainWindowHandle)) {
+                return [pscustomobject]@{ Process = $candidate; Handle = $candidate.MainWindowHandle }
+            }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    throw "No installer window appeared within $Seconds seconds of starting build-local.cmd."
+}
+
+<#
+.SYNOPSIS
+    The real double-click path: build-local.cmd with no arguments, approved through the
+    installer's own window.
+.DESCRIPTION
+    Nothing is injected - the real dev-run.ps1 gate, the real packaging, the real
+    CycleArc-Setup.exe. The only automation is BM_CLICK to the installer's Install and Finish
+    buttons, and clearing its Run checkbox, so the parent's handling of a real GUI approval is
+    what gets exercised.
+#>
+function Invoke-BuildLocalEntryPointInteractive {
+    param(
+        [Parameter(Mandatory)][string]$Label,
+        [string]$ScreenshotDirectory,
+        [switch]$ClearRun,
+        [int]$TimeoutSeconds = 5400
+    )
+    $stdout = Join-Path $WorkRoot "$Label.out.log"
+    $stderr = Join-Path $WorkRoot "$Label.err.log"
+    $stdin = Join-Path $WorkRoot 'closed-stdin.txt'
+    if (!(Test-Path -LiteralPath $stdin -PathType Leaf)) { Set-Content -LiteralPath $stdin -Value '' -NoNewline }
+    Write-Host 'Running: cmd /c build-local.cmd   (no arguments; installer approved through its own window)'
+    $started = Get-Date
+    $process = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'build-local.cmd') `
+        -WorkingDirectory $repoRoot -NoNewWindow -PassThru `
+        -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $approval = [ordered]@{ Method = 'Win32 BM_CLICK to the installer''s own control IDs' }
+    try {
+        $window = Wait-EntryPointSetupWindow -Cmd $process
+        $handle = $window.Handle
+        $approval['confirmShownAfterSeconds'] = [int]((Get-Date) - $started).TotalSeconds
+        if ($ScreenshotDirectory) { Save-EntryPointWindow $handle (Join-Path $ScreenshotDirectory 'entry-1-confirm.png') }
+
+        $install = [EntryPointUi]::GetDlgItem($handle, 100)
+        if ($install -eq [IntPtr]::Zero) { throw 'The installer window has no Install button.' }
+        [void][EntryPointUi]::SendMessage($install, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        $approval['installClicked'] = $true
+
+        Start-Sleep -Milliseconds 900
+        if (!$window.Process.HasExited -and $ScreenshotDirectory) {
+            Save-EntryPointWindow $handle (Join-Path $ScreenshotDirectory 'entry-2-progress.png')
+        }
+
+        # The completion page is reached when the Run checkbox becomes visible.
+        $runCheck = [IntPtr]::Zero
+        $completion = [Diagnostics.Stopwatch]::StartNew()
+        while ($completion.Elapsed.TotalSeconds -lt 900) {
+            $window.Process.Refresh()
+            if ($window.Process.HasExited) { throw "The installer exited ($($window.Process.ExitCode)) before its completion screen." }
+            $candidate = [EntryPointUi]::GetDlgItem($handle, 102)
+            if ($candidate -ne [IntPtr]::Zero -and [EntryPointUi]::IsWindowVisible($candidate)) { $runCheck = $candidate; break }
+            Start-Sleep -Milliseconds 300
+        }
+        if ($runCheck -eq [IntPtr]::Zero) { throw 'The installer never reached its completion screen.' }
+        if ($ScreenshotDirectory) { Save-EntryPointWindow $handle (Join-Path $ScreenshotDirectory 'entry-3-done.png') }
+
+        # Deliberately hold the completion screen open past the install budget's own scale, so
+        # the parent proves it is no longer applying an install deadline to a finished install.
+        $hold = 45
+        Write-Host "Holding the completion screen for $hold seconds before finishing."
+        Start-Sleep -Seconds $hold
+        $approval['completionHeldSeconds'] = $hold
+
+        if ($ClearRun -and [EntryPointUi]::SendMessage($runCheck, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64() -eq 1) {
+            [void][EntryPointUi]::SendMessage($runCheck, 0x00F1, [IntPtr]0, [IntPtr]::Zero)
+            $approval['runCleared'] = $true
+        }
+        else { $approval['runCleared'] = $false }
+
+        [void][EntryPointUi]::SendMessage([EntryPointUi]::GetDlgItem($handle, 100), 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        $approval['finishClicked'] = $true
+
+        if (!$process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $process.Kill($true) } catch { }
+            throw "build-local.cmd ($Label) did not finish within $TimeoutSeconds seconds."
+        }
+        $exitCode = [int]$process.ExitCode
+    }
+    finally { $process.Dispose() }
+    $elapsed = (Get-Date) - $started
+    Write-Host ("build-local.cmd {0} exited {1} after {2:n1} minutes" -f $Label, $exitCode, $elapsed.TotalMinutes)
+    foreach ($log in @($stdout, $stderr)) { Show-LogTail -Path $log -Lines 60 }
+    Show-BuildLocalTranscript
+    [pscustomobject]@{ ExitCode = $exitCode; StandardOutput = $stdout; StandardError = $stderr; Approval = $approval }
+}
+
 function Get-ManagedDesktopStatus {
     param([int]$TimeoutSeconds = 30)
     $deadline = [Diagnostics.Stopwatch]::StartNew()
@@ -225,15 +370,28 @@ try {
     Write-Host ("Data root present: {0}" -f (Test-Path -LiteralPath (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ProMeter')))
 
     # --- A: the plain double-click, with no arguments and nothing injected. ---
-    Write-Step 'Build A: build-local.cmd with no arguments'
+    Write-Step 'Build A: build-local.cmd with no arguments, approved in the installer window'
     New-MarkerSource 'build-a'
-    $runA = Invoke-BuildLocalEntryPoint -Label 'build-a'
+    $runA = Invoke-BuildLocalEntryPointInteractive -Label 'build-a' -ClearRun `
+        -ScreenshotDirectory (Join-Path $WorkRoot 'entry-point-ui')
+    $summary['A approval'] = ($runA.Approval.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
     if ($runA.ExitCode -ne 0) { throw "build-local.cmd (A) exited $($runA.ExitCode); see $($runA.StandardOutput)" }
     if (Test-Path -LiteralPath $failureMarker -PathType Leaf) { throw 'A successful run still left a failure marker behind.' }
     $liveStages = Assert-StageProgressReachedCmd -Path $runA.StandardOutput -Label 'Build A'
     $summary['A live stages in CMD'] = ($liveStages -join ', ')
     $hashA = Get-BuildLocalSha256 $stagingExe
     $versionA = [Diagnostics.FileVersionInfo]::GetVersionInfo($stagingExe).FileVersion
+    # Run was cleared on the completion page, so nothing should be running yet, and the parent
+    # must not have called that a failed build.
+    $runningAfterA = @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue)
+    if ($runningAfterA.Count -gt 0) {
+        throw "Build A cleared Run but $($runningAfterA.Count) CycleArc process(es) are running."
+    }
+    $summary['A run choice honoured'] = 'yes, nothing started'
+    # Start it now so the A/B replacement check below still has a running desktop to replace.
+    $launcherA = Join-Path $installRoot 'CycleArc.exe'
+    if (!(Test-Path -LiteralPath $launcherA -PathType Leaf)) { throw "Build A left no launcher at $launcherA" }
+    $null = Start-Process -FilePath $launcherA -ArgumentList @('--show') -WorkingDirectory $installRoot
     $statusA = Assert-RunningManagedBuild -ExpectedHash $hashA -Label 'Build A'
     $pidA = [int]$statusA.ProcessId
     $summary['A version'] = $versionA
@@ -241,9 +399,9 @@ try {
     $summary['A pid'] = $pidA
 
     # --- B: the same version number, different executable content. ---
-    Write-Step 'Build B: same version, different content, installed over A'
+    Write-Step 'Build B: same version, different content, installed over A (-Fast -SilentInstall)'
     New-MarkerSource 'build-b-replaces-a'
-    $runB = Invoke-BuildLocalEntryPoint -Label 'build-b' -Arguments @('-Fast')
+    $runB = Invoke-BuildLocalEntryPoint -Label 'build-b' -Arguments @('-Fast', '-SilentInstall')
     if ($runB.ExitCode -ne 0) { throw "build-local.cmd (B) exited $($runB.ExitCode); see $($runB.StandardOutput)" }
     $hashB = Get-BuildLocalSha256 $stagingExe
     $versionB = [Diagnostics.FileVersionInfo]::GetVersionInfo($stagingExe).FileVersion
@@ -262,9 +420,9 @@ try {
     $summary['B pid'] = $pidB
 
     # --- Failure: a broken build must not touch the installed, running app. ---
-    Write-Step 'Failure: a broken build keeps the running installation'
+    Write-Step 'Failure: a broken build keeps the running installation (-SilentInstall)'
     Set-MarkerSource "namespace CycleArc; this is deliberately not valid C#"
-    $runFail = Invoke-BuildLocalEntryPoint -Label 'build-failure'
+    $runFail = Invoke-BuildLocalEntryPoint -Label 'build-failure' -Arguments @('-SilentInstall')
     if ($runFail.ExitCode -eq 0) { throw 'A broken build still reported success through CMD.' }
     if (!(Test-Path -LiteralPath $failureMarker -PathType Leaf)) { throw 'The failed run wrote no stage marker for build-local.cmd.' }
     $failureText = Get-Content -LiteralPath $failureMarker -Raw

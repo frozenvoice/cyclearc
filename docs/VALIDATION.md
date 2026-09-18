@@ -2,6 +2,48 @@
 
 ## Current release — Codex and Claude Code
 
+- Setup installer log retention, Restart Manager query outcomes, and a withdrawn timing claim
+  (unreleased):
+  - **Log fallback was inside the directory the run deletes.** When the default log location
+    could not be used, `PrepareLogPath` fell back to a file under the per-run work directory,
+    and `Install`'s `finally` deletes that directory whole. A failure caused by the install
+    target therefore still lost the log explaining it — the case the fallback existed for. The
+    path choice now lives in `SetupLogPaths`, every candidate is outside both the install
+    target and the work directory, and the chosen path is proven writable before the engine
+    starts. An explicit `--log` is still the only candidate when one is given, and when nothing
+    is writable the engine runs without `--log` and the result reports that no log exists
+    rather than naming one that does not. `SetupLogPathTests` drives the production code with
+    the write probe injected; restoring the old in-work fallback fails
+    `NoCandidateIsInsideAPerRunWorkDirectory` with the offending path.
+  - **"Could not ask" read as "nobody holds it".** Every Restart Manager failure — interop
+    unavailable, `RmStartSession`, `RmRegisterResources`, `RmGetList`, and a second
+    `ERROR_MORE_DATA` — returned the same empty array as a clean "none", and
+    `Wait-InstallDesktopReleased` used an empty result as its success condition. A caller that
+    asked for the install-root check could therefore walk past a directory whose state was
+    never confirmed. The query now returns one of three outcomes: queried with no holder,
+    queried with holders, or unknown with the API and its error code. The wait treats unknown
+    as not-yet-released and reports why; `ERROR_MORE_DATA` is retried with the reported size a
+    bounded number of times and then returns unknown rather than looping or claiming none.
+    Sessions are ended on both paths, and nothing asks any process to close or restart.
+    Restoring the old "empty means free" condition fails the injected-failure cases.
+  - A queried result with no holders means Restart Manager reported none. It is not a
+    guarantee that the directory can be renamed: this API reports the holders it knows about,
+    not every possible handle.
+  - **Withdrawn: the 5.1 s reading.** Run
+    [35395590182](https://github.com/frozenvoice/cyclearc/actions/runs/35395590182) logged
+    `Desktop released its installation after 5.1s`, and the same-version repair then succeeded.
+    That was previously written up as proof that the installation stays locked for about five
+    seconds after the desktop exits, that this is what caused the earlier rename error 5, and
+    that the fix is therefore confirmed. None of that follows. `ElapsedSeconds` is the whole
+    runtime of `Wait-InstallDesktopReleased`, which in that run included, for the first time,
+    listing the installation's files and querying Restart Manager. That run recorded no holder
+    observations, so whether the 5.1 s was spent waiting for a holder or performing the query
+    itself cannot be told apart from what was logged. The opposite claim — that the query is
+    simply slow — is equally unsupported. What can be said: the wait took 5.1 s in that run and
+    the repair that followed succeeded. The cause of the earlier rename failure, and the
+    identity of any holder, remain undetermined. The diagnostics are in place, so a future run
+    that does observe a holder will say so.
+
 - Desktop-instance shutdown-report race, release asset lists and live build-local progress (unreleased):
   - **Correction to the previous entry.** The earlier note said the reported failure was a
     child that did not write `first.jsonl` within 10 seconds. The user's stack does not

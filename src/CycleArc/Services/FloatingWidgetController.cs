@@ -11,20 +11,25 @@ public sealed class FloatingWidgetController(Action<FloatingWidget> configure, A
     private AppSettings? _settings;
     private UsageAccountOverview? _overview;
     private bool _recoveryPending;
+    private bool _refreshing;
     private bool _disposed;
 
     public FloatingWidget? CurrentWindow => _window;
     private bool ShouldShow => !_disposed && _settings?.FloatingWidgetEnabled == true && _overview?.Selected is not null;
 
-    public void Update(AppSettings settings, UsageAccountOverview overview, bool applySettings = false)
+    public void Update(AppSettings settings, UsageAccountOverview overview, bool applySettings = false,
+        bool refreshing = false)
     {
         if (_disposed) return;
         _settings = settings;
         _overview = overview;
+        _refreshing = refreshing;
         if (!ShouldShow) { _window?.Hide(); return; }
         var created = EnsureWindow();
         // Every displayable account, in account-management order, not only the selected one.
         _window!.BindAccounts(overview.Accounts, overview.SelectedId, overview.Preference);
+        // A window recreated mid-refresh still shows the shared state, not a stale idle button.
+        _window.SetRefreshing(refreshing);
         if (created || applySettings) _window.Apply(settings);
         _window.EnsureVisible(settings.WidgetAlwaysOnTop);
         if (created) log?.Invoke("Widget window created and shown");
@@ -36,7 +41,7 @@ public sealed class FloatingWidgetController(Action<FloatingWidget> configure, A
         if (!ShouldShow) return;
         if (_window is null)
         {
-            Update(_settings!, _overview!);
+            Update(_settings!, _overview!, refreshing: _refreshing);
             log?.Invoke("Widget restored after its window closed");
         }
         else if (_window.EnsureVisible(_settings!.WidgetAlwaysOnTop))

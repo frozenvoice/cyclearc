@@ -34,7 +34,9 @@ jobs:
         run: |
           $report = [ordered]@{
             localAppData   = $env:LOCALAPPDATA
-            installation   = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'CycleArc')
+            installation   = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\CycleArc')
+            installationOld = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'CycleArc')
+            developmentExe = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\CycleArc-dev')
             dataRoot       = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'ProMeter')
             uninstallEntry = Test-Path -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CycleArc'
             processes      = @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue).Count
@@ -54,6 +56,18 @@ jobs:
           try { ./scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment -WorkRoot $artifacts }
           finally { Stop-Transcript | Out-Null }
 
+      # The screens a person actually sees when they double-click the downloaded installer.
+      # This installs for real, which is why it only runs on this disposable runner.
+      - name: Verify the setup window on the distributable installer
+        run: |
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/build-local-entry/setup-ui'
+          $setup = Join-Path $env:GITHUB_WORKSPACE 'publish/.dev-velopack/CycleArc-Setup.exe'
+          if (!(Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw "The packaged installer is missing at $setup"
+          }
+          "Installer: $setup ({0:n1} MB)" -f ((Get-Item $setup).Length / 1MB)
+          ./scripts/Verify-SetupUi.ps1 -SetupPath $setup -OutputDirectory $artifacts -ConfirmDisposableEnvironment
+
       # Collected for a failed run as well, so a failure is diagnosable from the log alone.
       - name: Collect logs
         if: always()
@@ -64,11 +78,14 @@ jobs:
           if (Test-Path -LiteralPath $buildLocal) {
             Copy-Item -LiteralPath $buildLocal -Destination (Join-Path $artifacts 'build-local') -Recurse -Force -ErrorAction SilentlyContinue
           }
-          $installation = Join-Path $env:LOCALAPPDATA 'CycleArc'
-          if (Test-Path -LiteralPath $installation) {
+          # Either root may hold it: the new-install default is under Programs and an
+          # existing installation keeps its own. Each gets its own tree file.
+          foreach ($installation in @((Join-Path $env:LOCALAPPDATA 'Programs\CycleArc'), (Join-Path $env:LOCALAPPDATA 'CycleArc'))) {
+            if (!(Test-Path -LiteralPath $installation)) { continue }
+            $treeName = 'installation-tree-' + (Split-Path -Parent $installation | Split-Path -Leaf) + '.json'
             Get-ChildItem -LiteralPath $installation -Recurse -ErrorAction SilentlyContinue |
               Select-Object FullName, Length, LastWriteTimeUtc |
-              ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $artifacts 'installation-tree.json')
+              ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $artifacts $treeName)
           }
           # Velopack's own log is the first place a Setup failure shows up.
           foreach ($velopack in @(Get-ChildItem -LiteralPath $env:LOCALAPPDATA -Filter 'Velopack.log' -Recurse -Depth 3 -ErrorAction SilentlyContinue)) {

@@ -1,8 +1,29 @@
 name: Windows
 
+# Documentation that no build step reads is excluded: a change to it cannot alter the
+# executable, the installer or the packaged assets, so re-running the whole Windows gate
+# would only re-prove code the change did not touch.
+#
+# release-notes/**/*.md is deliberately NOT excluded: Package.ps1 receives that file as
+# ReleaseNotesPath, so it does affect the packaged output.
+# The two lists are kept identical by hand: GitHub Actions does not expand YAML anchors.
 on:
   push:
+    paths-ignore:
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'README.md'
+      - 'docs/**/*.md'
+      - '.cursor/**'
+      - '.github/**/*.md'
   pull_request:
+    paths-ignore:
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'README.md'
+      - 'docs/**/*.md'
+      - '.cursor/**'
+      - '.github/**/*.md'
 
 jobs:
   build:
@@ -182,8 +203,14 @@ jobs:
             }
             throw "Setup.exe exited $($process.ExitCode). See $log"
           }
-          $current = Join-Path $env:LOCALAPPDATA 'CycleArc/current/CycleArc.exe'
-          $launcher = Join-Path $env:LOCALAPPDATA 'CycleArc/CycleArc.exe'
+          # Resolve where it actually installed. The new-install default moved under
+          # Programs, and an existing installation keeps its own root, so neither may be
+          # assumed here.
+          $installRoot = Get-ManagedInstallRoot
+          if (!$installRoot) { throw 'Setup.exe finished but no managed installation was found.' }
+          Write-Host "Managed install root: $installRoot"
+          $current = Join-Path $installRoot 'current/CycleArc.exe'
+          $launcher = Join-Path $installRoot 'CycleArc.exe'
           if (!(Test-Path -LiteralPath $current -PathType Leaf) -or !(Test-Path -LiteralPath $launcher -PathType Leaf)) {
             throw "Managed install is missing $current or $launcher"
           }
@@ -219,8 +246,14 @@ jobs:
           # does not establish the cause. When the wait times out this fails the
           # job instead of running Setup.exe over a live installation, and the
           # Setup logs printed below say what actually blocked the rename.
-          $released = Wait-InstallDesktopReleased -ProcessId ([int]$status.ProcessId)
+          $released = Wait-InstallDesktopReleased -ProcessId ([int]$status.ProcessId) -InstallRoot $installRoot
           Write-Host "Desktop released its installation after $($released.ElapsedSeconds)s"
+          if ($released.HeldByDescription) {
+            # Processes Restart Manager reported while waiting, after the desktop had exited
+            # and its mutex was free. Recorded as candidates: this does not establish that any
+            # of them is what denies Velopack's rollback rename.
+            Write-Host "Reported as holding it during the wait: $($released.HeldByDescription)"
+          }
 
           # Same-version silent repair of this identical package must keep current\CycleArc.exe.
           $repairLog = Join-Path $PWD 'artifacts/setup-install/setup-repair.log'
@@ -232,7 +265,15 @@ jobs:
           if ($repair.ExitCode -ne 0) {
             # Artifact downloads are not always reachable, so the cause goes in the log.
             if (Test-Path -LiteralPath $repairLog -PathType Leaf) {
-              Write-Host '----- setup-repair.log -----'
+              # Auxiliary only. A holder query that cannot answer must not cost us the Setup
+            # error or its log, so it is reported beside them and never replaces them.
+            try {
+              Write-Host "Holding the installation now: $(Format-InstallDirectoryLock (Get-InstallDirectoryLock -InstallRoot $installRoot))"
+            }
+            catch {
+              Write-Host "Holder query failed: $($_.Exception.Message)"
+            }
+            Write-Host '----- setup-repair.log -----'
               Get-Content -LiteralPath $repairLog -Tail 120 -ErrorAction SilentlyContinue
             }
             throw "Same-version Setup.exe exited $($repair.ExitCode). See $repairLog"

@@ -372,6 +372,28 @@ public partial class FloatingWidget : Window
         return line;
     }
 
+    // The one refresh control for the whole widget. It raises the same event the middle
+    // click already raises, so tray, flyout and widget all join the one shared refresh.
+    private void OnRefreshClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        RefreshRequested?.Invoke();
+    }
+
+    /// <summary>
+    /// Reflects the shared refresh state. The coordinator merges concurrent callers, so this
+    /// only has to stop a second click from looking like a second request; it never tracks a
+    /// refresh of its own, and the state is restored on success, failure and cancellation
+    /// alike because the coordinator reports every transition.
+    /// </summary>
+    public void SetRefreshing(bool refreshing)
+    {
+        WidgetRefreshButton.IsEnabled = !refreshing;
+        var label = refreshing ? UiText.CodexRefreshing : UiText.RefreshAll;
+        WidgetRefreshButton.ToolTip = label;
+        System.Windows.Automation.AutomationProperties.SetName(WidgetRefreshButton, label);
+    }
+
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
         e.Handled = true;

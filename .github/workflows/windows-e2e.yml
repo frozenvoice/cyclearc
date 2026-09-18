@@ -33,7 +33,9 @@ jobs:
         run: |
           $report = [ordered]@{
             localAppData   = $env:LOCALAPPDATA
-            installation   = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'CycleArc')
+            installation   = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\CycleArc')
+            installationOld = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'CycleArc')
+            developmentExe = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\CycleArc-dev')
             dataRoot       = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'ProMeter')
             recoveryRoot   = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'CycleArc-update-recovery')
             uninstallEntry = Test-Path -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CycleArc'
@@ -64,13 +66,16 @@ jobs:
               Copy-Item -LiteralPath $source -Destination (Join-Path $state $name) -Recurse -Force -ErrorAction SilentlyContinue
             }
           }
-          $installation = Join-Path $env:LOCALAPPDATA 'CycleArc'
-          if (Test-Path -LiteralPath $installation) {
+          # Either root may hold it: the new-install default is under Programs and an
+          # existing installation keeps its own.
+          foreach ($installation in @((Join-Path $env:LOCALAPPDATA 'Programs\CycleArc'), (Join-Path $env:LOCALAPPDATA 'CycleArc'))) {
+            if (!(Test-Path -LiteralPath $installation)) { continue }
+            $rootTag = Split-Path -Parent $installation | Split-Path -Leaf
             Get-ChildItem -LiteralPath $installation -Recurse -ErrorAction SilentlyContinue |
               Select-Object FullName, Length, LastWriteTimeUtc |
-              ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $state 'installation-tree.json')
+              ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $state "installation-tree-$rootTag.json")
             foreach ($log in @(Get-ChildItem -LiteralPath $installation -Filter '*.log' -Recurse -ErrorAction SilentlyContinue)) {
-              Copy-Item -LiteralPath $log.FullName -Destination (Join-Path $state ("installation-" + $log.Name)) -Force -ErrorAction SilentlyContinue
+              Copy-Item -LiteralPath $log.FullName -Destination (Join-Path $state ("installation-$rootTag-" + $log.Name)) -Force -ErrorAction SilentlyContinue
             }
           }
           # Velopack's own logs are the first place a Setup, apply or uninstall failure shows up.

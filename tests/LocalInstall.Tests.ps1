@@ -144,6 +144,143 @@ try {
     if ($released.ElapsedSeconds -gt 2) { throw "An already-released installation waited $($released.ElapsedSeconds)s" }
     Write-Host 'PASS: an already-released installation returns at once.'
 
+    # --- Regression: a handle inside the installation blocks the release wait. ----------------
+    # Waiting only for the process and the mutex let a same-version repair start while something
+    # still held the directory, which Velopack then reported as Windows error 5 on rename. These
+    # use a real handle on a real file, held by this process, and never touch a real installation.
+    $lockRoot = Join-Path $testRoot 'install-lock'
+    New-Item -ItemType Directory -Path (Join-Path $lockRoot 'current') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $lockRoot 'current/CycleArc.exe') -Value 'current'
+    Set-Content -LiteralPath (Join-Path $lockRoot 'Update.exe') -Value 'updater'
+
+    # Nothing holds it yet.
+    $idle = Get-InstallDirectoryLock -InstallRoot $lockRoot
+    if (!$idle.Queried) { throw "An untouched installation could not be queried: $(Format-InstallDirectoryLock $idle)" }
+    if ($idle.HasHolder) { throw "An untouched installation was reported as held: $(Format-InstallDirectoryLock $idle)" }
+
+    $held = [IO.File]::Open((Join-Path $lockRoot 'current/CycleArc.exe'), 'Open', 'Read', 'None')
+    try {
+        $lock = Get-InstallDirectoryLock -InstallRoot $lockRoot
+        if (!$lock.Queried) { throw "A held installation could not be queried: $(Format-InstallDirectoryLock $lock)" }
+        if (!$lock.HasHolder) { throw 'A held installation file was not detected' }
+        if (@($lock.Holders)[0].ProcessId -ne $PID) {
+            throw "The holder was reported as PID $(@($lock.Holders)[0].ProcessId), expected this process ($PID)"
+        }
+        $described = Format-InstallDirectoryLock $lock
+        if ($described -notmatch [regex]::Escape("PID $PID")) { throw "The holder was not named: $described" }
+
+        # The wait refuses to declare the installation free while that handle is open, and says
+        # who holds it. No process is running and no mutex is held, so the old check would pass.
+        $waitError = ''
+        try {
+            Wait-InstallDesktopReleased -ProcessId 0 -MutexName 'Local\CycleArc-test-absent-mutex' `
+                -TimeoutSeconds 2 -PollMilliseconds 200 -InstallRoot $lockRoot | Out-Null
+        }
+        catch { $waitError = $_.Exception.Message }
+        if (!$waitError) { throw 'The release wait passed while the installation was still held' }
+        if ($waitError -notmatch 'held by') { throw "The wait did not report the holder: $waitError" }
+        if ($waitError -notmatch [regex]::Escape("PID $PID")) { throw "The wait did not name the holder: $waitError" }
+    }
+    finally { $held.Dispose() }
+
+    # Released again: the same wait now succeeds.
+    $freed = Wait-InstallDesktopReleased -ProcessId 0 -MutexName 'Local\CycleArc-test-absent-mutex' `
+        -TimeoutSeconds 5 -PollMilliseconds 200 -InstallRoot $lockRoot
+    if ($null -eq $freed) { throw 'The release wait did not succeed after the handle was closed' }
+    if ($freed.InstallRoot -ne $lockRoot) { throw 'The release result did not report the installation it checked' }
+
+    # An installation path that does not exist is not reported as held.
+    $absent = Get-InstallDirectoryLock -InstallRoot (Join-Path $testRoot 'install-lock-absent')
+    if (!$absent.Queried -or $absent.HasHolder) { throw 'A missing installation was reported as held' }
+    Write-Host 'PASS: a handle inside the installation is detected, named, and waited out.'
+
+    # --- Regression: "could not ask" is not "nobody holds it". --------------------------
+    # Every Restart Manager failure used to return the same empty array as a clean "none", so
+    # a wait that asked for the InstallRoot check passed on a directory it never confirmed.
+    # These inject the query result, so each outcome is exercised without a real holder.
+    $queryRoot = Join-Path $testRoot 'lock-query'
+    New-Item -ItemType Directory -Path (Join-Path $queryRoot 'current') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $queryRoot 'current/CycleArc.exe') -Value 'current'
+    Set-Content -LiteralPath (Join-Path $queryRoot 'Update.exe') -Value 'updater'
+    $absentMutex = 'Local\CycleArc-test-absent-' + [guid]::NewGuid().ToString('N')
+
+    # A. Queried, nothing reported -> the wait passes.
+    $none = Get-InstallDirectoryLock -InstallRoot $queryRoot -Invoker { New-LockQueryResult -Status Queried }
+    if (!$none.Queried -or $none.HasHolder) { throw 'A clean query was not reported as queried-with-no-holder' }
+    if ((Format-InstallDirectoryLock $none) -ne 'no holder was reported') {
+        throw "A clean query was described as: $(Format-InstallDirectoryLock $none)"
+    }
+    $passed = Wait-InstallDesktopReleased -ProcessId 0 -MutexName $absentMutex -TimeoutSeconds 3 `
+        -PollMilliseconds 100 -InstallRoot $queryRoot -LockInvoker { New-LockQueryResult -Status Queried }
+    if ($null -eq $passed) { throw 'A clean query did not let the wait finish' }
+
+    # B. Queried with a holder -> the wait refuses and names it.
+    $holder = New-LockQueryResult -Status Queried -Holders @([pscustomobject]@{ ProcessId = 4242; Name = 'Synthetic'; Path = 'C:\synthetic.exe' })
+    if (!$holder.HasHolder) { throw 'A reported holder was not surfaced' }
+    $heldError = ''
+    try {
+        Wait-InstallDesktopReleased -ProcessId 0 -MutexName $absentMutex -TimeoutSeconds 1 `
+            -PollMilliseconds 100 -InstallRoot $queryRoot -LockInvoker { $holder } | Out-Null
+    }
+    catch { $heldError = $_.Exception.Message }
+    if (!$heldError) { throw 'The wait passed while a holder was reported' }
+    if ($heldError -notmatch 'PID 4242') { throw "The holder was not named: $heldError" }
+
+    # C + D. Each API failure is an Unknown that the wait must not treat as a pass.
+    foreach ($case in @(
+        @{ Reason = 'RmStartSession failed'; Code = 5 },
+        @{ Reason = 'RmRegisterResources failed'; Code = 87 },
+        @{ Reason = 'RmGetList failed'; Code = 6 }
+    )) {
+        $unknown = New-LockQueryResult -Status Unknown -Reason $case.Reason -Code $case.Code
+        if ($unknown.Queried -or !$unknown.Unknown) { throw "$($case.Reason) was not reported as unknown" }
+        $described = Format-InstallDirectoryLock $unknown
+        if ($described -notmatch 'could not determine') { throw "Unknown was described as: $described" }
+        if ($described -notmatch [regex]::Escape("code $($case.Code)")) { throw "The API code was lost: $described" }
+        $unknownError = ''
+        try {
+            Wait-InstallDesktopReleased -ProcessId 0 -MutexName $absentMutex -TimeoutSeconds 1 `
+                -PollMilliseconds 100 -InstallRoot $queryRoot -LockInvoker { $unknown } | Out-Null
+        }
+        catch { $unknownError = $_.Exception.Message }
+        if (!$unknownError) { throw "$($case.Reason) was treated as a clean pass" }
+        if ($unknownError -notmatch 'could not be determined') {
+            throw "An unanswerable check was not reported as such: $unknownError"
+        }
+    }
+
+    # E. The real API on a file nothing holds answers cleanly, so the retry loop's success
+    #    path returns a Queried result rather than falling through to Unknown. The
+    #    queried-with-holder path is covered by the real handle test above.
+    $realQuery = Get-FileLockingProcess -Path @((Join-Path $queryRoot 'Update.exe'))
+    if (!$realQuery.Queried) {
+        throw "A real query on an unheld file was not queried: $(Format-InstallDirectoryLock $realQuery)"
+    }
+    if ($realQuery.HasHolder) { throw 'An unheld file was reported as held' }
+
+    # F. Repeated ERROR_MORE_DATA ends as unknown inside the attempt budget, not as "none"
+    #    and not as an endless loop.
+    $exhausted = New-LockQueryResult -Status Unknown -Code 234 `
+        -Reason 'RmGetList kept reporting ERROR_MORE_DATA after 4 attempts'
+    if ($exhausted.Queried) { throw 'Exhausted retries were reported as a clean query' }
+    $exhaustedText = Format-InstallDirectoryLock $exhausted
+    if ($exhaustedText -notmatch 'ERROR_MORE_DATA' -or $exhaustedText -notmatch 'code 234') {
+        throw "Exhausted retries were described as: $exhaustedText"
+    }
+    # The bound is real: the source retries with the reported size a limited number of times.
+    $lockSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../scripts/LocalInstall.ps1') -Raw
+    if ($lockSource -notmatch 'MaxListAttempts') { throw 'The ERROR_MORE_DATA retry is unbounded' }
+    if ($lockSource -notmatch 'attempt -le \$MaxListAttempts') { throw 'The retry loop is not bounded by MaxListAttempts' }
+
+    # G. A failed auxiliary query still describes itself, so a caller can print it beside the
+    #    original Setup error rather than losing either.
+    $auxiliary = Format-InstallDirectoryLock (New-LockQueryResult -Status Unknown -Reason 'RmStartSession failed' -Code 5)
+    if (!$auxiliary) { throw 'A failed auxiliary query produced no description' }
+    if ((Format-InstallDirectoryLock $null) -ne 'the installation was not checked') {
+        throw 'An absent query result was not described'
+    }
+    Write-Host 'PASS: Restart Manager separates queried-none, queried-holder and could-not-ask.'
+
     $heldMutexName = 'CycleArc-test-held-' + [guid]::NewGuid().ToString('N')
     $heldMutex = [Threading.Mutex]::new($false, $heldMutexName)
     try {

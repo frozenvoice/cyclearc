@@ -12,6 +12,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{795806BD
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CycleArc.UiSmoke", "tests\CycleArc.UiSmoke\CycleArc.UiSmoke.csproj", "{4B501A4E-0C73-4B47-9DFE-78D825B8ABCA}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{D0C38976-6185-4A35-99F1-DB99006611BB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CycleArc.Setup", "src\CycleArc.Setup\CycleArc.Setup.csproj", "{117CDAA6-3EC0-4FD1-9FE3-9FA70471319B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -38,8 +42,13 @@ Global
 		{4B501A4E-0C73-4B47-9DFE-78D825B8ABCA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4B501A4E-0C73-4B47-9DFE-78D825B8ABCA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4B501A4E-0C73-4B47-9DFE-78D825B8ABCA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{117CDAA6-3EC0-4FD1-9FE3-9FA70471319B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{117CDAA6-3EC0-4FD1-9FE3-9FA70471319B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{117CDAA6-3EC0-4FD1-9FE3-9FA70471319B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{117CDAA6-3EC0-4FD1-9FE3-9FA70471319B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{4B501A4E-0C73-4B47-9DFE-78D825B8ABCA} = {795806BD-7BF8-4B87-AB1E-327FE1B2DCAE}
+		{117CDAA6-3EC0-4FD1-9FE3-9FA70471319B} = {D0C38976-6185-4A35-99F1-DB99006611BB}
 	EndGlobalSection
 EndGlobal
