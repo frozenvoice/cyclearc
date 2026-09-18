@@ -227,6 +227,11 @@ jobs:
           # Setup logs printed below say what actually blocked the rename.
           $released = Wait-InstallDesktopReleased -ProcessId ([int]$status.ProcessId) -InstallRoot $installRoot
           Write-Host "Desktop released its installation after $($released.ElapsedSeconds)s"
+          if ($released.HeldByDescription) {
+            # What kept holding it after the process had exited and the mutex was free. This
+            # is the handle that denies Velopack's rollback rename with Windows error 5.
+            Write-Host "Held after exit by: $($released.HeldByDescription)"
+          }
 
           # Same-version silent repair of this identical package must keep current\CycleArc.exe.
           $repairLog = Join-Path $PWD 'artifacts/setup-install/setup-repair.log'

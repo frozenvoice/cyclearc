@@ -375,6 +375,10 @@ function Wait-InstallDesktopReleased {
     $deadline = [Diagnostics.Stopwatch]::StartNew()
     $processAlive = $false
     $mutexHeld = $false
+    # Kept even when the wait then succeeds: a release that took several seconds is the
+    # difference between a repair that works and one denied at rename, and the holder is
+    # the thing worth naming afterwards.
+    $firstLock = @()
     while ($true) {
         $processAlive = $false
         if ($ProcessId -gt 0) {
@@ -400,6 +404,7 @@ function Wait-InstallDesktopReleased {
         $lock = @()
         if (!$processAlive -and !$mutexHeld -and $InstallRoot) {
             $lock = @(Get-InstallDirectoryLock -InstallRoot $InstallRoot)
+            if ($lock.Count -gt 0 -and $firstLock.Count -eq 0) { $firstLock = $lock }
         }
         if (!$processAlive -and !$mutexHeld -and $lock.Count -eq 0) {
             return [pscustomobject]@{
@@ -407,6 +412,8 @@ function Wait-InstallDesktopReleased {
                 ProcessId = $ProcessId
                 MutexName = $MutexName
                 InstallRoot = $InstallRoot
+                HeldBy = $firstLock
+                HeldByDescription = if ($firstLock.Count -gt 0) { Format-InstallDirectoryLock $firstLock } else { '' }
             }
         }
         if ($deadline.Elapsed.TotalSeconds -ge $TimeoutSeconds) { break }
