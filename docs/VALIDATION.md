@@ -17,9 +17,11 @@
   stdout/stderr to `artifacts/build-local/dev-run.out.log` and `dev-run.err.log`
   with a bounded drain; a failed gate prints a tail and `last-failure.txt`
   includes it so the CMD window shows the UiSmoke error instead of only
-  `dev-run.ps1 -NoLaunch failed (exit 1)`. Windows CI on this change is the
-  executable/UiSmoke proof; this Linux environment cannot build the WPF smoke
-  project.
+  `dev-run.ps1 -NoLaunch failed (exit 1)`. Linux ran
+  `DesktopInstanceProcessWaitTests` (the delayed-ready case took 11s) and
+  `tests/BuildLocal.Tests.ps1`, including a synthetic UiSmoke stderr line that
+  reached both `dev-run.err.log` and `last-failure.txt`. Windows CI is the
+  executable/UiSmoke proof; this environment cannot build the WPF smoke project.
 - Widget bind applies the arranged HWND size (unreleased): `FloatingWidget.BindAccounts` now
   calls the existing Relayout path when the arranged DIP size changed, so
   `FloatingWidgetController.Update()` grows or shrinks the same native window when accounts,

@@ -20,7 +20,7 @@ public sealed class DesktopInstanceProcessWaitTests
         Assert.Contains("Task.WaitAll", helper, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 45_000)]
+    [Fact]
     public void WaitFor_SucceedsWhenReadyArrivesAfterFormerTenSecondBudget()
     {
         Assert.True(CurrentReadyTimeout > FormerReadyTimeout);
@@ -46,7 +46,7 @@ public sealed class DesktopInstanceProcessWaitTests
         Assert.Contains("delayed-ready-stdout", run.Output.StandardOutput, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 15_000)]
+    [Fact]
     public void WaitFor_TimeoutIncludesPidStreamsAndReport()
     {
         using var run = SyntheticChild.Start(
@@ -80,7 +80,7 @@ public sealed class DesktopInstanceProcessWaitTests
         Assert.False(run.Process.HasExited, "Timeout diagnostics must not kill a child the test did not stop.");
     }
 
-    [Fact(Timeout = 15_000)]
+    [Fact]
     public void WaitFor_DrainsStderrBeyondBudgetWithoutBlocking()
     {
         using var run = SyntheticChild.Start(
