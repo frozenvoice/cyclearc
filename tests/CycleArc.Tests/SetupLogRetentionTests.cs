@@ -8,23 +8,15 @@ namespace CycleArc.Tests;
 /// the log into the install directory, or into the temporary work directory that is deleted on
 /// the way out, loses it exactly then.
 ///
-/// EngineRunner is in the Windows-only Native AOT project, so the contract is read from its
-/// source. The behaviour it describes is exercised end to end by scripts/Verify-SetupUi.ps1 on
-/// a disposable runner.
+/// EngineRunner is in the Windows-only Native AOT project, so its contract is read from
+/// source. Where the log actually goes is checked against the real code in SetupLogPathTests,
+/// which links SetupLogPaths.cs; this file covers what EngineRunner must do around it. The
+/// whole path is exercised end to end by scripts/Verify-SetupUi.ps1 on a disposable runner.
 /// </summary>
 public sealed class SetupLogRetentionTests
 {
     private static readonly string Source = File.ReadAllText(
         Path.Combine(FindRepoRoot(), "src", "CycleArc.Setup", "EngineRunner.cs"));
-
-    [Fact]
-    public void TheDefaultLogIsOutsideTheInstallTargetAndTheWorkDirectory()
-    {
-        // Under the user's temp root, which is neither the install target nor the per-run work
-        // directory that is deleted at the end of Install.
-        Assert.Matches(new Regex(@"DefaultLogDirectory\s*=>\s*Path\.Combine\(\s*Path\.GetTempPath\(\)"), Source);
-        Assert.Contains("\"CycleArc-setup-logs\"", Source, StringComparison.Ordinal);
-    }
 
     [Fact]
     public void TheLogIsNotCopiedOutOfTheDeletedWorkDirectory()
@@ -33,22 +25,6 @@ public sealed class SetupLogRetentionTests
         // delete work. A failing install target then took the log with it.
         Assert.DoesNotContain("TryKeepLog", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("KeptLogPath", Source, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheLogPathIsProvenWritableBeforeTheEngineRuns()
-    {
-        // PrepareLogPath opens each candidate before use, so a path that is reported is a path
-        // that was writable, and the fallback happens before the engine starts rather than after.
-        Assert.Contains("PrepareLogPath", Source, StringComparison.Ordinal);
-        Assert.Contains("FileMode.Create", Source, StringComparison.Ordinal);
-        var prepare = Source.IndexOf("PrepareLogPath(string? requested", StringComparison.Ordinal);
-        Assert.True(prepare > 0, "PrepareLogPath is no longer the shape this test describes.");
-        var body = Source[prepare..];
-        // An explicit --log is honoured and never silently replaced by the default.
-        Assert.Contains("attempts.Add(Path.GetFullPath(requested!));", body, StringComparison.Ordinal);
-        // The install directory is not one of the candidates.
-        Assert.DoesNotContain("attempts.Add(directory", body, StringComparison.Ordinal);
     }
 
     [Fact]

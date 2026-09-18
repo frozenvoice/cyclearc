@@ -49,7 +49,7 @@ internal static class EngineRunner
             Directory.CreateDirectory(work);
             // Settled before the engine runs and never moved afterwards, so the path reported
             // on a failure is the path the log is actually at.
-            logPath = PrepareLogPath(logPath, work, out logError);
+            logPath = PrepareLogPath(logPath, out logError);
             var enginePath = Path.Combine(work, "CycleArc-Setup-engine.exe");
             if (!TryExtract(enginePath, out var extractError))
                 return new EngineResult(EngineOutcome.Failed, -1, logPath ?? "", extractError, logError);
@@ -65,8 +65,13 @@ internal static class EngineRunner
             start.ArgumentList.Add("--silent");
             start.ArgumentList.Add("--installto");
             start.ArgumentList.Add(directory);
-            start.ArgumentList.Add("--log");
-            start.ArgumentList.Add(logPath);
+            // Only when there is somewhere to write it. With no usable location the engine
+            // is run without --log rather than being handed a path that does not work.
+            if (!string.IsNullOrWhiteSpace(logPath))
+            {
+                start.ArgumentList.Add("--log");
+                start.ArgumentList.Add(logPath);
+            }
 
             using var process = Process.Start(start);
             if (process is null)
@@ -98,8 +103,9 @@ internal static class EngineRunner
         }
         finally
         {
-            // Only the extracted engine goes. The log was written outside this directory, so
-            // nothing has to be rescued from it and a failed rescue cannot lose the log.
+            // Only the extracted engine goes. Every log location - the requested one, the
+            // default and every fallback - is outside this directory, so nothing has to be
+            // rescued from it and a failed rescue cannot lose the log.
             try { if (Directory.Exists(work)) Directory.Delete(work, recursive: true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
@@ -174,65 +180,15 @@ internal static class EngineRunner
         }
     }
 
-    /// <summary>
-    /// Where a run that was not given --log writes its engine log.
-    ///
-    /// Not the installation directory and not the temporary work directory: the installation
-    /// may be exactly what is failing, and the work directory is deleted on the way out. A
-    /// failure whose cause is the install target would otherwise take the log explaining it
-    /// down with it. This is beside the user's own temp directory, is never the ProMeter data
-    /// directory, and is written to directly rather than copied into afterwards.
-    /// </summary>
-    public static string DefaultLogDirectory => Path.Combine(Path.GetTempPath(), "CycleArc-setup-logs");
+    /// <summary>The default log location, for callers that want to report it.</summary>
+    public static string DefaultLogDirectory => SetupLogPaths.DefaultDirectory;
 
-    public static string DefaultLogPath =>
-        Path.Combine(DefaultLogDirectory, "CycleArc-install.log");
+    public static string DefaultLogPath => SetupLogPaths.DefaultPath;
 
     /// <summary>
-    /// Picks the log path and makes sure it can be written, falling back in order so a single
-    /// unwritable location never leaves a failure undiagnosable. Returns null only when
-    /// nothing at all is writable, which the caller reports rather than hiding.
+    /// Picks the log path and proves it writable before the engine runs. Every candidate is
+    /// outside the install target and outside the work directory this run deletes.
     /// </summary>
-    private static string? PrepareLogPath(string? requested, string work, out string? logError)
-    {
-        logError = null;
-        var attempts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(requested))
-        {
-            // An explicit --log is honoured first and is not silently replaced.
-            attempts.Add(Path.GetFullPath(requested!));
-        }
-        else
-        {
-            attempts.Add(DefaultLogPath);
-            // Last resort, still outside the install target.
-            attempts.Add(Path.Combine(work, "CycleArc-install.log"));
-        }
-
-        var problems = new List<string>();
-        foreach (var candidate in attempts)
-        {
-            try
-            {
-                var directory = Path.GetDirectoryName(candidate);
-                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-                // Proven writable now, so the engine's own failure to write is the only
-                // remaining way this can come up empty.
-                using (var probe = new FileStream(candidate, FileMode.Create, FileAccess.Write,
-                    FileShare.ReadWrite | FileShare.Delete))
-                {
-                }
-
-                return candidate;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                or ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                problems.Add(candidate + ": " + ex.Message);
-            }
-        }
-
-        logError = "No installer log could be written (" + string.Join("; ", problems) + ").";
-        return null;
-    }
+    private static string? PrepareLogPath(string? requested, out string? logError) =>
+        SetupLogPaths.Prepare(requested, out logError);
 }

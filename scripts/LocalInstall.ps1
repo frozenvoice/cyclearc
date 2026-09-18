@@ -278,45 +278,115 @@ namespace CycleArc {
 '@ -ErrorAction SilentlyContinue
 }
 
+function New-LockQueryResult {
+    <#
+    .SYNOPSIS
+        One of three outcomes, kept apart so "could not ask" never reads as "nobody holds it".
+    .PARAMETER Status
+        Queried  - the API answered; Holders is the complete answer it gave.
+        Unknown  - the API could not be asked or did not answer; Holders means nothing.
+    #>
+    param(
+        [Parameter(Mandatory)][ValidateSet('Queried', 'Unknown')][string]$Status,
+        [object[]]$Holders = @(),
+        [string]$Reason = '',
+        [int]$Code = 0
+    )
+    [pscustomobject]@{
+        Status    = $Status
+        Queried   = ($Status -eq 'Queried')
+        Unknown   = ($Status -eq 'Unknown')
+        Holders   = @($Holders)
+        HasHolder = ($Status -eq 'Queried' -and @($Holders).Count -gt 0)
+        Reason    = $Reason
+        Code      = $Code
+    }
+}
+
 function Get-FileLockingProcess {
     <#
     .SYNOPSIS
-        The processes holding any of these files open, as reported by Restart Manager.
+        Asks Restart Manager which processes hold these files open.
     .DESCRIPTION
-        Diagnostic only. Returns an empty list when nothing holds them, or when Restart Manager
-        itself is unavailable - an unanswerable question is never reported as "nobody".
+        Returns a result object, not a bare list, because three different things must not look
+        alike: the API answering "nobody", the API answering with holders, and the API not
+        being answerable at all. Treating the third as the first is what let a caller walk past
+        a directory it could not confirm was free.
+
+        A Queried result is what Restart Manager reported. It is not a guarantee that the
+        directory can be renamed: this API sees the holders it knows about, not every possible
+        handle. Diagnostic only - nothing here asks anything to close or restart.
+    .PARAMETER Invoker
+        Test seam. Receives the registered file list and returns either a result object from
+        New-LockQueryResult or $null to use the real API.
     #>
-    param([Parameter(Mandatory)][string[]]$Path)
-    if (-not ('CycleArc.RestartManager' -as [type])) { return @() }
+    param(
+        [Parameter(Mandatory)][string[]]$Path,
+        [int]$MaxListAttempts = 4,
+        [scriptblock]$Invoker
+    )
+    if ($Invoker) {
+        $injected = & $Invoker $Path
+        if ($injected) { return $injected }
+    }
+    if (-not ('CycleArc.RestartManager' -as [type])) {
+        return New-LockQueryResult -Status Unknown -Reason 'the Restart Manager interop type is unavailable'
+    }
     $files = @($Path | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
-    if ($files.Count -eq 0) { return @() }
+    if ($files.Count -eq 0) { return New-LockQueryResult -Status Queried }
+
     $session = [uint32]0
     $key = New-Object Text.StringBuilder 256
+    $started = $false
     try {
-        if ([CycleArc.RestartManager]::RmStartSession([ref]$session, 0, $key) -ne 0) { return @() }
-    }
-    catch { return @() }
-    try {
+        try {
+            $startStatus = [CycleArc.RestartManager]::RmStartSession([ref]$session, 0, $key)
+        }
+        catch {
+            return New-LockQueryResult -Status Unknown -Reason "RmStartSession threw: $($_.Exception.Message)"
+        }
+        if ($startStatus -ne 0) {
+            return New-LockQueryResult -Status Unknown -Reason 'RmStartSession failed' -Code $startStatus
+        }
+        $started = $true
+
         $noProcesses = New-Object 'CycleArc.RM_UNIQUE_PROCESS[]' 0
-        if ([CycleArc.RestartManager]::RmRegisterResources($session, [uint32]$files.Count, $files,
-                0, $noProcesses, 0, $null) -ne 0) {
-            return @()
+        $registerStatus = [CycleArc.RestartManager]::RmRegisterResources($session, [uint32]$files.Count, $files,
+            0, $noProcesses, 0, $null)
+        if ($registerStatus -ne 0) {
+            return New-LockQueryResult -Status Unknown -Reason 'RmRegisterResources failed' -Code $registerStatus
         }
-        $needed = [uint32]0
-        $count = [uint32]0
+
+        # ERROR_MORE_DATA (234) means the buffer was too small and reports the size needed.
+        # That size can change between calls while processes come and go, so this retries with
+        # the new size a bounded number of times instead of looping forever or calling it "none".
         $reasons = [uint32]0
-        $none = New-Object 'CycleArc.RM_PROCESS_INFO[]' 0
-        # ERROR_MORE_DATA (234) is the expected first answer; it reports how many there are.
-        $status = [CycleArc.RestartManager]::RmGetList($session, [ref]$needed, [ref]$count, $none, [ref]$reasons)
-        if ($status -eq 0 -or $needed -eq 0) { return @() }
-        if ($status -ne 234) { return @() }
-        $count = $needed
-        $infos = New-Object 'CycleArc.RM_PROCESS_INFO[]' $needed
-        if ([CycleArc.RestartManager]::RmGetList($session, [ref]$needed, [ref]$count, $infos, [ref]$reasons) -ne 0) {
-            return @()
+        $capacity = [uint32]0
+        $listStatus = 0
+        $infos = $null
+        $count = [uint32]0
+        for ($attempt = 1; $attempt -le $MaxListAttempts; $attempt++) {
+            $needed = [uint32]0
+            $count = $capacity
+            $infos = New-Object 'CycleArc.RM_PROCESS_INFO[]' ([int]$capacity)
+            $listStatus = [CycleArc.RestartManager]::RmGetList($session, [ref]$needed, [ref]$count, $infos, [ref]$reasons)
+            if ($listStatus -eq 0) {
+                if ($count -eq 0) { return New-LockQueryResult -Status Queried }
+                break
+            }
+            if ($listStatus -ne 234) {
+                return New-LockQueryResult -Status Unknown -Reason 'RmGetList failed' -Code $listStatus
+            }
+            if ($needed -eq 0) { return New-LockQueryResult -Status Queried }
+            $capacity = $needed
         }
-        $results = @()
-        for ($i = 0; $i -lt $count; $i++) {
+        if ($listStatus -ne 0) {
+            return New-LockQueryResult -Status Unknown -Code $listStatus `
+                -Reason "RmGetList kept reporting ERROR_MORE_DATA after $MaxListAttempts attempts"
+        }
+
+        $holders = @()
+        for ($i = 0; $i -lt [int]$count; $i++) {
             $processId = $infos[$i].Process.dwProcessId
             $imagePath = ''
             try {
@@ -325,38 +395,60 @@ function Get-FileLockingProcess {
                 $process.Dispose()
             }
             catch { }
-            $results += [pscustomobject]@{
+            $holders += [pscustomobject]@{
                 ProcessId = $processId
                 Name      = $infos[$i].strAppName
                 Path      = $imagePath
             }
         }
-        $results
+        New-LockQueryResult -Status Queried -Holders $holders
     }
-    finally { try { [void][CycleArc.RestartManager]::RmEndSession($session) } catch { } }
+    finally {
+        if ($started) { try { [void][CycleArc.RestartManager]::RmEndSession($session) } catch { } }
+    }
 }
 
 function Get-InstallDirectoryLock {
     <#
     .SYNOPSIS
-        Who is holding files inside an installation directory, if anyone.
+        Asks who is holding files inside an installation directory.
+    .DESCRIPTION
+        Returns the same three-way result as Get-FileLockingProcess. A Queried result with no
+        holders means Restart Manager reported none - not that a rename is guaranteed to work.
     #>
-    param([Parameter(Mandatory)][string]$InstallRoot, [int]$MaxFiles = 60)
+    param([Parameter(Mandatory)][string]$InstallRoot, [int]$MaxFiles = 60, [scriptblock]$Invoker)
     $root = ConvertTo-InstallAbsolutePath $InstallRoot
-    if (!(Test-Path -LiteralPath $root -PathType Container)) { return @() }
+    if (!(Test-Path -LiteralPath $root -PathType Container)) { return New-LockQueryResult -Status Queried }
     # Executables and libraries first: those are what stay mapped after a process exits.
     $files = @(Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
         Sort-Object @{ Expression = { if ($_.Extension -in @('.exe', '.dll')) { 0 } else { 1 } } },
                     @{ Expression = { $_.Length }; Descending = $true } |
         Select-Object -First $MaxFiles |
         ForEach-Object { $_.FullName })
-    Get-FileLockingProcess -Path $files
+    Get-FileLockingProcess -Path $files -Invoker $Invoker
 }
 
 function Format-InstallDirectoryLock {
-    param([object[]]$Lock)
-    if (!$Lock -or $Lock.Count -eq 0) { return 'nothing was reported as holding the installation' }
-    ($Lock | ForEach-Object { "PID $($_.ProcessId) $($_.Name)$(if ($_.Path) { " ($($_.Path))" })" }) -join '; '
+    <#
+    .SYNOPSIS
+        A sentence for a lock query result, distinguishing "none reported" from "could not ask".
+    #>
+    param([object]$Lock)
+    if ($null -eq $Lock) { return 'the installation was not checked' }
+    # Holders already pulled out of a result, as Wait-InstallDesktopReleased reports them.
+    if ($Lock -is [array]) {
+        if ($Lock.Count -eq 0) { return 'no holder was reported' }
+        return ($Lock | ForEach-Object { "PID $($_.ProcessId) $($_.Name)$(if ($_.Path) { " ($($_.Path))" })" }) -join '; '
+    }
+    if ($Lock.PSObject.Properties.Name -notcontains 'Status') {
+        throw 'Format-InstallDirectoryLock expects a lock query result or a list of holders.'
+    }
+    if ($Lock.Unknown) {
+        $code = if ($Lock.Code) { " (code $($Lock.Code))" } else { '' }
+        return "could not determine the holders: $($Lock.Reason)$code"
+    }
+    if (@($Lock.Holders).Count -eq 0) { return 'no holder was reported' }
+    (@($Lock.Holders) | ForEach-Object { "PID $($_.ProcessId) $($_.Name)$(if ($_.Path) { " ($($_.Path))" })" }) -join '; '
 }
 
 function Wait-InstallDesktopReleased {
@@ -365,20 +457,26 @@ function Wait-InstallDesktopReleased {
         [string]$MutexName = 'Local\ProMeter.SingleInstance',
         [int]$TimeoutSeconds = 30,
         [int]$PollMilliseconds = 500,
-        [string]$InstallRoot
+        [string]$InstallRoot,
+        [scriptblock]$LockInvoker
     )
-    # Observation only: a desktop that will not let go is reported, never
-    # terminated. Both conditions are necessary before an installer may touch a
-    # live installation, and neither proves the installation directory can
-    # actually be replaced -- a directory rename can still be denied by a handle
-    # this check cannot see. Setup's own log says what finally blocked it.
+    # Observation only: a desktop that will not let go is reported, never terminated. The
+    # process check, the mutex check and the holder query are all necessary before an
+    # installer may touch a live installation, and none of them proves the directory can
+    # actually be renamed -- Restart Manager reports the holders it knows about, not every
+    # possible handle. Setup's own log still says what finally blocked it.
+    #
+    # ElapsedSeconds is how long this function ran, including listing the installation's
+    # files and querying Restart Manager. It is not a measurement of how long anything held
+    # the directory, and must not be read as one.
     $deadline = [Diagnostics.Stopwatch]::StartNew()
     $processAlive = $false
     $mutexHeld = $false
-    # Kept even when the wait then succeeds: a release that took several seconds is the
-    # difference between a repair that works and one denied at rename, and the holder is
-    # the thing worth naming afterwards.
+    # Kept even when the wait then succeeds, so a later run can say which processes were
+    # reported. These are candidates Restart Manager named, not a determination of what
+    # would have refused a rename.
     $firstLock = @()
+    $lastLockReason = ''
     while ($true) {
         $processAlive = $false
         if ($ProcessId -gt 0) {
@@ -401,17 +499,28 @@ function Wait-InstallDesktopReleased {
         # a handle on a file inside it denies that, and Restart Manager is what can see it.
         # This is the check that was missing when a same-version repair hit Windows error 5
         # immediately after the desktop had exited.
-        $lock = @()
+        # Asking and being told "nobody" is not the same as being unable to ask. A caller that
+        # requested the InstallRoot check gets neither treated as a pass until it is answered:
+        # walking past a directory whose state could not be confirmed is how an installer ends
+        # up renaming a directory something still holds.
+        $lockQueried = $true
+        $lockHolders = @()
         if (!$processAlive -and !$mutexHeld -and $InstallRoot) {
-            $lock = @(Get-InstallDirectoryLock -InstallRoot $InstallRoot)
-            if ($lock.Count -gt 0 -and $firstLock.Count -eq 0) { $firstLock = $lock }
+            $lockResult = Get-InstallDirectoryLock -InstallRoot $InstallRoot -Invoker $LockInvoker
+            $lockQueried = [bool]$lockResult.Queried
+            $lockHolders = @($lockResult.Holders)
+            if ($lockQueried -and $lockHolders.Count -gt 0 -and $firstLock.Count -eq 0) {
+                $firstLock = $lockHolders
+            }
+            if (!$lockQueried) { $lastLockReason = Format-InstallDirectoryLock $lockResult }
         }
-        if (!$processAlive -and !$mutexHeld -and $lock.Count -eq 0) {
+        if (!$processAlive -and !$mutexHeld -and $lockQueried -and $lockHolders.Count -eq 0) {
             return [pscustomobject]@{
                 ElapsedSeconds = [math]::Round($deadline.Elapsed.TotalSeconds, 1)
                 ProcessId = $ProcessId
                 MutexName = $MutexName
                 InstallRoot = $InstallRoot
+                # Reported candidates, not a determination of what would refuse a rename.
                 HeldBy = $firstLock
                 HeldByDescription = if ($firstLock.Count -gt 0) { Format-InstallDirectoryLock $firstLock } else { '' }
             }
@@ -423,9 +532,15 @@ function Wait-InstallDesktopReleased {
     if ($processAlive) { $remaining += "PID $ProcessId is still running" }
     if ($mutexHeld) { $remaining += "single-instance mutex $MutexName is still held" }
     if ($InstallRoot) {
-        $lock = @(Get-InstallDirectoryLock -InstallRoot $InstallRoot)
-        if ($lock.Count -gt 0) {
-            $remaining += "the installation is held by $(Format-InstallDirectoryLock $lock)"
+        $lockResult = Get-InstallDirectoryLock -InstallRoot $InstallRoot -Invoker $LockInvoker
+        if ($lockResult.Unknown) {
+            $remaining += "the installation's holders could not be determined: $(Format-InstallDirectoryLock $lockResult)"
+        }
+        elseif (@($lockResult.Holders).Count -gt 0) {
+            $remaining += "the installation is held by $(Format-InstallDirectoryLock $lockResult)"
+        }
+        elseif ($lastLockReason) {
+            $remaining += "an earlier holder check did not answer: $lastLockReason"
         }
     }
     throw ("CycleArc did not release its installation within $TimeoutSeconds seconds: " +

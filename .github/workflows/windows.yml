@@ -228,9 +228,10 @@ jobs:
           $released = Wait-InstallDesktopReleased -ProcessId ([int]$status.ProcessId) -InstallRoot $installRoot
           Write-Host "Desktop released its installation after $($released.ElapsedSeconds)s"
           if ($released.HeldByDescription) {
-            # What kept holding it after the process had exited and the mutex was free. This
-            # is the handle that denies Velopack's rollback rename with Windows error 5.
-            Write-Host "Held after exit by: $($released.HeldByDescription)"
+            # Processes Restart Manager reported while waiting, after the desktop had exited
+            # and its mutex was free. Recorded as candidates: this does not establish that any
+            # of them is what denies Velopack's rollback rename.
+            Write-Host "Reported as holding it during the wait: $($released.HeldByDescription)"
           }
 
           # Same-version silent repair of this identical package must keep current\CycleArc.exe.
@@ -243,7 +244,14 @@ jobs:
           if ($repair.ExitCode -ne 0) {
             # Artifact downloads are not always reachable, so the cause goes in the log.
             if (Test-Path -LiteralPath $repairLog -PathType Leaf) {
+              # Auxiliary only. A holder query that cannot answer must not cost us the Setup
+            # error or its log, so it is reported beside them and never replaces them.
+            try {
               Write-Host "Holding the installation now: $(Format-InstallDirectoryLock (Get-InstallDirectoryLock -InstallRoot $installRoot))"
+            }
+            catch {
+              Write-Host "Holder query failed: $($_.Exception.Message)"
+            }
             Write-Host '----- setup-repair.log -----'
               Get-Content -LiteralPath $repairLog -Tail 120 -ErrorAction SilentlyContinue
             }
