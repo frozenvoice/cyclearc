@@ -244,6 +244,8 @@ Codex 모듈은 정상 상태 문구를 숨기고 조회 실패·로그인 필�
 
 저장소 루트의 **`build-local.cmd`**를 더블클릭하면 현재 체크아웃을 빌드하고 `CycleArc-Setup.exe`를 만든 뒤, 관리형 Velopack 위치(`%LOCALAPPDATA%\CycleArc` 또는 이미 등록된 InstallLocation)에 설치하고 `%LOCALAPPDATA%\CycleArc\CycleArc.exe`를 실행합니다. 내부에서 `dev-run.ps1 -NoLaunch`를 별도 프로세스로 돌린 다음 설치기를 사용하며, 개발용 EXE를 `%LOCALAPPDATA%\Programs\CycleArc`에 복사하지 않습니다.
 
+실행 중인 데스크톱은 검증 게이트가 통과하고 이번 실행의 Setup.exe가 준비된 뒤에만 종료합니다. 종료는 현재 사용자 세션에서 신원이 확인된 데스크톱 IPC 요청으로만 하며 이름 기반 일괄 종료는 쓰지 않습니다. 따라서 빌드가 실패하면 설치된 앱은 그대로 실행 중으로 남습니다. 실패하면 `artifacts\build-local\last-failure.txt`에 기록된 실제 실패 단계를 창에 출력하므로, Setup.exe가 이미 시작된 뒤의 실패를 "기존 설치는 그대로"라고 잘못 안내하지 않으며 0이 아닌 종료 코드가 CMD까지 전달됩니다.
+
 `.\dev-run.ps1`은 기존 개발용 게시 경로입니다. Release 빌드, 전체 테스트와 화면 검증을 수행하고 디버그 심볼을 제외한 개발용 Windows x64 단일 파일을 게시·실행합니다. 개발용은 각 PC의 `%LOCALAPPDATA%\Programs\CycleArc\CycleArc.exe`를 사용하며, 안정 Velopack 설치 `%LOCALAPPDATA%\CycleArc`와 분리되어 GitHub 업데이트 대상이 아닙니다. 빌드 임시 파일은 현재 작업 폴더에 남으며 `-NoLaunch`는 설치된 앱을 교체하지 않습니다. 파일 교체가 실패하면 이전 파일을 복원할 수 있지만, 파일 롤백이 새 앱의 시작 상태까지 보장하지는 않습니다.
 CI는 개발용 단일 파일을 검사하고 안정 배포용 Velopack 설치 자산을 패키징합니다. 수동 릴리즈 스크립트는 CI 자산의 버전과 SHA-256을 확인한 뒤 게시합니다.
 시작 시 실행 중인 앱의 PID와 경로를 표시합니다. 빌드 산출물에서 직접 실행 중인 앱은 정리 전에 경로와 PID를 알려주므로, 해당 앱을 종료한 뒤 다시 실행하세요.

@@ -15,6 +15,81 @@
   match this publish. `tests/BuildLocal.Tests.ps1` covers failed build (no Setup), leftover
   Setup refusal, same-version hash mismatch, Setup failure, lock overlap and paths with
   spaces. Real Setup.exe replacement against a developer profile was not run here.
+- build-local.cmd double-click failures (unreleased): three defects that stopped the run before
+  the build began or hid a stall.
+  - `Invoke-BuildLocal` assigned the `dev-run.ps1` path to `$devRun`, which is the
+    `[scriptblock]$DevRun` parameter under PowerShell's case-insensitive variable names, so the
+    default branch failed with "Cannot convert ... System.String ... to ...ScriptBlock" before
+    any build step ran. The path now uses `$devRunPath`; the type constraint is unchanged and no
+    `Invoke-Expression` or coercion was added. Every earlier test injected `-DevRun`, so
+    `tests/BuildLocal.Tests.ps1` now drives the default branch against a real `dev-run.ps1` for
+    both success and a nonzero exit, and an AST check fails any local that shadows a parameter
+    by spelling in `Build-Local.ps1`, `LocalInstall.ps1`, `Package.ps1` and `dev-run.ps1`.
+  - `Invoke-WindowedProcess` always passed `-WorkingDirectory`, which `Start-Process` rejects
+    when it is empty, and the ordinary Setup call named no directory. The parameter is now
+    omitted when unset, a named directory must exist, the installer runs in its own directory,
+    and the process object is still disposed and its exit code returned. Covered with real
+    external processes, including a working directory containing spaces and Hangul.
+  - `Invoke-DesktopStatus` / `Invoke-DesktopShutdown` called `ReadToEnd()` before
+    `WaitForExit(timeout)`, so a stalled probe or a full stderr pipe never reached the timeout
+    check. Both streams are now read concurrently, the wait comes first, output collection has
+    its own budget, and only the probe process this script started is stopped; the cause, step
+    and streams are appended to `artifacts/build-local/desktop-ipc.log`. Verified that the old
+    ordering hangs indefinitely on a 1 MB stderr writer, and that the new code reports a
+    timeout, kills only the probe, returns the status past 1 MB of stderr, and bounds output
+    collection when a leftover child holds the pipe open.
+  - Failure guidance now follows the stage the run reached (`preflight`, `build`, `package`,
+    `stop-desktop`, `install`, `verify-install`, `start`). `build-local.cmd` prints
+    `artifacts\build-local\last-failure.txt` instead of claiming the previous installation
+    survived, and a failure after Setup.exe started says so.
+  - `scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment` and the
+    `Windows build-local entry point` workflow run the real CMD entry point on a discarded
+    GitHub-hosted runner. Run 35299780569 on a clean windows-latest runner (no pre-existing
+    installation, data root, uninstall entry or CycleArc process) passed:
+    - Build A: `cmd /c build-local.cmd` with no arguments and no injected scriptblocks ran
+      `pwsh -NoProfile -File dev-run.ps1 -NoLaunch`, published `0.6.0.0` at SHA-256
+      `569D223A7721C2ADE2A54D70876D935FC956BDD87EA87E3623CCA9E82E6B5B22`, started the packaged
+      `CycleArc-Setup.exe --silent`, and left `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`
+      at that same hash with the desktop ready as PID 7932.
+    - Build B: the same entry point with one source file changed, so the version number stayed
+      `0.6.0.0` while the executable became
+      `F565F21405CEACAE2294066CB4792026950B28F5BFF91BADD0C9BC2CBDC4B34E`. It stopped PID 7932
+      over desktop IPC before starting Setup.exe, and the installed `current\CycleArc.exe`
+      then matched build B with a new desktop at PID 1444, verified to be under the managed
+      install root rather than the development location. Running one Setup.exe twice would not
+      have shown this; the two packages differed at the same version number.
+    - Failure: a deliberately broken source file made `dev-run.ps1 -NoLaunch` exit 1. CMD
+      received exit 1 and printed `Stage: build` with the real cause, the running installation
+      was neither stopped nor replaced, and PID 1444 was still serving build B afterwards.
+    Not run: this was never executed on a developer profile, and no failure injection or
+    install/remove cycling was done there. `-Fast` was used for build B, so its unit suite came
+    from build A's run. The workflow is `workflow_dispatch` only, which GitHub offers once the
+    file is on the default branch; until then it has to be dispatched from a branch that
+    triggers it.
+  - `managed-setup-install` same-version repair (unreleased): the job ran `--desktop-shutdown`
+    and started `Setup.exe` again immediately, checking only the shutdown command's exit code.
+    It failed twice on `c5212bc` (run 35300856288, attempts 2 and 3) and passed on `3d64f19`,
+    whose sources are identical, so it is a race rather than a code regression -- an earlier
+    note in this session calling it intermittent was withdrawn once it reproduced.
+    - Root cause, from the two captured `setup-repair.log` files: Velopack failed renaming the
+      existing CycleArc directory with Windows error 5 (access denied). Something still held
+      that directory. An earlier claim in this session that the single-instance mutex was the
+      cause was not supported by those logs and is withdrawn.
+    - The job now calls `Wait-InstallDesktopReleased` before repairing, which waits for the
+      recorded desktop PID to exit and the single-instance mutex to be released. Both are
+      necessary preconditions for replacing a live installation, and neither proves the
+      directory can actually be renamed -- a handle this check cannot see can still deny it.
+      The wait narrows the window; it does not establish or remove the cause.
+    - A wait that times out throws and the job fails without starting `Setup.exe`, rather than
+      running the installer over an installation that has not been released. It observes only
+      and never terminates the desktop. `tests/LocalInstall.Tests.ps1` covers the released
+      case, a still-held mutex (message names the mutex and says the installer was not
+      started), and a still-running PID (message names the PID, and the process is verified to
+      be left alive).
+    - `setup.log` and `setup-repair.log` are printed to the job output on failure, because the
+      artifact download was not reachable from the environment that diagnosed this and the
+      cause was invisible without them. The job stays enabled; nothing here disables a check to
+      hide the failure.
 
 - Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
   - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's

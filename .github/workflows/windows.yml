@@ -128,6 +128,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
+      # Checked out for scripts/LocalInstall.ps1 only; the installer under test
+      # is still the packaged artifact, never a locally built one.
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Download installer assets
         uses: actions/download-artifact@v6
         with:
@@ -139,6 +144,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Set-StrictMode -Version Latest
+          . ./scripts/LocalInstall.ps1
           $setup = Join-Path $PWD 'publish/velopack/CycleArc-Setup.exe'
           $nupkg = Get-ChildItem -LiteralPath (Join-Path $PWD 'publish/velopack') -Filter 'CycleArc-*-full.nupkg' |
             Select-Object -First 1
@@ -164,7 +170,13 @@ jobs:
             try { $process.Kill($true) } catch { }
             throw 'Setup.exe did not finish within 600 seconds.'
           }
-          if ($process.ExitCode -ne 0) { throw "Setup.exe exited $($process.ExitCode). See $log" }
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              Write-Host '----- setup.log -----'
+              Get-Content -LiteralPath $log -Tail 120 -ErrorAction SilentlyContinue
+            }
+            throw "Setup.exe exited $($process.ExitCode). See $log"
+          }
           $current = Join-Path $env:LOCALAPPDATA 'CycleArc/current/CycleArc.exe'
           $launcher = Join-Path $env:LOCALAPPDATA 'CycleArc/CycleArc.exe'
           if (!(Test-Path -LiteralPath $current -PathType Leaf) -or !(Test-Path -LiteralPath $launcher -PathType Leaf)) {
@@ -194,6 +206,17 @@ jobs:
             throw "desktop-shutdown failed with exit $($stop.ExitCode)"
           }
 
+          # The observed repair failure was Velopack renaming the existing
+          # CycleArc directory and getting Windows error 5 (access denied), so
+          # something still held that directory. Waiting for the desktop process
+          # and its single-instance mutex is a necessary precondition, not a
+          # proof that the directory can be renamed: it narrows the window, it
+          # does not establish the cause. When the wait times out this fails the
+          # job instead of running Setup.exe over a live installation, and the
+          # Setup logs printed below say what actually blocked the rename.
+          $released = Wait-InstallDesktopReleased -ProcessId ([int]$status.ProcessId)
+          Write-Host "Desktop released its installation after $($released.ElapsedSeconds)s"
+
           # Same-version silent repair of this identical package must keep current\CycleArc.exe.
           $repairLog = Join-Path $PWD 'artifacts/setup-install/setup-repair.log'
           $repair = Start-Process -FilePath $setup -ArgumentList @('--silent', '--log', $repairLog) -PassThru
@@ -201,7 +224,14 @@ jobs:
             try { $repair.Kill($true) } catch { }
             throw 'Same-version Setup.exe repair did not finish within 600 seconds.'
           }
-          if ($repair.ExitCode -ne 0) { throw "Same-version Setup.exe exited $($repair.ExitCode). See $repairLog" }
+          if ($repair.ExitCode -ne 0) {
+            # Artifact downloads are not always reachable, so the cause goes in the log.
+            if (Test-Path -LiteralPath $repairLog -PathType Leaf) {
+              Write-Host '----- setup-repair.log -----'
+              Get-Content -LiteralPath $repairLog -Tail 120 -ErrorAction SilentlyContinue
+            }
+            throw "Same-version Setup.exe exited $($repair.ExitCode). See $repairLog"
+          }
           $repaired = (Get-FileHash -LiteralPath $current -Algorithm SHA256).Hash.ToUpperInvariant()
           if ($repaired -cne $expected) {
             throw "Same-version repair SHA-256 $repaired does not match packed $expected"
