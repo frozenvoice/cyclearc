@@ -44,25 +44,28 @@
     survived, and a failure after Setup.exe started says so.
   - `scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment` and the
     `Windows build-local entry point` workflow run the real CMD entry point on a discarded
-    GitHub-hosted runner. Run 35298597072 on a clean windows-latest runner (no pre-existing
-    installation or data root) passed:
+    GitHub-hosted runner. Run 35299780569 on a clean windows-latest runner (no pre-existing
+    installation, data root, uninstall entry or CycleArc process) passed:
     - Build A: `cmd /c build-local.cmd` with no arguments and no injected scriptblocks ran
       `pwsh -NoProfile -File dev-run.ps1 -NoLaunch`, published `0.6.0.0` at SHA-256
-      `B4CFFC682A6AB2A147D6B6866D3B72BE58B6C1C054DF0FF9018FDD3BCF7EA30F`, started the packaged
+      `569D223A7721C2ADE2A54D70876D935FC956BDD87EA87E3623CCA9E82E6B5B22`, started the packaged
       `CycleArc-Setup.exe --silent`, and left `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe`
-      at that same hash with the desktop ready as PID 908.
+      at that same hash with the desktop ready as PID 7932.
     - Build B: the same entry point with one source file changed, so the version number stayed
       `0.6.0.0` while the executable became
-      `EDC038F77D8C92E958EA5F338271A568E2C0829385D4194173CB251F07E35918`. It stopped PID 908
+      `F565F21405CEACAE2294066CB4792026950B28F5BFF91BADD0C9BC2CBDC4B34E`. It stopped PID 7932
       over desktop IPC before starting Setup.exe, and the installed `current\CycleArc.exe`
-      then matched build B with a new desktop at PID 2884. Two runs of one Setup.exe would not
-      have shown this; the packages differed.
+      then matched build B with a new desktop at PID 1444, verified to be under the managed
+      install root rather than the development location. Running one Setup.exe twice would not
+      have shown this; the two packages differed at the same version number.
     - Failure: a deliberately broken source file made `dev-run.ps1 -NoLaunch` exit 1. CMD
-      received exit 1, printed `Stage: build` with the real cause, the running installation was
-      neither stopped nor replaced, and PID 2884 was still serving build B afterwards.
+      received exit 1 and printed `Stage: build` with the real cause, the running installation
+      was neither stopped nor replaced, and PID 1444 was still serving build B afterwards.
     Not run: this was never executed on a developer profile, and no failure injection or
     install/remove cycling was done there. `-Fast` was used for build B, so its unit suite came
-    from build A's run.
+    from build A's run. The workflow is `workflow_dispatch` only, which GitHub offers once the
+    file is on the default branch; until then it has to be dispatched from a branch that
+    triggers it.
 
 - Removal cleanup and installed-app update verification (unreleased, 2026-09-17):
   - Claude callbacks are now removed with the installation. `InstalledApp` registers Velopack's
