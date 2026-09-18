@@ -18,6 +18,8 @@ public sealed class DesktopInstanceProcessWaitTests
         var helper = File.ReadAllText(Path.Combine(RepoRoot, "tests", "CycleArc.UiSmoke", "ChildProcessOutput.cs"));
         Assert.DoesNotContain("ReadToEnd()", helper, StringComparison.Ordinal);
         Assert.Contains("Task.WaitAll", helper, StringComparison.Ordinal);
+        Assert.Contains("using System.IO;", helper, StringComparison.Ordinal);
+        Assert.Contains("using System.Threading;", helper, StringComparison.Ordinal);
     }
 
     [Fact]
