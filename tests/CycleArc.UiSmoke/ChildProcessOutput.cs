@@ -194,6 +194,10 @@ internal static class ChildProcessReportWait
             if (match is not null) return match;
             if (TryHasExited(process, out var exited) && exited)
             {
+                // The child can write its record and leave between the match above and this
+                // check, so an exit is only decisive once a fresh look still finds nothing.
+                var afterExit = tryMatch();
+                if (afterExit is not null) return afterExit;
                 throw new InvalidOperationException(
                     Describe(process, output, reportPath,
                         $"Desktop instance child exited before {expectedDescription}"));

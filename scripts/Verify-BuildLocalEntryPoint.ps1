@@ -148,24 +148,31 @@ function Assert-StageProgressReachedCmd {
     $text = if (Test-Path -LiteralPath $Path -PathType Leaf) { Get-Content -LiteralPath $Path -Raw } else { '' }
     $running = [regex]::Matches($text, 'dev-run \d\d:\d\d\.\d elapsed \| (?<stage>[^\r\n]+?) running\.\.\.')
     $passed = [regex]::Matches($text, 'dev-run \d\d:\d\d\.\d elapsed \| (?<stage>[^\r\n]+?) passed')
+    $stagesSeen = @($running | ForEach-Object { $_.Groups['stage'].Value })
+    Write-Host ("${Label}: stages shown live in CMD: {0}" -f ($stagesSeen -join ', '))
     if ($running.Count -lt 2) {
         throw "${Label}: the CMD console showed $($running.Count) in-flight dev-run stages; progress did not stream."
     }
     if ($passed.Count -lt 1) {
         throw "${Label}: no completed dev-run stage reached the CMD console."
     }
-    $stages = @($running | ForEach-Object { $_.Groups['stage'].Value })
-    Write-Host ("${Label}: stages shown live in CMD: {0}" -f ($stages -join ', '))
+    # Only dev-run's own '##dev-run##' markers are streamed, so a nested regression run's
+    # stages must not appear here and dev-run's own must.
+    foreach ($expected in @('restore', 'build', 'ui-smoke-desktop-instance', 'package-verify')) {
+        if ($stagesSeen -notcontains $expected) {
+            throw "${Label}: dev-run stage '$expected' never appeared live in the CMD console."
+        }
+    }
     # The stage's own cost is reported separately from the cumulative elapsed time.
     if ($text -notmatch 'passed \(stage took \d\d:\d\d\.\d\)') {
         throw "${Label}: stage cost was not reported separately from cumulative elapsed time."
     }
     # A completed stage is announced once, not replayed at the end of the run.
-    foreach ($stage in ($stages | Select-Object -Unique)) {
+    foreach ($stage in ($stagesSeen | Select-Object -Unique)) {
         $repeats = ([regex]::Matches($text, [regex]::Escape("| $stage passed"))).Count
         if ($repeats -gt 1) { throw "${Label}: stage '$stage' was reported passed $repeats times." }
     }
-    $stages
+    $stagesSeen
 }
 
 function Get-ManagedDesktopStatus {
@@ -274,7 +281,7 @@ try {
     if ($cmdOutput -notmatch 'dev-run \d\d:\d\d\.\d elapsed \| build running\.\.\.') {
         throw 'The failing sub-stage was never shown live in the CMD window.'
     }
-    if ($cmdOutput -notmatch 'dev-run \| Failed at: build') {
+    if ($cmdOutput -notmatch 'dev-run \d\d:\d\d\.\d elapsed \| build FAILED') {
         throw "dev-run's own failing stage did not reach the CMD window."
     }
     if ($cmdOutput -notmatch 'error CS') {

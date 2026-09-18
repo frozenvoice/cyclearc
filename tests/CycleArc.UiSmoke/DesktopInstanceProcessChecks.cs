@@ -245,36 +245,55 @@ internal static class DesktopInstanceProcessChecks
         Child? winner = null;
         Child? loser = null;
         Report? ready = null;
-        while (deadline.Elapsed < ProcessTimeout)
+
+        // Reads both reports and applies the two win conditions to that one snapshot.
+        bool TryResolveRace()
         {
             var leftReports = ReadReports(left.ReportPath);
             var rightReports = ReadReports(right.ReportPath);
-            var leftReady = leftReports.LastOrDefault(report => report.State == "ready");
-            var rightReady = rightReports.LastOrDefault(report => report.State == "ready");
-            var leftBusy = leftReports.LastOrDefault(report => report.State == "busy");
-            var rightBusy = rightReports.LastOrDefault(report => report.State == "busy");
-            if (leftReady is not null && rightBusy is not null)
+            if (leftReports.LastOrDefault(report => report.State == "ready") is { } leftReady
+                && rightReports.Any(report => report.State == "busy"))
             {
                 winner = left;
                 loser = right;
                 ready = leftReady;
-                break;
+                return true;
             }
-            if (rightReady is not null && leftBusy is not null)
+            if (rightReports.LastOrDefault(report => report.State == "ready") is { } rightReady
+                && leftReports.Any(report => report.State == "busy"))
             {
                 winner = right;
                 loser = left;
                 ready = rightReady;
-                break;
+                return true;
             }
-            if ((left.Process.HasExited && leftReports.Length == 0) || (right.Process.HasExited && rightReports.Length == 0))
+
+            return false;
+        }
+
+        while (deadline.Elapsed < ProcessTimeout)
+        {
+            if (TryResolveRace()) break;
+            var leftExited = left.Process.HasExited;
+            var rightExited = right.Process.HasExited;
+            if (leftExited || rightExited)
             {
-                throw new InvalidOperationException(
-                    ChildProcessReportWait.Describe(left.Process, left.Output, left.ReportPath,
-                        "A first-launch desktop instance race child exited without a report")
-                    + Environment.NewLine
-                    + ChildProcessReportWait.Describe(right.Process, right.Output, right.ReportPath, "other race child"));
+                // A child writes its record and exits immediately afterwards, so the snapshot
+                // above can predate a record that is on disk by the time the exit is observed.
+                // Re-read before calling an exit unexplained; otherwise the loser's ordinary
+                // "busy" record is reported as a child that exited without one.
+                if (TryResolveRace()) break;
+                if ((leftExited && ReadReports(left.ReportPath).Length == 0)
+                    || (rightExited && ReadReports(right.ReportPath).Length == 0))
+                {
+                    throw new InvalidOperationException(
+                        ChildProcessReportWait.Describe(left.Process, left.Output, left.ReportPath,
+                            "A first-launch desktop instance race child exited without a report")
+                        + Environment.NewLine
+                        + ChildProcessReportWait.Describe(right.Process, right.Output, right.ReportPath, "other race child"));
+                }
             }
+
             Thread.Sleep(25);
         }
 

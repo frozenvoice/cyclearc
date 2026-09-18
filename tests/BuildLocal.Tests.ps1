@@ -727,12 +727,20 @@ exit 0
     $liveErr = Join-Path $testRoot 'live-progress.err.log'
     $liveReleaseFile = Join-Path $testRoot 'live-progress.release'
     $liveBody = New-TestPowerShellBody 'live-progress' (@(
-        # Write-Host with no explicit flush, exactly as dev-run.ps1 announces its stages.
+        # Write-Host with no explicit flush, in dev-run.ps1's exact output shape: the
+        # human-readable line plus the '##dev-run##' marker a parent matches. The bare
+        # '[mm:ss.d] name' line of a nested run must not be mistaken for a stage of this one.
         'Write-Host "[00:00.1] restore"',
+        'Write-Host "##dev-run## 00:00.1 start restore"',
         'Write-Host "[00:02.5] restore passed"',
+        'Write-Host "##dev-run## 00:02.5 passed restore"',
+        'Write-Host "[00:01.0] package-verify"',
+        'Write-Host "[00:01.1] package-verify passed"',
         'Write-Host "[00:02.6] build"',
+        'Write-Host "##dev-run## 00:02.6 start build"',
         ('while (!(Test-Path -LiteralPath "{0}")) {{ Start-Sleep -Milliseconds 50 }}' -f $liveReleaseFile),
         'Write-Host "[00:09.9] build passed"',
+        'Write-Host "##dev-run## 00:09.9 passed build"',
         'exit 0'
     ) -join "`n")
 
@@ -786,6 +794,9 @@ exit 0
     }
     $liveFinal = Get-Content -LiteralPath $liveTranscript -Raw
     if ($liveFinal -notmatch 'build passed') { throw 'The final stage never reached the console.' }
+    if ($liveFinal -match 'package-verify') {
+        throw "A nested run's stage line was reported as this run's progress."
+    }
     # Each completed stage appears exactly once.
     foreach ($once in @('restore passed', 'build passed')) {
         $hits = ([regex]::Matches($liveFinal, [regex]::Escape("| $once"))).Count
@@ -795,7 +806,7 @@ exit 0
 
     # --- Regression: a split UTF-8 sequence is neither mangled nor duplicated. -----------
     $splitLog = Join-Path $testRoot 'split-utf8.log'
-    $splitBytes = [Text.Encoding]::UTF8.GetBytes("[00:00.1] 준비" + "`n" + "[00:01.0] 준비 passed" + "`n")
+    $splitBytes = [Text.Encoding]::UTF8.GetBytes("##dev-run## 00:00.1 start 준비" + "`n" + "##dev-run## 00:01.0 passed 준비" + "`n")
     [IO.File]::WriteAllBytes($splitLog, $splitBytes[0..($splitBytes.Length - 6)])
     $splitReader = New-BuildLocalProgressReader $splitLog
     Reset-BuildLocalChildProgress

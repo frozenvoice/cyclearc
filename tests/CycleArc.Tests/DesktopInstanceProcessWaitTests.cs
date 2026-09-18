@@ -104,6 +104,56 @@ public sealed class DesktopInstanceProcessWaitTests
         Assert.Contains("flood-stdout", run.Output.StandardOutput, StringComparison.Ordinal);
     }
 
+    // A child writes its record and exits immediately afterwards. WaitFor reads the report
+    // before it checks HasExited, so the record can land in that gap: the exit must not be
+    // reported as "exited before writing" when the record is right there. The match is made
+    // to appear exactly in that gap rather than by hoping a real child hits it.
+    [Fact]
+    public void WaitFor_ReturnsARecordThatLandedBetweenTheMatchAndTheExitCheck()
+    {
+        using var run = SyntheticChild.Start(
+            stdout: "exit-race-stdout",
+            stderr: "exit-race-stderr",
+            writeReadyAfter: TimeSpan.Zero,
+            hangAfterReady: false);
+        Assert.True(run.Process.WaitForExit(20_000), "The synthetic child did not exit.");
+
+        var looks = 0;
+        var result = ChildProcessReportWait.WaitFor(
+            () => Interlocked.Increment(ref looks) == 1 ? null : "ready",
+            run.Process,
+            run.Output,
+            run.ReportPath,
+            TimeSpan.FromSeconds(5),
+            "desktop instance report");
+
+        Assert.Equal("ready", result);
+        Assert.True(looks >= 2, "The exit check should have taken a second look at the report.");
+    }
+
+    // An exit with genuinely nothing to find is still an immediate, diagnosable failure.
+    [Fact]
+    public void WaitFor_StillFailsWhenAnExitedChildLeftNoRecord()
+    {
+        using var run = SyntheticChild.Start(
+            stdout: "no-record-stdout",
+            stderr: "no-record-stderr",
+            writeReadyAfter: null,
+            hangAfterReady: false);
+        Assert.True(run.Process.WaitForExit(20_000), "The synthetic child did not exit.");
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ChildProcessReportWait.WaitFor(
+                () => (string?)null,
+                run.Process,
+                run.Output,
+                run.ReportPath,
+                TimeSpan.FromSeconds(5),
+                "desktop instance report"));
+        Assert.Contains("exited before", error.Message, StringComparison.Ordinal);
+        Assert.Contains("no-record-stderr", error.Message, StringComparison.Ordinal);
+    }
+
     private static string? TryReady(string reportPath)
     {
         try

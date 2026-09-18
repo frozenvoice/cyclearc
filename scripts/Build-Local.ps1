@@ -135,33 +135,30 @@ function Format-BuildLocalSpan([TimeSpan]$Span) {
     '{0:00}:{1:00}.{2}' -f [int][math]::Floor($Span.TotalMinutes), $Span.Seconds, [int][math]::Floor($Span.Milliseconds / 100.0)
 }
 
-# One line of child output. dev-run's own stamp is time since dev-run started, so the cost of
-# the stage itself is derived here and labelled separately; the two are never shown as one
-# number. Anything that is not a stage or failure line is left to the captured log.
+# One line of child output. Only dev-run.ps1's own '##dev-run##' markers are shown: several
+# of its stages run nested regression scripts that print '[mm:ss.d] name' stage lines of
+# their own, and those are a different run's stages, not this one's progress. dev-run's
+# stamp is time since it started, so the stage's own cost is derived here and labelled
+# separately; the two are never shown as one number.
 function Write-BuildLocalChildProgressLine([string]$Line) {
     if ([string]::IsNullOrWhiteSpace($Line)) { return }
-    $text = $Line.Trim()
-    if ($text -match '^\[([0-9]{2}):([0-9]{2})\.([0-9])\]\s+(.+)$') {
-        $sinceStart = [TimeSpan]::FromMilliseconds(([int]$Matches[1] * 60000) + ([int]$Matches[2] * 1000) + ([int]$Matches[3] * 100))
-        $body = $Matches[4].Trim()
-        if ($body.EndsWith(' passed')) {
-            $stage = $body.Substring(0, $body.Length - ' passed'.Length)
-            $cost = ''
-            if ($script:BuildLocalChildStage -eq $stage -and $null -ne $script:BuildLocalChildStageAt) {
-                $cost = ' (stage took {0})' -f (Format-BuildLocalSpan ($sinceStart - $script:BuildLocalChildStageAt))
-            }
-            Write-Host ('    dev-run {0} elapsed | {1} passed{2}' -f (Format-BuildLocalSpan $sinceStart), $stage, $cost)
-            Reset-BuildLocalChildProgress
-            return
-        }
-        $script:BuildLocalChildStage = $body
+    if ($Line -notmatch '##dev-run##\s+([0-9]{2}):([0-9]{2})\.([0-9])\s+(start|passed|failed)\s+(.+)$') { return }
+    $sinceStart = [TimeSpan]::FromMilliseconds(([int]$Matches[1] * 60000) + ([int]$Matches[2] * 1000) + ([int]$Matches[3] * 100))
+    $state = $Matches[4]
+    $stage = $Matches[5].Trim()
+    if ($state -eq 'start') {
+        $script:BuildLocalChildStage = $stage
         $script:BuildLocalChildStageAt = $sinceStart
-        Write-Host ('    dev-run {0} elapsed | {1} running...' -f (Format-BuildLocalSpan $sinceStart), $body)
+        Write-Host ('    dev-run {0} elapsed | {1} running...' -f (Format-BuildLocalSpan $sinceStart), $stage)
         return
     }
-    if ($text -match '^(Failed at:|Elapsed:)') {
-        Write-Host ('    dev-run | {0}' -f $text)
+    $cost = ''
+    if ($script:BuildLocalChildStage -eq $stage -and $null -ne $script:BuildLocalChildStageAt) {
+        $cost = ' (stage took {0})' -f (Format-BuildLocalSpan ($sinceStart - $script:BuildLocalChildStageAt))
     }
+    $outcome = if ($state -eq 'passed') { 'passed' } else { 'FAILED' }
+    Write-Host ('    dev-run {0} elapsed | {1} {2}{3}' -f (Format-BuildLocalSpan $sinceStart), $stage, $outcome, $cost)
+    Reset-BuildLocalChildProgress
 }
 
 function New-BuildLocalProgressReader([string]$Path) {
