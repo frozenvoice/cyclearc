@@ -153,9 +153,11 @@ public class CodexAppServerClientTests
 
         var command = new CodexLaunchCommand(node, $"\"{script}\"", script, false);
         var client = new CodexAppServerClient(new CodexProcessFactory());
+        var elapsed = Stopwatch.StartNew();
         var session = await client.ReadQuotaAsync(command, "1.0.0", CancellationToken.None);
-        Assert.Equal(CodexQuotaStatus.Available, session.Status);
-        Assert.True(session.ProcessCleanedUp);
+        elapsed.Stop();
+        Assert.True(session.Status == CodexQuotaStatus.Available, Describe(session, elapsed.Elapsed));
+        Assert.True(session.ProcessCleanedUp, Describe(session, elapsed.Elapsed));
         Assert.DoesNotContain("thread/", string.Join(",", session.SentMethods), StringComparison.Ordinal);
     }
 
@@ -165,14 +167,38 @@ public class CodexAppServerClientTests
         if (!TryNode(out var node, out var script)) return;
         var command = new CodexLaunchCommand(node, $"\"{script}\" --flood-stderr", script, false);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var elapsed = Stopwatch.StartNew();
         var session = await new CodexAppServerClient(new CodexProcessFactory())
             .ReadQuotaAsync(command, "test", deadline.Token);
-        Assert.Equal(CodexQuotaStatus.Available, session.Status);
-        Assert.True(session.ProcessCleanedUp);
-        Assert.NotEmpty(session.SanitizedStderr);
-        Assert.True(System.Text.Encoding.UTF8.GetByteCount(session.SanitizedStderr) <= CodexProtocol.MaxStderrBytes);
+        elapsed.Stop();
+        // This one has failed on CI without leaving anything to go on, so every assertion
+        // carries the whole session. See Describe for how to read it.
+        Assert.True(session.Status == CodexQuotaStatus.Available, Describe(session, elapsed.Elapsed));
+        Assert.True(session.ProcessCleanedUp, Describe(session, elapsed.Elapsed));
+        Assert.True(session.SanitizedStderr.Length > 0, Describe(session, elapsed.Elapsed));
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(session.SanitizedStderr) <= CodexProtocol.MaxStderrBytes,
+            Describe(session, elapsed.Elapsed));
         Assert.DoesNotContain('\uFFFD', session.SanitizedStderr);
     }
+
+    /// <summary>
+    /// Everything needed to tell one failure of these real-process tests from another, because
+    /// the status alone does not say where the run stopped.
+    ///
+    /// Detail names the stage for the two it can: "startup-timed-out" before the child answered
+    /// anything, "initialize-failed" for the first exchange. After that it is only "timed-out",
+    /// so the methods already sent are what say how far the protocol got. The elapsed time
+    /// separates a single stage timeout (ten seconds) from the whole-session ceiling (thirty),
+    /// and the captured stderr length separates a child that was never read from one that was:
+    /// the flooding fixture answers initialize only once its oversized stderr write has drained,
+    /// so a timeout there with nothing captured means the drain never moved.
+    /// </summary>
+    private static string Describe(CodexProtocolSession session, TimeSpan elapsed) =>
+        $"status={session.Status} detail={session.Detail ?? "(none)"} "
+        + $"elapsed={elapsed.TotalSeconds:n1}s sent=[{string.Join(" ", session.SentMethods)}] "
+        + $"stderrChars={session.SanitizedStderr.Length} cleanedUp={session.ProcessCleanedUp} "
+        + $"killed={session.KillCalled} "
+        + $"stageTimeoutMs={CodexProtocol.InitializeTimeoutMs} ceilingMs={CodexProtocol.TotalHardCeilingMs}";
 
     [Fact]
     public async Task CompletionWaitsForStderrDrainBeforeSnapshot()
@@ -244,8 +270,9 @@ public class CodexAppServerClientTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
         var session = await new CodexAppServerClient(new CodexProcessFactory())
             .ReadQuotaAsync(command, "1.0.0", cts.Token);
-        Assert.True(session.Status is CodexQuotaStatus.Cancelled or CodexQuotaStatus.TimedOut);
-        Assert.True(session.ProcessCleanedUp);
+        Assert.True(session.Status is CodexQuotaStatus.Cancelled or CodexQuotaStatus.TimedOut,
+            Describe(session, TimeSpan.Zero));
+        Assert.True(session.ProcessCleanedUp, Describe(session, TimeSpan.Zero));
     }
 
     private static CodexLaunchCommand DummyCommand() =>
