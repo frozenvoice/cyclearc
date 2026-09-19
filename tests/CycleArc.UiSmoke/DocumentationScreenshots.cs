@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -59,7 +59,9 @@ internal static class DocumentationScreenshots
         }
         applyTheme.Invoke(null, [AppTheme.Dark]);
         var settings = new SettingsWindow(new AppSettings { UiLanguage = UiLanguage.English, Theme = AppTheme.Dark });
-        try { Save(settings, Path.Combine(directory, "settings.png"), 640, 590); }
+        // The size the window declares, not a copy of it: a preview rendered at a stale
+        // size hid a first tab that no longer fit.
+        try { Save(settings, Path.Combine(directory, "settings.png"), settings.Width, settings.Height); }
         finally { settings.Close(); }
         var widget = new FloatingWidget();
         try

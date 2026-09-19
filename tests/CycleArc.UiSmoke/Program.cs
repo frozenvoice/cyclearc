@@ -104,6 +104,11 @@ internal static class Program
                 WidgetLayoutChecks.Run(widgetLayoutDirectory);
                 return 0;
             }
+            if (args is ["--settings-window"] or ["--settings-window", _])
+            {
+                SettingsWindowChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--widget-zoom"] or ["--widget-zoom", _])
             {
                 WidgetZoomChecks.Run(args.Length == 2 ? args[1] : null);
@@ -190,6 +195,7 @@ internal static class Program
             WidgetMultiAccountChecks.Run();
             WidgetLayoutChecks.Run();
             WidgetZoomChecks.Run();
+            SettingsWindowChecks.Run();
             TrayIconChecks.Run();
             WidgetDpiChecks.Run();
             CheckPositionReset();
@@ -312,11 +318,14 @@ internal static class Program
                     throw new InvalidOperationException("Refresh selector is hidden or clipped.");
                 if (minutes == 5)
                 {
-                    content.Measure(new Size(640, 590));
-                    content.Arrange(new Rect(0, 0, 640, 590));
+                    // The window's own declared size, so this preview follows it.
+                    var previewSize = new Size(window.Width, window.Height);
+                    content.Measure(previewSize);
+                    content.Arrange(new Rect(new Point(), previewSize));
                     scroller.ScrollToTop();
                     content.UpdateLayout();
-                    var bitmap = new RenderTargetBitmap(640, 590, 96, 96, PixelFormats.Pbgra32);
+                    var bitmap = new RenderTargetBitmap((int)Math.Ceiling(previewSize.Width),
+                        (int)Math.Ceiling(previewSize.Height), 96, 96, PixelFormats.Pbgra32);
                     bitmap.Render(content);
                     var encoder = new PngBitmapEncoder();
                     encoder.Frames.Add(BitmapFrame.Create(bitmap));

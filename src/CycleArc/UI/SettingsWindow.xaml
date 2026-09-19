@@ -1,8 +1,8 @@
-<Window x:Class="CycleArc.UI.SettingsWindow"
+﻿<Window x:Class="CycleArc.UI.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Width="640" Height="590" MinWidth="580" MinHeight="480"
+        Width="640" Height="624" MinWidth="580" MinHeight="480"
         WindowStyle="None" ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
         Style="{StaticResource AppWindow}" PreviewKeyDown="OnPreviewKeyDown">
     <shell:WindowChrome.WindowChrome>
