@@ -1725,3 +1725,25 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
 - Not run: any live account request, and any installed-app update or removal. `package-verify`
   exercises an isolated portable root, which is not an installed-app update. The multi-account
   and zoomed layouts use injected `ScreenRect` work areas and synthetic accounts throughout.
+
+## Widget period alignment, 2026-09-19
+
+- Five-hour and weekly labels reserve the same marker gutter and share the remaining value's
+  font size and baseline. Each period uses a 16-DIP primary line and a 14-DIP reset line;
+  the two periods and their 4-DIP gap match the 64-DIP ring. Single-period and two-period
+  accounts therefore keep their rings aligned across the row.
+- An immediate remeasure after binding includes a newly visible status line, before WPF's
+  deferred parent invalidation. The existing shown-window status/rebind regression caught
+  this as a clipped module and now passes without changing its bounds assertions.
+- `WidgetMultiAccountChecks.CheckAlignment` compares label starts, text baselines, right
+  edges, period-block/ring centers and rings within each account row. It also runs in the
+  zoom and DPI suites. The missing-reset fixture reproduces 100% left for five hours and
+  77% left for the week using an invented Claude account.
+- The DPI fixture applies its scale at the window root so a synchronous module remeasure
+  inherits the simulated DPI throughout the visual tree. Text-DPI equality remains asserted.
+- Focused checks passed locally: 24 multi-account renders, 151 layout checks, 531 zoom checks,
+  and 180 DPI/layout renders plus native windows on three monitors. Inspected EN/KO, Dark/Light,
+  80/150% widget sizes and 125% DPI; updated only the affected `docs/images/widget.png` preview.
+- Final local gate: `dev-run.ps1 -NoLaunch` passed in 4m20s, including 1,574 unit tests,
+  full UiSmoke, single-file publish and package/rollback component checks. No live account
+  request or installed-app replacement was performed.

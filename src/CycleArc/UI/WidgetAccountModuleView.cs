@@ -12,7 +12,8 @@ namespace CycleArc.UI;
 /// </summary>
 public sealed class WidgetAccountModuleView : Border
 {
-    internal const double RingDiameter = 60;
+    // Two 30-DIP period lines and their 4-DIP gap share the ring's vertical extent.
+    internal const double RingDiameter = 64;
     private const double RingStroke = 6;
     private const double RingRadius = (RingDiameter - RingStroke) / 2;
     private const double RingCenter = RingDiameter / 2;
@@ -130,6 +131,10 @@ public sealed class WidgetAccountModuleView : Border
 
         ToolTip = model.Tooltip;
         System.Windows.Automation.AutomationProperties.SetName(this, AutomationText(model));
+
+        // BindAccounts measures immediately, before WPF propagates a status-line size change.
+        ((FrameworkElement)Child).InvalidateMeasure();
+        InvalidateMeasure();
     }
 
     private static string AutomationText(WidgetAccountModel model)
@@ -179,7 +184,7 @@ public sealed class WidgetAccountModuleView : Border
             var rebuilt = new List<WidgetPeriodLineView>(model.Periods.Count);
             foreach (var _ in model.Periods)
             {
-                var line = new WidgetPeriodLineView { Margin = new Thickness(0, rebuilt.Count == 0 ? 0 : 5, 0, 0) };
+                var line = new WidgetPeriodLineView { Margin = new Thickness(0, rebuilt.Count == 0 ? 0 : 4, 0, 0) };
                 _periodPanel.Children.Add(line);
                 rebuilt.Add(line);
             }
@@ -192,21 +197,26 @@ public sealed class WidgetAccountModuleView : Border
 /// <summary>One period inside a module: its name, what is left, and when it resets.</summary>
 public sealed class WidgetPeriodLineView : StackPanel
 {
-    public TextBlock PeriodText { get; } = new() { FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis };
+    public TextBlock PeriodText { get; } = new()
+    {
+        FontSize = 12, LineHeight = 16, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+        TextTrimming = TextTrimming.CharacterEllipsis
+    };
     public TextBlock RemainingText { get; } = new()
     {
-        FontSize = 12, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Right,
+        FontSize = 12, LineHeight = 16, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+        FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Right,
         HorizontalAlignment = HorizontalAlignment.Right
     };
     public TextBlock ResetText { get; } = new()
     {
-        FontSize = 10.5, TextAlignment = TextAlignment.Right, HorizontalAlignment = HorizontalAlignment.Right,
-        Margin = new Thickness(0, 1, 0, 0)
+        FontSize = 10.5, LineHeight = 14, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+        TextAlignment = TextAlignment.Right, HorizontalAlignment = HorizontalAlignment.Right
     };
     private readonly Ellipse _representative = new()
     {
         Width = 4, Height = 4, Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center,
-        Visibility = Visibility.Collapsed
+        Visibility = Visibility.Hidden
     };
 
     public WidgetPeriodLineView()
@@ -238,7 +248,8 @@ public sealed class WidgetPeriodLineView : StackPanel
         ResetText.Text = line.ResetText;
         // The countdown stays readable; the exact local reset time is one hover away.
         ResetText.ToolTip = line.ResetTooltip is null ? null : UiText.WidgetReset + " " + line.ResetTooltip;
-        _representative.Visibility = line.IsRepresentative ? Visibility.Visible : Visibility.Collapsed;
+        // Reserve the marker gutter so both period names start in the same column.
+        _representative.Visibility = line.IsRepresentative ? Visibility.Visible : Visibility.Hidden;
         _representative.ToolTip = line.IsRepresentative
             ? UiText.T("Shown in the ring", "링에 표시되는 기간") : null;
     }

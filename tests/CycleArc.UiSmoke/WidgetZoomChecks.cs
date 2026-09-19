@@ -299,6 +299,8 @@ internal static class WidgetZoomChecks
                 widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, Wide, Now);
                 Layout(widget);
 
+                WidgetMultiAccountChecks.CheckAlignment(widget, $"{suffix}: {where}");
+
                 var header = (FrameworkElement)widget.FindName("WidgetHeader");
                 var boxes = order.Select(name =>
                 {

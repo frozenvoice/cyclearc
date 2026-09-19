@@ -2,6 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using CycleArc.Codex;
 using CycleArc.Models;
 using CycleArc.Providers.Claude;
@@ -88,6 +89,7 @@ internal static class WidgetMultiAccountChecks
 
     private static void CheckReadable(FloatingWidget widget, string name)
     {
+        CheckAlignment(widget, name);
         var content = (FrameworkElement)widget.Content;
         var header = (FrameworkElement)widget.FindName("WidgetHeader");
         Check(AccountUiChecks.Descendants<TextBlock>(content)
@@ -113,6 +115,48 @@ internal static class WidgetMultiAccountChecks
             Check(module.TranslatePoint(new Point(), content).Y + 0.01
                 >= header.TranslatePoint(new Point(0, header.ActualHeight), content).Y,
                 $"{name}: a module overlaps the header.");
+        }
+    }
+
+    internal static void CheckAlignment(FloatingWidget widget, string name)
+    {
+        var content = (FrameworkElement)widget.Content;
+        var tolerance = Math.Max(1, widget.ZoomScale);
+        var rowCenters = new Dictionary<int, double>();
+        Rect Bounds(FrameworkElement element) => element.TransformToAncestor(content)
+            .TransformBounds(new Rect(element.RenderSize));
+
+        for (var index = 0; index < widget.Modules.Count; index++)
+        {
+            var module = widget.Modules[index];
+            var ring = (FrameworkElement)VisualTreeHelper.GetParent(VisualTreeHelper.GetParent(module.RingValueText));
+            var ringBounds = Bounds(ring);
+            var ringCenter = ringBounds.Top + ringBounds.Height / 2;
+            var row = index / widget.LastLayout!.Columns;
+            if (rowCenters.TryGetValue(row, out var rowCenter))
+                Check(Math.Abs(ringCenter - rowCenter) <= tolerance,
+                    $"{name}: rings in the same account row are vertically misaligned.");
+            else rowCenters.Add(row, ringCenter);
+
+            if (module.Periods.Count == 0) continue;
+            var periodBounds = Rect.Empty;
+            var labelStart = Bounds(module.Periods[0].PeriodText).Left;
+            foreach (var line in module.Periods)
+            {
+                periodBounds.Union(Bounds(line));
+                Check(Math.Abs(Bounds(line.PeriodText).Left - labelStart) <= tolerance,
+                    $"{name}: the representative marker shifts a period label out of its column.");
+                var labelBaseline = line.PeriodText.TranslatePoint(new Point(0, line.PeriodText.BaselineOffset), content).Y;
+                var remainingBaseline = line.RemainingText.TranslatePoint(new Point(0, line.RemainingText.BaselineOffset), content).Y;
+                Check(Math.Abs(labelBaseline - remainingBaseline) <= tolerance,
+                    $"{name}: a period label and remaining value have different baselines.");
+                Check(Math.Abs(Bounds(line.RemainingText).Right - Bounds(line.ResetText).Right) <= tolerance,
+                    $"{name}: remaining and reset values have different right edges.");
+            }
+            Check(Math.Abs(periodBounds.Top + periodBounds.Height / 2 - ringCenter) <= tolerance,
+                $"{name}: the period block is not centered beside its ring.");
+            Check(periodBounds.Top >= ringBounds.Top - tolerance && periodBounds.Bottom <= ringBounds.Bottom + tolerance,
+                $"{name}: period lines extend above or below their ring.");
         }
     }
 
@@ -163,14 +207,18 @@ internal static class WidgetMultiAccountChecks
 
     private static CodexAccountView[] States()
     {
-        var noReset = Both(55, 30) with
+        var noReset = Both(0, 23) with
         {
-            Windows = [new("five", 55, CodexWindowClassifier.FiveHourMinutes, null, CodexWindowKind.FiveHour)]
+            Windows =
+            [
+                new("five", 0, CodexWindowClassifier.FiveHourMinutes, null, CodexWindowKind.FiveHour),
+                new("week", 23, CodexWindowClassifier.WeeklyMinutes, Now.AddDays(5).AddHours(21), CodexWindowKind.Weekly)
+            ]
         };
         return
         [
             Codex("state-ok", UiText.T("a-very-long-synthetic-widget-nickname", "아주 긴 합성 위젯 별명입니다"), Both(97, 44)),
-            Codex("state-noreset", UiText.T("Lab", "실험용"), noReset),
+            Claude("state-noreset", UiText.T("Lab", "실험용"), noReset),
             Claude("state-stale", UiText.T("Work", "작업용"), Both(62, 18) with { Status = CodexQuotaStatus.Stale }),
             Claude("state-auth", UiText.T("Personal Claude", "개인 Claude"),
                 Both(85, 23) with { TechnicalDetail = "claude-live-auth-required" })

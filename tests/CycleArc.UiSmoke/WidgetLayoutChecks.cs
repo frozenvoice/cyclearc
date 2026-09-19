@@ -587,7 +587,7 @@ internal static class WidgetLayoutChecks
             CheckAccountsFullyVisible(window, "bind-two-periods");
             var bothLayout = window.LastLayout!.Height;
             var bothNative = NativeDipSize(window);
-            // Two compact period lines sit beside the 60 DIP ring, so height may stay.
+            // Two compact period lines fit beside the ring, so height may stay.
             // The HWND must still match the arranged layout rather than a previous bind.
             Check(Math.Abs(bothNative.Height - bothLayout) <= 4,
                 $"Two-period HWND {bothNative.Height} does not match layout {bothLayout}.");

@@ -47,7 +47,9 @@ internal static class WidgetDpiChecks
                 // Change the visual's layout DPI, not just the output bitmap resolution.
                 var content = (FrameworkElement)widget.Content;
                 Bind(widget, accounts, snapshot.Status);
-                VisualTreeHelper.SetRootDpi(content, new DpiScale(scale, scale));
+                // Include the window ancestor: an immediate module remeasure must not
+                // inherit the host DPI above an artificially scaled content subtree.
+                VisualTreeHelper.SetRootDpi(widget, new DpiScale(scale, scale));
                 foreach (var status in new[] { CodexQuotaStatus.Available, CodexQuotaStatus.Stale,
                              CodexQuotaStatus.Available })
                 {
@@ -118,6 +120,7 @@ internal static class WidgetDpiChecks
     // nothing is clipped, and the header stays above the grid.
     private static void AssertModuleLayout(FloatingWidget widget, string context)
     {
+        WidgetMultiAccountChecks.CheckAlignment(widget, context);
         var content = (FrameworkElement)widget.Content;
         var scale = VisualTreeHelper.GetDpi(content).DpiScaleY;
         var header = (FrameworkElement)widget.FindName("WidgetHeader");
@@ -153,7 +156,8 @@ internal static class WidgetDpiChecks
                     throw new InvalidOperationException($"A quota or reset value is clipped ({context}).");
             }
             if (Math.Abs(VisualTreeHelper.GetDpi(name).DpiScaleY - scale) > 0.001)
-                throw new InvalidOperationException("Widget text did not inherit the tested DPI.");
+                throw new InvalidOperationException($"Widget text did not inherit the tested DPI ({context}): "
+                    + $"{VisualTreeHelper.GetDpi(name).DpiScaleY} instead of {scale}.");
         }
         // The wrapped grid must never exceed what the widget said it would take, beyond
         // 1 DIP hairlines snapping to whole device pixels (150% DPI: 720 → 721⅓).

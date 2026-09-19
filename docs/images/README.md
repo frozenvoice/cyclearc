@@ -27,6 +27,8 @@ Account-management previews scroll to the bottom so all three sets of actions ar
 The widget has its own fixture in `DocumentationScreenshots.Export`: Personal (Codex, 28%
 weekly), Lab (Codex, 62% five-hour), and selected Work Claude (85% five-hour / 23% weekly).
 Its header shows independent size controls, shared refresh, Settings and Close widget.
+Period labels share a baseline with the remaining values and a fixed marker gutter;
+the two-period block and the rings across accounts share the same vertical alignment.
 The settings preview uses the production window's declared size so the General tab is fully visible.
 
 The Claude previews use those same profiles with Research connected and selected, so all three
