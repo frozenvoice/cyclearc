@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -104,6 +104,11 @@ internal static class Program
                 WidgetLayoutChecks.Run(widgetLayoutDirectory);
                 return 0;
             }
+            if (args is ["--widget-zoom"] or ["--widget-zoom", _])
+            {
+                WidgetZoomChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--widget-dpi", var dpiDirectory])
             {
                 WidgetDpiChecks.Run(dpiDirectory);
@@ -184,6 +189,7 @@ internal static class Program
             WidgetRecoveryChecks.Run();
             WidgetMultiAccountChecks.Run();
             WidgetLayoutChecks.Run();
+            WidgetZoomChecks.Run();
             TrayIconChecks.Run();
             WidgetDpiChecks.Run();
             CheckPositionReset();

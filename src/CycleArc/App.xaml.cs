@@ -80,6 +80,8 @@ public partial class App : Application
         _tray.LeftClick += ToggleFlyout;
         _tray.OpenRequested += ShowMain;
         _tray.SyncRequested += () => _ = RefreshCodexAsync();
+        // Resets the widget only; the detail window keeps its own scale.
+        _tray.ResetWidgetZoomRequested += () => _widgetController?.CurrentWindow?.SetZoom(FlyoutZoom.DefaultPercent);
         _tray.SettingsRequested += ShowSettings;
         _tray.OpenLogsRequested += OpenLogs;
         _updates = new AppUpdateCoordinator(new VelopackUpdateClient());
@@ -540,6 +542,13 @@ public partial class App : Application
             widget.SettingsRequested += ShowSettings;
             widget.CloseRequested += CloseWidget;
             widget.RefreshRequested += () => _ = RefreshCodexAsync();
+            // Its own setting. The flyout writes FlyoutZoomPercent from its own event, so
+            // neither window's scale can overwrite the other's.
+            widget.ZoomChanged += percent =>
+            {
+                _settings.WidgetZoomPercent = percent;
+                _settingsStore.Save(_settings);
+            };
             widget.ContextMenuRequested += () => _tray.ShowWidgetContextMenu();
         }, _log.Info);
         var overview = UsageAccountOverview.Create(_codex.Accounts, _codex.SelectedId, _settings.UsagePeriod);

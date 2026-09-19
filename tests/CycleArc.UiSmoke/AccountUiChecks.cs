@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -506,18 +506,27 @@ internal static class AccountUiChecks
         WritePng(content, size, path);
     }
 
+    /// <summary>
     /// Captures the visual as laid out now. Does not remeasure to a different size.
-    internal static void RenderCurrent(FrameworkElement content, string? path)
+    /// </summary>
+    /// <param name="scale">
+    /// A LayoutTransform the content carries. RenderSize is the untransformed layout size, so a
+    /// scaled panel needs a correspondingly larger bitmap or the capture crops what the screen
+    /// shows. 1 for content with no such transform.
+    /// </param>
+    internal static void RenderCurrent(FrameworkElement content, string? path, double scale = 1)
     {
         content.UpdateLayout();
         var size = content.RenderSize;
         if (size.Width <= 0 || size.Height <= 0) return;
-        WritePng(content, size, path);
+        WritePng(content, size, path, scale);
     }
 
-    private static void WritePng(Visual visual, Size size, string? path)
+    private static void WritePng(Visual visual, Size size, string? path, double scale = 1)
     {
-        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height), 96, 96, PixelFormats.Pbgra32);
+        var factor = scale > 0 && double.IsFinite(scale) ? scale : 1;
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(size.Width * factor),
+            (int)Math.Ceiling(size.Height * factor), 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(visual);
         if (path is null) return;
         var encoder = new PngBitmapEncoder();

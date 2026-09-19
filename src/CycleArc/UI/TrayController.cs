@@ -21,6 +21,7 @@ public sealed class TrayController : IDisposable
     public event Action? UpdatesRequested;
     public event Action? ExitRequested;
     public event Action? CloseWidgetRequested;
+    public event Action? ResetWidgetZoomRequested;
 
     public TrayController()
     {
@@ -55,6 +56,7 @@ public sealed class TrayController : IDisposable
         var menu = new ContextMenuStrip();
         if (forWidget)
         {
+            menu.Items.Add(UiText.ResetWidgetSize, null, (_, _) => ResetWidgetZoomRequested?.Invoke());
             menu.Items.Add(UiText.T("Close widget", "위젯 닫기"), null, (_, _) => CloseWidgetRequested?.Invoke());
             menu.Items.Add(new ToolStripSeparator());
         }

@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -27,7 +27,7 @@ public partial class FloatingWidget : Window
     private (int X, int Y)? _savedPixels;
     private readonly List<WidgetAccountModuleView> _modules = [];
     private string? _pressedProfileId;
-    private (int Count, int Columns) _shape = (-1, -1);
+    private (int Count, int Columns, int ZoomPercent) _shape = (-1, -1, -1);
     private IReadOnlyList<ScreenRect>? _workAreas;
     private bool _relayouting;
     private bool _relayoutQueued;
@@ -154,7 +154,7 @@ public partial class FloatingWidget : Window
         if (_appliedSize is not { } applied) return false;
         var (width, height) = ArrangedSize();
         if (width <= 0 || height <= 0) return false;
-        var slack = (LastLayout?.HairlineRoundingSlack(1) ?? 0) + 2;
+        var slack = (LastLayout?.HairlineRoundingSlack(1) ?? 0) * ZoomScale + 2;
         return Math.Abs(applied.Width - width) <= slack && Math.Abs(applied.Height - height) <= slack;
     }
 
@@ -163,6 +163,11 @@ public partial class FloatingWidget : Window
         while (_modules.Count < count) _modules.Add(new WidgetAccountModuleView());
         if (_modules.Count > count) _modules.RemoveRange(count, _modules.Count - count);
     }
+
+    private static ScreenRect ScaleWorkArea(ScreenRect area, double factor) =>
+        new(area.X, area.Y,
+            (int)Math.Round(area.Width * factor, MidpointRounding.AwayFromZero),
+            (int)Math.Round(area.Height * factor, MidpointRounding.AwayFromZero));
 
     private WidgetGridLayout ArrangeModules(int count, ScreenRect area)
     {
@@ -174,10 +179,16 @@ public partial class FloatingWidget : Window
             _modules[i].Measure(new System.Windows.Size(WidgetGridLayout.ModuleWidth, double.PositiveInfinity));
             heights[i] = _modules[i].DesiredSize.Height;
         }
-        var layout = WidgetGridLayout.For(count, headerHeight, heights, area,
+        // Children measure unscaled under the LayoutTransform, so the work area is divided by
+        // the scale to compare like with like. Wrapping then matches what the scaled widget
+        // actually occupies on screen.
+        var unscaled = ScaleWorkArea(area, 1 / Math.Max(ZoomScale, 0.01));
+        var layout = WidgetGridLayout.For(count, headerHeight, heights, unscaled,
             System.Windows.SystemParameters.VerticalScrollBarWidth);
-        if (_shape != (count, layout.Columns)) BuildGrid(count, layout.Columns);
-        _shape = (count, layout.Columns);
+        // Zoom is part of the shape: the same account and column counts at a different scale
+        // still need the grid rebuilt and remeasured.
+        if (_shape != (count, layout.Columns, ZoomPercent)) BuildGrid(count, layout.Columns);
+        _shape = (count, layout.Columns, ZoomPercent);
         // Only a grid that no longer fits the monitor scrolls; the panel itself never shrinks text.
         // A grid that fits stays unconstrained, so a sub-pixel rounding difference cannot
         // introduce a scrollbar the layout did not ask for.
@@ -253,14 +264,24 @@ public partial class FloatingWidget : Window
         _appliedSize = (width, height);
     }
 
+    /// <summary>
+    /// The size to give the HWND, in the window's own DIP.
+    ///
+    /// The two inputs are in different spaces: the grid wraps in unscaled child DIP, because
+    /// the modules measure underneath the LayoutTransform, while the panel's DesiredSize is
+    /// already scaled by it. Multiplying the grid by the scale puts both in the window's space,
+    /// so a zoomed widget gets an HWND that actually holds its content instead of one sized to
+    /// the unscaled grid, which clipped above 100% and left a margin below it.
+    /// </summary>
     private (double Width, double Height) ArrangedSize()
     {
         var content = Content as FrameworkElement;
-        var width = LastLayout?.Width ?? 0;
-        var height = LastLayout?.Height ?? 0;
+        var scale = ZoomScale;
+        var width = (LastLayout?.Width ?? 0) * scale;
+        var height = (LastLayout?.Height ?? 0) * scale;
         if (content is { DesiredSize.Width: > 0 })
         {
-            var slack = LastLayout?.HairlineRoundingSlack(1) ?? 0;
+            var slack = (LastLayout?.HairlineRoundingSlack(1) ?? 0) * scale;
             // Hairline snapping may be a few DIP wider than the formula. A previous
             // five-column DesiredSize must not keep the HWND wide after the grid wraps.
             if (width <= 0 || content.DesiredSize.Width <= width + slack + 2)
@@ -370,6 +391,100 @@ public partial class FloatingWidget : Window
         Grid.SetRow(line, row);
         Grid.SetColumnSpan(line, span);
         return line;
+    }
+
+    /// <summary>
+    /// This widget's own scale. Independent of the detail flyout: the two share
+    /// <see cref="FlyoutZoom"/>'s arithmetic and nothing else, so neither can move the other.
+    /// </summary>
+    public int ZoomPercent { get; private set; } = FlyoutZoom.DefaultPercent;
+
+    public event Action<int>? ZoomChanged;
+
+    public double ZoomScale => ZoomPercent / 100d;
+
+    /// <summary>
+    /// Applies a scale to the panel through a LayoutTransform, so measure, arrange, hit-testing
+    /// and the native window size all follow it. A render-only transform would leave the window
+    /// and its click targets at the old size.
+    /// </summary>
+    public void SetZoom(int percent, bool notify = true)
+    {
+        var next = FlyoutZoom.Normalize(percent);
+        var changed = next != ZoomPercent;
+        ZoomPercent = next;
+        WidgetScale.ScaleX = WidgetScale.ScaleY = ZoomScale;
+        UpdateZoomControls();
+        // The grid is measured unscaled, so a changed scale changes how many modules fit even
+        // when the account count has not: relayout rather than trusting the shape cache.
+        if (changed) Relayout();
+        if (changed && notify) ZoomChanged?.Invoke(ZoomPercent);
+    }
+
+    private void UpdateZoomControls()
+    {
+        WidgetZoomOutButton.IsEnabled = ZoomPercent > FlyoutZoom.MinPercent;
+        WidgetZoomInButton.IsEnabled = ZoomPercent < FlyoutZoom.MaxPercent;
+        var zoomIn = UiText.ZoomInHint(ZoomPercent);
+        var zoomOut = UiText.ZoomOutHint(ZoomPercent);
+        WidgetZoomInButton.ToolTip = zoomIn;
+        WidgetZoomOutButton.ToolTip = zoomOut;
+        System.Windows.Automation.AutomationProperties.SetName(WidgetZoomInButton, zoomIn);
+        System.Windows.Automation.AutomationProperties.SetName(WidgetZoomOutButton, zoomOut);
+    }
+
+    /// <summary>
+    /// Handles this window's zoom shortcuts. Called from its own PreviewKeyDown, so it only
+    /// ever runs for keystrokes this window received: no global hook, no hotkey registration,
+    /// and no effect while another application or a modal dialog has the keyboard.
+    /// </summary>
+    public bool TryHandleZoomShortcut(Key key, ModifierKeys modifiers)
+    {
+        if ((modifiers & ModifierKeys.Control) == 0
+            || (modifiers & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return false;
+        var next = key switch
+        {
+            // OemPlus is the unshifted '=' key, which is how Ctrl + is typed on most layouts.
+            Key.OemPlus or Key.Add => FlyoutZoom.Adjust(ZoomPercent, increase: true),
+            Key.OemMinus or Key.Subtract => FlyoutZoom.Adjust(ZoomPercent, increase: false),
+            Key.D0 or Key.NumPad0 => FlyoutZoom.DefaultPercent,
+            _ => (int?)null
+        };
+        if (next is null) return false;
+        SetZoom(next.Value);
+        return true;
+    }
+
+    private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (TryHandleZoomShortcut(e.Key, Keyboard.Modifiers)) e.Handled = true;
+    }
+
+    private void OnZoomInClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        SetZoom(FlyoutZoom.Adjust(ZoomPercent, increase: true));
+        // A header button takes focus inside this window, so the keyboard shortcuts keep
+        // working here afterwards rather than falling back to whatever was focused before.
+        TakeKeyboardFocus();
+    }
+
+    private void OnZoomOutClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        SetZoom(FlyoutZoom.Adjust(ZoomPercent, increase: false));
+        TakeKeyboardFocus();
+    }
+
+    /// <summary>
+    /// Focuses this window for keyboard input. Only ever called from an explicit click: the
+    /// widget still never activates itself on show, rebind, relayout or DPI change.
+    /// </summary>
+    public void TakeKeyboardFocus()
+    {
+        if (_closed || !IsVisible) return;
+        if (!IsActive) Activate();
+        Focus();
     }
 
     // The one refresh control for the whole widget. It raises the same event the middle
@@ -671,9 +786,18 @@ public partial class FloatingWidget : Window
         }
         if (_sizeApplyPending) Relayout();
         if (gesture is null || !allowClick) return;
-        // Selecting reuses the existing selection state; it never starts a login or a request.
-        if (!string.IsNullOrEmpty(pressed)) AccountSelected?.Invoke(pressed);
-        FlyoutRequested?.Invoke();
+        if (!string.IsNullOrEmpty(pressed))
+        {
+            // Selecting reuses the existing selection state; it never starts a login or a request.
+            AccountSelected?.Invoke(pressed);
+            FlyoutRequested?.Invoke();
+            return;
+        }
+
+        // A click on the header or empty chrome only focuses this widget. It used to raise
+        // FlyoutRequested too, which opened and activated the detail window and took the
+        // keyboard with it - so Ctrl +/- typed "at the widget" resized the detail window.
+        TakeKeyboardFocus();
     }
 
     private void OnMouseDown(object sender, MouseButtonEventArgs e)

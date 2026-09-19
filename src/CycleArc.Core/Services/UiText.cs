@@ -307,6 +307,14 @@ public static class UiText
     public static string FloatingWidget => T("Floating widget", "플로팅 위젯");
     public static string TaskbarStatusEnabled => T("Always show taskbar status", "작업표시줄 상시 표시");
     public static string RefreshAll => T("Refresh all", "모두 새로고침");
+    // Current size and the keyboard equivalent, for the zoom buttons' tooltip and
+    // accessible name. Each window passes its own percentage.
+    public static string ZoomInHint(int percent) =>
+        T($"Zoom in · now {percent}% · Ctrl +", $"확대 · 현재 {percent}% · Ctrl +");
+    public static string ZoomOutHint(int percent) =>
+        T($"Zoom out · now {percent}% · Ctrl -", $"축소 · 현재 {percent}% · Ctrl -");
+    public static string ResetWindowSize => T("Reset size (100%)", "크기 초기화 (100%)");
+    public static string ResetWidgetSize => T("Reset widget size (100%)", "위젯 크기 초기화 (100%)");
     public static string RefreshAllProgress => T("Refreshing...", "동기화 중...");
     public static string CodexUsage => T("Codex usage", "Codex 사용량");
     public static string FiveHourUsed => T("5-hour used", "5시간 사용량");
