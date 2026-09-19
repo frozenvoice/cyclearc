@@ -1682,3 +1682,46 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
 - Not run: installed-app update/removal, real-account quota requests, or changing this PC's
   monitor layout. Dual-monitor wrap/recovery is the injected `ScreenRect` path plus whatever
   monitors the host already has.
+
+## Independent widget and detail-card size, 2026-09-19
+
+- The reported symptom, "`Ctrl` +/- at the widget resizes the detail card", had two causes and
+  neither was a shared zoom value. `FinishDrag` raised `FlyoutRequested` for every click,
+  including the header and empty chrome, so `App.ShowMain` activated the detail card and the
+  keyboard went with it; and the widget had no zoom of its own, so the only handler that existed
+  belonged to `FlyoutWindow`. A press on an account still opens and activates the card; a press
+  on the header or empty chrome now only focuses the widget.
+- `AppSettings.WidgetZoomPercent` is stored and normalised separately from `FlyoutZoomPercent`.
+  `FlyoutZoom` is shared arithmetic only: neither window reads or writes the other's value, and
+  restoring a saved value is silent, so a clamped value is not written back over what was chosen.
+- `WidgetZoomChecks` (`CycleArc.UiSmoke --widget-zoom`) is 531 checks against real shown windows
+  and the real click gesture, not the zoom helpers alone. Focus separation is asserted through
+  `GetActiveWindow` and `Keyboard.FocusedElement`: with the detail card active, a widget header
+  click returns the keyboard to the widget and does not re-activate the card. It also covers
+  account click vs header click, drag vs button click, button/keyboard parity, one step per
+  keystroke, the 80% and 150% limits with `Ctrl` `0` escaping either end, `Ctrl`-less and
+  `Ctrl+Alt`/`Ctrl+Win` combinations being declined by both windows, header fit and order at
+  1/3/5 accounts and 80/100/150% in EN/KO and Dark/Light, and a saved size surviving reload and
+  recreation through a real `SettingsStore`.
+- `FlyoutActivationChecks` gained the complementary case: a header click changes neither whether
+  the popup is shown nor which window is active. Its existing click helper now presses an account
+  module, which is the gesture that opens the popup.
+- `ArrangedSize` mixed two coordinate spaces once the panel could scale: the grid wraps in
+  unscaled child DIP while the panel's `DesiredSize` is already transformed, so a zoomed widget
+  would have been given an HWND sized to the unscaled grid. At 100% the two are equal, which is
+  why nothing caught it before. The capture helpers had the same mistake and cropped the picture;
+  `WidgetFixture.RenderWidget` and `AccountUiChecks.RenderCurrent` now take the applied scale.
+- `IndependentWindowZoomTests` pins the settings contract: separate values, per-window
+  normalisation, an absent widget value opening unscaled, and an explicitly null one leaving the
+  file unreadable so the store keeps the last good copy - the same rule as every other number in
+  that file, which this change does not alter.
+- Previews affected by the two new header buttons were regenerated from the production views with
+  synthetic accounts (`CycleArc.UiSmoke --screenshots`): `widget.png` and the detail-card images.
+  `settings.png` also differs from its checked-in copy, but for an unrelated earlier drift in the
+  tray-icon explanation text, so it was left alone. Fourteen of the exported previews are not
+  byte-stable between two runs of identical code because they contain relative times; a byte
+  difference in those is not evidence that a change affected them.
+- Run locally on Windows: `dev-run.ps1 -NoLaunch` (exit 0, 1574 unit tests, full UiSmoke).
+- Not run: any live account request, and any installed-app update or removal. `package-verify`
+  exercises an isolated portable root, which is not an installed-app update. The multi-account
+  and zoomed layouts use injected `ScreenRect` work areas and synthetic accounts throughout.

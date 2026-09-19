@@ -33,8 +33,8 @@ The **Codex** or **Claude** label on account cards, selected details, tray toolt
 - **Usage in the tray.** A Windows notification-area icon keeps the meter within reach. Click for the detailed card; pin it to keep it visible.
 - **Clear quota windows.** See usage and remaining percentages, reset times and countdowns for each reported five-hour or weekly window. The ring, tray and widget share one display period: **Auto** uses a known five-hour percentage first, then weekly. Choose **Auto / 5 hours / Weekly** above the detail ring, or click the ring to switch when both values are known. The selection applies immediately to all three views and is saved across restarts. If the selected period has no known value, a known available period is shown with an explanation in the detail card.
 - **Reset credits.** View the available count and expiry times when the server supplies them. Use an individual reset after confirmation. Missing expiry information stays explicitly unknown.
-- **Optional desktop widget.** A compact, draggable summary that compares every displayable Codex and Claude account side by side: one small module each, with the account name, its provider badge, a usage ring for the shared display period, and what is left plus the countdown to the next reset for **every** period that account reports. Accounts keep their managed order and are never combined. One row holds as many modules as the widget's own monitor allows and the rest wrap to the next row; a list taller than the work area scrolls inside it. Opacity, always-on-top and click-through are unchanged. Click a module to select that account and open the usage popup; the thin header carries settings and a hide button. Off-screen positions recover automatically.
-- **Your preferred appearance.** Dark, Light, or live System theme; English and Korean; keyboard zoom from 80% to 150%.
+- **Optional desktop widget.** A compact, draggable summary that compares every displayable Codex and Claude account side by side: one small module each, with the account name, its provider badge, a usage ring for the shared display period, and what is left plus the countdown to the next reset for **every** period that account reports. Accounts keep their managed order and are never combined. One row holds as many modules as the widget's own monitor allows and the rest wrap to the next row; a list taller than the work area scrolls inside it. Opacity, always-on-top and click-through are unchanged. Click a module to select that account and open the usage popup; clicking the header or an empty part of the widget only gives it the keyboard, without opening the popup. The thin header carries its own size controls, refresh, settings and a hide button. Off-screen positions recover automatically.
+- **Your preferred appearance.** Dark, Light, or live System theme; English and Korean; keyboard zoom from 80% to 150% for the detail card and the widget, each kept separately.
 - **Honest refresh states.** Codex refreshes on its selectable 1, 2, 5, 10, 30 or 60-minute interval (default: five minutes). Claude actively checks the shared quota through the connected Desktop login during manual and configured scheduled refresh. Successful live data is **Updated** with a last-checked time; statusLine and Desktop history fallbacks are **Received** with source time. Failed checks keep previous values visibly stale.
 
 ## Get started
@@ -221,14 +221,16 @@ Usage comes from the Desktop live profile/usage check when available, then the o
 | Auto / 5 hours / Weekly | Choose the period shared by the detail ring, tray and widget; saved across restarts |
 | Click the usage ring | Switch between five-hour and weekly usage when both values are known |
 | Pin button | Keep the detail card on top |
-| `Ctrl` + `+` / `Ctrl` + `-` | Enlarge or reduce the detail card |
-| `Ctrl` + `0` | Restore 100% zoom |
+| `Ctrl` + `+` / `Ctrl` + `-` | Enlarge or reduce the focused window - the detail card or the widget |
+| `Ctrl` + `0` | Restore the focused window to 100% |
+| `-` / `+` in either header | The same step as the shortcut, for that window only |
 | Drag the widget | Move it and save its position; a finished drag never opens the popup |
 | Click a widget account | Select that account everywhere and open the usage popup |
-| Widget header buttons | Open Settings, or hide the widget without exiting CycleArc |
+| Click the widget header or empty area | Give the widget the keyboard, without opening the popup |
+| Widget header buttons | Resize the widget, refresh, open Settings, or hide it without exiting CycleArc |
 | Right-click the widget | Open its menu, including Close widget |
 
-The zoom shortcuts also support the numeric keypad. Widget position can be reset from **Settings → Widget**; saving moves it to the primary screen and recreates its window so a missing widget can recover even when Windows reports it as visible.
+The zoom shortcuts also support the numeric keypad. The detail card and the widget keep their own size: a shortcut or button changes only the window it was aimed at, and both sizes are saved across restarts. The tray menu resets either one: **Reset size (100%)** for the detail card, **Reset widget size (100%)** for the widget. Widget position can be reset from **Settings → Widget**; saving moves it to the primary screen and recreates its window so a missing widget can recover even when Windows reports it as visible.
 
 With **Show widget** enabled and a displayable account, CycleArc checks the native window every two seconds and restores unexpected hiding, minimization or displacement behind ordinary windows despite an enabled always-on-top setting, without taking keyboard focus. After sleep, unlock or display changes it recreates the widget with the saved position, opacity and interaction settings. Turning the widget off still keeps it hidden. Recovery events are recorded in the local app log.
 
