@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -93,6 +93,18 @@ internal static class FlyoutActivationChecks
                     Require(!flyout.IsVisible, "Tray toggle no longer closes the popup.");
                     Click(widget); Pump();
                     Require(flyout.IsVisible, "Widget did not reopen after tray toggle.");
+                    // A press on the header or empty chrome is not an inspect gesture: it
+                    // focuses the widget and leaves the popup exactly as it was. Opening and
+                    // activating the popup here is what used to move the keyboard off the
+                    // widget, so a shortcut typed at the widget reached the popup instead.
+                    var beforeChrome = flyout.IsVisible;
+                    ClickChrome(widget); Pump();
+                    Require(flyout.IsVisible == beforeChrome,
+                        "A header click changed whether the popup was shown.");
+                    Require(GetActiveWindow() == new WindowInteropHelper(widget).Handle && widget.IsActive,
+                        "A header click did not leave the keyboard on the widget.");
+                    Require(!flyout.IsActive, "A header click activated the popup.");
+
                     Require(manager.SelectedId == profile.Id && provider.RefreshCalls == 0,
                         "Popup inspection changed the account or fetched usage.");
                     count++;
@@ -110,15 +122,27 @@ internal static class FlyoutActivationChecks
             for (var i = 0; i < fields.Length; i++) fields[i].SetValue(app, original[i]);
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
-        Console.WriteLine($"PASS: {count} production widget/popup interaction scenarios; covered unpinned popup activates on first click, minimized restoration, repeated/pinned inspection, close/tray toggle, no quota calls.");
+        Console.WriteLine($"PASS: {count} production widget/popup interaction scenarios; covered unpinned popup activates on first account click, minimized restoration, repeated/pinned inspection, header click focusing the widget without touching the popup, close/tray toggle, no quota calls.");
 
         void Set(string name, object? value) => fields.Single(field => field.Name == name).SetValue(app, value);
     }
 
+    /// <summary>
+    /// Completes the production click gesture on an account module without moving or capturing
+    /// the user's pointer. Only a press that landed on a module opens the popup; a press on the
+    /// header or empty chrome is a separate gesture, covered by <see cref="ClickChrome"/>.
+    /// </summary>
     private static void Click(FloatingWidget widget)
     {
-        // Complete the production click gesture without moving or capturing the user's pointer.
+        Press(widget, widget.Modules[0].ProfileId);
+    }
+
+    private static void ClickChrome(FloatingWidget widget) => Press(widget, null);
+
+    private static void Press(FloatingWidget widget, string? profileId)
+    {
         SetActiveWindow(new WindowInteropHelper(widget).Handle);
+        typeof(FloatingWidget).GetField("_pressedProfileId", PrivateInstance)!.SetValue(widget, profileId);
         typeof(FloatingWidget).GetField("_drag", PrivateInstance)!.SetValue(widget,
             new WidgetDragSession(widget.Left, widget.Top, 0, 0));
         typeof(FloatingWidget).GetMethod("FinishDrag", PrivateInstance)!.Invoke(widget, [true]);

@@ -11,6 +11,8 @@
         Topmost="True"
         ResizeMode="NoResize"
         SizeToContent="WidthAndHeight"
+        Focusable="True"
+        PreviewKeyDown="OnPreviewKeyDown"
         PreviewMouseLeftButtonDown="OnPreviewLeftDown"
         PreviewMouseMove="OnPreviewMouseMove"
         PreviewMouseLeftButtonUp="OnPreviewLeftUp"
@@ -48,17 +50,23 @@
     </Window.Resources>
     <Border x:Name="WidgetPanel"
             Background="{DynamicResource CardBrush}"
+            RenderTransformOrigin="0,0"
             CornerRadius="12"
             Padding="10,9"
             BorderBrush="{DynamicResource LineBrush}"
             BorderThickness="1"
             MinWidth="168">
+        <Border.LayoutTransform>
+            <ScaleTransform x:Name="WidgetScale" ScaleX="1" ScaleY="1"/>
+        </Border.LayoutTransform>
         <StackPanel x:Name="WidgetStatusStack">
             <!-- One header for the whole widget; never repeated per account. -->
             <Grid x:Name="WidgetHeader" Margin="0,0,0,7">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*" MinWidth="0"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
@@ -77,17 +85,27 @@
                 <TextBlock x:Name="AccountCountText" Grid.Column="1" Margin="10,0,10,0" FontSize="10.5"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
                            Foreground="{DynamicResource MutedBrush}"/>
-                <Button x:Name="WidgetRefreshButton" Grid.Column="2" Style="{StaticResource WidgetIconButton}"
+                <Button x:Name="WidgetZoomOutButton" Grid.Column="2" Style="{StaticResource WidgetIconButton}"
+                        Click="OnZoomOutClick" Margin="0,0,2,0">
+                    <TextBlock Text="&#xE949;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                               Foreground="{DynamicResource MutedBrush}"/>
+                </Button>
+                <Button x:Name="WidgetZoomInButton" Grid.Column="3" Style="{StaticResource WidgetIconButton}"
+                        Click="OnZoomInClick" Margin="0,0,2,0">
+                    <TextBlock Text="&#xE948;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                               Foreground="{DynamicResource MutedBrush}"/>
+                </Button>
+                <Button x:Name="WidgetRefreshButton" Grid.Column="4" Style="{StaticResource WidgetIconButton}"
                         Click="OnRefreshClick" Margin="0,0,2,0">
                     <TextBlock x:Name="WidgetRefreshGlyph" Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="12"
                                Foreground="{DynamicResource MutedBrush}"/>
                 </Button>
-                <Button x:Name="WidgetSettingsButton" Grid.Column="3" Style="{StaticResource WidgetIconButton}"
+                <Button x:Name="WidgetSettingsButton" Grid.Column="5" Style="{StaticResource WidgetIconButton}"
                         Click="OnSettingsClick" Margin="0,0,2,0">
                     <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="12"
                                Foreground="{DynamicResource MutedBrush}"/>
                 </Button>
-                <Button x:Name="WidgetCloseButton" Grid.Column="4" Style="{StaticResource WidgetIconButton}"
+                <Button x:Name="WidgetCloseButton" Grid.Column="6" Style="{StaticResource WidgetIconButton}"
                         Click="OnCloseClick">
                     <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="12"
                                Foreground="{DynamicResource MutedBrush}"/>

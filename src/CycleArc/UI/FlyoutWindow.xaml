@@ -135,6 +135,8 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
                     <Border Background="{DynamicResource GhostBrush}" CornerRadius="9" Width="28" Height="28" Margin="0,0,10,0">
@@ -170,8 +172,20 @@
                                FontSize="11"
                                Visibility="Collapsed"/>
                 </Grid>
+                <Button x:Name="FlyoutZoomOutButton" Grid.Column="2"
+                        Style="{StaticResource FlyoutHeaderIconButton}"
+                        Click="OnZoomOutClick" Margin="0,0,4,0">
+                    <TextBlock Text="&#xE949;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                               Foreground="{DynamicResource TextBrush}"/>
+                </Button>
+                <Button x:Name="FlyoutZoomInButton" Grid.Column="3"
+                        Style="{StaticResource FlyoutHeaderIconButton}"
+                        Click="OnZoomInClick" Margin="0,0,4,0">
+                    <TextBlock Text="&#xE948;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                               Foreground="{DynamicResource TextBrush}"/>
+                </Button>
                 <Button x:Name="RefreshAllButton"
-                        Grid.Column="2"
+                        Grid.Column="4"
                         Style="{StaticResource FlyoutHeaderIconButton}"
                         Click="OnRefreshAllClick"
                         ToolTip="Refresh all"
@@ -213,13 +227,13 @@
                         </Viewbox>
                     </Grid>
                 </Button>
-                <Button x:Name="SettingsButton" Grid.Column="3"
+                <Button x:Name="SettingsButton" Grid.Column="5"
                         Style="{StaticResource FlyoutHeaderIconButton}" Click="OnSettingsClick" Margin="0,0,4,0">
                     <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="14"
                                Foreground="{DynamicResource TextBrush}"/>
                 </Button>
                 <Button x:Name="PinButton"
-                        Grid.Column="4"
+                        Grid.Column="6"
                         Style="{StaticResource FlyoutHeaderIconButton}"
                         Click="OnPinClick"
                         ToolTip="Pin"
@@ -245,7 +259,7 @@
                     </Grid>
                 </Button>
                 <Button x:Name="CloseFlyoutButton"
-                        Grid.Column="5"
+                        Grid.Column="7"
                         Style="{StaticResource FlyoutHeaderIconButton}"
                         Click="OnCloseClick"
                         ToolTip="Close"

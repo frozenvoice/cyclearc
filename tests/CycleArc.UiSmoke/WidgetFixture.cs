@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using CycleArc.Codex;
 using CycleArc.Models;
 using CycleArc.Providers.Usage;
@@ -33,17 +33,25 @@ internal static class WidgetFixture
 
     public static string Tooltip(FloatingWidget widget, int index = 0) => Module(widget, index).ToolTip as string ?? "";
 
+    /// <summary>
     /// Renders the widget as currently arranged. A shown window is captured at its live
     /// RenderSize so a LastLayout-sized remesaure cannot hide HWND clipping.
+    ///
+    /// The panel carries the widget's zoom as a LayoutTransform, so RenderSize and LastLayout
+    /// are both in unscaled child DIP while the picture has to be the scaled one the screen
+    /// shows. At the default 100% the two are the same and nothing changes.
+    /// </summary>
     public static void RenderWidget(FloatingWidget widget, string? path)
     {
         var content = (FrameworkElement)widget.Content;
+        var scale = widget.ZoomScale;
         if (widget.IsLoaded && content.RenderSize.Width > 0 && content.RenderSize.Height > 0)
         {
-            AccountUiChecks.RenderCurrent(content, path);
+            AccountUiChecks.RenderCurrent(content, path, scale);
             return;
         }
-        AccountUiChecks.Render(widget, widget.LastLayout?.Width
+        // Measured in the panel's own space, which is already scaled, so no second factor here.
+        AccountUiChecks.Render(widget, widget.LastLayout?.Width * scale
             ?? content.DesiredSize.Width, null, path);
     }
 }

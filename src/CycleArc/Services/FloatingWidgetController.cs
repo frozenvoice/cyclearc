@@ -26,8 +26,11 @@ public sealed class FloatingWidgetController(Action<FloatingWidget> configure, A
         _refreshing = refreshing;
         if (!ShouldShow) { _window?.Hide(); return; }
         var created = EnsureWindow();
+        // Before binding, so the grid is measured at the scale it will be shown at. Silent:
+        // restoring a saved value is not a user change and must not be written back.
+        _window!.SetZoom(settings.WidgetZoomPercent, notify: false);
         // Every displayable account, in account-management order, not only the selected one.
-        _window!.BindAccounts(overview.Accounts, overview.SelectedId, overview.Preference);
+        _window.BindAccounts(overview.Accounts, overview.SelectedId, overview.Preference);
         // A window recreated mid-refresh still shows the shared state, not a stale idle button.
         _window.SetRefreshing(refreshing);
         if (created || applySettings) _window.Apply(settings);

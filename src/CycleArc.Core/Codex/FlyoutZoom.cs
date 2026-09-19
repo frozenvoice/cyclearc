@@ -1,5 +1,10 @@
 namespace CycleArc.Codex;
 
+/// <summary>
+/// The zoom policy both windows use: same steps, same limits, same rounding. Only the
+/// arithmetic is shared. Each window keeps its own current percentage, raises its own change
+/// event and persists to its own setting, so scaling one never moves the other.
+/// </summary>
 public static class FlyoutZoom
 {
     public const int DefaultPercent = 100;

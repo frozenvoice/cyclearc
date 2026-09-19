@@ -498,8 +498,34 @@ One credit will be consumed.",
         FitContentToWorkArea();
         TitleText.ToolTip = UiText.T($"Size {ZoomPercent}% · Ctrl + / Ctrl - · Ctrl 0 to reset",
             $"크기 {ZoomPercent}% · Ctrl + / Ctrl - · Ctrl 0으로 초기화");
+        UpdateZoomControls();
         if (IsVisible) RestorePosition(Left, Top);
         if (changed && notify) ZoomChanged?.Invoke(ZoomPercent);
+    }
+
+    private void UpdateZoomControls()
+    {
+        FlyoutZoomOutButton.IsEnabled = ZoomPercent > FlyoutZoom.MinPercent;
+        FlyoutZoomInButton.IsEnabled = ZoomPercent < FlyoutZoom.MaxPercent;
+        var zoomIn = UiText.ZoomInHint(ZoomPercent);
+        var zoomOut = UiText.ZoomOutHint(ZoomPercent);
+        FlyoutZoomInButton.ToolTip = zoomIn;
+        FlyoutZoomOutButton.ToolTip = zoomOut;
+        System.Windows.Automation.AutomationProperties.SetName(FlyoutZoomInButton, zoomIn);
+        System.Windows.Automation.AutomationProperties.SetName(FlyoutZoomOutButton, zoomOut);
+    }
+
+    // Same path as the shortcut, so button and keyboard cannot drift apart.
+    private void OnZoomInClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        SetZoom(FlyoutZoom.Adjust(ZoomPercent, increase: true), notify: true);
+    }
+
+    private void OnZoomOutClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        SetZoom(FlyoutZoom.Adjust(ZoomPercent, increase: false), notify: true);
     }
 
     public bool TryHandleZoomShortcut(Key key, ModifierKeys modifiers)

@@ -32,7 +32,9 @@ public static class SettingsMigration
         }
 
         settings.Version = AppSettings.CurrentVersion;
+        // Each window's own value, normalised separately: one must never overwrite the other.
         settings.FlyoutZoomPercent = Codex.FlyoutZoom.Normalize(settings.FlyoutZoomPercent);
+        settings.WidgetZoomPercent = Codex.FlyoutZoom.Normalize(settings.WidgetZoomPercent);
         return settings;
     }
 

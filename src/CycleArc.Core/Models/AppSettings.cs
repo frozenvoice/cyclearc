@@ -59,6 +59,9 @@ public sealed class AppSettings
     public bool FlyoutCloseOnDeactivate { get; set; } = true;
     public bool FlyoutPinned { get; set; }
     public int FlyoutZoomPercent { get; set; } = 100;
+    // The widget scales independently of the detail flyout. Settings written before this
+    // existed simply get the default, which is what an unscaled widget already was.
+    public int WidgetZoomPercent { get; set; } = 100;
     public double FlyoutLeft { get; set; }
     public double FlyoutTop { get; set; }
     public bool FlyoutPositionConfigured { get; set; }
