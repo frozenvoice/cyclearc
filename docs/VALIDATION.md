@@ -1747,3 +1747,25 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
 - Final local gate: `dev-run.ps1 -NoLaunch` passed in 4m20s, including 1,574 unit tests,
   full UiSmoke, single-file publish and package/rollback component checks. No live account
   request or installed-app replacement was performed.
+
+## Build-local previous-statusLine fixture, 2026-09-20
+
+- A normal `build-local.cmd` run passed 1,574 unit tests and the built-executable WPF checks,
+  then stopped in `publish`: the single-file receiver's Git Bash bridge check reported
+  exit 0 with empty stdout/stderr. The same published executable subsequently passed the
+  focused check with the normal Windows PATH. The original log did not retain the inner
+  forwarding failure, so it does not establish a particular OS error or timeout.
+- The synthetic previous statusLine no longer starts another PowerShell inside the
+  production four-second forwarding budget. A UiSmoke child reads stdin through EOF,
+  requires the same exact five-hour marker, and emits the same Korean/ASCII line. Missing
+  quota input is explicitly rejected. The generated production wrapper still runs through
+  both PowerShell and Git Bash, with authentication, receipt and output-preservation checks.
+- Process failures now include elapsed time. Production forwarding behavior and the
+  four-/ten-second deadlines are unchanged; this removes nested fixture startup variance,
+  not a claim that every external statusLine command can finish within the deadline.
+- The repaired checkout passed `build-local.cmd -Fast` with the persisted Windows PATH,
+  including the Store-installed PowerShell 7 entry point. `-Fast` reused the 1,574 passing
+  unit tests for unchanged application/unit-test code; all WPF/process checks, single-file
+  publish, packaging and package verification reran and passed in 2m54s. The generated
+  installer's live `CycleArc Setup` window and `awaiting-approval` state were verified;
+  installation was left at its confirmation screen for the user.

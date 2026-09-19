@@ -22,6 +22,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is [ClaudeStatusLineProcessChecks.PreviousStatusLineChildArgument])
+            return ClaudeStatusLineProcessChecks.RunPreviousStatusLineChild();
         if (args is ["--update-package", var releaseDirectory])
         {
             PackageUpdateChecks.Run(releaseDirectory);
