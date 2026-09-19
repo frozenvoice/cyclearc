@@ -162,8 +162,8 @@ internal static class UpdateUiChecks
         public int Downloads { get; private set; }
         public int Applies { get; private set; }
         public Task<AppUpdateRelease?> CheckAsync(CancellationToken token) => Task.FromResult<AppUpdateRelease?>(new("0.6.1",
-            UiText.T("CycleArc 0.6.1\n\n• Clearer usage notifications\n• Improvements to the desktop widget\n• Your accounts and preferences stay in place\n\nPreview release notes with synthetic version information.",
-                "CycleArc 0.6.1\n\n• 사용량 알림 개선\n• 데스크톱 위젯 안정성 개선\n• 기존 계정과 설정 유지\n\n가상 버전 정보로 표시한 업데이트 화면 예시입니다.")));
+            UiText.T("CycleArc 0.6.1\n\n• Compare accounts in the desktop widget\n• Resize the popup and widget independently\n• Follow installation progress in the setup window\n\nSample upgrade from 0.6.0 to 0.6.1. No download is performed in this preview.",
+                "CycleArc 0.6.1\n\n• 데스크톱 위젯에서 여러 계정 비교\n• 팝업과 위젯 크기를 각각 조절\n• 설치 화면에서 진행 상태 확인\n\n0.6.0에서 0.6.1로 업데이트하는 예시입니다. 이 미리보기는 다운로드하지 않습니다.")));
         public Task DownloadAsync(AppUpdateRelease release, IProgress<int> progress, CancellationToken token)
         {
             Downloads++;

@@ -7,7 +7,7 @@ reset times and credits illustrate the layout; they do not promise specific plan
 
 | Files | Contents |
 | --- | --- |
-| `updates-{en,ko}-{dark,light}.png` | Production update window with synthetic 0.6.1 release notes; download and restart require separate approval |
+| `updates-{en,ko}-{dark,light}.png` | Production update window showing a sample 0.6.0 → 0.6.1 upgrade with the release's widget and installer highlights; download and restart require separate approval |
 | `overview-dark.png`, `overview-light.png`, `settings.png`, `widget.png` | English single-account popup, settings, and the multi-account widget (three synthetic accounts in one row) |
 | `accounts-overview-{en,ko}-{dark,light}.png` | Two ready Codex accounts, with Work / 업무용 selected; the unconnected Claude profile is absent from the cards and counts |
 | `accounts-manage-{en,ko}-{dark,light}.png` | All three registered profiles, including unconnected Research / 실험용 Claude, with connection, nickname and saved-order controls |
@@ -23,6 +23,11 @@ weekly usage of 18% and 64%; Work is selected in the account overview, so its de
 64% used and its quota row includes 36% remaining. Research is unconnected in the main/manager
 comparison: the main popup counts two ready accounts, while management retains all three profiles.
 Account-management previews scroll to the bottom so all three sets of actions are visible.
+
+The widget has its own fixture in `DocumentationScreenshots.Export`: Personal (Codex, 28%
+weekly), Lab (Codex, 62% five-hour), and selected Work Claude (85% five-hour / 23% weekly).
+Its header shows independent size controls, shared refresh, Settings and Close widget.
+The settings preview uses the production window's declared size so the General tab is fully visible.
 
 The Claude previews use those same profiles with Research connected and selected, so all three
 accounts appear. The waiting view has no quota yet. The server preview supplies synthetic
@@ -72,7 +77,8 @@ All 16 Claude server, history, waiting and connection previews:
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --claude-desktop-screenshots artifacts/claude-docs
 ```
 
-Only the 18 detail previews affected by the shared display-period selector:
+Only the 18 detail previews affected by the shared display-period selector or the version
+shown in the popup header (regenerate these after changing `Directory.Build.props`):
 
 ```powershell
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --usage-period-screenshots artifacts/period-docs
