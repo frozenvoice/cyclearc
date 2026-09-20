@@ -1,6 +1,6 @@
 # Documentation previews
 
-These PNGs render the actual production WPF views with synthetic profiles and quota metadata.
+These PNGs render the actual production WPF views and native tray icons with synthetic profiles and quota metadata.
 They show the CycleArc product name, Codex/Claude/Cursor provider labels and current connection controls.
 They are not captures of a user's account or fabricated UI mockups. The sample percentages,
 reset times and credits illustrate the layout; they do not promise specific plan entitlements.
@@ -18,6 +18,7 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `cursor-popup-{en,ko}-{dark,light}.png` | Cursor Models and Other Models monthly allowances, Grok Bot weekly allowance, named usage ring, disabled on-demand and successful update time |
 | `cursor-widget-{en,ko}-{dark,light}.png` | The same Cursor allowances with reset countdowns and visible update time |
 | `cursor-accounts-{en,ko}-{dark,light}.png` | Current Windows Cursor connection, reconnect/disconnect, nickname and saved-order controls |
+| `cursor-tray-icons.png` | Cursor fractional inputs shown as whole tray digits in number/ring styles at 16/24/32 pixels on dark/light taskbars; zero, full usage and unknown included |
 
 The multi-account fixtures live in `DocumentationScreenshots.SampleAccounts`. They use the
 names Personal / Work / Research (개인용 / 업무용 / 실험용), reserved `example.invalid` email
@@ -56,6 +57,12 @@ Cursor checks and previews (also exports the current System theme):
 
 ```powershell
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --cursor-ui artifacts/cursor-ui
+```
+
+Native tray pixel checks and contact sheets (including `cursor-tray-icons.png`):
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --tray-icons artifacts/tray-icons
 ```
 
 `CursorUiChecks` uses reserved `example.invalid` identity and synthetic Cursor Models 76.9%,
@@ -101,7 +108,8 @@ dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -
 ```
 
 The exporter never runs production startup, requests account data, or reads/writes user settings.
-All documentation previews use WPF `RenderTargetBitmap` at 2x resolution under the smoke harness's
-`OfflineApp`, without taking a desktop screenshot. Each image must be visually inspected before
+View previews use WPF `RenderTargetBitmap` at 2x resolution under the smoke harness's
+`OfflineApp`; tray contact sheets use the production GDI icon renderer at native sizes.
+Neither takes a desktop screenshot. Each image must be visually inspected before
 replacing the checked-in file. Keep English and Korean captions consistent with the account counts,
 selected profile, data source and separate Claude periods.

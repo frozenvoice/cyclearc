@@ -2,6 +2,25 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Cursor integer tray digits (unreleased, 2026-09-21):
+  - Only the Cursor notification-icon glyph rounds to a whole percentage, using the same
+    midpoint-away-from-zero rule as Codex. Both number and ring styles display `76.9` as
+    `77`, keeping the digits legible in the native 16-pixel slot. Unknown remains `?`.
+  - The source percentage, ring arc, danger threshold, popup/widget/tooltip precision,
+    provider queries and storage are unchanged. Existing Codex and Claude glyphs retain
+    their previous behavior. No installed app is replaced by these checks.
+  - Focused production rendering passed **183 icon cases** across 16/24/32 pixels,
+    both styles and both taskbar tones. Pixel comparisons cover fractional/midpoint
+    rounding, 0/100, 99.6 rounding to 100 without changing its danger color, and unknown.
+    Separate checks retain the fractional arc and popup/widget/tooltip text. The initial
+    new test incorrectly expected a blue arc at 0%; correcting that expectation passed.
+    The native-size Cursor contact sheet was visually inspected and saved in
+    `docs/images/cursor-tray-icons.png`; export: `artifacts/cursor-tray-integer`.
+  - Final `dev-run.ps1 -NoLaunch` passed once (5m 30s): **1,647 unit tests**, the full
+    WPF suite including all 183 icon cases, script/desktop-instance regressions,
+    single-file publish, published receiver checks and isolated package apply/restore.
+    Log: `artifacts/cursor-tray-integer-full-gate.log`. No real-account query was needed.
+
 - Cursor Plan & Usage wording (unreleased, 2026-09-20):
   - Display-only mapping: `cursor-auto` is Cursor Models / Monthly, `cursor-api` is
     Other Models / Monthly, and `cursor-sand` is Grok Bot / Weekly. The official names

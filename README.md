@@ -254,6 +254,8 @@ With **Show widget** enabled and a displayable account, CycleArc checks the nati
 
 The **Usage number** tray style shows bold digits as large as the native icon slot allows, keeping their original font proportions on a transparent background. The **%** sign is omitted: **67** means **67% used**. Text is white on a dark Windows taskbar and dark on a light taskbar, independently of the app theme. The number is the selected account's percentage used for the period chosen in the detail card. **Auto** prefers a known five-hour value, then weekly. The tooltip identifies the period being shown; switching periods only changes the display of the received data. Unknown usage is **?**. Check the tooltip or detail card for status and receipt time. The optional **Usage ring** retains its status colors: blue for a valid sample, red for a valid sample at 100%, and amber for stale data or a lookup/connection problem. Without a known value, the ring is gray with **?**.
 
+Cursor's tray digits round to the nearest whole percent in both icon styles: **76.9% → 77**. The tooltip, detail popup and widget retain decimal precision; the ring arc and status colors still use the original value.
+
 <details>
 <summary><strong>Settings and compact widget</strong></summary>
 
