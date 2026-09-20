@@ -61,9 +61,13 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
   Only the exact access-token row of `state.vscdb` is queried; no history is collected.
   The token and derived session header exist only in memory. The observed endpoint and
   Windows authentication evidence are documented in [Cursor](CURSOR.md).
-- Cursor Auto/API allowances retain their own named rows, while on-demand, team and Grok
+- Cursor's internal Auto/API lanes retain their own named rows, while on-demand, team and Grok
   limits keep their separate scope and reset timestamps. Missing values remain unknown;
   historical included-dollar accounting is never turned into the split model percentages.
+  Presentation maps `cursor-auto` to Cursor Models (monthly), `cursor-api` to Other Models
+  (monthly), and `cursor-sand` to Grok Bot (weekly). Names stay in English in both UI languages;
+  cadence and usage wording are localized. This changes no stored field, duration, reset,
+  selected-window policy or calculation. The large ring names its represented allowance.
   Monthly refresh failures retain the last successful observation, and identity mismatch
   hides it while retaining the last attempt for the automatic-refresh gate. A mismatch marker
   preserves that attempt even if the primary cache commit was interrupted.

@@ -2,6 +2,32 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Cursor Plan & Usage wording (unreleased, 2026-09-20):
+  - Display-only mapping: `cursor-auto` is Cursor Models / Monthly, `cursor-api` is
+    Other Models / Monthly, and `cursor-sand` is Grok Bot / Weekly. The official names
+    remain English in both locales; cadence and usage wording are localized. The large
+    ring names its represented allowance and whether the usage is monthly or weekly.
+  - Account cards, popup, tray and widget share the same label mapping. Cursor popup and
+    widget values sit below their labels, avoiding overlap with the longer official names.
+    Native tray text keeps the actual update timestamp and prioritizes the three named
+    allowances over optional spending budgets within its existing 127-character limit.
+  - Internal identifiers, account registry/cache versions, credentials, requests, quota
+    arithmetic, source reset times and ring selection are unchanged. Codex and Claude
+    keep their existing labels and row layout. Unknown values remain unknown.
+  - Focused production WPF checks cover EN/KO, Dark/Light/System and 80/100/150% zoom,
+    including each of the three named allowances in the large ring, label/value bounds,
+    and account-card wrapping. Reviewed previews use synthetic `example.invalid` accounts.
+    Preview output: `artifacts/cursor-naming-ui`.
+  - `dev-run.ps1 -NoLaunch` passed once on the final production code (4m 19s): all
+    **1,647 unit tests**, the full WPF suite, desktop-instance/script checks, single-file
+    publish, production Claude receiver checks and isolated package apply/restore.
+    Log: `artifacts/cursor-naming-full-gate.log`. A subsequent test-only timezone fix
+    passed all 13 naming tests; it checks the actual local timestamp rather than a fixed
+    calendar date. All 12 affected EN/KO Dark/Light documentation previews were inspected.
+  - No real-account request, main merge, release or installed-app replacement is part of
+    this wording change. Synthetic rendering does not establish real-account compatibility
+    or installed-update behavior; those are outside this presentation-only verification.
+
 - Cursor review follow-up to `f84df8d` (unreleased, 2026-09-20):
   - Identity mismatch still hides every quota, but the provider now retains the last attempt
     through cache reconciliation and restart. An interrupted mismatch cache commit uses the

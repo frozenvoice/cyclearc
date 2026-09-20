@@ -59,7 +59,7 @@ internal static class CursorUiChecks
                     "Cursor widget merged or dropped named allowances.");
                 foreach (var window in snapshot.Windows)
                 {
-                    var label = CursorUsagePresentation.QuotaLabel(window.LimitId);
+                    var label = CursorUsagePresentation.QuotaDisplayLabel(window.LimitId);
                     Check(module.ToolTip!.ToString()!.Contains(label, StringComparison.Ordinal),
                         "Cursor widget tooltip omits a named allowance: " + label);
                 }
@@ -95,6 +95,7 @@ internal static class CursorUiChecks
             }
 
             CheckPartialSand(snapshot, now, language, theme, directory);
+            CheckNamedAllowanceLayout(snapshot, language, theme, directory);
         }
         if (directory is not null)
             Console.WriteLine($"PASS: Cursor popup, widget and account controls EN/KO + Dark/Light; previews: {directory}");
@@ -121,7 +122,7 @@ internal static class CursorUiChecks
             flyoutContent.UpdateLayout();
 
             var updated = UiText.T("Updated", "업데이트됨");
-            var grokUnavailable = UiText.T("Grok usage unavailable", "Grok 사용량 확인 불가");
+            var grokUnavailable = UiText.T("Grok Bot usage unavailable", "Grok Bot 사용량 확인 불가");
             var stale = UiText.T("Stale data", "오래된 데이터");
             Check(snapshot.Status == CodexQuotaStatus.Available,
                 "Cursor partial Sand sample was not available.");
@@ -161,7 +162,7 @@ internal static class CursorUiChecks
                 "Cursor partial widget invented a Grok allowance row.");
             var tray = CycleArcPresentation.TrayTooltip(snapshot);
             Check(tray.Contains(updatedStamp, StringComparison.Ordinal)
-                && tray.Contains(updated, StringComparison.Ordinal),
+                && tray.Contains(UiText.T("Updated", "업데이트"), StringComparison.Ordinal),
                 "Cursor partial tray lost the monthly update status.");
             Check(!tray.Contains("Grok", StringComparison.Ordinal) && !tray.Contains(stale, StringComparison.Ordinal),
                 "Cursor partial tray exposed an optional Grok failure as global status.");
@@ -182,25 +183,176 @@ internal static class CursorUiChecks
         }
     }
 
+    private static void CheckNamedAllowanceLayout(CodexQuotaSnapshot source,
+        UiLanguage language, AppTheme theme, string? directory)
+    {
+        // Reorder only the existing production-shaped fixture so the large ring is
+        // inspected with each named allowance as its selection.
+        foreach (var (name, snapshot, selectedId) in new[]
+        {
+            ("cursor", source, "cursor-auto"),
+            ("other", MoveFirst(source, "cursor-api"), "cursor-api"),
+            ("grok", MoveFirst(source, "cursor-sand"), "cursor-sand")
+        })
+        {
+            var ring = CodexRingPresentation.From(snapshot);
+            var selectedLabel = CursorUsagePresentation.QuotaLabel(selectedId);
+            var selectedDisplay = CursorUsagePresentation.QuotaDisplayLabel(selectedId);
+            Check(ring.CenterSubLabel == selectedLabel + Environment.NewLine
+                + UiText.T(
+                    $"{CursorUsagePresentation.QuotaPeriodLabel(selectedId)} used",
+                    $"{CursorUsagePresentation.QuotaPeriodLabel(selectedId)} 사용"),
+                "Cursor large ring lost the selected allowance cadence: " + selectedDisplay);
+
+            foreach (var zoom in new[] { 80, 100, 150 })
+            {
+                var flyout = new FlyoutWindow { ShowActivated = false };
+                var widget = new FloatingWidget { ShowActivated = false };
+                try
+                {
+                    flyout.Bind(snapshot);
+                    flyout.ApplyWindowSettings(new AppSettings { FlyoutZoomPercent = zoom });
+                    var flyoutContent = (FrameworkElement)flyout.Content;
+                    Arrange(flyoutContent, 440, 1000);
+                    var ringText = (TextBlock)flyout.FindName("CodexRingSubLabel");
+                    Check(ringText.Text == ring.CenterSubLabel && ringText.Text.Contains(Environment.NewLine),
+                        $"Cursor {name} popup ring did not show its selected name and cadence at {zoom}%.");
+                    Check(ringText.TextWrapping == TextWrapping.Wrap,
+                        $"Cursor {name} popup ring does not wrap its selected name at {zoom}%.");
+                    var ringHost = (FrameworkElement)flyout.FindName("CodexRingHost");
+                    Check(ringText.ActualHeight > ringText.FontSize + 1
+                        && ringText.ActualHeight < ringHost.ActualHeight - 4,
+                        $"Cursor {name} popup ring caption is clipped or still one line at {zoom}%.");
+                    Check(Descendants<TextBlock>(flyoutContent).Any(text => text.Text == selectedDisplay),
+                        $"Cursor {name} popup lost the combined allowance label at {zoom}%.");
+                    var popupLabel = Descendants<TextBlock>(flyoutContent)
+                        .FirstOrDefault(text => text.Text == selectedDisplay);
+                    Check(popupLabel is not null && popupLabel.TextWrapping == TextWrapping.Wrap,
+                        $"Cursor {name} popup allowance label cannot reflow at {zoom}%.");
+                    if (popupLabel is not null)
+                    {
+                        var popupRow = Ancestor<Grid>(popupLabel);
+                        var popupValue = popupRow?.Children.OfType<StackPanel>().FirstOrDefault();
+                        Check(popupRow is not null && popupValue is not null,
+                            $"Cursor {name} popup allowance row lost its value column at {zoom}%.");
+                        if (popupRow is not null && popupValue is not null)
+                            CheckNoOverlap(popupLabel, popupValue, popupRow,
+                                $"Cursor {name} popup allowance overlaps its value at {zoom}%.");
+                    }
+
+                    var profile = new CodexAccountProfile("cursor-ui-named-" + name, "",
+                        UiText.T("Cursor account", "Cursor 계정"))
+                    {
+                        Provider = UsageProviderId.Cursor
+                    };
+                    var account = new CodexAccountView(profile, snapshot, "cursor@example.invalid")
+                    {
+                        IsConnected = true
+                    };
+                    widget.SetZoom(zoom, notify: false);
+                    WidgetFixture.BindOne(widget, account);
+                    WidgetFixture.RenderWidget(widget, null);
+                    var module = WidgetFixture.Module(widget);
+                    var widgetLabel = module.Periods.FirstOrDefault(period => period.PeriodText.Text == selectedDisplay);
+                    Check(widgetLabel is not null && widgetLabel.PeriodText.TextWrapping == TextWrapping.Wrap,
+                        $"Cursor {name} widget allowance label cannot reflow at {zoom}%.");
+                    if (widgetLabel is not null)
+                    {
+                        var widgetRow = Ancestor<Grid>(widgetLabel.PeriodText);
+                        Check(widgetRow is not null,
+                            $"Cursor {name} widget allowance lost its measured row at {zoom}%.");
+                        var widgetValue = widgetRow?.Children.OfType<TextBlock>()
+                            .FirstOrDefault(text => ReferenceEquals(text, widgetLabel.RemainingText));
+                        Check(widgetValue is not null,
+                            $"Cursor {name} widget allowance lost its value column at {zoom}%.");
+                        if (widgetRow is not null && widgetValue is not null)
+                            CheckNoOverlap(widgetLabel.PeriodText, widgetValue, widgetRow,
+                                $"Cursor {name} widget allowance overlaps its value at {zoom}%.");
+                    }
+
+                    if (directory is not null && zoom == 100)
+                    {
+                        Save(flyout, Path.Combine(directory,
+                            $"cursor-named-{name}-popup-{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"), 440, null);
+                        Save(widget, Path.Combine(directory,
+                            $"cursor-named-{name}-widget-{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"),
+                            widget.LastLayout?.Width ?? 380, null);
+                    }
+                }
+                finally
+                {
+                    flyout.Close();
+                    widget.CloseWithoutActivation();
+                }
+            }
+
+            var accountWindow = new AccountsWindow();
+            try
+            {
+                var profile = new CodexAccountProfile("cursor-ui-card-" + name, "",
+                    UiText.T("Cursor account", "Cursor 계정"))
+                {
+                    Provider = UsageProviderId.Cursor
+                };
+                var account = new CodexAccountView(profile, snapshot, "cursor@example.invalid")
+                {
+                    IsConnected = true
+                };
+                accountWindow.Bind([account], profile.Id);
+                var accountContent = (FrameworkElement)accountWindow.Content;
+                Arrange(accountContent, 700, 800);
+                var cardLabel = Descendants<TextBlock>(accountContent)
+                    .FirstOrDefault(text => text.Text == selectedDisplay);
+                Check(cardLabel is not null && cardLabel.TextWrapping == TextWrapping.Wrap,
+                    $"Cursor {name} account card allowance label cannot reflow.");
+                if (cardLabel is not null)
+                {
+                    var cardRow = Ancestor<Grid>(cardLabel);
+                    var cardValue = cardRow?.Children.OfType<TextBlock>()
+                        .FirstOrDefault(text => !ReferenceEquals(text, cardLabel));
+                    Check(cardRow is not null && cardValue is not null,
+                        $"Cursor {name} account card allowance lost its value column.");
+                    if (cardRow is not null && cardValue is not null)
+                        CheckNoOverlap(cardLabel, cardValue, cardRow,
+                            $"Cursor {name} account card allowance overlaps its value.");
+                }
+                if (directory is not null)
+                    Save(accountWindow, Path.Combine(directory,
+                        $"cursor-named-{name}-account-{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"), 700, 800);
+            }
+            finally { accountWindow.Close(); }
+        }
+    }
+
+    private static CodexQuotaSnapshot MoveFirst(CodexQuotaSnapshot source, string limitId)
+    {
+        var selected = source.Windows.Single(window => window.LimitId == limitId);
+        return source with
+        {
+            Windows = source.Windows.Where(window => !ReferenceEquals(window, selected))
+                .Prepend(selected).ToArray()
+        };
+    }
+
     private static void CheckRows(CodexQuotaSnapshot snapshot, DateTimeOffset now)
     {
         var rows = CodexDisplayFormatting.Rows(snapshot, now, includeResetCredits: true);
         foreach (var window in snapshot.Windows)
         {
-            var label = CursorUsagePresentation.QuotaLabel(window.LimitId);
+            var label = CursorUsagePresentation.QuotaDisplayLabel(window.LimitId);
             Check(rows.Any(row => row.Label == label
                 && row.Value.Contains(CursorUsagePresentation.RemainingText(window), StringComparison.Ordinal)),
                 "Cursor popup row lost a named remaining value: " + label);
         }
         var disabled = snapshot.Windows.Single(window => window.LimitId == "cursor-on-demand");
-        Check(rows.Any(row => row.Label == CursorUsagePresentation.QuotaLabel(disabled.LimitId)
+        Check(rows.Any(row => row.Label == CursorUsagePresentation.QuotaDisplayLabel(disabled.LimitId)
             && row.Value.Contains(UiText.T("Off", "꺼짐"), StringComparison.Ordinal)),
             "Cursor disabled allowance was shown as an unknown or zero value.");
         var unknown = new CodexQuotaWindow("cursor-team-pool", null, null, null, CodexWindowKind.Other);
         var budget = new CodexQuotaWindow("cursor-on-demand", null, null, now.AddDays(2), CodexWindowKind.Other)
             { UsedAmount = 4.5m, LimitAmount = 20m, RemainingAmount = 15.5m, Unit = "USD", IsEnabled = true };
         var budgetRows = CodexDisplayFormatting.Rows(snapshot with { Windows = [unknown, budget] }, now);
-        Check(budgetRows.Any(row => row.Label == CursorUsagePresentation.QuotaLabel(unknown.LimitId)
+        Check(budgetRows.Any(row => row.Label == CursorUsagePresentation.QuotaDisplayLabel(unknown.LimitId)
             && row.Value.Contains("?", StringComparison.Ordinal)),
             "Cursor unknown allowance was hidden or shown as zero.");
         Check(budgetRows.Any(row => row.Value.Contains("$15.5", StringComparison.Ordinal)),
@@ -213,7 +365,7 @@ internal static class CursorUiChecks
     {
         var tooltip = CycleArcPresentation.Tooltip(snapshot);
         foreach (var window in snapshot.Windows)
-            Check(tooltip.Contains(CursorUsagePresentation.QuotaLabel(window.LimitId), StringComparison.Ordinal),
+            Check(tooltip.Contains(CursorUsagePresentation.QuotaDisplayLabel(window.LimitId), StringComparison.Ordinal),
                 "Cursor tooltip lost a named allowance.");
         Check(tooltip.Contains(CursorUsagePresentation.UpdatedText(snapshot), StringComparison.Ordinal),
             "Cursor tooltip lost its update timestamp.");
@@ -257,6 +409,40 @@ internal static class CursorUiChecks
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var stream = File.Create(path);
         encoder.Save(stream);
+    }
+
+    private static void Arrange(FrameworkElement content, double width, double height)
+    {
+        content.UpdateLayout();
+        content.Measure(new Size(width, height));
+        content.Arrange(new Rect(new Point(), new Size(width, height)));
+        content.UpdateLayout();
+    }
+
+    private static T? Ancestor<T>(DependencyObject child) where T : DependencyObject
+    {
+        for (var current = VisualTreeHelper.GetParent(child); current is not null;
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is T match) return match;
+        }
+        return null;
+    }
+
+    private static void CheckNoOverlap(TextBlock label, FrameworkElement value,
+        FrameworkElement row, string message)
+    {
+        Check(label.ActualWidth > 0 && value.ActualWidth > 0,
+            message + " (zero-sized column)");
+        var labelEnd = label.TranslatePoint(
+            new Point(label.ActualWidth + label.Margin.Right, label.ActualHeight + label.Margin.Bottom), row);
+        var valueStart = value.TranslatePoint(new Point(0, 0), row);
+        Check(labelEnd.X <= valueStart.X + 1 || labelEnd.Y <= valueStart.Y + 1,
+            message + $" (label ends {labelEnd}, value starts {valueStart})");
+        Check(valueStart.X >= -1 && valueStart.X + value.ActualWidth <= row.ActualWidth + 1,
+            message + " (value extends outside its row)");
+        Check(label.ActualHeight <= row.ActualHeight + 1,
+            message + $" (label height {label.ActualHeight:0.##} > row {row.ActualHeight:0.##})");
     }
 
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject

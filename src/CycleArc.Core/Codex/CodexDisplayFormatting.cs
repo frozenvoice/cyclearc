@@ -98,7 +98,7 @@ public static class CodexDisplayFormatting
             if (CursorUsagePresentation.IsCursor(snapshot.Provider))
             {
                 rows.Add(new CodexDisplayRow(
-                    CursorUsagePresentation.QuotaLabel(window.LimitId),
+                    CursorUsagePresentation.QuotaDisplayLabel(window.LimitId),
                     CursorUsagePresentation.RemainingSummary(window),
                     window.RemainingAmount is 0,
                     window.ResetsAt is { } cursorReset ? ResetStamp(cursorReset) : null,
@@ -229,7 +229,7 @@ public static class CodexDisplayFormatting
     public static string CompactWindowKindLabel(CodexQuotaWindow? window, UsageProviderId provider = UsageProviderId.Codex)
     {
         if (CursorUsagePresentation.IsCursor(provider))
-            return CursorUsagePresentation.QuotaLabel(window?.LimitId);
+            return CursorUsagePresentation.QuotaDisplayLabel(window?.LimitId);
         var name = provider.Name();
         if (window is null)
         {

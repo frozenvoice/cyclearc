@@ -69,7 +69,7 @@ public static class CycleArcPresentation
             var quotas = snapshot.Windows.Count == 0
                 ? CursorUsagePresentation.StatusText(snapshot)
                 : string.Join(Environment.NewLine, snapshot.Windows.Select(window =>
-                    $"{CursorUsagePresentation.QuotaLabel(window.LimitId)}: {CursorUsagePresentation.RemainingText(window)}"));
+                    $"{CursorUsagePresentation.QuotaDisplayLabel(window.LimitId)}: {CursorUsagePresentation.RemainingText(window)}"));
             return UiText.ProductName + " · " + CursorUsagePresentation.Title + Environment.NewLine
                 + quotas + Environment.NewLine + CursorUsagePresentation.UpdatedText(snapshot);
         }
@@ -96,20 +96,24 @@ public static class CycleArcPresentation
                 + CodexIdentityPresentation.Explanation(snapshot));
         if (CursorUsagePresentation.IsCursor(snapshot))
         {
-            // NotifyIcon has a native 127-character limit. Keep status and the
-            // actual update time first, then fit as many independent allowances
-            // as the native title can hold without dropping the timestamp.
-            var text = "Cursor · " + StatusLabel(snapshot) + "\n" + CursorUsagePresentation.UpdatedText(snapshot);
+            // Keep the three named plan allowances ahead of optional spending budgets.
+            // A fresh receipt already says Updated; omitting the redundant header lets
+            // all three official names and cadences fit in the native 127 characters.
+            var text = snapshot.Status == CodexQuotaStatus.Available && snapshot.Windows.Count > 0
+                ? CursorUsagePresentation.UpdatedText(snapshot)
+                : "Cursor · " + StatusLabel(snapshot) + "\n" + CursorUsagePresentation.UpdatedText(snapshot);
+            var windows = snapshot.Windows.OrderBy(window =>
+                CursorUsagePresentation.QuotaPeriodLabel(window.LimitId) is null ? 1 : 0).ToArray();
             var omitted = 0;
-            for (var index = 0; index < snapshot.Windows.Count; index++)
+            for (var index = 0; index < windows.Length; index++)
             {
-                var window = snapshot.Windows[index];
-                var quota = CursorUsagePresentation.QuotaLabel(window.LimitId) + " "
+                var window = windows[index];
+                var quota = CursorUsagePresentation.QuotaDisplayLabel(window.LimitId) + " "
                     + CursorUsagePresentation.RemainingText(window);
                 var candidate = text + "\n" + quota;
                 if (candidate.Length > NotifyIconText.MaximumLength)
                 {
-                    omitted = snapshot.Windows.Count - index;
+                    omitted = windows.Length - index;
                     break;
                 }
                 text = candidate;

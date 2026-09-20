@@ -54,7 +54,7 @@ public static class CursorUsagePresentation
         "cursor-disconnected" => UiText.T("Cursor is disconnected", "Cursor 연결 해제됨"),
         "cursor-connection-unavailable" => UiText.T("Cursor connection could not be read", "Cursor 연결을 읽을 수 없음"),
         "cursor-connected-waiting" => UiText.T("Connected; waiting for Cursor usage", "연결됨 · Cursor 사용량 수신 대기"),
-        "cursor-sand-unavailable" => UiText.T("Grok usage unavailable", "Grok 사용량 확인 불가"),
+        "cursor-sand-unavailable" => UiText.T("Grok Bot usage unavailable", "Grok Bot 사용량 확인 불가"),
         "cursor-schema-mismatch" or "cursor-live-schema-mismatch" => UiText.T("Cursor usage format changed", "Cursor 사용량 형식이 변경됨"),
         _ => ""
     };
@@ -65,17 +65,36 @@ public static class CursorUsagePresentation
         var normalized = limitId.Trim().ToLowerInvariant();
         return normalized switch
         {
-            "cursor-auto" or "auto" => UiText.T("Auto", "자동"),
-            "cursor-api" or "api" => UiText.T("API", "API"),
+            "cursor-auto" or "auto" => "Cursor Models",
+            "cursor-api" or "api" => "Other Models",
             "cursor-plan" or "plan" => UiText.T("Plan total", "플랜 전체"),
             "cursor-on-demand" or "on-demand" or "ondemand" => UiText.T("On-demand", "온디맨드"),
             "cursor-team-on-demand" or "team-on-demand" or "teamondemand" => UiText.T("Team on-demand", "팀 온디맨드"),
             "cursor-team-pool" or "team-pool" or "teampool" => UiText.T("Team pool", "팀 풀"),
             "cursor-overall" or "overall" => UiText.T("Overall", "전체"),
-            "cursor-sand" or "sand" => UiText.T("Grok", "Grok"),
+            "cursor-sand" or "sand" => "Grok Bot",
             "cursor-included" or "included" => UiText.T("Included", "포함분"),
             _ => SafeLabel(limitId)
         };
+    }
+
+    // Display metadata only. Do not turn these calendar cadences into duration fields
+    // or reset predictions: the provider's own identifiers and timestamps stay intact.
+    public static string? QuotaPeriodLabel(string? limitId) => limitId?.Trim().ToLowerInvariant() switch
+    {
+        "cursor-auto" or "auto" or "cursor-api" or "api" => UiText.T("Monthly", "월간"),
+        "cursor-sand" or "sand" => UiText.T("Weekly", "주간"),
+        _ => null
+    };
+
+    public static string QuotaDisplayLabel(string? limitId) => QuotaPeriodLabel(limitId) is { } period
+        ? QuotaLabel(limitId) + " · " + period : QuotaLabel(limitId);
+
+    public static string RingLabel(string? limitId)
+    {
+        var period = QuotaPeriodLabel(limitId);
+        return QuotaLabel(limitId) + Environment.NewLine
+            + (period is null ? UiText.CodexLegendUsed : UiText.T($"{period} used", $"{period} 사용"));
     }
 
     private static string SafeLabel(string value)
