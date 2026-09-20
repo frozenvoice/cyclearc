@@ -56,6 +56,8 @@ function New-GitCycleArcTree([string]$Directory) {
 }
 
 function New-FakePublished([string]$Repo, [string]$ExeText, [string]$SetupText) {
+    # Successful build fixtures call this inside -PackagedSetup, after the run starts.
+    # Pre-creating/reusing Setup.exe makes tests depend on the five-second freshness grace.
     $stage = Join-Path $Repo 'publish/.dev-staging'
     $pack = Join-Path $Repo 'publish/.dev-velopack'
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -303,16 +305,24 @@ try {
 
     $oldPack = New-FakePublished $tree 'published-a' 'old-setup'
     (Get-Item -LiteralPath $oldPack.SetupPath).LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-2)
+    $script:staleStopped = $false
+    $script:staleSetupCalled = $false
+    $script:staleStarted = $false
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot (Join-Path $testRoot 'install-b') -DevRun { } `
-            -PackagedSetup { $oldPack } -StopDesktop { }
+        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot (Join-Path $testRoot 'install-b') -DevRun { } -SilentInstall `
+            -PackagedSetup { $oldPack } -StopDesktop { $script:staleStopped = $true } `
+            -RunSetup { $script:staleSetupCalled = $true; 0 } -StartLauncher { $script:staleStarted = $true }
     } 'older than this run'
-    Write-Host 'PASS: leftover Setup.exe is refused.'
+    if ($staleStopped -or $staleSetupCalled -or $staleStarted) {
+        throw 'A leftover Setup.exe reached desktop shutdown, installation or launch'
+    }
+    if ((Get-BuildLocalStage) -ne 'package') { throw 'A leftover Setup.exe must fail at package' }
+    Write-Host 'PASS: leftover Setup.exe is refused before desktop shutdown, installation or launch.'
 
     $installC = Join-Path $testRoot 'install-c'
-    $packC = New-FakePublished $tree 'published-c' 'setup-c'
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installC -DevRun { } -PackagedSetup { $packC } -StopDesktop { } -RunSetup {
+        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installC -DevRun { } `
+            -PackagedSetup { New-FakePublished $tree 'published-c' 'setup-c' } -StopDesktop { } -RunSetup {
             param($setup, $arguments)
             # The default run shows the installer; only -SilentInstall suppresses it.
             if ($arguments -contains '--silent') { throw 'The default run must not install silently' }
@@ -325,12 +335,12 @@ try {
     Write-Host 'PASS: same-version skip is reported as failure.'
 
     $installD = Join-Path $testRoot 'install-d'
-    $packD = New-FakePublished $tree 'published-d' 'setup-d'
     $script:started = $false
-    $result = Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installD -DevRun { } -PackagedSetup { $packD } -StopDesktop { } -RunSetup {
+    $result = Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installD -DevRun { } `
+        -PackagedSetup { New-FakePublished $tree 'published-d' 'setup-d' } -StopDesktop { } -RunSetup {
         param($setup, $arguments)
         New-Item -ItemType Directory -Path (Join-Path $installD 'current') -Force | Out-Null
-        Copy-Item -LiteralPath $packD.StagingExe -Destination (Join-Path $installD 'current/CycleArc.exe')
+        Copy-Item -LiteralPath (Join-Path $tree 'publish/.dev-staging/CycleArc.exe') -Destination (Join-Path $installD 'current/CycleArc.exe')
         Set-Content -LiteralPath (Join-Path $installD 'CycleArc.exe') -Value 'launcher'
         Set-Content -LiteralPath (Join-Path $installD 'Update.exe') -Value 'updater'
         0
@@ -351,9 +361,9 @@ try {
 
     $installE = Join-Path $testRoot 'install-e'
     New-Item -ItemType Directory -Path $installE -Force | Out-Null
-    $packE = New-FakePublished $tree 'published-e' 'setup-e'
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installE -DevRun { } -PackagedSetup { $packE } -StopDesktop { } -RunSetup { 7 }
+        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installE -DevRun { } `
+            -PackagedSetup { New-FakePublished $tree 'published-e' 'setup-e' } -StopDesktop { } -RunSetup { 7 }
     } 'CycleArc-Setup.exe failed'
     if (Test-Path -LiteralPath (Join-Path $installE 'current/CycleArc.exe')) {
         throw 'A failed Setup.exe still wrote an installed executable'
@@ -370,11 +380,11 @@ try {
     $spaceRoot = Join-Path $testRoot 'path with space'
     New-GitCycleArcTree $spaceRoot
     $spaceInstall = Join-Path $testRoot 'install space'
-    $spacePack = New-FakePublished $spaceRoot 'published-space' 'setup-space'
-    $spaceResult = Invoke-BuildLocal -RepoRoot $spaceRoot -ManagedRoot $spaceInstall -DevRun { } -PackagedSetup { $spacePack } -StopDesktop { } -RunSetup {
+    $spaceResult = Invoke-BuildLocal -RepoRoot $spaceRoot -ManagedRoot $spaceInstall -DevRun { } `
+        -PackagedSetup { New-FakePublished $spaceRoot 'published-space' 'setup-space' } -StopDesktop { } -RunSetup {
         param($setup, $arguments)
         New-Item -ItemType Directory -Path (Join-Path $spaceInstall 'current') -Force | Out-Null
-        Copy-Item -LiteralPath $spacePack.StagingExe -Destination (Join-Path $spaceInstall 'current/CycleArc.exe')
+        Copy-Item -LiteralPath (Join-Path $spaceRoot 'publish/.dev-staging/CycleArc.exe') -Destination (Join-Path $spaceInstall 'current/CycleArc.exe')
         Set-Content -LiteralPath (Join-Path $spaceInstall 'CycleArc.exe') -Value 'launcher'
         0
     } -StartLauncher { } -ProbeStatus {
@@ -397,13 +407,12 @@ try {
     $devRunMarker = Join-Path $defaultTree 'dev-run-marker.txt'
     New-TestDevRun $defaultTree $devRunMarker 0 | Out-Null
     $defaultInstall = Join-Path $testRoot 'install default'
-    $defaultPack = New-FakePublished $defaultTree 'published-default' 'setup-default'
     $script:defaultStopped = $false
     $defaultResult = Invoke-BuildLocal -RepoRoot $defaultTree -ManagedRoot $defaultInstall `
-        -PackagedSetup { $defaultPack } -StopDesktop { $script:defaultStopped = $true } -RunSetup {
+        -PackagedSetup { New-FakePublished $defaultTree 'published-default' 'setup-default' } -StopDesktop { $script:defaultStopped = $true } -RunSetup {
             param($setup, $arguments)
             New-Item -ItemType Directory -Path (Join-Path $defaultInstall 'current') -Force | Out-Null
-            Copy-Item -LiteralPath $defaultPack.StagingExe -Destination (Join-Path $defaultInstall 'current/CycleArc.exe')
+            Copy-Item -LiteralPath (Join-Path $defaultTree 'publish/.dev-staging/CycleArc.exe') -Destination (Join-Path $defaultInstall 'current/CycleArc.exe')
             Set-Content -LiteralPath (Join-Path $defaultInstall 'CycleArc.exe') -Value 'launcher'
             0
         } -StartLauncher { } -ProbeStatus {
@@ -439,15 +448,14 @@ try {
     New-GitCycleArcTree $silentTree
     New-TestDevRun $silentTree (Join-Path $silentTree 'dev-run-marker.txt') 0 | Out-Null
     $silentManagedRoot = Join-Path $testRoot 'install silent'
-    $silentPack = New-FakePublished $silentTree 'published-silent' 'setup-silent'
     $script:silentStopped = $false
     $script:silentArguments = @()
     $silentResult = Invoke-BuildLocal -RepoRoot $silentTree -ManagedRoot $silentManagedRoot -SilentInstall `
-        -PackagedSetup { $silentPack } -StopDesktop { $script:silentStopped = $true } -RunSetup {
+        -PackagedSetup { New-FakePublished $silentTree 'published-silent' 'setup-silent' } -StopDesktop { $script:silentStopped = $true } -RunSetup {
             param($setup, $arguments)
             $script:silentArguments = @($arguments)
             New-Item -ItemType Directory -Path (Join-Path $silentManagedRoot 'current') -Force | Out-Null
-            Copy-Item -LiteralPath $silentPack.StagingExe -Destination (Join-Path $silentManagedRoot 'current/CycleArc.exe')
+            Copy-Item -LiteralPath (Join-Path $silentTree 'publish/.dev-staging/CycleArc.exe') -Destination (Join-Path $silentManagedRoot 'current/CycleArc.exe')
             Set-Content -LiteralPath (Join-Path $silentManagedRoot 'CycleArc.exe') -Value 'launcher'
             0
         } -StartLauncher { } -ProbeStatus {
@@ -471,11 +479,11 @@ try {
     New-GitCycleArcTree $cancelTree
     New-TestDevRun $cancelTree (Join-Path $cancelTree 'dev-run-marker.txt') 0 | Out-Null
     $cancelInstall = Join-Path $testRoot 'install cancel'
-    $cancelPack = New-FakePublished $cancelTree 'published-cancel' 'setup-cancel'
+    $cancelPackage = { New-FakePublished $cancelTree 'published-cancel' 'setup-cancel' }
     $script:cancelStopped = $false
     $script:cancelStarted = $false
     $cancelResult = Invoke-BuildLocal -RepoRoot $cancelTree -ManagedRoot $cancelInstall `
-        -PackagedSetup { $cancelPack } -StopDesktop { $script:cancelStopped = $true } `
+        -PackagedSetup $cancelPackage -StopDesktop { $script:cancelStopped = $true } `
         -StartLauncher { $script:cancelStarted = $true } -RunSetup {
             param($setup, $arguments)
             2
@@ -489,12 +497,22 @@ try {
     Write-Host 'PASS: cancelling before install changes nothing and is reported as cancelled, not failed.'
 
     # A real installer failure is still a failure, and is not confused with cancelling.
+    # Model an arbitrary delay after cancellation without making the suite sleep.
+    (Get-Item -LiteralPath (Join-Path $cancelTree 'publish/.dev-velopack/CycleArc-Setup.exe')).LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-2)
     $failInstall = Join-Path $testRoot 'install setup-failure'
+    $script:failureSetupCalled = $false
     Assert-Throws {
         Invoke-BuildLocal -RepoRoot $cancelTree -ManagedRoot $failInstall `
-            -PackagedSetup { $cancelPack } -StopDesktop { } -RunSetup { param($setup, $arguments) 1 }
+            -PackagedSetup $cancelPackage -StopDesktop { } -RunSetup {
+                param($setup, $arguments)
+                $script:failureSetupCalled = $true
+                1
+            }
     } 'CycleArc-Setup.exe failed (exit 1)'
-    Write-Host 'PASS: an installer failure is reported as failure, separately from cancellation.'
+    if (!$failureSetupCalled -or (Get-BuildLocalStage) -ne 'install') {
+        throw 'The build after cancellation did not produce a fresh installer and reach installation'
+    }
+    Write-Host 'PASS: rebuilding after an aged cancellation reaches the installer and reports exit 1 separately.'
 
     $fastTree = Join-Path $testRoot 'default fast'
     New-GitCycleArcTree $fastTree
@@ -590,10 +608,10 @@ try {
     $lateTree = Join-Path $testRoot 'late failure'
     New-GitCycleArcTree $lateTree
     New-TestDevRun $lateTree (Join-Path $lateTree 'dev-run-marker.txt') 0 | Out-Null
-    $latePack = New-FakePublished $lateTree 'published-late' 'setup-late'
     $lateInstall = Join-Path $testRoot 'install late'
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $lateTree -ManagedRoot $lateInstall -PackagedSetup { $latePack } -StopDesktop { } -RunSetup {
+        Invoke-BuildLocal -RepoRoot $lateTree -ManagedRoot $lateInstall `
+            -PackagedSetup { New-FakePublished $lateTree 'published-late' 'setup-late' } -StopDesktop { } -RunSetup {
             param($setup, $arguments)
             New-Item -ItemType Directory -Path (Join-Path $lateInstall 'current') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $lateInstall 'current/CycleArc.exe') -Value 'a different build'
@@ -677,7 +695,11 @@ exit 0
         $env:CYCLEARC_TEST_STAGING_EXE = $setupStagingExe
         try {
             $setupResult = Invoke-BuildLocal -RepoRoot $setupTree -ManagedRoot $setupInstall -StopDesktop { } `
-                -PackagedSetup { [pscustomobject]@{ StagingExe = $setupStagingExe; SetupPath = $realSetup } } `
+                -PackagedSetup {
+                    Set-Content -LiteralPath $setupStagingExe -Value 'published-real-setup'
+                    $freshSetup = New-TestLaunchableScript 'fake-setup' $setupBody
+                    [pscustomobject]@{ StagingExe = $setupStagingExe; SetupPath = $freshSetup }
+                } `
                 -StartLauncher { } -ProbeStatus {
                     [pscustomobject]@{
                         Succeeded = $true

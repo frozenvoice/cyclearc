@@ -2,6 +2,24 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- build-local fixture freshness (unreleased, 2026-09-21):
+  - The reported `build-local-regression` failure on `1038363` came from the tests reusing
+    the cancellation case's fake Setup.exe for the following exit-1 case. Once that file
+    preceded the next run by more than the five-second grace, the production leftover-file
+    guard correctly failed at `package` before the expected installer failure at `install`.
+  - Normal package fixtures now create their files inside each run's `PackagedSetup` callback.
+    The cancellation regression deliberately ages the previous Setup.exe by two days before
+    rebuilding, without sleeping; it must reach Setup and report exit 1. The separate stale-file
+    case verifies rejection before desktop shutdown, Setup or launch, including silent mode.
+    Production build, packaging, freshness guards and application code are unchanged.
+  - Reproduced the exact reported exception locally before the fix by aging the reused file
+    (`artifacts/build-local-fixture-repro.log`). After the fix,
+    `pwsh -NoProfile -File tests/BuildLocal.Tests.ps1` passed all **39 Windows checks**
+    (`artifacts/build-local-fixture-fixed.log`). The Unix-only direct script launch is skipped
+    on Windows. No real Setup.exe installation or full CMD install was performed; all install
+    adapters used isolated synthetic files. Existing executable build/WPF/package evidence is
+    reused because this change touches only the script tests and this validation record.
+
 - Cursor widget summary and alignment (unreleased, 2026-09-21):
   - The widget shows at most the reported, enabled Cursor Models / Other Models / Grok Bot
     rows in that order. Monthly and Weekly headings replace repeated cadence/reset lines;
