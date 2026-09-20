@@ -55,18 +55,45 @@ internal static class CursorUiChecks
                 var account = new CodexAccountView(profile, snapshot, "cursor@example.invalid") { IsConnected = true };
                 WidgetFixture.BindOne(widget, account);
                 var module = WidgetFixture.Module(widget);
-                Check(module.Periods.Count == snapshot.Windows.Count,
-                    "Cursor widget merged or dropped named allowances.");
-                foreach (var window in snapshot.Windows)
+                var visibleWindows = snapshot.Windows.Where(IsWidgetAllowance).ToArray();
+                Check(module.Periods.Count == visibleWindows.Length && module.Periods.Count <= 3,
+                    "Cursor widget did not keep the three compact named allowances.");
+                foreach (var (window, index) in visibleWindows.Select((window, index) => (window, index)))
                 {
-                    var label = CursorUsagePresentation.QuotaDisplayLabel(window.LimitId);
-                    Check(module.ToolTip!.ToString()!.Contains(label, StringComparison.Ordinal),
-                        "Cursor widget tooltip omits a named allowance: " + label);
+                    var label = CursorUsagePresentation.QuotaLabel(window.LimitId);
+                    var line = module.Periods[index];
+                    var modelLine = module.Model!.Periods[index];
+                    Check(line.PeriodText.Text == label,
+                        "Cursor widget changed a named allowance: " + label);
+                    Check(modelLine.CadenceLabel == CursorUsagePresentation.QuotaPeriodLabel(window.LimitId),
+                        "Cursor widget omits the allowance cadence: " + label);
+                    var startsGroup = index == 0
+                        || !string.Equals(modelLine.CadenceLabel, module.Model.Periods[index - 1].CadenceLabel,
+                            StringComparison.Ordinal);
+                    var expectedCadence = modelLine.CadenceLabel + UiText.T(" · Left", " · 남음");
+                    Check(line.CadenceText.Visibility == (startsGroup ? Visibility.Visible : Visibility.Collapsed)
+                        && (!startsGroup || line.CadenceText.Text == expectedCadence),
+                        "Cursor widget does not render the cadence group label: " + label);
+                    Check(line.RemainingText.Text == CursorUsagePresentation.RemainingText(window),
+                        "Cursor widget changed the compact remaining value: " + label);
+                    Check(string.IsNullOrEmpty(line.ResetText.Text),
+                        "Cursor widget repeated reset text on every compact allowance: " + label);
+                    Check(modelLine.ResetTooltip == CodexDeadlineFormatting.ResetStampTooltip(window.ResetsAt),
+                        "Cursor widget lost the exact reset tooltip: " + label);
+                    Check((line.ToolTip as string ?? "").Contains(modelLine.ResetTooltip ?? UiText.ResetNotProvided,
+                            StringComparison.Ordinal),
+                        "Cursor widget allowance tooltip lost the exact reset time: " + label);
                 }
-                Check(module.ToolTip!.ToString()!.Contains(CursorUsagePresentation.UpdatedText(snapshot), StringComparison.Ordinal),
+                var widgetTooltip = module.ToolTip!.ToString()!;
+                foreach (var window in snapshot.Windows)
+                    Check(widgetTooltip.Contains(CursorUsagePresentation.QuotaLabel(window.LimitId), StringComparison.Ordinal),
+                        "Cursor widget tooltip omits a full named allowance: " + window.LimitId);
+                Check(widgetTooltip.Contains(CursorUsagePresentation.UpdatedText(snapshot), StringComparison.Ordinal),
                     "Cursor widget tooltip omits the update timestamp.");
-                Check(module.StatusText.Text.Contains(CursorUsagePresentation.UpdatedText(snapshot), StringComparison.Ordinal),
-                    "Cursor widget omits the visible update timestamp.");
+                Check(module.StatusText.Text.Contains(UiText.Updated, StringComparison.Ordinal),
+                    "Cursor widget omits its compact updated status.");
+                Check((module.StatusText.ToolTip as string ?? "").Contains(CursorUsagePresentation.UpdatedText(snapshot), StringComparison.Ordinal),
+                    "Cursor widget status tooltip omits the exact update timestamp.");
                 var tray = CycleArcPresentation.TrayTooltip(snapshot);
                 Check(tray.Contains(CursorUsagePresentation.UpdatedText(snapshot), StringComparison.Ordinal),
                     "Cursor tray tooltip omits the update timestamp.");
@@ -149,17 +176,24 @@ internal static class CursorUiChecks
             WidgetFixture.BindOne(widget, account);
             var module = WidgetFixture.Module(widget);
             var updatedStamp = CursorUsagePresentation.UpdatedText(snapshot);
-            Check(module.Periods.Count == snapshot.Windows.Count,
+            var visibleWindows = snapshot.Windows.Where(IsWidgetAllowance).ToArray();
+            Check(module.Periods.Count == visibleWindows.Length,
                 "Cursor partial widget merged or invented a Sand allowance.");
-            Check(module.StatusText.Text.Contains(updatedStamp, StringComparison.Ordinal),
+            Check(module.StatusText.Text.Contains(UiText.Updated, StringComparison.Ordinal),
                 "Cursor partial widget lost the monthly update timestamp.");
             Check(!module.StatusText.Text.Contains(stale, StringComparison.Ordinal)
                 && !module.StatusText.Text.Contains("Grok", StringComparison.Ordinal),
                 "Cursor partial widget exposed an optional Grok failure as stale/global status.");
-            Check((module.ToolTip as string ?? "").Contains(CursorUsagePresentation.QuotaLabel("cursor-auto"), StringComparison.Ordinal),
+            var partialTooltip = module.ToolTip as string ?? "";
+            Check(partialTooltip.Contains(CursorUsagePresentation.QuotaLabel("cursor-auto"), StringComparison.Ordinal),
                 "Cursor partial widget lost the monthly allowance label.");
-            Check(!(module.ToolTip as string ?? "").Contains("Grok", StringComparison.Ordinal),
+            Check(partialTooltip.Contains(updatedStamp, StringComparison.Ordinal),
+                "Cursor partial widget lost the exact update timestamp in its tooltip.");
+            Check(module.Periods.All(period => period.PeriodText.Text != "Grok Bot")
+                && !partialTooltip.Contains(CursorUsagePresentation.QuotaDisplayLabel("cursor-sand"), StringComparison.Ordinal),
                 "Cursor partial widget invented a Grok allowance row.");
+            Check(partialTooltip.Contains(grokUnavailable, StringComparison.Ordinal),
+                "Cursor partial widget tooltip lost the optional Grok failure detail.");
             var tray = CycleArcPresentation.TrayTooltip(snapshot);
             Check(tray.Contains(updatedStamp, StringComparison.Ordinal)
                 && tray.Contains(UiText.T("Updated", "업데이트"), StringComparison.Ordinal),
@@ -253,11 +287,26 @@ internal static class CursorUiChecks
                     WidgetFixture.BindOne(widget, account);
                     WidgetFixture.RenderWidget(widget, null);
                     var module = WidgetFixture.Module(widget);
-                    var widgetLabel = module.Periods.FirstOrDefault(period => period.PeriodText.Text == selectedDisplay);
-                    Check(widgetLabel is not null && widgetLabel.PeriodText.TextWrapping == TextWrapping.Wrap,
-                        $"Cursor {name} widget allowance label cannot reflow at {zoom}%.");
+                    var ringTarget = module.RingTargetText;
+                    Check(ringTarget.Text == selectedLabel
+                        && ringTarget.TextWrapping == TextWrapping.Wrap
+                        && Math.Abs(ringTarget.FontSize - 10.5) < 0.01,
+                        $"Cursor {name} widget ring target is missing or not wrapped at {zoom}%.");
+                    var widgetIndex = module.Periods
+                        .Select((period, index) => (period, index))
+                        .Where(item => item.period.PeriodText.Text == selectedLabel)
+                        .Select(item => item.index)
+                        .DefaultIfEmpty(-1)
+                        .First();
+                    var widgetLabel = widgetIndex >= 0 && widgetIndex < module.Periods.Count
+                        ? module.Periods[widgetIndex] : null;
+                    Check(widgetLabel is not null && widgetLabel.PeriodText.Text == selectedLabel,
+                        $"Cursor {name} widget allowance label is missing at {zoom}%.");
                     if (widgetLabel is not null)
                     {
+                        var modelLine = module.Model!.Periods[widgetIndex];
+                        Check(modelLine.CadenceLabel == CursorUsagePresentation.QuotaPeriodLabel(selectedId),
+                            $"Cursor {name} widget allowance cadence is missing at {zoom}%.");
                         var widgetRow = Ancestor<Grid>(widgetLabel.PeriodText);
                         Check(widgetRow is not null,
                             $"Cursor {name} widget allowance lost its measured row at {zoom}%.");
@@ -388,6 +437,10 @@ internal static class CursorUiChecks
             Provider = UsageProviderId.Cursor
         };
     }
+
+    private static bool IsWidgetAllowance(CodexQuotaWindow window) =>
+        window.IsEnabled != false
+        && window.LimitId is "cursor-auto" or "cursor-api" or "cursor-sand";
 
     private static string LanguageSuffix(UiLanguage language) => language == UiLanguage.Korean ? "ko" : "en";
     private static string ThemeSuffix(AppTheme theme) => theme.ToString().ToLowerInvariant();

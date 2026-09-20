@@ -68,6 +68,12 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
   (monthly), and `cursor-sand` to Grok Bot (weekly). Names stay in English in both UI languages;
   cadence and usage wording are localized. This changes no stored field, duration, reset,
   selected-window policy or calculation. The large ring names its represented allowance.
+  The widget alone summarizes at most the reported Cursor Models, Other Models and Grok Bot
+  rows in that priority order, grouping their monthly/weekly cadence. Its tooltip retains all
+  reported budgets, disabled allowances, exact resets and the successful observation time.
+  The small ring uses the shared selection/calculation only among those visible allowances
+  and names its target below it, so an omitted budget cannot become a fourth visible limit. This is a
+  display projection only; the snapshot and other surfaces keep their complete windows.
   Monthly refresh failures retain the last successful observation, and identity mismatch
   hides it while retaining the last attempt for the automatic-refresh gate. A mismatch marker
   preserves that attempt even if the primary cache commit was interrupted.
@@ -78,7 +84,7 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
   Cursor usage-cache v2 reads v1 and separates legacy Sand failure/backoff on load. Older
   Cursor builds cannot read v2 quota caches and may need a fresh query after rollback;
   account bindings and the registry are separate and remain intact.
-  Popup, tray and widget use the same projection; the Codex period selector and reset-credit
+  Popup, tray and widget share the same provider snapshot; the Codex period selector and reset-credit
   actions do not apply to Cursor.
 - Adding Cursor advances the account registry to version 3 and upgrades the previous-good
   backup version before the primary. This prevents older builds from silently discarding the

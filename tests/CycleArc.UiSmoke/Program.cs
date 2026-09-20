@@ -173,6 +173,11 @@ internal static class Program
                 CursorUiChecks.Run(cursorDirectory);
                 return 0;
             }
+            if (args is ["--cursor-widget-summary-previews", var cursorWidgetDirectory])
+            {
+                CursorWidgetSummaryChecks.Run(cursorWidgetDirectory);
+                return 0;
+            }
             if (args is ["--flyout-activation"] or ["--flyout-activation", _])
             {
                 FlyoutActivationChecks.Run(app, args.Length == 2 ? args[1] : null);
@@ -194,6 +199,7 @@ internal static class Program
             AccountUiChecks.Run();
             CodexWindowUiChecks.Run();
             CursorUiChecks.Run();
+            CursorWidgetSummaryChecks.Run();
             UsagePeriodUiChecks.Run(app);
             MixedProviderUiChecks.Run();
             ToolTipUiChecks.Run();

@@ -86,7 +86,9 @@ internal static class TrayIconChecks
         string? detail = null,
         UsageProviderId provider = UsageProviderId.Codex)
     {
-        var window = new CodexQuotaWindow("smoke", used, 10_080, null, CodexWindowKind.Weekly);
+        var window = provider == UsageProviderId.Cursor
+            ? new CodexQuotaWindow("cursor-auto", used, null, null, CodexWindowKind.Other)
+            : new CodexQuotaWindow("smoke", used, 10_080, null, CodexWindowKind.Weekly);
         return new CodexQuotaSnapshot(status, "pro", DateTimeOffset.Now, DateTimeOffset.Now,
             null, null, null, [window], detail) with { Provider = provider };
     }

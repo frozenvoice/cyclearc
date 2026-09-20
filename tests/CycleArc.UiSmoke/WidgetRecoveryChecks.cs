@@ -276,8 +276,15 @@ internal static class WidgetRecoveryChecks
                 && Visible(window) && Math.Abs(window.Opacity - settings.WidgetOpacity) < .001
                 && !window.Topmost && (GetWindowLong(resetHwnd, -20) & 0x20) != 0,
                 "Position reset did not recreate the widget with its saved display settings.");
-            Check(GetForegroundWindow() == foreground && GetActiveWindow() == focusHwnd && activations == activationStart,
-                "Position reset took keyboard focus.");
+            var resetForeground = GetForegroundWindow();
+            var resetActive = GetActiveWindow();
+            var resetFocusTrace = $"{language}/{theme}/{screen.DeviceName}: "
+                + $"foreground={WindowIdentity(foreground)}->{WindowIdentity(resetForeground)}, "
+                + $"active={WindowIdentity(resetActive)}, fixture={WindowIdentity(focusHwnd)}, "
+                + $"widget={WindowIdentity(resetHwnd)}, activations={activationStart}->{activations}";
+            Console.WriteLine("Position reset focus: " + resetFocusTrace);
+            Check(resetForeground == foreground && resetActive == focusHwnd && activations == activationStart,
+                "Position reset focus invariant failed. " + resetFocusTrace);
             ((Action?)clickEvent.GetValue(window))?.Invoke();
             Check(clicks == 2, "Position reset lost the widget input subscription.");
 
@@ -301,6 +308,11 @@ internal static class WidgetRecoveryChecks
     }
 
     private static IntPtr Handle(FloatingWidget window) => new WindowInteropHelper(window).Handle;
+    private static string WindowIdentity(IntPtr hwnd)
+    {
+        GetWindowThreadProcessId(hwnd, out var processId);
+        return $"0x{hwnd.ToInt64():X}/pid={processId}";
+    }
     private static bool HasVisiblePredecessor(IntPtr hwnd, IntPtr target)
     {
         for (var above = GetWindow(hwnd, 3); above != IntPtr.Zero; above = GetWindow(above, 3))
@@ -321,6 +333,7 @@ internal static class WidgetRecoveryChecks
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
     [DllImport("user32.dll")] private static extern IntPtr GetActiveWindow();
     [DllImport("user32.dll")] private static extern IntPtr SetActiveWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
