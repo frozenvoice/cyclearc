@@ -129,7 +129,9 @@ public sealed class CursorUsageClientTests
 
         var result = await client.FetchAsync(Binding(), default);
 
-        Assert.Equal("cursor-sand-unavailable", result.Failure);
+        Assert.Null(result.Failure);
+        Assert.Null(result.RetryAfter);
+        Assert.Equal("cursor-sand-unavailable", result.SandFailure);
         Assert.Contains(result.Sample!.Windows, window => window.LimitId == "cursor-auto");
         Assert.DoesNotContain(result.Sample.Windows, window => window.LimitId == "cursor-sand");
         Assert.Equal(Now, result.Sample.ObservedAt);
@@ -150,7 +152,8 @@ public sealed class CursorUsageClientTests
 
         var result = await client.FetchAsync(Binding(), default);
 
-        Assert.Equal("cursor-sand-unavailable", result.Failure);
+        Assert.Null(result.Failure);
+        Assert.Equal("cursor-sand-unavailable", result.SandFailure);
         Assert.Contains(result.Sample!.Windows, window => window.LimitId == "cursor-api");
         Assert.DoesNotContain(result.Sample.Windows, window => window.LimitId == "cursor-sand");
     }
@@ -171,9 +174,52 @@ public sealed class CursorUsageClientTests
 
         var result = await client.FetchAsync(Binding(), default);
 
-        Assert.Equal("cursor-sand-unavailable", result.Failure);
+        Assert.Null(result.Failure);
+        Assert.Equal("cursor-sand-unavailable", result.SandFailure);
         Assert.NotNull(result.Sample);
         Assert.Contains(result.Sample!.Windows, window => window.LimitId == "cursor-plan" || window.LimitId == "cursor-auto");
+    }
+
+    [Fact]
+    public async Task OptionalRateLimitIsSeparateAndCanSkipOnlySand()
+    {
+        var profileCalls = 0;
+        var summaryCalls = 0;
+        var sandCalls = 0;
+        using var http = new HttpClient(new Handler((request, _) =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/auth/me")
+            {
+                profileCalls++;
+                return Task.FromResult(Json("{\"sub\":\"auth0|acct-fixture\"}"));
+            }
+            if (request.RequestUri.AbsolutePath == "/api/usage-summary")
+            {
+                summaryCalls++;
+                return Task.FromResult(Json(Summary));
+            }
+            sandCalls++;
+            var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            limited.Headers.RetryAfter = new(TimeSpan.FromMinutes(15));
+            return Task.FromResult(limited);
+        }));
+        using var client = new CursorUsageClient(new FakeAuth(Jwt("auth0|acct-fixture", Now.AddHours(1))),
+            http, new MutableClock(Now));
+
+        var limited = await client.FetchAsync(Binding(), default);
+        Assert.Null(limited.Failure);
+        Assert.Null(limited.RetryAfter);
+        Assert.Equal("cursor-sand-unavailable", limited.SandFailure);
+        Assert.Equal(Now.AddMinutes(15), limited.SandRetryAfter);
+        Assert.NotNull(limited.Sample);
+
+        var monthly = await client.FetchAsync(Binding(), default, includeSand: false);
+        Assert.Null(monthly.Failure);
+        Assert.NotNull(monthly.Sample);
+        Assert.DoesNotContain(monthly.Sample.Windows, window => window.LimitId == "cursor-sand");
+        Assert.Equal(2, profileCalls);
+        Assert.Equal(2, summaryCalls);
+        Assert.Equal(1, sandCalls);
     }
 
     [Fact]

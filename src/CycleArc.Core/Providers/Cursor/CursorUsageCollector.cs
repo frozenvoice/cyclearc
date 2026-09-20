@@ -60,9 +60,15 @@ public sealed class CursorUsageCollector : ICursorUsageSource
                     if (marker.Blocked || marker.Matches)
                     {
                         if (TryRead(_path, binding!, out var mismatched))
-                            _state = mismatched! with { LastGood = null, Failure = "cursor-live-identity-mismatch", RetryAfter = null };
+                            _state = mismatched! with
+                            {
+                                LastGood = null, Failure = "cursor-live-identity-mismatch", RetryAfter = null,
+                                LastAttempted = marker.AttemptedAt is { } marked && marked > mismatched!.LastAttempted
+                                    ? marked : mismatched!.LastAttempted,
+                                SandFailure = null, SandRetryAfter = null
+                            };
                         else
-                            _state = new Cache(1, _profileId, BindingKey(binding!), null,
+                            _state = new Cache(2, _profileId, BindingKey(binding!), null,
                                 marker.AttemptedAt ?? _clock.UtcNow, "cursor-live-identity-mismatch", null);
                     }
                     else if (TryRead(_path, binding!, out var saved)) _state = saved;
@@ -108,11 +114,12 @@ public sealed class CursorUsageCollector : ICursorUsageSource
             lock (_stateGate) previous = _state;
             var now = _clock.UtcNow;
             if (previous?.RetryAfter > now) return Project(previous);
+            var includeSand = previous?.SandRetryAfter is not { } sandRetryAt || sandRetryAt <= now;
 
             CursorUsageResponse response;
             try
             {
-                response = await _client.FetchAsync(binding!, token).ConfigureAwait(false);
+                response = await _client.FetchAsync(binding!, token, includeSand).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException
@@ -152,7 +159,12 @@ public sealed class CursorUsageCollector : ICursorUsageSource
             DateTimeOffset? retry = IsRetryableFailure(failure) && response.RetryAfter is { } retryAt
                 ? ClampRetry(retryAt, _clock.UtcNow) : null;
             var verifiedSuccess = verifiedIdentity && sample is not null;
-            var next = new Cache(1, _profileId, BindingKey(binding!), good, attempted, failure, retry);
+            var sandFailure = sample is null || !includeSand ? previous?.SandFailure : response.SandFailure;
+            var sandRetry = sample is null || !includeSand ? previous?.SandRetryAfter
+                : response.SandFailure == "cursor-sand-unavailable" && response.SandRetryAfter is { } optionalRetry
+                    ? ClampRetry(optionalRetry, _clock.UtcNow) : null;
+            var next = new Cache(2, _profileId, BindingKey(binding!), good, attempted, failure, retry,
+                sandFailure, sandRetry);
             try
             {
                 next = await SaveAsync(binding!, next, verifiedSuccess, token).ConfigureAwait(false);
@@ -177,7 +189,7 @@ public sealed class CursorUsageCollector : ICursorUsageSource
                     _binding = null;
                     _state = null;
                     _email = null;
-                    return new(null, "cursor-live-identity-mismatch", attempted);
+                    return new(null, "cursor-live-identity-mismatch", AttemptedAt: attempted);
                 }
                 _binding = binding;
                 _state = next;
@@ -219,7 +231,7 @@ public sealed class CursorUsageCollector : ICursorUsageSource
 
     private CursorUsageResponse Project(Cache? state) => new(state?.Failure == "cursor-live-identity-mismatch"
         ? null : state?.LastGood, state?.Failure, state?.RetryAfter, Email: _email,
-        AttemptedAt: state?.LastAttempted);
+        AttemptedAt: state?.LastAttempted, SandFailure: state?.SandFailure, SandRetryAfter: state?.SandRetryAfter);
 
     private MarkerRead ReadMismatchMarker(CursorConnectionBinding binding)
     {
@@ -259,14 +271,25 @@ public sealed class CursorUsageCollector : ICursorUsageSource
             if (stream.Length is <= 0 or > 512 * 1024) return false;
             var value = JsonSerializer.Deserialize<Cache>(stream, Options);
             var now = _clock.UtcNow;
-            if (value is not { Version: 1 } || value.ProfileId != _profileId
+            // v1 coupled Sand failure/retry to the monthly state. Migrate that metadata
+            // without changing the receipt time or inventing an optional quota.
+            if (value is { Version: 1, Failure: "cursor-sand-unavailable" })
+                value = value with
+                {
+                    Failure = value.LastGood is null ? "cursor-live-unavailable" : null, RetryAfter = null,
+                    SandFailure = "cursor-sand-unavailable", SandRetryAfter = value.RetryAfter
+                };
+            if (value is not { Version: 1 or 2 } || value.ProfileId != _profileId
                 || value.BindingKey != BindingKey(binding)
                 || !ValidFailure(value.Failure)
+                || value.SandFailure is not (null or "cursor-sand-unavailable")
                 || value.LastAttempted <= DateTimeOffset.UnixEpoch || value.LastAttempted > now.AddMinutes(1)
                 || (value.LastGood is { } sample && !ValidSample(sample, now))
                 || (value.RetryAfter is { } retry && (!IsRetryableFailure(value.Failure)
-                    || retry <= DateTimeOffset.UnixEpoch || retry > value.LastAttempted.AddDays(1)))) return false;
-            state = value;
+                    || retry <= DateTimeOffset.UnixEpoch || retry > value.LastAttempted.AddDays(1)))
+                || (value.SandRetryAfter is { } sandRetry && (value.SandFailure != "cursor-sand-unavailable"
+                    || sandRetry <= DateTimeOffset.UnixEpoch || sandRetry > value.LastAttempted.AddDays(1)))) return false;
+            state = value with { Version = 2 };
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
@@ -343,10 +366,9 @@ public sealed class CursorUsageCollector : ICursorUsageSource
 
     private static bool ValidFailure(string? failure) => failure is null or "cursor-live-auth-required"
         or "cursor-live-request-failed" or "cursor-live-rate-limited" or "cursor-live-identity-mismatch"
-        or "cursor-live-unavailable" or "cursor-sand-unavailable" or "cursor-live-busy";
+        or "cursor-live-unavailable" or "cursor-live-busy";
 
-    private static bool IsRetryableFailure(string? failure) => failure is "cursor-live-rate-limited"
-        or "cursor-sand-unavailable";
+    private static bool IsRetryableFailure(string? failure) => failure is "cursor-live-rate-limited";
 
     private static DateTimeOffset ClampRetry(DateTimeOffset retry, DateTimeOffset now) =>
         retry < now.AddSeconds(5) ? now.AddSeconds(5)
@@ -359,7 +381,8 @@ public sealed class CursorUsageCollector : ICursorUsageSource
         || Guid.TryParseExact(value, "N", out _);
 
     private sealed record Cache(int Version, string ProfileId, string BindingKey, CursorUsageSample? LastGood,
-        DateTimeOffset LastAttempted, string? Failure, DateTimeOffset? RetryAfter);
+        DateTimeOffset LastAttempted, string? Failure, DateTimeOffset? RetryAfter,
+        string? SandFailure = null, DateTimeOffset? SandRetryAfter = null);
     private sealed record MismatchMarker(int Version, string ProfileId, string BindingKey, DateTimeOffset MarkedAt);
     private readonly record struct MarkerRead(bool Matches, bool Blocked, DateTimeOffset? AttemptedAt);
 }

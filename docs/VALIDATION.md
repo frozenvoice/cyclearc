@@ -2,6 +2,46 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Cursor review follow-up to `f84df8d` (unreleased, 2026-09-20):
+  - Identity mismatch still hides every quota, but the provider now retains the last attempt
+    through cache reconciliation and restart. An interrupted mismatch cache commit uses the
+    marker's newer attempt time, so reopening the popup cannot bypass the automatic interval.
+  - Sand/Grok failure and retry deadlines are separate from the monthly response. A fresh
+    monthly sample remains Available; only Sand waits for its retry deadline, including after
+    restart. Older Grok values are omitted rather than assigned a new monthly timestamp.
+    The detailed popup explains optional failure; the monthly popup/tray/widget status stays
+    Updated. Monthly failures still preserve last-good values and their original timestamp.
+  - Usage-cache v2 reads legacy v1 and migrates its coupled Sand failure/backoff metadata
+    without changing the receipt time. Rolling back to the original Cursor build can require
+    a new usage query because that older reader cannot parse v2 usage caches. This does not
+    migrate or delete account bindings or the account registry.
+  - Registry component coverage checks v1/v2 upgrades, v3 markers on primary/backup,
+    rejection of stale v2 saves, corrupt-primary/backup recovery and later save preservation.
+    The initial v3 transition deliberately retains the previous-good profile set in the
+    backup: primary damage before the next save may lose the just-added Cursor registry
+    reference, while its profile files remain on disk. This is not a claim of seamless
+    operation in a pre-Cursor executable; those older readers reject v3.
+  - Local verification: `dev-run.ps1 -NoLaunch` passed once on the final production code
+    (4m 35s): **1,634 unit tests**, Release build, desktop-instance and script regressions,
+    the complete WPF suite, single-file publish, production Claude receivers, packaging and
+    isolated package apply/restore with unchanged external data. The focused Cursor run
+    before the last added cases passed 61 tests. Logs: `artifacts/cursor-review-full-gate.log`.
+  - `tests/scripts/Verify-CursorRegistryCompatibility.ps1` compiles the unchanged account
+    store from pre-Cursor commit `36dcf1fdee0cd05381b323886744d999c8f1f567` with minimal
+    matching type fixtures. The actual historical reader accepted a valid v2 baseline,
+    rejected v3 primary and backup fallback, and preserved the synthetic registry,
+    settings, Codex cache and Claude/Cursor binding/cache files byte for byte. This is a
+    storage-component check, not execution of the whole old app. Log:
+    `artifacts/cursor-review-registry-compat.log`.
+  - `--cursor-ui artifacts/cursor-review-previews` passed for synthetic production views
+    in EN/KO and Dark/Light/System. Visual review confirmed the optional Grok explanation,
+    fresh monthly values and original update time in English dark and Korean light popup
+    and widget previews. No real credentials or account responses were used in this follow-up.
+  - Actual existing-install v2-to-v3 update and pre-Cursor binary rollback are not verified
+    end to end. `Verify-InstalledUpdate.ps1` cannot isolate this working user's data root,
+    registry, mutex or shortcuts, so it was not run here. Isolated store/package checks are
+    component evidence only. No main merge, release or installed-app replacement was made.
+
 - Cursor integration (unreleased, 2026-09-20):
   - The existing provider/account-service boundary now connects the signed-in Windows
     Cursor account without token copying. It verifies the server identity before usage,

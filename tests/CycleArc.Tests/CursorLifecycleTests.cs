@@ -1,6 +1,7 @@
 using CycleArc.Codex;
 using CycleArc.Providers.Cursor;
 using CycleArc.Services;
+using System.Text.Json.Nodes;
 
 namespace CycleArc.Tests;
 
@@ -53,6 +54,57 @@ public sealed class CursorLifecycleTests
         var restarted = data.Collector().ReadCached(data.Binding);
         Assert.Null(restarted.Sample);
         Assert.Equal("cursor-live-identity-mismatch", restarted.Failure);
+    }
+
+    [Fact]
+    public async Task IdentityMismatchKeepsAutomaticIntervalAcrossCacheRefreshAndRestart()
+    {
+        using var data = new Data();
+        var service = new CursorQuotaService(data.Accounts, data.Profile, data.Client, data.Collector(), data.Clock);
+        await service.RefreshLiveAsync(default);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = new(null, "cursor-live-identity-mismatch", AttemptedAt: data.Clock.UtcNow);
+        await service.RefreshLiveAsync(default);
+        var attempted = data.Clock.UtcNow;
+        Assert.Empty(service.Snapshot.Windows);
+        Assert.Null(service.Snapshot.LastSuccessfulRefresh);
+        Assert.Equal(attempted, service.Snapshot.LastAttemptedRefresh);
+
+        // Popup opens reconcile the cache and consult this same automatic-refresh gate.
+        for (var minute = 1; minute < 5; minute++)
+        {
+            data.Clock.UtcNow = attempted.AddMinutes(minute);
+            await service.RefreshAsync(default);
+            if (service.ShouldRefresh(data.Clock.UtcNow, TimeSpan.FromMinutes(5)))
+                await service.RefreshLiveAsync(default);
+        }
+        Assert.Equal(2, data.Client.Calls);
+
+        // A damaged primary still recovers the mismatch receipt from its marker.
+        File.WriteAllText(data.CachePath, "not-json");
+        var restarted = new CursorQuotaService(data.Accounts, data.Profile, data.Client, data.Collector(), data.Clock);
+        Assert.Equal(attempted, restarted.Snapshot.LastAttemptedRefresh);
+        Assert.Empty(restarted.Snapshot.Windows);
+        Assert.False(restarted.ShouldRefresh(attempted.AddMinutes(4), TimeSpan.FromMinutes(5)));
+        Assert.True(restarted.ShouldRefresh(attempted.AddMinutes(5), TimeSpan.FromMinutes(5)));
+    }
+
+    [Fact]
+    public async Task MismatchMarkerKeepsNewAttemptWhenPrimaryStillContainsOlderSample()
+    {
+        using var data = new Data();
+        await data.Collector().RefreshAsync(data.Binding, default);
+        var beforeMismatch = File.ReadAllText(data.CachePath);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = new(null, "cursor-live-identity-mismatch", AttemptedAt: data.Clock.UtcNow);
+        await data.Collector().RefreshAsync(data.Binding, default);
+
+        // Simulate interruption after the marker commit but before cache replacement.
+        File.WriteAllText(data.CachePath, beforeMismatch);
+        var restarted = new CursorQuotaService(data.Accounts, data.Profile, data.Client, data.Collector(), data.Clock);
+        Assert.Empty(restarted.Snapshot.Windows);
+        Assert.Equal(Now.AddMinutes(5), restarted.Snapshot.LastAttemptedRefresh);
+        Assert.False(restarted.ShouldRefresh(Now.AddMinutes(6), TimeSpan.FromMinutes(5)));
     }
 
     [Fact]
@@ -203,25 +255,150 @@ public sealed class CursorLifecycleTests
     }
 
     [Fact]
-    public async Task SandRateLimitKeepsMonthlySampleAndBackoffAcrossRestart()
+    public async Task SandRateLimitOnlySkipsSandAndKeepsMonthlyFreshAcrossRestart()
     {
         using var data = new Data();
-        data.Client.Next = new(data.Sample, "cursor-sand-unavailable", Now.AddMinutes(15),
-            data.Email, data.Fingerprint, Now);
+        data.Client.Next = new(data.Sample, Email: data.Email, IdentityFingerprint: data.Fingerprint,
+            AttemptedAt: Now, SandFailure: "cursor-sand-unavailable", SandRetryAfter: Now.AddMinutes(15));
 
         var partial = await data.Collector().RefreshAsync(data.Binding, default);
-        Assert.Equal("cursor-sand-unavailable", partial.Failure);
+        Assert.Null(partial.Failure);
+        Assert.Null(partial.RetryAfter);
+        Assert.Equal("cursor-sand-unavailable", partial.SandFailure);
         Assert.Equal(data.Sample, partial.Sample);
 
         data.Clock.UtcNow = Now.AddMinutes(10);
-        var restarted = data.Collector();
-        var skipped = await restarted.RefreshAsync(data.Binding, default);
-        Assert.Equal("cursor-sand-unavailable", skipped.Failure);
-        Assert.NotNull(skipped.Sample);
-        Assert.Equal(data.Sample.ObservedAt, skipped.Sample.ObservedAt);
-        Assert.Equal(data.Sample.Windows.ToArray(), skipped.Sample.Windows.ToArray());
-        Assert.Equal(Now.AddMinutes(15), skipped.RetryAfter);
-        Assert.Equal(1, data.Client.Calls);
+        data.Client.Next = new(data.Sample with { ObservedAt = data.Clock.UtcNow },
+            Email: data.Email, IdentityFingerprint: data.Fingerprint, AttemptedAt: data.Clock.UtcNow);
+        var service = new CursorQuotaService(data.Accounts, data.Profile, data.Client, data.Collector(), data.Clock);
+        var monthly = await service.RefreshLiveAsync(default);
+        Assert.Null(monthly.FailureCategory);
+        Assert.Equal(CodexQuotaStatus.Available, monthly.Snapshot.Status);
+        Assert.Equal(data.Clock.UtcNow, monthly.Snapshot.LastSuccessfulRefresh);
+        Assert.Equal("cursor-sand-unavailable", monthly.Snapshot.TechnicalDetail);
+        Assert.Equal(new[] { true, false }, data.Client.IncludeSand);
+        var cached = data.Collector().ReadCached(data.Binding);
+        Assert.Equal(Now.AddMinutes(15), cached.SandRetryAfter);
+        Assert.Null(cached.RetryAfter);
+
+        data.Clock.UtcNow = Now.AddMinutes(15);
+        data.Client.Next = data.Client.Next with
+        {
+            Sample = data.Sample with { ObservedAt = data.Clock.UtcNow }, AttemptedAt = data.Clock.UtcNow
+        };
+        var recovered = await service.RefreshLiveAsync(default);
+        Assert.Null(recovered.Snapshot.TechnicalDetail);
+        Assert.Equal(new[] { true, false, true }, data.Client.IncludeSand);
+        Assert.Null(data.Collector().ReadCached(data.Binding).SandRetryAfter);
+    }
+
+    [Fact]
+    public async Task SandFailureDoesNotGiveAnOlderSandQuotaTheNewMonthlyTimestamp()
+    {
+        using var data = new Data();
+        data.Client.Next = data.Client.Next with
+        {
+            Sample = data.Sample with
+            {
+                Windows = [.. data.Sample.Windows,
+                    new("cursor-sand", 40, null, Now.AddHours(6), CodexWindowKind.Other)]
+            }
+        };
+        await data.Collector().RefreshAsync(data.Binding, default);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = new(data.Sample with { ObservedAt = data.Clock.UtcNow },
+            IdentityFingerprint: data.Fingerprint, AttemptedAt: data.Clock.UtcNow,
+            SandFailure: "cursor-sand-unavailable");
+        var response = await data.Collector().RefreshAsync(data.Binding, default);
+        Assert.Null(response.Failure);
+        Assert.Equal(data.Clock.UtcNow, response.Sample!.ObservedAt);
+        Assert.DoesNotContain(response.Sample.Windows, window => window.LimitId == "cursor-sand");
+        Assert.DoesNotContain(data.Collector().ReadCached(data.Binding).Sample!.Windows,
+            window => window.LimitId == "cursor-sand");
+
+        data.Clock.UtcNow = Now.AddMinutes(10);
+        data.Client.Next = new(null, "cursor-live-identity-mismatch", AttemptedAt: data.Clock.UtcNow);
+        var mismatch = await data.Collector().RefreshAsync(data.Binding, default);
+        Assert.Null(mismatch.Sample);
+        Assert.Null(mismatch.SandFailure);
+        Assert.Null(mismatch.SandRetryAfter);
+    }
+
+    [Theory]
+    [InlineData(-1, 5)]
+    [InlineData(172800, 86400)]
+    public async Task SandRetryIsBoundedAndRestoredIndependently(int requestedSeconds, int expectedSeconds)
+    {
+        using var data = new Data();
+        data.Client.Next = data.Client.Next with
+        {
+            SandFailure = "cursor-sand-unavailable", SandRetryAfter = Now.AddSeconds(requestedSeconds)
+        };
+        await data.Collector().RefreshAsync(data.Binding, default);
+        var restored = data.Collector().ReadCached(data.Binding);
+        Assert.Null(restored.Failure);
+        Assert.Null(restored.RetryAfter);
+        Assert.Equal(Now.AddSeconds(expectedSeconds), restored.SandRetryAfter);
+    }
+
+    [Fact]
+    public async Task LegacySandBackoffMigratesWithoutBlockingMonthlyRequests()
+    {
+        using var data = new Data();
+        await data.Collector().RefreshAsync(data.Binding, default);
+        var legacy = JsonNode.Parse(File.ReadAllText(data.CachePath))!.AsObject();
+        legacy["version"] = 1;
+        legacy["failure"] = "cursor-sand-unavailable";
+        legacy["retryAfter"] = Now.AddMinutes(15);
+        legacy.Remove("sandFailure");
+        legacy.Remove("sandRetryAfter");
+        File.WriteAllText(data.CachePath, legacy.ToJsonString());
+
+        var collector = data.Collector();
+        var migrated = collector.ReadCached(data.Binding);
+        Assert.Null(migrated.Failure);
+        Assert.Equal(Now, migrated.Sample!.ObservedAt);
+        Assert.Equal(Now, migrated.AttemptedAt);
+        Assert.Equal(Now.AddMinutes(15), migrated.SandRetryAfter);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = data.Client.Next with
+        {
+            Sample = data.Sample with { ObservedAt = data.Clock.UtcNow }, AttemptedAt = data.Clock.UtcNow
+        };
+        var refreshed = await collector.RefreshAsync(data.Binding, default);
+        Assert.Equal(data.Clock.UtcNow, refreshed.Sample!.ObservedAt);
+        Assert.Equal(new[] { true, false }, data.Client.IncludeSand);
+        Assert.Equal(2, JsonNode.Parse(File.ReadAllText(data.CachePath))!["version"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task PrimaryFailureDuringSandBackoffKeepsLastGoodReceiptAndItsOwnRetry()
+    {
+        using var data = new Data();
+        data.Client.Next = data.Client.Next with
+        {
+            SandFailure = "cursor-sand-unavailable", SandRetryAfter = Now.AddMinutes(15)
+        };
+        await data.Collector().RefreshAsync(data.Binding, default);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = new(null, "cursor-live-rate-limited", Now.AddMinutes(7), AttemptedAt: data.Clock.UtcNow);
+        var collector = data.Collector();
+        var failed = await collector.RefreshAsync(data.Binding, default);
+        Assert.Equal("cursor-live-rate-limited", failed.Failure);
+        Assert.Equal(Now, failed.Sample!.ObservedAt);
+        Assert.Equal(Now.AddMinutes(7), failed.RetryAfter);
+        Assert.Equal(Now.AddMinutes(15), failed.SandRetryAfter);
+
+        data.Clock.UtcNow = Now.AddMinutes(6);
+        await data.Collector().RefreshAsync(data.Binding, default);
+        Assert.Equal(2, data.Client.Calls);
+        data.Clock.UtcNow = Now.AddMinutes(7);
+        data.Client.Next = new(data.Sample with { ObservedAt = data.Clock.UtcNow },
+            IdentityFingerprint: data.Fingerprint, AttemptedAt: data.Clock.UtcNow);
+        var recovered = await data.Collector().RefreshAsync(data.Binding, default);
+        Assert.Null(recovered.Failure);
+        Assert.Equal(data.Clock.UtcNow, recovered.Sample!.ObservedAt);
+        Assert.Equal(new[] { true, false, false }, data.Client.IncludeSand);
     }
 
     [Fact]
@@ -305,6 +482,7 @@ public sealed class CursorLifecycleTests
         public CursorUsageResponse Next { get; set; }
             = new(data.Sample, null, null, data.Email, data.Fingerprint, Now);
         public int Calls { get; private set; }
+        public List<bool> IncludeSand { get; } = [];
         public bool Block { get; set; }
         public Func<CursorConnectionBinding, CancellationToken, Task>? BeforeFetch { get; set; }
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -314,9 +492,11 @@ public sealed class CursorLifecycleTests
             Task.FromResult(new CursorConnectionResult(true, IdentityFingerprint: data.Fingerprint,
                 Email: data.Email, Binding: data.Binding));
 
-        public async Task<CursorUsageResponse> FetchAsync(CursorConnectionBinding binding, CancellationToken token)
+        public async Task<CursorUsageResponse> FetchAsync(CursorConnectionBinding binding, CancellationToken token,
+            bool includeSand = true)
         {
             Calls++;
+            IncludeSand.Add(includeSand);
             Started.TrySetResult();
             if (BeforeFetch is not null) await BeforeFetch(binding, token);
             if (Block)

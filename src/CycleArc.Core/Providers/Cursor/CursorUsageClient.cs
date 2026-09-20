@@ -64,7 +64,8 @@ public sealed class CursorUsageClient : ICursorUsageClient, IDisposable
         { return new(false, "cursor-live-unavailable"); }
     }
 
-    public async Task<CursorUsageResponse> FetchAsync(CursorConnectionBinding binding, CancellationToken token)
+    public async Task<CursorUsageResponse> FetchAsync(CursorConnectionBinding binding, CancellationToken token,
+        bool includeSand = true)
     {
         if (binding.Disconnected) return new(null, "cursor-disconnected");
         var credentials = _auth.Read();
@@ -85,14 +86,16 @@ public sealed class CursorUsageClient : ICursorUsageClient, IDisposable
             if (summary.Failure is not null)
                 return new(null, summary.Failure, summary.RetryAfter, identity.Email, identity.StableFingerprint);
             var sample = ParseUsage(summary.Document!.Value, _clock.UtcNow);
+            if (!includeSand) return new(sample, Email: identity.Email, IdentityFingerprint: identity.StableFingerprint);
 
-            // Sand is an independent allowance. Keep the primary summary when this optional
-            // route is unavailable, but expose the failure so the projection can mark it stale.
+            // Sand is independent: its failure/backoff must not mark the monthly summary
+            // stale or stop monthly requests. Never carry an older Sand value into this sample.
             try
             {
                 var sand = await PostJsonAsync(SandUsageUri, credentials.AccessToken, token).ConfigureAwait(false);
                 if (sand.Failure is not null)
-                    return new(sample, "cursor-sand-unavailable", sand.RetryAfter, identity.Email, identity.StableFingerprint);
+                    return new(sample, Email: identity.Email, IdentityFingerprint: identity.StableFingerprint,
+                        SandFailure: "cursor-sand-unavailable", SandRetryAfter: sand.RetryAfter);
                 var sandWindow = ParseSand(sand.Document!.Value, _clock.UtcNow);
                 if (sandWindow is not null)
                     sample = sample with { Windows = sample.Windows.Concat([sandWindow]).ToArray() };
@@ -101,7 +104,8 @@ public sealed class CursorUsageClient : ICursorUsageClient, IDisposable
             catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException
                 or InvalidDataException or OperationCanceledException)
             {
-                return new(sample, "cursor-sand-unavailable", null, identity.Email, identity.StableFingerprint);
+                return new(sample, Email: identity.Email, IdentityFingerprint: identity.StableFingerprint,
+                    SandFailure: "cursor-sand-unavailable");
             }
 
             return new(sample, null, null, identity.Email, identity.StableFingerprint);
