@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>CycleArc</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1D3252"/>
+      <stop offset="1" stop-color="#0B1425"/>
+    </linearGradient>
+    <linearGradient id="arc" x1="0" y1="0" x2="0.65" y2="1">
+      <stop offset="0" stop-color="#65F0CF"/>
+      <stop offset="0.48" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#4B7BFF"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#tile)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="55.5" fill="none" stroke="#607FA6" stroke-opacity="0.32"/>
+  <path d="M 185.34,87.85 A 70,70 0 1 0 185.34,168.15" fill="none" stroke="url(#arc)" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="201" cy="128" r="12" fill="#D9FFF5"/>
+</svg>

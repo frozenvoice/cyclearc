@@ -20,6 +20,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>CycleArc.Setup</RootNamespace>
     <AssemblyName>CycleArc-Setup</AssemblyName>
+    <ApplicationIcon>..\CycleArc\Assets\cyclearc.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Not part of the solution's ordinary build: it is published by Package.ps1 once the
          engine installer exists, and it is never referenced by the app or the tests. -->

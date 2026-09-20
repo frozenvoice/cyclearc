@@ -144,8 +144,12 @@ function Invoke-VpkPack {
         [Parameter(Mandatory)][string]$OutputDirectory,
         [Parameter(Mandatory)][string]$EntryPoint,
         [Parameter(Mandatory)][string]$ChannelName,
-        [string]$NotesPath
+        [string]$NotesPath,
+        [Parameter(Mandatory)][string]$IconFile
     )
+    if (!(Test-Path -LiteralPath $IconFile -PathType Leaf)) {
+        throw "Package icon is missing: $IconFile"
+    }
     $arguments = @(
         'tool', 'run', 'vpk', 'pack',
         '--packId', $PackIdValue,
@@ -156,6 +160,7 @@ function Invoke-VpkPack {
         '--outputDir', $OutputDirectory,
         '--packTitle', $PackIdValue,
         '--packAuthors', 'CycleArc contributors',
+        '--icon', ([IO.Path]::GetFullPath($IconFile)),
         '--noPortable'
     )
     if (![string]::IsNullOrWhiteSpace($NotesPath)) {
@@ -368,6 +373,7 @@ function Invoke-Package {
         [switch]$NoSetupUi,
         [string]$SetupUiProject
     )
+    $IconFile = Join-Path $PSScriptRoot '..\src\CycleArc\Assets\cyclearc.ico'
     $version = Assert-PackageVersion $PackageVersion
     $published = Resolve-PublishExecutable -Directory $PublishedDirectory -ExecutableName $EntryPoint
     $publishedVersion = ([Diagnostics.FileVersionInfo]::GetVersionInfo($published).FileVersion ?? '').Trim()
@@ -388,7 +394,7 @@ function Invoke-Package {
         if ($notes.PSIsContainer) { throw "Release notes path is a directory: $NotesPath" }
         $NotesPath = $notes.FullName
     }
-    Invoke-VpkPack -Command $Command -PackIdValue $PackageIdValue -PackVersion $version -PackDirectory $publishedFull -OutputDirectory $output -EntryPoint $EntryPoint -ChannelName $ChannelName -NotesPath $NotesPath
+    Invoke-VpkPack -Command $Command -PackIdValue $PackageIdValue -PackVersion $version -PackDirectory $publishedFull -OutputDirectory $output -EntryPoint $EntryPoint -ChannelName $ChannelName -NotesPath $NotesPath -IconFile $IconFile
     # The distributed installer is the setup window with the engine inside it. -NoSetupUi
     # leaves the bare engine in place, for tests that only exercise the packaging contract.
     $wrap = if ($NoSetupUi) { $null } else {

@@ -9,6 +9,7 @@
          DPI awareness must be embedded in the executable manifest before any HWND. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\cyclearc.ico</ApplicationIcon>
     <RootNamespace>CycleArc</RootNamespace>
     <AssemblyName>CycleArc</AssemblyName>
     <Nullable>enable</Nullable>
@@ -31,7 +32,7 @@
     <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
   <ItemGroup>
-    <Resource Include="Assets\cyclearc.ico" Condition="Exists('Assets\cyclearc.ico')" />
+    <Resource Include="Assets\cyclearc.ico" />
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="Services\ToastNotificationService.cs;WebView\**\*.cs;Companion\**\*.cs;UI\WelcomeWindow.xaml.cs;UI\MainWindow.xaml.cs;UI\CoverageWindow.xaml.cs;UI\TaskbarStatusStripWindow.xaml.cs;UI\TaskbarWin32.cs" />
