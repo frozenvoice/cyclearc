@@ -52,6 +52,9 @@ public sealed class CodexAccountStore
     public CodexAccountProfile NewClaude(string label) => new(Guid.NewGuid().ToString("N"), "", CleanLabel(label))
         { Provider = UsageProviderId.Claude };
 
+    public CodexAccountProfile NewCursor(string label) => new(Guid.NewGuid().ToString("N"), "", CleanLabel(label))
+        { Provider = UsageProviderId.Cursor };
+
     // A collector may only target a previously created Claude profile. Do not migrate/create
     // accounts from a statusLine invocation, and never inspect a Claude authentication home.
     public bool ContainsClaude(string id)
@@ -130,18 +133,18 @@ public sealed class CodexAccountStore
             {
                 var hasPrimary = TryRead(RegistryPath, out var previous);
                 if (!hasPrimary) TryRead(RegistryPath + ".bak", out previous);
-                if (previous?.Version == 2 && state.Version == 1)
+                if (previous is not null && state.Version < previous.Version)
                     throw new InvalidDataException("Account registry cannot be downgraded.");
                 WriteDocument(temp, state);
-                if (state.Version == 2 && previous?.Version == 1)
+                if (previous is not null && state.Version > previous.Version)
                 {
                     // Older builds try the backup after rejecting an unfamiliar primary.
                     // Upgrade that previous-good document FIRST, preserving its profiles,
-                    // so a downgrade cannot fall back to v1 and erase Claude references.
+                    // so a downgrade cannot erase references to newer providers.
                     var backupTemp = RegistryPath + "." + Guid.NewGuid().ToString("N") + ".bak.tmp";
                     try
                     {
-                        WriteDocument(backupTemp, previous with { Version = 2 });
+                        WriteDocument(backupTemp, previous with { Version = state.Version });
                         File.Move(backupTemp, RegistryPath + ".bak", true);
                     }
                     finally { if (File.Exists(backupTemp)) File.Delete(backupTemp); }
@@ -179,7 +182,7 @@ public sealed class CodexAccountStore
 
     private bool IsValid(CodexAccountConfiguration state)
     {
-        if (state.Version is not (1 or 2) || state.Profiles is null || state.Profiles.Any(p => p is null)
+        if (state.Version is not (1 or 2 or 3) || state.Profiles is null || state.Profiles.Any(p => p is null)
             || state.IgnoredHomes is null || state.IgnoredHomes.Any(p => CodexHomeDiscovery.Normalize(p) is null)) return false;
         var ids = new HashSet<string>(StringComparer.Ordinal);
         var homes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -188,9 +191,10 @@ public sealed class CodexAccountStore
             if (profile.Id is null || (profile.Id != LegacyProfileId && !Guid.TryParseExact(profile.Id, "N", out _))
                 || !ids.Add(profile.Id) || !Enum.IsDefined(profile.Provider)
                 || profile.Label != CleanLabel(profile.Label)) return false;
-            if (profile.Provider == UsageProviderId.Claude)
+            if (profile.Provider is UsageProviderId.Claude or UsageProviderId.Cursor)
             {
-                if (state.Version != 2 || profile.Id == LegacyProfileId || profile.HomePath != "" || profile.IsManaged) return false;
+                var minimumVersion = profile.Provider == UsageProviderId.Cursor ? 3 : 2;
+                if (state.Version < minimumVersion || profile.Id == LegacyProfileId || profile.HomePath != "" || profile.IsManaged) return false;
                 continue;
             }
             if (CodexHomeDiscovery.Normalize(profile.HomePath) is not { } home || !homes.Add(home)) return false;

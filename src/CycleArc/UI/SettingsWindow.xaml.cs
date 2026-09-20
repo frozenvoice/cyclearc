@@ -53,9 +53,9 @@ public partial class SettingsWindow : Window
         CodexTitle.Text = UiText.T("Codex connection", "Codex 연결");
         CodexHint.Text = UiText.T("CycleArc uses the Codex CLI installed on this PC for sign-in and quota checks. Codex CLI must be installed separately.",
             "CycleArc는 이 PC에 설치된 Codex CLI로 로그인과 사용량 조회를 진행합니다. Codex CLI는 별도로 설치되어 있어야 합니다.");
-        ConnectionSteps.Text = UiText.T("1. Open Manage Codex accounts → Add an account · Connection guide. Choose New account sign-in for your first or another account; choose Find accounts on this PC for an existing Codex login.\n2. For a new login, select the intended ChatGPT account in the browser, then return to CycleArc.\n3. Check each account's usage. Select a card for the tray/widget; set a nickname and use ↑ / ↓ to change the display order.",
-            "1. 아래 Codex 계정 관리 → 계정 추가 · 연결 방법을 여세요. 처음이거나 다른 계정을 추가하려면 새 계정 로그인, 이미 Codex에 로그인했다면 이 PC의 계정 찾기를 선택하세요.\n2. 새 로그인은 브라우저에서 사용할 ChatGPT 계정을 선택한 뒤 CycleArc로 돌아오세요.\n3. 계정별 사용량을 확인하세요. 카드를 누르면 트레이·위젯에 표시되며, 별명을 정하고 ↑ / ↓로 표시 순서를 바꿀 수 있습니다.");
-        ManageAccountsButton.Content = UiText.T("Manage Codex and Claude accounts", "Codex·Claude 계정 관리");
+        ConnectionSteps.Text = UiText.T("1. Open account management → Add an account. Codex can sign in or find an existing local login; Cursor reads the account already signed in on this Windows PC.\n2. For a new Codex login, select the intended ChatGPT account in the browser, then return to CycleArc.\n3. Check each account's provider-specific usage. Select a card for the tray/widget; set a nickname and use ↑ / ↓ to change the display order.",
+            "1. 계정 관리 → 계정 추가를 여세요. Codex는 로그인하거나 이 PC의 기존 로그인을 찾을 수 있고, Cursor는 Windows에 이미 로그인된 계정을 읽습니다.\n2. 새 Codex 로그인은 브라우저에서 사용할 ChatGPT 계정을 선택한 뒤 CycleArc로 돌아오세요.\n3. 서비스별 사용량을 확인하세요. 카드를 누르면 트레이·위젯에 표시되며, 별명을 정하고 ↑ / ↓로 표시 순서를 바꿀 수 있습니다.");
+        ManageAccountsButton.Content = UiText.T("Manage Codex, Claude and Cursor accounts", "Codex·Claude·Cursor 계정 관리");
         CodexExeLabel.Text = UiText.CodexExecutable;
         CodexExeBox.Text = settings.CodexExePath ?? "";
         AutoDetectHint.Text = UiText.T("Detect automatically", "자동으로 찾기");
@@ -67,8 +67,8 @@ public partial class SettingsWindow : Window
             minutes == 1 ? UiText.T("1 minute", "1분") : UiText.T($"{minutes} minutes", $"{minutes}분")).ToArray();
         RefreshIntervalBox.SelectedIndex = AppSettings.CodexRefreshIntervals.ToList().IndexOf(settings.CodexRefreshIntervalMinutes);
         SetName(RefreshIntervalBox, RefreshScheduleTitle.Text);
-        RefreshScheduleHint.Text = UiText.T("Actively check Codex and Claude accounts at this interval. Manual refresh checks Claude's shared subscription quota from the signed-in Desktop account too; no Claude Code model request is needed.",
-            "이 간격으로 Codex와 Claude 계정을 적극적으로 확인합니다. 수동 새로고침도 로그인된 Claude Desktop 계정에서 공유 구독 한도를 확인하며, Claude Code 모델 요청은 필요하지 않습니다.");
+        RefreshScheduleHint.Text = UiText.T("Actively check Codex, Claude and Cursor accounts at this interval. Manual refresh checks Claude's shared subscription quota and the existing Cursor login; no Claude Code model request is needed.",
+            "이 간격으로 Codex·Claude·Cursor 계정을 적극적으로 확인합니다. 수동 새로고침도 Claude의 공유 구독 한도와 기존 Cursor 로그인을 확인하며, Claude Code 모델 요청은 필요하지 않습니다.");
         LogsButton.Content = UiText.T("Open logs", "로그 열기");
         SaveButton.Content = new System.Windows.Controls.TextBlock
         {

@@ -3,6 +3,7 @@ using Button = System.Windows.Controls.Button;
 using Control = System.Windows.Controls.Control;
 using CycleArc.Codex;
 using CycleArc.Providers.Claude;
+using CycleArc.Providers.Cursor;
 using CycleArc.Providers.Usage;
 
 namespace CycleArc.UI;
@@ -33,14 +34,17 @@ internal static class AccountSummary
         nameAndProvider.Children.Add(provider);
         identity.Children.Add(nameAndProvider);
         header.Children.Add(identity);
-        var stale = ClaudeUsagePresentation.IsStale(account.Snapshot);
+        var stale = ClaudeUsagePresentation.IsStale(account.Snapshot)
+            || (CursorUsagePresentation.IsCursor(account.Snapshot) && account.Snapshot.Status == CodexQuotaStatus.Stale);
         var status = Text(account.IsSigningIn ? UiText.T("Signing in…", "로그인 중…")
             : CycleArcPresentation.StatusLabel(account.Snapshot), 11, stale ? "StaleBrush" : "MutedBrush", bold: stale);
         status.Margin = new Thickness(12, 0, 0, 0);
         Grid.SetColumn(status, 1);
         header.Children.Add(status);
         content.Children.Add(header);
-        var usable = CodexRingPresentation.From(account.Snapshot).IsAvailable;
+        var usable = CursorUsagePresentation.IsCursor(account.Snapshot)
+            ? CodexDisplayFormatting.ShowsQuotaWindows(account.Snapshot) && account.Snapshot.Windows.Count > 0
+            : CodexRingPresentation.From(account.Snapshot).IsAvailable;
         if (usable)
         {
             foreach (var window in account.Snapshot.Windows)
@@ -49,8 +53,7 @@ internal static class AccountSummary
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.Children.Add(Text(CodexDisplayFormatting.CompactWindowKindLabel(window, account.Profile.Provider), 11, "MutedBrush"));
-                var value = Text(UiText.T($"Used {CodexDisplayFormatting.PercentText(window.UsedPercent, account.Profile.Provider)} · Left {CodexDisplayFormatting.PercentText(window.RemainingPercent, account.Profile.Provider)}",
-                    $"사용 {CodexDisplayFormatting.PercentText(window.UsedPercent, account.Profile.Provider)} · 잔여 {CodexDisplayFormatting.PercentText(window.RemainingPercent, account.Profile.Provider)}"), 12, stale ? "StaleBrush" : "TextBrush");
+                var value = Text(CodexDisplayFormatting.QuotaSummaryText(window, account.Profile.Provider), 12, stale ? "StaleBrush" : "TextBrush");
                 Grid.SetColumn(value, 1); row.Children.Add(value); content.Children.Add(row);
             }
         }
@@ -67,6 +70,13 @@ internal static class AccountSummary
             var receipt = Text(ClaudeUsagePresentation.LastReceivedText(account.Snapshot), 11, "MutedBrush");
             receipt.Margin = new Thickness(0, 5, 0, 0);
             content.Children.Add(receipt);
+        }
+        if (CursorUsagePresentation.IsCursor(account.Profile.Provider))
+        {
+            var updated = Text(CursorUsagePresentation.UpdatedText(account.Snapshot), 11,
+                stale ? "StaleBrush" : "MutedBrush", bold: stale);
+            updated.Margin = new Thickness(0, 5, 0, 0);
+            content.Children.Add(updated);
         }
         if (account.HasMatchingIdentity && !CodexIdentityPresentation.NeedsReconnection(account.Snapshot))
         {

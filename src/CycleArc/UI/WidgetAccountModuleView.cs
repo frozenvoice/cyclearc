@@ -140,7 +140,8 @@ public sealed class WidgetAccountModuleView : Border
     private static string AutomationText(WidgetAccountModel model)
     {
         var periods = model.Periods.Select(period =>
-            $"{period.PeriodLabel} {period.RemainingText} · {UiText.WidgetReset} {period.ResetText}");
+            $"{period.PeriodLabel} {period.RemainingText}"
+            + (string.IsNullOrEmpty(period.ResetText) ? "" : $" · {UiText.WidgetReset} {period.ResetText}"));
         return string.Join(" · ", new[]
         {
             model.DisplayName,

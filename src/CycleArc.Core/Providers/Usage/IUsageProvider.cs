@@ -4,7 +4,7 @@ using CycleArc.Codex;
 namespace CycleArc.Providers.Usage;
 
 [JsonConverter(typeof(JsonStringEnumConverter<UsageProviderId>))]
-public enum UsageProviderId { Codex, Claude }
+public enum UsageProviderId { Codex, Claude, Cursor }
 
 public static class UsageProviders
 {
@@ -12,6 +12,7 @@ public static class UsageProviders
     {
         UsageProviderId.Codex => "Codex",
         UsageProviderId.Claude => "Claude",
+        UsageProviderId.Cursor => "Cursor",
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
 }

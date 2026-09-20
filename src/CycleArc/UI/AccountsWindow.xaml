@@ -61,6 +61,15 @@
                                     Click="OnAddClaude" Margin="8,0,0,0"/>
                             <TextBox x:Name="ClaudeAccountLabel" MaxLength="80" Padding="8,6"/>
                         </DockPanel>
+                        <Border Height="1" Background="{DynamicResource LineBrush}" Margin="0,16"/>
+                        <TextBlock x:Name="CursorHeading" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="CursorHint" Style="{StaticResource AccountHint}" Margin="0,5,0,10"/>
+                        <TextBlock x:Name="CursorLabelCaption" FontSize="12" Margin="0,0,0,6"/>
+                        <DockPanel>
+                            <Button x:Name="AddCursorButton" DockPanel.Dock="Right" Style="{StaticResource CreditUseButton}"
+                                    Click="OnAddCursor" Margin="8,0,0,0"/>
+                            <TextBox x:Name="CursorAccountLabel" MaxLength="80" Padding="8,6"/>
+                        </DockPanel>
                     </StackPanel>
                 </Border>
                 </Expander>

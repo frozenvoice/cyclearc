@@ -31,7 +31,7 @@ public static class TrayIconRenderer
         var exact = ring.IsAvailable;
         var ratio = (ring.UsedPercent ?? 0) / 100;
         var palette = Palette(snapshot, exact, ring.IsDangerLevel, claudeAwaitingUsage);
-        var text = exact ? CodexDisplayFormatting.PercentText(ring.UsedPercent).TrimEnd('%') : "?";
+        var text = exact ? CodexDisplayFormatting.PercentText(ring.UsedPercent, snapshot.Provider).TrimEnd('%') : "?";
 
         if (style == TrayIconStyle.ProgressRing)
         {

@@ -1,10 +1,10 @@
 # CycleArc
 
-**Your Codex and Claude limits, one click away.**
+**Your Codex, Claude and Cursor limits, one click away.**
 
-A native Windows tray app for checking multiple Codex and Claude profiles, remaining percentages and reset times. Codex accounts also show reset credits when available.
+A native Windows tray app for checking Codex, Claude and Cursor profiles, remaining percentages and reset times. Codex accounts also show reset credits when available.
 
-The **Codex** or **Claude** label on account cards, selected details, tray tooltips and the widget identifies the usage provider. Connect the current Claude login or sign in through the official browser flow; CycleArc can actively check the shared Claude quota through the connected Desktop login and keeps **statusLine** and Desktop history as fallback sources. See [Claude Code connection](#claude-code-connection). Gemini is not supported.
+The **Codex**, **Claude** or **Cursor** label on account cards, selected details, tray tooltips and the widget identifies the usage provider. Connect the current Claude login or sign in through the official browser flow; CycleArc can actively check the shared Claude quota through the connected Desktop login and keeps **statusLine** and Desktop history as fallback sources. See [Claude Code connection](#claude-code-connection) and [Cursor connection](#cursor-connection). Gemini is not supported.
 
 > **Codex:** five-hour and weekly limits appear when the official App Server reports them, including on Plus; display is not restricted by plan name. Missing windows are omitted and unknown percentages stay unknown. **Claude:** manual and scheduled refreshes first try a read-only quota check through the connected Desktop login; statusLine and Claude Desktop subscription history remain fallback sources. Missing windows stay unknown, and history samples have no reset timestamps.
 
@@ -27,13 +27,29 @@ The **Codex** or **Claude** label on account cards, selected details, tray toolt
 
 *English previews rendered from the production WPF views using sample quota data. Available windows and reset-credit details depend on what your account reports.*
 
+## Cursor connection
+
+1. Sign in to the intended account in the Windows Cursor app.
+2. Open **Manage accounts → Add an account → Connect Cursor** in CycleArc. No token copying is needed.
+3. Manual refresh and the configured automatic interval query usage. The popup, tray and widget show each allowance separately, its reported reset and the last successful check.
+
+Cursor Models (Auto) and Other Models (API) remain separate. Reported on-demand budgets and the independent Grok allowance are also kept separate. Missing limits and reset times stay unknown; legacy dollar accounting is never added to model percentages. Failed checks keep the last good values and success time visibly stale. A changed Cursor login hides the previous account's quota; sign back in to the original Cursor account to reconnect that profile.
+
+CycleArc reads only the required access-token key in Cursor's local account database and uses it in memory for first-party queries. It never persists, logs or renews the token or modifies Cursor settings. Disconnect affects CycleArc only. The standard Windows user-data location is supported; custom `--user-data-dir` locations are not searched. These observed internal interfaces may change. See [Windows verification and quota semantics](docs/CURSOR.md).
+
+| Cursor popup | Cursor widget |
+| --- | --- |
+| ![Cursor popup with separate allowances](docs/images/cursor-popup-en-light.png) | ![Cursor widget with update time](docs/images/cursor-widget-en-light.png) |
+
+Production views with synthetic usage values; these images do not show a real account.
+
 ## At a glance
 
-- **Codex and Claude together.** Connect an existing CLI login or sign in through the official browser flow. Connected Claude accounts appear immediately, with **Awaiting usage** until the first sample. Select an account for the detail card and tray; the widget compares accounts side by side and highlights the selection.
+- **Codex, Claude and Cursor together.** Connect an existing CLI login or sign in through the official browser flow. Connected Claude accounts appear immediately, with **Awaiting usage** until the first sample. Select an account for the detail card and tray; the widget compares accounts side by side and highlights the selection.
 - **Usage in the tray.** A Windows notification-area icon keeps the meter within reach. Click for the detailed card; pin it to keep it visible.
 - **Clear quota windows.** See usage and remaining percentages, reset times and countdowns for each reported five-hour or weekly window. The ring, tray and widget share one display period: **Auto** uses a known five-hour percentage first, then weekly. Choose **Auto / 5 hours / Weekly** above the detail ring, or click the ring to switch when both values are known. The selection applies immediately to all three views and is saved across restarts. If the selected period has no known value, a known available period is shown with an explanation in the detail card.
 - **Reset credits.** View the available count and expiry times when the server supplies them. Use an individual reset after confirmation. Missing expiry information stays explicitly unknown.
-- **Optional desktop widget.** A compact, draggable summary that compares every displayable Codex and Claude account side by side: one small module each, with the account name, its provider badge, a usage ring for the shared display period, and what is left plus the countdown to the next reset for **every** period that account reports. Accounts keep their managed order and are never combined. One row holds as many modules as the widget's own monitor allows and the rest wrap to the next row; a list taller than the work area scrolls inside it. Opacity, always-on-top and click-through are unchanged. Click a module to select that account and open the usage popup; clicking the header or an empty part of the widget only gives it the keyboard, without opening the popup. The thin header carries its own size controls, refresh, settings and a hide button. Off-screen positions recover automatically.
+- **Optional desktop widget.** A compact, draggable summary that compares every displayable Codex, Claude and Cursor account side by side: one small module each, with the account name, its provider badge, a usage ring for the shared display period, and what is left plus the countdown to the next reset for **every** period that account reports. Accounts keep their managed order and are never combined. One row holds as many modules as the widget's own monitor allows and the rest wrap to the next row; a list taller than the work area scrolls inside it. Opacity, always-on-top and click-through are unchanged. Click a module to select that account and open the usage popup; clicking the header or an empty part of the widget only gives it the keyboard, without opening the popup. The thin header carries its own size controls, refresh, settings and a hide button. Off-screen positions recover automatically.
 - **Your preferred appearance.** Dark, Light, or live System theme; English and Korean; keyboard zoom from 80% to 150% for the detail card and the widget, each kept separately.
 - **Honest refresh states.** Codex refreshes on its selectable 1, 2, 5, 10, 30 or 60-minute interval (default: five minutes). Claude actively checks the shared quota through the connected Desktop login during manual and configured scheduled refresh. Successful live data is **Updated** with a last-checked time; statusLine and Desktop history fallbacks are **Received** with source time. Failed checks keep previous values visibly stale.
 

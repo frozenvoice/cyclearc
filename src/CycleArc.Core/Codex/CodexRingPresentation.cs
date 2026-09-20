@@ -1,5 +1,6 @@
 using CycleArc.Services;
 using CycleArc.Models;
+using CycleArc.Providers.Cursor;
 
 namespace CycleArc.Codex;
 
@@ -29,6 +30,7 @@ public sealed record CodexRingPresentation(
             IsDangerLevel: clamped is >= 100,
             CenterValueText: CodexDisplayFormatting.PercentText(used, snapshot.Provider),
             CenterSubLabel: window is null ? UiText.CodexLegendUsed :
+                CursorUsagePresentation.IsCursor(snapshot.Provider) ? CursorUsagePresentation.QuotaLabel(window.LimitId) :
                 window.Kind == CodexWindowKind.Weekly ? UiText.T("Weekly used", "주간 사용") :
                 UiText.T($"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} used",
                     $"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} 사용"))

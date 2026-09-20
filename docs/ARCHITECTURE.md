@@ -1,6 +1,6 @@
 # CycleArc architecture
 
-## Active product — Codex and Claude Code (2026-09-16)
+## Active product — Codex, Claude and Cursor (2026-09-20)
 
 ### Desktop startup and installation (0.6.0)
 
@@ -54,6 +54,23 @@ executable paths; it backs up registry values before deleting obsolete path-spec
 entries. It does not restart Explorer or rewrite opaque icon caches.
 
 ### Provider and presentation contracts
+
+- Cursor uses `CursorUsageProvider` behind the same account-service boundary. Connection
+  verifies the current Windows Cursor login through the first-party profile endpoint, binds
+  its identity hash and reads usage without changing Cursor's login or renewing credentials.
+  Only the exact access-token row of `state.vscdb` is queried; no history is collected.
+  The token and derived session header exist only in memory. The observed endpoint and
+  Windows authentication evidence are documented in [Cursor](CURSOR.md).
+- Cursor Auto/API allowances retain their own named rows, while on-demand, team and Grok
+  limits keep their separate scope and reset timestamps. Missing values remain unknown;
+  historical included-dollar accounting is never turned into the split model percentages.
+  Refresh failures retain the last successful observation, and identity mismatch hides it.
+  Popup, tray and widget use the same projection; the Codex period selector and reset-credit
+  actions do not apply to Cursor.
+- Adding Cursor advances the account registry to version 3 and upgrades the previous-good
+  backup version before the primary. This prevents older builds from silently discarding the
+  third provider. Existing profile IDs, labels, order, selection and Codex/Claude caches stay
+  intact. Removing Cursor does not downgrade the registry.
 
 - Codex displays the five-hour (300 minutes) and weekly (10,080 minutes) windows supplied by
   the official App Server, regardless of plan name or primary/secondary position. Account

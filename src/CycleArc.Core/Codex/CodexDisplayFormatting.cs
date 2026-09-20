@@ -2,6 +2,7 @@ using System.Globalization;
 using CycleArc.Services;
 using CycleArc.Providers.Usage;
 using CycleArc.Providers.Claude;
+using CycleArc.Providers.Cursor;
 
 namespace CycleArc.Codex;
 
@@ -49,7 +50,10 @@ public static class CodexDisplayFormatting
 
     public static string StatusText(CodexQuotaSnapshot snapshot) => CodexIdentityPresentation.NeedsReconnection(snapshot)
         ? CodexIdentityPresentation.Explanation(snapshot) : snapshot.Provider == UsageProviderId.Claude
-        ? ClaudeUsagePresentation.StatusText(snapshot) : snapshot.Status switch
+        ? ClaudeUsagePresentation.StatusText(snapshot) : CursorUsagePresentation.IsCursor(snapshot)
+        ? CursorUsagePresentation.FailureText(snapshot.TechnicalDetail) is { Length: > 0 } failure
+            ? failure : CursorUsagePresentation.StatusText(snapshot)
+        : snapshot.Status switch
     {
         CodexQuotaStatus.Refreshing when !snapshot.HasUsablePercentages => UiText.CodexRefreshing,
         CodexQuotaStatus.Refreshing => UiText.CodexRefreshing,
@@ -61,7 +65,9 @@ public static class CodexDisplayFormatting
         CodexQuotaStatus.Cancelled => UiText.CodexCancelled,
         CodexQuotaStatus.Unavailable => UiText.CodexUnavailable,
         CodexQuotaStatus.Available => "",
-        _ => UiText.CodexUnavailable
+        _ => CursorUsagePresentation.IsCursor(snapshot)
+            ? CursorUsagePresentation.StatusText(snapshot)
+            : UiText.CodexUnavailable
     };
 
     /// <summary>
@@ -71,7 +77,7 @@ public static class CodexDisplayFormatting
     /// </summary>
     public static bool ShowsQuotaWindows(CodexQuotaSnapshot snapshot) =>
         snapshot.Status is not (CodexQuotaStatus.CodexNotFound or CodexQuotaStatus.SignedOut)
-        && (snapshot.HasUsablePercentages
+        && (snapshot.HasUsablePercentages || snapshot.Windows.Any(HasDisplayableQuota)
             || snapshot.Status is not (CodexQuotaStatus.Unavailable
                 or CodexQuotaStatus.ProtocolMismatch
                 or CodexQuotaStatus.TimedOut
@@ -89,6 +95,16 @@ public static class CodexDisplayFormatting
         var rows = new List<CodexDisplayRow>();
         foreach (var window in snapshot.Windows)
         {
+            if (CursorUsagePresentation.IsCursor(snapshot.Provider))
+            {
+                rows.Add(new CodexDisplayRow(
+                    CursorUsagePresentation.QuotaLabel(window.LimitId),
+                    CursorUsagePresentation.RemainingSummary(window),
+                    window.RemainingAmount is 0,
+                    window.ResetsAt is { } cursorReset ? ResetStamp(cursorReset) : null,
+                    window.ResetsAt is { } cursorResetTooltip ? CodexDeadlineFormatting.ResetStampTooltip(cursorResetTooltip) : null));
+                continue;
+            }
             var usedLabel = UsedLabel(window);
             var hasRemaining = window.RemainingPercent is not null;
             var label = hasRemaining ? $"{usedLabel} / {UiText.T("left", "남음")}" : usedLabel;
@@ -115,6 +131,8 @@ public static class CodexDisplayFormatting
                 ? new CodexDisplayRow(ClaudeUsagePresentation.ReceiptLabel(snapshot),
                     checkedAt.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), false, value,
                     ClaudeUsagePresentation.LastReceivedText(snapshot))
+                : CursorUsagePresentation.IsCursor(snapshot)
+                ? new CodexDisplayRow(UiText.T("Updated", "업데이트"), value, false)
                 : new CodexDisplayRow(UiText.LastChecked, value, false));
         }
 
@@ -203,13 +221,15 @@ public static class CodexDisplayFormatting
 
     public static string PercentText(double? value, UsageProviderId provider = UsageProviderId.Codex) =>
         value is { } percent && double.IsFinite(percent)
-            ? (provider == UsageProviderId.Claude
+            ? (provider == UsageProviderId.Claude || CursorUsagePresentation.IsCursor(provider)
                 ? Math.Clamp(percent, 0, 100).ToString("0.##", CultureInfo.InvariantCulture)
                 : Math.Round(Math.Clamp(percent, 0, 100), MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)) + "%"
             : "?";
 
     public static string CompactWindowKindLabel(CodexQuotaWindow? window, UsageProviderId provider = UsageProviderId.Codex)
     {
+        if (CursorUsagePresentation.IsCursor(provider))
+            return CursorUsagePresentation.QuotaLabel(window?.LimitId);
         var name = provider.Name();
         if (window is null)
         {
@@ -230,6 +250,22 @@ public static class CodexDisplayFormatting
         CodexWindowKind.Weekly => UiText.WeeklyUsed,
         _ => UiText.T($"{DurationLabel(window.WindowDurationMinutes)} used", $"{DurationLabel(window.WindowDurationMinutes)} 사용량")
     };
+
+    public static bool HasDisplayableQuota(CodexQuotaWindow window) =>
+        window.UsedPercent is { } used && double.IsFinite(used)
+        || CursorUsagePresentation.HasKnownAmount(window)
+        || window.LimitId?.StartsWith("cursor-", StringComparison.OrdinalIgnoreCase) == true;
+
+    public static string RemainingText(CodexQuotaWindow window, UsageProviderId provider = UsageProviderId.Codex) =>
+        CursorUsagePresentation.IsCursor(provider)
+            ? CursorUsagePresentation.RemainingText(window)
+            : PercentText(window.RemainingPercent, provider);
+
+    public static string QuotaSummaryText(CodexQuotaWindow window, UsageProviderId provider = UsageProviderId.Codex) =>
+        CursorUsagePresentation.IsCursor(provider)
+            ? CursorUsagePresentation.RemainingSummary(window)
+            : UiText.T($"Used {PercentText(window.UsedPercent, provider)} · Left {PercentText(window.RemainingPercent, provider)}",
+                $"사용 {PercentText(window.UsedPercent, provider)} · 잔여 {PercentText(window.RemainingPercent, provider)}");
 
     private static string SignInLabel(CodexQuotaSnapshot snapshot) => snapshot.Status switch
     {

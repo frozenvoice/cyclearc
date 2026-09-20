@@ -1,7 +1,7 @@
 # Documentation previews
 
 These PNGs render the actual production WPF views with synthetic profiles and quota metadata.
-They show the CycleArc product name, Codex/Claude provider labels and current connection controls.
+They show the CycleArc product name, Codex/Claude/Cursor provider labels and current connection controls.
 They are not captures of a user's account or fabricated UI mockups. The sample percentages,
 reset times and credits illustrate the layout; they do not promise specific plan entitlements.
 
@@ -15,6 +15,9 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `claude-live-{en,ko}-{dark,light}.png` | Research selected with a synthetic server response: 46% five-hour / 11% weekly, known resets, Updated and Last checked |
 | `claude-overview-{en,ko}-{dark,light}.png` | Research selected with a Desktop history fallback: 91% five-hour / 47% weekly, unknown resets, Received and original observation time |
 | `claude-connection-{en,ko}-{dark,light}.png` | Official CLI connection choices, existing Desktop login for server checks and manual usage-page access; advanced settings collapsed |
+| `cursor-popup-{en,ko}-{dark,light}.png` | Separate synthetic Auto/API/Grok percentages, disabled on-demand and successful update time |
+| `cursor-widget-{en,ko}-{dark,light}.png` | The same Cursor allowances with reset countdowns and visible update time |
+| `cursor-accounts-{en,ko}-{dark,light}.png` | Current Windows Cursor connection, reconnect/disconnect, nickname and saved-order controls |
 
 The multi-account fixtures live in `DocumentationScreenshots.SampleAccounts`. They use the
 names Personal / Work / Research (개인용 / 업무용 / 실험용), reserved `example.invalid` email
@@ -48,6 +51,17 @@ relative to export time.
 
 Generate on Windows after building the solution. Export to `artifacts/` for visual review
 before copying affected images into `docs/images`.
+
+Cursor checks and previews (also exports the current System theme):
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --cursor-ui artifacts/cursor-ui
+```
+
+`CursorUiChecks` uses reserved `example.invalid` identity and synthetic Auto 76.9%,
+API 0%, Grok 12.5% used values. Separate assertions cover unknown and monetary
+allowances. The explicit `--cursor-live-read` command is a separate, opt-in real
+Windows account check; it emits only redacted result counts and never exports images.
 
 Update approval and layout checks (exports four screenshots to `artifacts/update-ui`):
 

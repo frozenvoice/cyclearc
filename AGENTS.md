@@ -1,6 +1,6 @@
 # CycleArc agent instructions
 
-CycleArc is a Windows-only .NET 8 WPF tray app for Codex and Claude subscription limits.
+CycleArc is a Windows-only .NET 8 WPF tray app for Codex, Claude and Cursor subscription limits.
 Use Windows, the .NET 8 SDK and PowerShell 7+. Building the installer from source also needs
 Visual Studio 2022 with the Desktop development with C++ workload (the setup window is Native
 AOT); running the shipped installer does not. The solution is `CycleArc.sln`;
@@ -80,6 +80,11 @@ Read only the sections relevant to the change:
 - Unknown usage is never zero. Failures retain the last valid snapshot and
   last-success time across restart. Keep atomic settings/cache writes with valid backups and preserve
   `LegacyInstallation` data/mutex/registry identifiers through branding changes.
+- Cursor reads only its exact local access-token database row and verifies the server identity
+  before accepting usage. Never write/renew credentials, read browser cookies or collect history.
+  Keep derived session headers in memory. Preserve separate Auto/API, on-demand, team and Grok
+  limits; unknown caps are not zero or unlimited. See [Cursor evidence](docs/CURSOR.md).
+  Account-registry version 3 and its backup protect Cursor profiles from older builds.
 - Dispatch background/system callbacks to WPF's Dispatcher. Shared refresh is single-flight across entry points;
   only its owner clears busy state after completion. Preserve widget enabled state separately from `IsVisible`,
   saved position and native hide/minimize/topmost/resume/unlock/display recovery without stealing focus.
