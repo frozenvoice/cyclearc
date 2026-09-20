@@ -1,5 +1,6 @@
 using CycleArc.Providers.Usage;
 using CycleArc.Providers.Claude;
+using CycleArc.Providers.Cursor;
 
 namespace CycleArc.Codex;
 
@@ -113,12 +114,101 @@ public sealed class CodexAccountManager
             var service = _createService(profile);
             // Version 2 makes older Codex-only builds refuse this registry, rather than
             // treating a Claude profile as a Codex login on downgrade.
-            Save(_configuration with { Version = 2, Profiles = _configuration.Profiles.Append(profile).ToArray(),
+            Save(_configuration with { Version = Math.Max(2, _configuration.Version), Profiles = _configuration.Profiles.Append(profile).ToArray(),
                 SelectedId = _configuration.Profiles.Count == 0 ? profile.Id : _configuration.SelectedId });
             AddService(profile, service);
         }
         Changed?.Invoke();
         return profile;
+    }
+
+    public CodexAccountProfile AddCursor(string label)
+    {
+        CodexAccountProfile profile;
+        lock (_gate)
+        {
+            profile = _store.NewCursor(label);
+            var service = _createService(profile);
+            Save(_configuration with { Version = 3, Profiles = _configuration.Profiles.Append(profile).ToArray(),
+                SelectedId = _configuration.Profiles.Count == 0 ? profile.Id : _configuration.SelectedId });
+            AddService(profile, service);
+        }
+        Changed?.Invoke();
+        return profile;
+    }
+
+    public async Task<CursorConnectionResult> ConnectCursorAsync(string? id, string label, CancellationToken token)
+    {
+        await _loginGate.WaitAsync(token).ConfigureAwait(false);
+        CodexAccountProfile? draft = null;
+        string? duplicateDraftId = null;
+        try
+        {
+            if (id is null) { draft = AddCursor(label); id = draft.Id; }
+            ICursorAccountOperations? operations;
+            lock (_gate)
+            {
+                operations = _services.GetValueOrDefault(id) as ICursorAccountOperations;
+                if (operations is null) return new(false, "cursor-profile-unavailable");
+                _loginProfile = id;
+            }
+            Changed?.Invoke();
+            var result = await operations.ConnectCurrentAsync(token).ConfigureAwait(false);
+            if (!result.Success) return result;
+
+            // Repeated connection of the same verified Cursor identity reuses its
+            // existing profile, nickname, position and quota history.
+            string? existingId = null;
+            ICursorAccountOperations? existing = null;
+            if (draft is not null && result.IdentityFingerprint is not null)
+            {
+                lock (_gate)
+                {
+                    foreach (var profile in _configuration.Profiles.Where(p => p.Provider == UsageProviderId.Cursor && p.Id != id))
+                    {
+                        if (_services[profile.Id] is ICursorAccountOperations candidate
+                            && candidate.BoundIdentityFingerprint == result.IdentityFingerprint)
+                        { existingId = profile.Id; existing = candidate; break; }
+                    }
+                    if (existingId is not null) _loginProfile = existingId;
+                }
+            }
+            if (existing is not null)
+            {
+                duplicateDraftId = draft!.Id;
+                result = await existing.ConnectCurrentAsync(token).ConfigureAwait(false);
+                if (result.Success) Select(existingId!);
+            }
+            else Select(id);
+            if (result.Success)
+            {
+                IUsageAccountService? connected;
+                lock (_gate) connected = _services.GetValueOrDefault(existingId ?? id);
+                if (connected is not null) await RefreshActiveAsync(connected, token).ConfigureAwait(false);
+            }
+            return result;
+        }
+        finally
+        {
+            lock (_gate) _loginProfile = null;
+            try
+            {
+                if (duplicateDraftId is not null) Remove(duplicateDraftId);
+                else if (draft is not null
+                    && new CursorConnectionStore(_store, draft.Id).Read() is { Binding: null, Unavailable: false })
+                    Remove(draft.Id);
+            }
+            finally { _loginGate.Release(); Changed?.Invoke(); }
+        }
+    }
+
+    public async Task DisconnectCursorAsync(string id, CancellationToken token)
+    {
+        ICursorAccountOperations? operations;
+        lock (_gate) operations = _services.GetValueOrDefault(id) as ICursorAccountOperations;
+        if (operations is null) return;
+        await operations.DisconnectAsync(token).ConfigureAwait(false);
+        Changed?.Invoke();
     }
 
     // The modal flow finishes authentication before returning. Only its own new,

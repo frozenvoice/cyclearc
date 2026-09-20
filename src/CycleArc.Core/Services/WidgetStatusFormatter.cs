@@ -1,4 +1,5 @@
 using CycleArc.Codex;
+using CycleArc.Providers.Cursor;
 
 namespace CycleArc.Services;
 
@@ -19,6 +20,15 @@ public static class WidgetStatusFormatter
 
     public static string CodexLine(CodexQuotaSnapshot snapshot)
     {
+        if (CursorUsagePresentation.IsCursor(snapshot))
+        {
+            var quotas = string.Join(" · ", snapshot.Windows.Select(window =>
+                CursorUsagePresentation.QuotaLabel(window.LimitId) + " "
+                + CursorUsagePresentation.RemainingText(window)));
+            return string.IsNullOrWhiteSpace(quotas)
+                ? $"Cursor {CursorUsagePresentation.StatusText(snapshot)}"
+                : $"Cursor {quotas} · {CursorUsagePresentation.UpdatedText(snapshot)}";
+        }
         var status = CodexDisplayFormatting.StatusText(snapshot);
         if (snapshot.CompactWindow?.UsedPercent is { } percent)
         {

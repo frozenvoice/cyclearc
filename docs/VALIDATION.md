@@ -1,6 +1,52 @@
 # CycleArc validation
 
-## Current release — Codex and Claude Code
+## Current work — Codex, Claude and Cursor
+
+- Cursor integration (unreleased, 2026-09-20):
+  - The existing provider/account-service boundary now connects the signed-in Windows
+    Cursor account without token copying. It verifies the server identity before usage,
+    persists only a binding hash and projected quotas, and neither renews credentials nor
+    reads history/browser cookies. Registry version 3 retains Codex/Claude profiles and
+    upgrades the backup version before the primary to protect against older builds.
+  - Auto/API percentages remain separate from legacy dollar accounting. On-demand/team
+    budgets and Grok keep their own rows. Missing values stay unknown; disabled allowances
+    show Off. Popup, native tray tooltip and widget show the original successful response
+    time. The native tooltip respects its 127-character limit.
+  - Deterministic tests cover exact-key SQLite reads, bounded/authenticated HTTP,
+    optional-source failure, unknown/zero/disabled values, account mismatch, retry delay,
+    cancellation, restart, corrupted cache recovery, interrupted connection writes and
+    disconnect during an in-flight query. Mismatch cannot recover an old quota through a
+    newer cache, a backup or a cache write failure.
+  - The initial unit/WPF runs caught a shared-widget/account-card regression: filtering
+    out windows without known values also removed an existing Codex unknown-period row.
+    Restoring every supplied period and the original Codex/Claude card policy fixed it.
+    A new restart test also needed sequence comparison after JSON restored an array as
+    a list. The focused Cursor/widget check passed all 67 cases, and the affected Codex
+    WPF check passed 144 renders.
+    The period-control suite now targets Codex/Claude explicitly (108 renders); Cursor
+    has named allowances rather than five-hour/weekly controls, covered by its own suite.
+  - Final local evidence: all **1,616 unit tests passed** in `dev-run.ps1 -NoLaunch`.
+    After the WPF-only fixes, `dev-run.ps1 -NoLaunch -Fast` reused that unchanged unit
+    suite and passed Release compile, desktop-instance checks, script regressions,
+    the entire WPF suite, single-file publish, published Claude receiver checks,
+    Velopack packaging and isolated package/update/rollback verification (2m 51.7s).
+    No installed app was replaced or launched. Local logs are
+    `artifacts/cursor-full-gate-final.log` and `artifacts/cursor-verified-gate.log`.
+  - Production WPF checks and visual review cover EN/KO, Dark/Light and the local System
+    theme. Checked-in Cursor images use synthetic profiles, including explicit unknown
+    and monetary assertions; they are not evidence of a real account.
+  - Real read-only compatibility was verified separately with Cursor 3.21.13 on Windows.
+    Native and web account/usage routes returned HTTP 200. The compiled production .NET
+    probe at 12:35 UTC verified identity and returned four separate quota rows, three known
+    percentages and four reset timestamps, including a successful optional Grok request.
+    It wrote no account, binding or cache and emitted no credentials or raw account data.
+    See [Cursor research](CURSOR.md) for endpoints, semantics and CodexBar references.
+  - Not verified with real accounts: team/enterprise, trial-only and legacy request plans.
+    Team/trial parsing uses synthetic upstream-shaped fixtures; the legacy request route
+    is not implemented. Custom Cursor user-data directories are not searched.
+  - Installed-app setup/update/removal E2E is not run on this working Windows profile:
+    it requires a disposable VM/user and modifies real installation/registry state.
+    Local packaging/receiver checks do not establish installed-update compatibility.
 
 - Setup installer log retention, Restart Manager query outcomes, and a withdrawn timing claim
   (unreleased):

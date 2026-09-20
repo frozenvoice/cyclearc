@@ -20,9 +20,10 @@ public sealed record CodexAccountView(CodexAccountProfile Profile, CodexQuotaSna
             : Profile.Provider.Name() + " · " + Profile.Id[..Math.Min(6, Profile.Id.Length)]) : Profile.Label;
     public string ProviderName => Profile.Provider.Name();
     public bool IsConnected { get; init; }
-    public bool IsAwaitingUsage => IsConnected && Profile.Provider == UsageProviderId.Claude
+    public bool IsAwaitingUsage => IsConnected
         && Snapshot.Status == CodexQuotaStatus.Unavailable && !Snapshot.HasUsablePercentages
-        && Snapshot.TechnicalDetail == "claude-connected-waiting";
+        && (Profile.Provider == UsageProviderId.Claude && Snapshot.TechnicalDetail == "claude-connected-waiting"
+            || Profile.Provider == UsageProviderId.Cursor && Snapshot.TechnicalDetail == "cursor-connected-waiting");
 }
 
 public sealed record CodexAccountIdentity(CodexQuotaStatus Status, string? Email = null, string? PlanType = null)

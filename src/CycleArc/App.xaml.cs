@@ -7,6 +7,7 @@ using Microsoft.Win32;
 using CycleArc.Codex;
 using CycleArc.Providers.Usage;
 using CycleArc.Providers.Claude;
+using CycleArc.Providers.Cursor;
 using CycleArc.Updates;
 
 namespace CycleArc;
@@ -89,7 +90,7 @@ public partial class App : Application
         _tray.UpdatesRequested += ShowUpdates;
         _tray.AboutRequested += () => new AboutWindow(
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0",
-            "Codex App Server · Claude subscription usage",
+            "Codex · Claude · Cursor subscription usage",
             InstalledApp.IsManaged ? null : DesktopBootstrap.InstallSelectedVersion, ShowUpdates).Show();
         _tray.StartupToggled += enabled =>
         {
@@ -111,7 +112,8 @@ public partial class App : Application
                         desktopFactory: profile => new ClaudeDesktopUsageCollector(accounts, profile.Id,
                             _claudeConnections.VerifyUsageIdentityAsync),
                         liveFactory: profile => new ClaudeLiveUsageCollector(accounts, profile.Id,
-                            new ClaudeOAuthUsageClient(new ClaudeDesktopCredentialReader()))) ]);
+                            new ClaudeOAuthUsageClient(new ClaudeDesktopCredentialReader()))),
+                    new CursorUsageProvider(accounts) ]);
         }
         catch
         {
@@ -449,6 +451,16 @@ public partial class App : Application
         window.MoveAccount = (id, direction) => _codex.Move(id, direction);
         window.RemoveAccount = id => _codex.Remove(id);
         window.AddClaudeAccount = label => _codex.ConfigureNewClaude(label, profile => window.ConfigureClaude?.Invoke(profile.Id));
+        window.ConnectCursor = async (id, label, token) =>
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+            return await Task.Run(() => _codex.ConnectCursorAsync(id, label, linked.Token), linked.Token);
+        };
+        window.DisconnectCursor = async (id, token) =>
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+            await Task.Run(() => _codex.DisconnectCursorAsync(id, linked.Token), linked.Token);
+        };
         window.ConfigureClaude = id =>
         {
             var profile = _codex.Accounts.FirstOrDefault(account => account.Profile.Id == id)?.Profile;

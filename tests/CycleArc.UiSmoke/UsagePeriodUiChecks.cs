@@ -25,7 +25,9 @@ internal static class UsagePeriodUiChecks
         {
             UiText.SetLanguage(language);
             applyTheme.Invoke(null, [theme]);
-            foreach (var provider in Enum.GetValues<UsageProviderId>())
+            // Only these providers expose five-hour/weekly period controls. Cursor's
+            // named allowances and hidden period controls are covered by CursorUiChecks.
+            foreach (var provider in new[] { UsageProviderId.Codex, UsageProviderId.Claude })
             {
                 var snapshot = Sample(provider);
                 var account = new CodexAccountView(new CodexAccountProfile("period-fixture",

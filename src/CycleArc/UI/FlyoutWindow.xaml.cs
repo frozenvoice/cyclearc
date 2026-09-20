@@ -6,6 +6,7 @@ using System.Reflection;
 using CycleArc.Codex;
 using CycleArc.Providers.Usage;
 using CycleArc.Providers.Claude;
+using CycleArc.Providers.Cursor;
 
 namespace CycleArc.UI;
 
@@ -273,7 +274,8 @@ public partial class FlyoutWindow : Window
 
     private void BindCodex(CodexQuotaSnapshot snapshot)
     {
-        var stale = ClaudeUsagePresentation.IsStale(snapshot);
+        var stale = ClaudeUsagePresentation.IsStale(snapshot)
+            || (CursorUsagePresentation.IsCursor(snapshot) && snapshot.Status == CodexQuotaStatus.Stale);
         ClaudeUsageHeader.Visibility = ClaudeUsagePageButton.Visibility = snapshot.Provider == UsageProviderId.Claude
             ? Visibility.Visible : Visibility.Collapsed;
         ClaudeUsageTitle.Text = ClaudeUsagePresentation.Title;
@@ -573,6 +575,7 @@ One credit will be consumed.",
 
     private void UpdatePeriodControls(CodexQuotaSnapshot snapshot, CodexRingPresentation ring)
     {
+        var cursor = CursorUsagePresentation.IsCursor(snapshot);
         UsagePeriodLabel.Text = UiText.T("Display period", "표시 기간");
         AutoPeriodButton.Content = UiText.T("Auto", "자동");
         FiveHourPeriodButton.Content = UiText.T("5 hours", "5시간");
@@ -596,8 +599,14 @@ One credit will be consumed.",
                 $"{(requested == CodexWindowKind.FiveHour ? "5시간" : "주간")} 값이 없어 {ring.CenterSubLabel}을 표시합니다.")
             : "";
         UsagePeriodFallback.Visibility = UsagePeriodFallback.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        UsagePeriodLabel.Visibility = cursor ? Visibility.Collapsed : Visibility.Visible;
+        AutoPeriodButton.Visibility = cursor ? Visibility.Collapsed : Visibility.Visible;
+        FiveHourPeriodButton.Visibility = cursor ? Visibility.Collapsed : Visibility.Visible;
+        WeeklyPeriodButton.Visibility = cursor ? Visibility.Collapsed : Visibility.Visible;
+        UsagePeriodHint.Visibility = cursor ? Visibility.Collapsed : Visibility.Visible;
+        UsagePeriodFallback.Visibility = cursor ? Visibility.Collapsed : UsagePeriodFallback.Visibility;
         CyclePeriodButton.IsEnabled = ring.IsAvailable
-            && HasKnownWindow(snapshot, CodexWindowKind.FiveHour) && HasKnownWindow(snapshot, CodexWindowKind.Weekly);
+            && !cursor && HasKnownWindow(snapshot, CodexWindowKind.FiveHour) && HasKnownWindow(snapshot, CodexWindowKind.Weekly);
         var switchText = ring.Window?.Kind == CodexWindowKind.FiveHour
             ? UiText.T("Show weekly usage", "주간 사용량 표시") : UiText.T("Show 5-hour usage", "5시간 사용량 표시");
         CyclePeriodButton.ToolTip = switchText;

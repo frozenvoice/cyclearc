@@ -1,4 +1,5 @@
 using CycleArc.Providers.Claude;
+using CycleArc.Providers.Cursor;
 using CycleArc.Providers.Usage;
 using CycleArc.Services;
 
@@ -49,10 +50,19 @@ public sealed record WidgetAccountModel(
         // success, including identity mismatch while Status stays Available, so a
         // quota-hidden account still says why instead of relying on color or tooltip.
         var showStatus = account.Profile.Provider == UsageProviderId.Claude
+            || CursorUsagePresentation.IsCursor(account.Profile.Provider)
             || snapshot.Status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing)
             || CodexIdentityPresentation.NeedsReconnection(snapshot);
         var status = account.IsSigningIn ? UiText.T("Signing in…", "로그인 중…")
             : showStatus ? CycleArcPresentation.StatusLabel(snapshot) : "";
+        if (CursorUsagePresentation.IsCursor(snapshot) && snapshot.LastSuccessfulRefresh is not null
+            && periods.Count > 0 && !account.IsSigningIn)
+        {
+            var updated = CursorUsagePresentation.UpdatedText(snapshot);
+            status = snapshot.Status == CodexQuotaStatus.Available
+                && string.IsNullOrEmpty(CursorUsagePresentation.FailureText(snapshot.TechnicalDetail))
+                ? updated : status + Environment.NewLine + updated;
+        }
 
         return new WidgetAccountModel(
             account.Profile.Id,
@@ -61,7 +71,8 @@ public sealed record WidgetAccountModel(
             ring,
             periods,
             status,
-            ClaudeUsagePresentation.IsStale(snapshot),
+            ClaudeUsagePresentation.IsStale(snapshot)
+                || (CursorUsagePresentation.IsCursor(snapshot) && snapshot.Status == CodexQuotaStatus.Stale),
             selected,
             account.DisplayName + Environment.NewLine + CycleArcPresentation.Tooltip(snapshot, preference));
     }
@@ -82,9 +93,14 @@ public sealed record WidgetAccountModel(
         return ordered.Select(window => new WidgetPeriodLine(
             window.Kind,
             window.WindowDurationMinutes,
-            CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes),
-            UiText.WidgetLeft(CodexDisplayFormatting.PercentText(window.RemainingPercent, snapshot.Provider)),
-            CodexDeadlineFormatting.ResetCountdown(window.ResetsAt, at),
+            CursorUsagePresentation.IsCursor(snapshot.Provider)
+                ? CodexDisplayFormatting.CompactWindowKindLabel(window, snapshot.Provider)
+                : CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes),
+            CursorUsagePresentation.IsCursor(snapshot) && window.IsEnabled == false
+                ? CursorUsagePresentation.RemainingText(window)
+                : UiText.WidgetLeft(CodexDisplayFormatting.RemainingText(window, snapshot.Provider)),
+            CursorUsagePresentation.IsCursor(snapshot) && window.IsEnabled == false
+                ? "" : CodexDeadlineFormatting.ResetCountdown(window.ResetsAt, at),
             CodexDeadlineFormatting.ResetStampTooltip(window.ResetsAt),
             ReferenceEquals(window, ring.Window))).ToArray();
     }

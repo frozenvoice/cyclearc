@@ -71,6 +71,8 @@ internal static class Program
         }
         if (args is ["--live-accounts", "read" or "login" or "relogin"])
             return LiveAccountChecks.RunAsync(args[1]).GetAwaiter().GetResult();
+        if (args is ["--cursor-live-read"])
+            return CursorLiveChecks.RunAsync().GetAwaiter().GetResult();
         // Process/IPC checks run from --desktop-instance immediately after compile.
         // Empty-args UiSmoke keeps WPF/version UI checks and does not repeat that wait.
         // Load production WPF views/resources with startup overridden: no account access,
@@ -166,6 +168,11 @@ internal static class Program
                 AccountUiChecks.Run(accountsDirectory);
                 return 0;
             }
+            if (args is ["--cursor-ui", var cursorDirectory])
+            {
+                CursorUiChecks.Run(cursorDirectory);
+                return 0;
+            }
             if (args is ["--flyout-activation"] or ["--flyout-activation", _])
             {
                 FlyoutActivationChecks.Run(app, args.Length == 2 ? args[1] : null);
@@ -186,6 +193,7 @@ internal static class Program
             ClaudeStatusLineProcessChecks.Run();
             AccountUiChecks.Run();
             CodexWindowUiChecks.Run();
+            CursorUiChecks.Run();
             UsagePeriodUiChecks.Run(app);
             MixedProviderUiChecks.Run();
             ToolTipUiChecks.Run();

@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using CycleArc.Codex;
 using CycleArc.Providers.Claude;
+using CycleArc.Providers.Cursor;
 using CycleArc.Providers.Usage;
 using CancellationToken = System.Threading.CancellationToken;
 using CancellationTokenSource = System.Threading.CancellationTokenSource;
@@ -21,6 +22,8 @@ public partial class AccountsWindow : Window
     public Func<string, bool>? RemoveAccount { get; set; }
     public Action<string>? AddClaudeAccount { get; set; }
     public Action<string>? ConfigureClaude { get; set; }
+    public Func<string?, string, CancellationToken, Task<CursorConnectionResult>>? ConnectCursor { get; set; }
+    public Func<string, CancellationToken, Task>? DisconnectCursor { get; set; }
     public Action<string>? LogFailure { get; set; }
     private CancellationTokenSource? _operation;
     private Task _active = Task.CompletedTask;
@@ -63,6 +66,12 @@ public partial class AccountsWindow : Window
         ClaudeLabelCaption.Text = UiText.T("Nickname in CycleArc (optional)", "CycleArc에서 쓸 별명 (선택 사항)");
         AddClaudeButton.Content = UiText.T("Connect Claude", "Claude 연결");
         System.Windows.Automation.AutomationProperties.SetName(ClaudeAccountLabel, ClaudeLabelCaption.Text + " · Claude");
+        CursorHeading.Text = UiText.T("Cursor usage", "Cursor 사용량");
+        CursorHint.Text = CursorUsagePresentation.ConnectionHint;
+        CursorLabelCaption.Text = UiText.T("Nickname in CycleArc (optional)", "CycleArc에서 쓸 별명 (선택 사항)");
+        AddCursorButton.Content = UiText.T("Connect Cursor", "Cursor 연결");
+        AddCursorButton.ToolTip = CursorHint.Text;
+        System.Windows.Automation.AutomationProperties.SetName(CursorAccountLabel, CursorLabelCaption.Text + " · Cursor");
         AccountHelp.Header = UiText.T("Nicknames, icons and account actions", "별명·아이콘과 버튼 사용 안내");
         ProfileHelp.Text = UiText.T("Set a nickname for CycleArc; leaving it empty shows the reported email or a provider/profile label. Claude account identity is checked against the connected Desktop login. Circular icons are made locally from the first two characters. Names and icons do not change your provider profile.",
             "별명을 저장하면 CycleArc에서 그 이름을 표시합니다. 비워 두면 제공된 이메일이나 provider·프로필 이름을 표시합니다. Claude 계정은 연결된 Desktop 로그인과 대조해 확인합니다. 원형 아이콘은 이름의 앞 두 글자로 이 앱에서 만들며, 이름과 아이콘은 서비스의 프로필을 변경하지 않습니다.");
@@ -75,8 +84,8 @@ public partial class AccountsWindow : Window
         CancelOperationButton.Content = UiText.T("Cancel", "취소");
         DoneButton.Content = UiText.Close;
         OperationStatus.Text = "";
-        PrivacyHint.Text = UiText.T("Each provider manages authentication. Removing a profile only removes it from this list. Claude refresh reads quota for the connected Desktop account and does not run a Claude Code model request.",
-            "인증은 각 서비스가 관리합니다. 프로필 제거는 목록에서만 제거합니다. Claude 새로고침은 연결된 Desktop 계정의 한도만 읽으며 Claude Code 모델 요청을 실행하지 않습니다.");
+        PrivacyHint.Text = UiText.T("Each provider manages authentication. Removing a profile only removes it from this list. Claude refresh reads quota for the connected Desktop account and Cursor refresh reads the existing Windows Cursor login without exposing credentials.",
+            "인증은 각 서비스가 관리합니다. 프로필 제거는 목록에서만 제거합니다. Claude 새로고침은 연결된 Desktop 계정의 한도만 읽으며 Cursor 새로고침은 Windows의 기존 Cursor 로그인만 읽고 인증정보를 노출하지 않습니다.");
         System.Windows.Automation.AutomationProperties.SetName(NewAccountLabel, LabelCaption.Text);
         SourceInitialized += (_, _) =>
         {
@@ -120,11 +129,13 @@ public partial class AccountsWindow : Window
             }
             content.Children.Add(summary);
             var source = account.Profile.Provider == UsageProviderId.Claude ? ClaudeSource(account)
+                : CursorUsagePresentation.IsCursor(account.Profile.Provider) ? CursorUsagePresentation.Title
                 : account.Profile.IsManaged ? UiText.T("Signed in through CycleArc", "CycleArc에서 로그인")
                 : UiText.T("Linked from Codex on this PC", "이 PC의 기존 Codex에서 연결");
             var identity = new TextBlock { Text = (account.Email is not null && account.Email != account.DisplayName ? account.Email + " · " : "") + source,
                 FontSize = 11, Margin = new Thickness(4, 0, 4, 6), TextTrimming = TextTrimming.CharacterEllipsis,
-                ToolTip = account.Profile.Provider == UsageProviderId.Claude ? ClaudeHint.Text : account.Profile.HomePath };
+                ToolTip = account.Profile.Provider == UsageProviderId.Claude ? ClaudeHint.Text
+                    : CursorUsagePresentation.IsCursor(account.Profile.Provider) ? CursorHint.Text : account.Profile.HomePath };
             identity.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             content.Children.Add(identity);
             var caption = new TextBlock { Text = UiText.T("Nickname in CycleArc", "CycleArc에서 쓸 별명"),
@@ -156,6 +167,17 @@ public partial class AccountsWindow : Window
                 var connection = ActionButton(UiText.T("Connect", "연결"), () => ConfigureClaude?.Invoke(id));
                 connection.Tag = "ConfigureClaude";
                 DockPanel.SetDock(connection, Dock.Right); actions.Children.Add(connection);
+            }
+            else if (CursorUsagePresentation.IsCursor(account.Profile.Provider))
+            {
+                var reconnect = ActionButton(UiText.T("Reconnect", "다시 연결"), () => StartCursorConnection(id, account.Profile.Label));
+                reconnect.Tag = "ReconnectCursor";
+                reconnect.ToolTip = CursorHint.Text;
+                DockPanel.SetDock(reconnect, Dock.Right); actions.Children.Add(reconnect);
+                var disconnect = ActionButton(UiText.T("Disconnect", "연결 해제"), () => StartCursorDisconnect(id));
+                disconnect.Tag = "DisconnectCursor";
+                disconnect.ToolTip = UiText.T("Forget this Cursor connection. Cursor keeps its own sign-in.", "이 Cursor 연결을 CycleArc에서 해제합니다. Cursor 로그인은 그대로 유지됩니다.");
+                DockPanel.SetDock(disconnect, Dock.Right); actions.Children.Add(disconnect);
             }
             else
             {
@@ -253,6 +275,47 @@ public partial class AccountsWindow : Window
         }
         finally { _addingClaude = false; AddClaudeButton.IsEnabled = _operation is null; }
     }
+
+    private void OnAddCursor(object sender, RoutedEventArgs e) => StartCursorConnection(null, CursorAccountLabel.Text);
+
+    private void StartCursorConnection(string? id, string label)
+    {
+        if (ConnectCursor is null) return;
+        StartOperation(async token =>
+        {
+            var result = await ConnectCursor(id, label, token);
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (result.Success)
+                {
+                    if (id is null) CursorAccountLabel.Clear();
+                    OperationStatus.Text = UiText.T("Cursor connected. Its independent quotas are shown in the account card.",
+                        "Cursor를 연결했습니다. 계정 카드에 서로 다른 한도를 따로 표시합니다.");
+                    return;
+                }
+
+                var failure = CursorUsagePresentation.FailureText(result.Failure);
+                OperationStatus.Text = string.IsNullOrWhiteSpace(failure)
+                    ? UiText.T("Cursor could not be connected. Sign in to Cursor on this PC, then try again.",
+                        "Cursor를 연결하지 못했습니다. 이 PC의 Cursor에서 로그인한 뒤 다시 시도하세요.")
+                    : failure;
+                LogFailure?.Invoke("cursor-connect-" + (result.Failure ?? "failed"));
+            });
+        }, id is null ? UiText.T("Reading the current Cursor login…", "현재 Cursor 로그인을 읽는 중…")
+            : UiText.T("Reconnecting Cursor…", "Cursor를 다시 연결하는 중…"));
+    }
+
+    private void StartCursorDisconnect(string id)
+    {
+        if (DisconnectCursor is null) return;
+        StartOperation(async token =>
+        {
+            await DisconnectCursor(id, token);
+            await Dispatcher.InvokeAsync(() => OperationStatus.Text = UiText.T(
+                "Cursor disconnected from CycleArc. Cursor's own sign-in was not changed.",
+                "CycleArc에서 Cursor 연결을 해제했습니다. Cursor 자체 로그인은 변경하지 않았습니다."));
+        }, UiText.T("Disconnecting Cursor…", "Cursor 연결을 해제하는 중…"));
+    }
     private void StartLogin(string? id, string label)
     {
         if (SignIn is null) return;
@@ -338,6 +401,7 @@ public partial class AccountsWindow : Window
     {
         AddAccountButton.IsEnabled = DiscoverButton.IsEnabled = ChooseHomeButton.IsEnabled = NewAccountLabel.IsEnabled = !busy;
         AddClaudeButton.IsEnabled = ClaudeAccountLabel.IsEnabled = !busy;
+        AddCursorButton.IsEnabled = CursorAccountLabel.IsEnabled = !busy;
         OperationProgress.Visibility = CancelOperationButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         Bind(_accounts, _selected);
     }

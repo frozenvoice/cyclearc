@@ -30,6 +30,15 @@ public sealed record CodexQuotaWindow(
     DateTimeOffset? ResetsAt,
     CodexWindowKind Kind)
 {
+    // Named provider quotas may report money independently of a percentage. Never
+    // derive a combined allowance from different buckets or treat a null cap as zero.
+    public decimal? UsedAmount { get; init; }
+    public decimal? LimitAmount { get; init; }
+    public decimal? RemainingAmount { get; init; }
+    public string? Unit { get; init; }
+    public bool IsUnlimited { get; init; }
+    public bool? IsEnabled { get; init; }
+
     public double? RemainingPercent =>
         UsedPercent is { } used
             ? Math.Clamp(100 - used, 0, 100)
