@@ -30,7 +30,7 @@ public sealed record CodexRingPresentation(
             IsDangerLevel: clamped is >= 100,
             CenterValueText: CodexDisplayFormatting.PercentText(used, snapshot.Provider),
             CenterSubLabel: window is null ? UiText.CodexLegendUsed :
-                CursorUsagePresentation.IsCursor(snapshot.Provider) ? CursorUsagePresentation.QuotaLabel(window.LimitId) :
+                CursorUsagePresentation.IsCursor(snapshot.Provider) ? CursorUsagePresentation.RingLabel(window.LimitId) :
                 window.Kind == CodexWindowKind.Weekly ? UiText.T("Weekly used", "주간 사용") :
                 UiText.T($"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} used",
                     $"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} 사용"))

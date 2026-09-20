@@ -290,6 +290,7 @@ public partial class FlyoutWindow : Window
             ? Visibility.Collapsed
             : Visibility.Visible;
         CodexRows.Items.Clear();
+        var cursor = CursorUsagePresentation.IsCursor(snapshot.Provider);
         foreach (var item in CodexDisplayFormatting.Rows(snapshot, includeResetCredits: false))
         {
             var row = new Grid { Margin = new Thickness(0, 7, 0, 7), MinHeight = 18 };
@@ -299,14 +300,33 @@ public partial class FlyoutWindow : Window
             }
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.Children.Add(new TextBlock
+            if (cursor)
+            {
+                row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            }
+            var label = new TextBlock
             {
                 Text = item.Label,
                 Margin = new Thickness(0, 0, 12, 0), FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
                 Foreground = (Brush)FindResource("MutedBrush")
-            });
+            };
+            if (cursor)
+            {
+                label.TextWrapping = TextWrapping.Wrap;
+                label.TextTrimming = TextTrimming.None;
+                label.Margin = new Thickness(0, 0, 0, 3);
+                Grid.SetColumnSpan(label, 2);
+            }
+            row.Children.Add(label);
             var values = new StackPanel { HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
             Grid.SetColumn(values, 1);
+            if (cursor)
+            {
+                Grid.SetColumn(values, 0);
+                Grid.SetColumnSpan(values, 2);
+                Grid.SetRow(values, 1);
+            }
             values.Children.Add(new TextBlock
             {
                 Text = item.Value, FontSize = 14,

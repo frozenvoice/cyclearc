@@ -1,6 +1,7 @@
 using System.Windows.Controls;
 using System.Windows.Shapes;
 using CycleArc.Codex;
+using CycleArc.Providers.Cursor;
 using CycleArc.Providers.Usage;
 
 namespace CycleArc.UI;
@@ -191,7 +192,8 @@ public sealed class WidgetAccountModuleView : Border
             }
             Periods = rebuilt;
         }
-        for (var i = 0; i < model.Periods.Count; i++) Periods[i].Bind(model.Periods[i], model.IsStale);
+        var isCursor = CursorUsagePresentation.IsCursor(model.Provider);
+        for (var i = 0; i < model.Periods.Count; i++) Periods[i].Bind(model.Periods[i], model.IsStale, isCursor);
     }
 }
 
@@ -219,6 +221,8 @@ public sealed class WidgetPeriodLineView : StackPanel
         Width = 4, Height = 4, Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center,
         Visibility = Visibility.Hidden
     };
+    private readonly Grid _head = new();
+    private readonly DockPanel _label = new() { LastChildFill = true };
 
     public WidgetPeriodLineView()
     {
@@ -227,23 +231,29 @@ public sealed class WidgetPeriodLineView : StackPanel
         ResetText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         _representative.SetResourceReference(Shape.FillProperty, "AccentBrush");
 
-        var head = new Grid();
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var label = new DockPanel { LastChildFill = true };
+        _head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _head.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _head.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         DockPanel.SetDock(_representative, Dock.Left);
-        label.Children.Add(_representative);
-        label.Children.Add(PeriodText);
-        head.Children.Add(label);
+        _label.Children.Add(_representative);
+        _label.Children.Add(PeriodText);
+        _head.Children.Add(_label);
         Grid.SetColumn(RemainingText, 1);
-        head.Children.Add(RemainingText);
-        Children.Add(head);
+        _head.Children.Add(RemainingText);
+        Children.Add(_head);
         Children.Add(ResetText);
     }
 
-    public void Bind(WidgetPeriodLine line, bool stale)
+    public void Bind(WidgetPeriodLine line, bool stale, bool isCursor = false)
     {
         PeriodText.Text = line.PeriodLabel;
+        PeriodText.TextWrapping = isCursor ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        PeriodText.TextTrimming = isCursor ? TextTrimming.None : TextTrimming.CharacterEllipsis;
+        Grid.SetColumnSpan(_label, isCursor ? 2 : 1);
+        Grid.SetColumn(RemainingText, isCursor ? 0 : 1);
+        Grid.SetColumnSpan(RemainingText, isCursor ? 2 : 1);
+        Grid.SetRow(RemainingText, isCursor ? 1 : 0);
         RemainingText.Text = line.RemainingText;
         RemainingText.SetResourceReference(TextBlock.ForegroundProperty, stale ? "StaleBrush" : "TextBrush");
         ResetText.Text = line.ResetText;

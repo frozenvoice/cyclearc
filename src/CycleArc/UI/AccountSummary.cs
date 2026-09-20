@@ -52,7 +52,18 @@ internal static class AccountSummary
                 var row = new Grid { Margin = new Thickness(0, 5, 0, 0) };
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.Children.Add(Text(CodexDisplayFormatting.CompactWindowKindLabel(window, account.Profile.Provider), 11, "MutedBrush"));
+                var label = Text(CodexDisplayFormatting.CompactWindowKindLabel(window, account.Profile.Provider), 11, "MutedBrush");
+                if (CursorUsagePresentation.IsCursor(account.Profile.Provider))
+                {
+                    // Cursor's official name plus cadence is intentionally longer than the
+                    // old Auto/API labels. Let that label reflow in the flexible column;
+                    // Codex and Claude retain their single-line card layout.
+                    label.TextWrapping = TextWrapping.Wrap;
+                    label.TextTrimming = TextTrimming.None;
+                    label.MaxWidth = 180;
+                    label.HorizontalAlignment = HorizontalAlignment.Left;
+                }
+                row.Children.Add(label);
                 var value = Text(CodexDisplayFormatting.QuotaSummaryText(window, account.Profile.Provider), 12, stale ? "StaleBrush" : "TextBrush");
                 Grid.SetColumn(value, 1); row.Children.Add(value); content.Children.Add(row);
             }

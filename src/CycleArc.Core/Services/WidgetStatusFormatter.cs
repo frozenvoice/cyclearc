@@ -23,7 +23,7 @@ public static class WidgetStatusFormatter
         if (CursorUsagePresentation.IsCursor(snapshot))
         {
             var quotas = string.Join(" · ", snapshot.Windows.Select(window =>
-                CursorUsagePresentation.QuotaLabel(window.LimitId) + " "
+                CursorUsagePresentation.QuotaDisplayLabel(window.LimitId) + " "
                 + CursorUsagePresentation.RemainingText(window)));
             return string.IsNullOrWhiteSpace(quotas)
                 ? $"Cursor {CursorUsagePresentation.StatusText(snapshot)}"

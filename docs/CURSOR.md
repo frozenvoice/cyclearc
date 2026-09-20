@@ -89,6 +89,10 @@ Show it only when the response establishes an included allowance or an
 unexpired trial. A paid allowance resets at `nextResetTimestampUtc`; a trial
 expiry is not a recurring reset. A missing/malformed/expired trial, or a Sand
 request failure, must omit only this lane and preserve the monthly lanes.
+The display names match Plan & Usage: `cursor-auto` is **Cursor Models · Monthly**,
+`cursor-api` is **Other Models · Monthly**, and `cursor-sand` is **Grok Bot · Weekly**.
+Korean uses the same official names with **월간/주간**. These are presentation labels only;
+no duration or reset is synthesized and the internal keys and selection policy stay unchanged.
 Sand failure and retry metadata are persisted independently. A Sand retry deadline skips
 only that request; verified monthly responses continue to update their own timestamp and
 remain available. The popup can explain the missing Grok data without marking the monthly
@@ -104,6 +108,7 @@ plan unknown instead of mixing request counts with token-based Auto/API lanes.
 ## Source evidence
 
 - [Cursor official usage and limits](https://prod.cursor.com/help/models-and-usage/usage-limits) documents the separate monthly Cursor Models and Other Models pools and billing-cycle reset.
+- [Cursor Grok Bot documentation](https://cursor.com/docs/grok-bot) confirms the official Grok Bot name and weekly usage reset (checked 2026-09-20).
 - [CodexBar Cursor provider notes](https://github.com/steipete/CodexBar/blob/main/docs/cursor.md) documents the endpoint set, app-token fallback, cookie construction policy, and independent Sand allowance.
 - [CodexBar Cursor app auth](https://github.com/steipete/CodexBar/blob/main/Sources/CodexBarCore/Providers/Cursor/CursorAppAuth.swift) shows read-only `state.vscdb` access, JWT `sub`/`exp` handling, and the `WorkosCursorSessionToken` construction.
 - [CodexBar status probe](https://github.com/steipete/CodexBar/blob/main/Sources/CodexBarCore/Providers/Cursor/CursorStatusProbe.swift) shows Cookie-only web requests, `Origin` handling for Sand, and legacy request fallback.

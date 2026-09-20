@@ -1,4 +1,5 @@
 using CycleArc.Codex;
+using CycleArc.Providers.Cursor;
 using CycleArc.Providers.Usage;
 using CycleArc.Services;
 
@@ -23,7 +24,7 @@ public sealed class CursorPartialPresentationTests
 
             // The detailed popup may explain that the optional Grok allowance was
             // unavailable, while the compact status remains the monthly status.
-            Assert.Equal(UiText.T("Grok usage unavailable", "Grok 사용량 확인 불가"),
+            Assert.Equal(UiText.T("Grok Bot usage unavailable", "Grok Bot 사용량 확인 불가"),
                 CodexDisplayFormatting.StatusText(snapshot));
         }
         finally
@@ -45,13 +46,13 @@ public sealed class CursorPartialPresentationTests
             var popup = CycleArcPresentation.Tooltip(snapshot);
             var tray = CycleArcPresentation.TrayTooltip(snapshot, "Fixture");
 
-            Assert.Contains(UiText.T("Auto", "자동"), popup);
-            Assert.Contains(UiText.T("Auto", "자동"), tray);
+            Assert.Contains(CursorUsagePresentation.QuotaDisplayLabel("cursor-auto"), popup);
+            Assert.Contains(CursorUsagePresentation.QuotaDisplayLabel("cursor-auto"), tray);
             Assert.Contains("$27.5", popup);
             Assert.Contains("$27.5", tray);
-            Assert.DoesNotContain(rows, row => row.Label == UiText.T("Grok", "Grok"));
-            Assert.DoesNotContain("Grok", popup, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Grok", tray, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(rows, row => row.Label == CursorUsagePresentation.QuotaDisplayLabel("cursor-sand"));
+            Assert.DoesNotContain(CursorUsagePresentation.QuotaDisplayLabel("cursor-sand"), popup);
+            Assert.DoesNotContain(CursorUsagePresentation.QuotaDisplayLabel("cursor-sand"), tray);
             Assert.DoesNotContain("$0", popup, StringComparison.Ordinal);
             Assert.DoesNotContain("$0", tray, StringComparison.Ordinal);
         }
