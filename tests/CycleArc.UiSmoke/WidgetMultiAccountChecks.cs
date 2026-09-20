@@ -123,6 +123,7 @@ internal static class WidgetMultiAccountChecks
         var content = (FrameworkElement)widget.Content;
         var tolerance = Math.Max(1, widget.ZoomScale);
         var rowCenters = new Dictionary<int, double>();
+        var nameTops = new Dictionary<int, double>();
         Rect Bounds(FrameworkElement element) => element.TransformToAncestor(content)
             .TransformBounds(new Rect(element.RenderSize));
 
@@ -138,8 +139,15 @@ internal static class WidgetMultiAccountChecks
                     $"{name}: rings in the same account row are vertically misaligned.");
             else rowCenters.Add(row, ringCenter);
 
+            var nameTop = Bounds(module.NameText).Top;
+            if (nameTops.TryGetValue(row, out var rowNameTop))
+                Check(Math.Abs(nameTop - rowNameTop) <= tolerance,
+                    $"{name}: account names in the same row are vertically misaligned.");
+            else nameTops.Add(row, nameTop);
+
             if (module.Periods.Count == 0) continue;
             var periodBounds = Rect.Empty;
+            var cursor = module.Model?.Provider == UsageProviderId.Cursor;
             var labelStart = Bounds(module.Periods[0].PeriodText).Left;
             foreach (var line in module.Periods)
             {
@@ -150,13 +158,21 @@ internal static class WidgetMultiAccountChecks
                 var remainingBaseline = line.RemainingText.TranslatePoint(new Point(0, line.RemainingText.BaselineOffset), content).Y;
                 Check(Math.Abs(labelBaseline - remainingBaseline) <= tolerance,
                     $"{name}: a period label and remaining value have different baselines.");
-                Check(Math.Abs(Bounds(line.RemainingText).Right - Bounds(line.ResetText).Right) <= tolerance,
-                    $"{name}: remaining and reset values have different right edges.");
+                if (!cursor)
+                    Check(Math.Abs(Bounds(line.RemainingText).Right - Bounds(line.ResetText).Right) <= tolerance,
+                        $"{name}: remaining and reset values have different right edges.");
             }
-            Check(Math.Abs(periodBounds.Top + periodBounds.Height / 2 - ringCenter) <= tolerance,
-                $"{name}: the period block is not centered beside its ring.");
-            Check(periodBounds.Top >= ringBounds.Top - tolerance && periodBounds.Bottom <= ringBounds.Bottom + tolerance,
-                $"{name}: period lines extend above or below their ring.");
+            if (!cursor)
+            {
+                Check(Math.Abs(periodBounds.Top + periodBounds.Height / 2 - ringCenter) <= tolerance,
+                    $"{name}: the period block is not centered beside its ring.");
+                Check(periodBounds.Top >= ringBounds.Top - tolerance && periodBounds.Bottom <= ringBounds.Bottom + tolerance,
+                    $"{name}: period lines extend above or below their ring.");
+            }
+            var moduleBounds = Bounds(module);
+            Check(periodBounds.Top >= moduleBounds.Top - tolerance
+                && periodBounds.Bottom <= moduleBounds.Bottom + tolerance,
+                $"{name}: period lines extend outside their account module.");
         }
     }
 

@@ -2,6 +2,74 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Cursor widget summary and alignment (unreleased, 2026-09-21):
+  - The widget shows at most the reported, enabled Cursor Models / Other Models / Grok Bot
+    rows in that order. Monthly and Weekly headings replace repeated cadence/reset lines;
+    the original allowance names and fractional remaining values stay readable at the existing
+    12-DIP size. Modules remain 232 DIP wide. Names and 64-DIP rings align across providers,
+    and a caption below the Cursor ring identifies its allowance. The widget ring's candidates
+    are limited to those same three rows; omitted budgets cannot introduce a fourth visible limit.
+  - All original allowances, including disabled on-demand and omitted budgets, remain in the
+    widget tooltip with exact local reset/update timestamps. The detail popup is unchanged.
+    Unknown values remain `?`; stale status retains the failure and age; identity mismatch
+    and signed-out views expose neither cached rows nor cached ring values. Optional Grok
+    failure stays in the tooltip without marking a fresh monthly response stale.
+  - Query, calculation, credential, refresh, registry and cache code are unchanged. Codex and
+    Claude retain their period/reset rows. This branch starts at `012d514`, preserving the
+    earlier Cursor integer tray glyph change without merging it into main.
+  - Actual production WPF before images were exported from `012d514` before production edits,
+    using an offline harness with fixed synthetic accounts/times. The same 100% mixed-account
+    fixture is 720 × 358 DIP before / 720 × 206 after in Korean (42% lower), and 720 × 374 /
+    720 × 206 in English (45% lower). Checked-in comparisons are
+    `docs/images/cursor-widget-summary-{before,after}-{en,ko}-{dark,light}.png`.
+  - Focused verification passed **106 Cursor/widget unit tests**, **48 production WPF summary
+    renders** (single/mixed accounts, EN/KO, Dark/Light, 80/100/150% zoom, unknown values,
+    unavailable/stale/auth states, long names and budget-first responses), and **180 DPI/layout renders** at
+    100/125/150/175/200%, including native windows on **3 monitors**. Cursor popup/account
+    regressions passed in EN/KO and Dark/Light/System, with each named ring target. Bounds,
+    value overlap, group headings, name/ring alignment and exact tooltips are asserted.
+    The changed documentation previews and comparison images were visually inspected.
+  - Logs and full preview matrices are in `artifacts/cursor-widget-summary-*`. The initial
+    focused runs exposed outdated widget label/tooltip assertions and a margin included in a
+    text measurement; these were corrected locally before the final gate. No remote retry was
+    used to diagnose them.
+  - The ring-candidate refinement adds two regressions: an omitted budget cannot become a
+    fourth visible allowance or substitute its known percentage for unknown summary values.
+    The tray precision fixture now uses the real `cursor-auto` ID instead of the generic
+    `smoke` ID. Its **183 render cases** passed with the existing integer glyph/fractional arc.
+  - One full run failed the existing position-reset focus invariant. HWND/PID/activation
+    diagnostics were added without changing the assertion or production focus behavior.
+    All 12 standalone recovery combinations and the following full-run recovery stage passed;
+    the original failure's exact cause remains unconfirmed. See
+    `artifacts/cursor-widget-summary-recovery.log` and `cursor-widget-summary-final-fast-gate.log`.
+  - Final local delivery verification is complete: **1,655 unit tests** passed on the final
+    production source (`cursor-widget-summary-final-gate.log`); after the test-only diagnostics
+    and fixture correction, `dev-run.ps1 -NoLaunch -Fast` passed in **4m 02s**, reusing those
+    unchanged unit results. The full WPF suite, script/desktop-instance checks, single-file
+    publish, published Claude receiver and isolated package apply/restore all passed.
+    Final log: `artifacts/cursor-widget-summary-delivery-gate.log`.
+  - Real-account receipt and installed-app update behavior are not exercised by these synthetic
+    presentation checks. No main merge, release or installed-app replacement is authorized here.
+
+- Cursor integer tray digits (unreleased, 2026-09-21):
+  - Only the Cursor notification-icon glyph rounds to a whole percentage, using the same
+    midpoint-away-from-zero rule as Codex. Both number and ring styles display `76.9` as
+    `77`, keeping the digits legible in the native 16-pixel slot. Unknown remains `?`.
+  - The source percentage, ring arc, danger threshold, popup/widget/tooltip precision,
+    provider queries and storage are unchanged. Existing Codex and Claude glyphs retain
+    their previous behavior. No installed app is replaced by these checks.
+  - Focused production rendering passed **183 icon cases** across 16/24/32 pixels,
+    both styles and both taskbar tones. Pixel comparisons cover fractional/midpoint
+    rounding, 0/100, 99.6 rounding to 100 without changing its danger color, and unknown.
+    Separate checks retain the fractional arc and popup/widget/tooltip text. The initial
+    new test incorrectly expected a blue arc at 0%; correcting that expectation passed.
+    The native-size Cursor contact sheet was visually inspected and saved in
+    `docs/images/cursor-tray-icons.png`; export: `artifacts/cursor-tray-integer`.
+  - Final `dev-run.ps1 -NoLaunch` passed once (5m 30s): **1,647 unit tests**, the full
+    WPF suite including all 183 icon cases, script/desktop-instance regressions,
+    single-file publish, published receiver checks and isolated package apply/restore.
+    Log: `artifacts/cursor-tray-integer-full-gate.log`. No real-account query was needed.
+
 - Cursor Plan & Usage wording (unreleased, 2026-09-20):
   - Display-only mapping: `cursor-auto` is Cursor Models / Monthly, `cursor-api` is
     Other Models / Monthly, and `cursor-sand` is Grok Bot / Weekly. The official names

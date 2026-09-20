@@ -60,7 +60,7 @@ public sealed class CursorNamingPresentationTests
     [Theory]
     [InlineData(UiLanguage.English)]
     [InlineData(UiLanguage.Korean)]
-    public void PopupRowsTooltipAndWidgetUseTheCombinedCursorLabels(UiLanguage language)
+    public void PopupTooltipAndWidgetRetainCursorNamesAndCadence(UiLanguage language)
     {
         UiText.SetLanguage(language);
         try
@@ -97,7 +97,7 @@ public sealed class CursorNamingPresentationTests
                 CursorUsagePresentation.QuotaDisplayLabel("cursor-auto"),
                 CursorUsagePresentation.QuotaDisplayLabel("cursor-api"),
                 CursorUsagePresentation.QuotaDisplayLabel("cursor-sand")
-            }, widget.Periods.Select(period => period.PeriodLabel));
+            }, widget.Periods.Select(period => period.PeriodLabel + " · " + period.CadenceLabel));
         }
         finally
         {

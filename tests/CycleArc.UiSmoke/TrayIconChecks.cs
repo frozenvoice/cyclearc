@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using CycleArc.Codex;
 using CycleArc.Models;
@@ -69,8 +70,13 @@ internal static class TrayIconChecks
 
         CheckUnknownIsNotZero();
         CheckNaturalProportions();
+        count += CheckCursorPixelRegression();
+        CheckCursorProjectionText();
         if (directory is not null)
+        {
             ExportContactSheet(directory);
+            ExportCursorContactSheet(directory);
+        }
         Console.WriteLine($"PASS: {count} tray icon renders across sizes, styles, values and states.");
     }
 
@@ -80,7 +86,9 @@ internal static class TrayIconChecks
         string? detail = null,
         UsageProviderId provider = UsageProviderId.Codex)
     {
-        var window = new CodexQuotaWindow("smoke", used, 10_080, null, CodexWindowKind.Weekly);
+        var window = provider == UsageProviderId.Cursor
+            ? new CodexQuotaWindow("cursor-auto", used, null, null, CodexWindowKind.Other)
+            : new CodexQuotaWindow("smoke", used, 10_080, null, CodexWindowKind.Weekly);
         return new CodexQuotaSnapshot(status, "pro", DateTimeOffset.Now, DateTimeOffset.Now,
             null, null, null, [window], detail) with { Provider = provider };
     }
@@ -224,6 +232,117 @@ internal static class TrayIconChecks
             throw new InvalidOperationException("Unknown tray value rendered like zero.");
     }
 
+    private static int CheckCursorPixelRegression()
+    {
+        var count = 0;
+        var values = new[] { 76.4, 76.5, 76.9, 0d, 99.6, 100d };
+        foreach (var size in new[] { 16, 24, 32 })
+        foreach (var style in Enum.GetValues<TrayIconStyle>())
+        foreach (var value in values)
+        foreach (var lightTaskbar in new[] { false, true })
+        {
+            using var cursor = TrayIconRenderer.Render(
+                Snapshot(CodexQuotaStatus.Available, value, provider: UsageProviderId.Cursor),
+                style, size, lightTaskbar: lightTaskbar);
+            using var cursorBitmap = cursor.ToBitmap();
+            CheckBitmap(cursorBitmap, size, style, $"cursor/{value:0.0}/{(lightTaskbar ? "light" : "dark")}");
+            using var codexFractional = TrayIconRenderer.Render(
+                Snapshot(CodexQuotaStatus.Available, value), style, size, lightTaskbar: lightTaskbar);
+            using var codexFractionalBitmap = codexFractional.ToBitmap();
+            CheckEquivalent(cursorBitmap, codexFractionalBitmap,
+                $"Cursor {value.ToString("0.0", CultureInfo.InvariantCulture)} changed the shared tray rendering");
+            if (style == TrayIconStyle.RemainingNumber)
+            {
+                var foreground = lightTaskbar ? Color.FromArgb(24, 24, 24) : Color.White;
+                CheckMonochromeNumber(cursorBitmap, foreground, $"cursor/{value:0.0}", size);
+                var rounded = Math.Round(value, MidpointRounding.AwayFromZero);
+                using var codex = TrayIconRenderer.Render(
+                    Snapshot(CodexQuotaStatus.Available, rounded), style, size, lightTaskbar: lightTaskbar);
+                using var codexBitmap = codex.ToBitmap();
+                CheckEquivalent(cursorBitmap, codexBitmap,
+                    $"Cursor {value.ToString("0.0", CultureInfo.InvariantCulture)} did not use the Codex integer glyph");
+            }
+            else if (value > 0)
+            {
+                CheckColor(cursorBitmap, value >= 100 ? Color.FromArgb(220, 38, 38) : Color.FromArgb(37, 99, 235),
+                    $"cursor/{value:0.0}", size);
+            }
+            count++;
+        }
+
+        // Unknown remains a question mark, including for Cursor and both taskbar tones.
+        foreach (var size in new[] { 16, 24, 32 })
+        foreach (var style in Enum.GetValues<TrayIconStyle>())
+        foreach (var lightTaskbar in new[] { false, true })
+        {
+            using var unknown = TrayIconRenderer.Render(
+                Snapshot(CodexQuotaStatus.Unavailable, null, provider: UsageProviderId.Cursor),
+                style, size, lightTaskbar: lightTaskbar);
+            using var unknownBitmap = unknown.ToBitmap();
+            using var codexUnknown = TrayIconRenderer.Render(
+                Snapshot(CodexQuotaStatus.Unavailable, null), style, size, lightTaskbar: lightTaskbar);
+            using var codexUnknownBitmap = codexUnknown.ToBitmap();
+            CheckEquivalent(unknownBitmap, codexUnknownBitmap, "Unknown Cursor usage lost its question mark");
+            CheckBitmap(unknownBitmap, size, style, $"cursor/unknown/{(lightTaskbar ? "light" : "dark")}");
+            count++;
+        }
+
+        // The fractional input must still drive the ring arc. Its glyph matches the
+        // rounded Codex glyph, but its arc must differ from a true 77% sample.
+        using var fractionalRing = TrayIconRenderer.Render(
+            Snapshot(CodexQuotaStatus.Available, 76.9, provider: UsageProviderId.Cursor),
+            TrayIconStyle.ProgressRing, 32);
+        using var roundedRing = TrayIconRenderer.Render(
+            Snapshot(CodexQuotaStatus.Available, 77, provider: UsageProviderId.Cursor),
+            TrayIconStyle.ProgressRing, 32);
+        using var fractionalBitmap = fractionalRing.ToBitmap();
+        using var roundedBitmap = roundedRing.ToBitmap();
+        if (DifferentPixels(fractionalBitmap, roundedBitmap) < 3)
+            throw new InvalidOperationException("Cursor ring lost the fractional usage arc.");
+        return count;
+    }
+
+    private static void CheckCursorProjectionText()
+    {
+        var snapshot = Snapshot(CodexQuotaStatus.Available, 76.9, provider: UsageProviderId.Cursor);
+        Check(CodexDisplayFormatting.PercentText(76.9, UsageProviderId.Cursor) == "76.9%",
+            "Cursor detail formatting rounded away the fractional percentage.");
+        Check(CodexRingPresentation.From(snapshot).CenterValueText == "76.9%",
+            "Cursor popup ring text rounded away the fractional percentage.");
+        Check(CycleArcPresentation.CompactText(snapshot).Contains("76.9%", StringComparison.Ordinal),
+            "Cursor compact projection rounded away the fractional percentage.");
+        Check(CycleArcPresentation.TrayTooltip(snapshot).Contains("23.1%", StringComparison.Ordinal),
+            "Cursor tray tooltip rounded away the fractional remaining percentage.");
+        Check(CodexDisplayFormatting.Rows(snapshot).Any(row => row.Value.Contains("23.1%", StringComparison.Ordinal)),
+            "Cursor popup rows rounded away the fractional remaining percentage.");
+        var account = new CodexAccountView(
+            new CodexAccountProfile("cursor-tray-text", "", "Cursor") { Provider = UsageProviderId.Cursor }, snapshot);
+        Check(WidgetAccountModel.From(account, selected: false).Ring.CenterValueText == "76.9%",
+            "Cursor widget ring text rounded away the fractional percentage.");
+    }
+
+    private static void CheckEquivalent(Bitmap actual, Bitmap expected, string message)
+    {
+        if (actual.Width != expected.Width || actual.Height != expected.Height
+            || DifferentPixels(actual, expected) > Math.Max(1, actual.Width / 8))
+            throw new InvalidOperationException(message + ".");
+    }
+
+    private static void Check(bool condition, string message)
+    {
+        if (!condition)
+            throw new InvalidOperationException(message);
+    }
+
+    private static int DifferentPixels(Bitmap first, Bitmap second)
+    {
+        var different = 0;
+        for (var y = 0; y < Math.Min(first.Height, second.Height); y++)
+        for (var x = 0; x < Math.Min(first.Width, second.Width); x++)
+            if (Distance(first.GetPixel(x, y), second.GetPixel(x, y)) > 8) different++;
+        return different + Math.Abs(first.Width - second.Width) + Math.Abs(first.Height - second.Height);
+    }
+
     private static void ExportContactSheet(string directory)
     {
         Directory.CreateDirectory(directory);
@@ -292,6 +411,50 @@ internal static class TrayIconChecks
             }
         }
     }
+
+    private static void ExportCursorContactSheet(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        var samples = new (string Label, CodexQuotaSnapshot Snapshot)[]
+        {
+            ("76.4", Snapshot(CodexQuotaStatus.Available, 76.4, provider: UsageProviderId.Cursor)),
+            ("76.5", Snapshot(CodexQuotaStatus.Available, 76.5, provider: UsageProviderId.Cursor)),
+            ("76.9", Snapshot(CodexQuotaStatus.Available, 76.9, provider: UsageProviderId.Cursor)),
+            ("0", Snapshot(CodexQuotaStatus.Available, 0, provider: UsageProviderId.Cursor)),
+            ("100", Snapshot(CodexQuotaStatus.Available, 100, provider: UsageProviderId.Cursor)),
+            ("?", Snapshot(CodexQuotaStatus.Unavailable, null, provider: UsageProviderId.Cursor))
+        };
+
+        const int labelWidth = 82;
+        const int sampleWidth = 60;
+        using var sheet = new Bitmap(labelWidth + samples.Length * sampleWidth, 664);
+        using var graphics = Graphics.FromImage(sheet);
+        using var font = new Font("Segoe UI", 9, FontStyle.Regular, GraphicsUnit.Pixel);
+        graphics.Clear(Color.FromArgb(27, 31, 39));
+        for (var i = 0; i < samples.Length; i++)
+            graphics.DrawString(samples[i].Label, font, Brushes.White, labelWidth + i * sampleWidth, 8);
+
+        var row = 0;
+        foreach (var dark in new[] { true, false })
+        foreach (var size in new[] { 16, 24, 32 })
+        foreach (var style in Enum.GetValues<TrayIconStyle>())
+        {
+            var y = 32 + row++ * 52;
+            using var background = new SolidBrush(dark ? Color.FromArgb(27, 31, 39) : Color.FromArgb(245, 247, 250));
+            graphics.FillRectangle(background, 0, y, sheet.Width, 52);
+            graphics.DrawString($"{size}px {(style == TrayIconStyle.ProgressRing ? "ring" : "number")}", font,
+                dark ? Brushes.White : Brushes.Black, 6, y + 20);
+            for (var i = 0; i < samples.Length; i++)
+            {
+                using var icon = TrayIconRenderer.Render(samples[i].Snapshot, style, size, lightTaskbar: !dark);
+                using var bitmap = icon.ToBitmap();
+                graphics.DrawImageUnscaled(bitmap, labelWidth + i * sampleWidth + (32 - size) / 2, y + (52 - size) / 2);
+            }
+        }
+
+        sheet.Save(Path.Combine(directory, "cursor-tray-icons.png"), System.Drawing.Imaging.ImageFormat.Png);
+    }
+
     private static int Distance(Color a, Color b) =>
         Math.Abs(a.R - b.R) + Math.Abs(a.G - b.G) + Math.Abs(a.B - b.B);
 }

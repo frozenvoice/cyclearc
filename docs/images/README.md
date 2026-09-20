@@ -1,6 +1,6 @@
 # Documentation previews
 
-These PNGs render the actual production WPF views with synthetic profiles and quota metadata.
+These PNGs render the actual production WPF views and native tray icons with synthetic profiles and quota metadata.
 They show the CycleArc product name, Codex/Claude/Cursor provider labels and current connection controls.
 They are not captures of a user's account or fabricated UI mockups. The sample percentages,
 reset times and credits illustrate the layout; they do not promise specific plan entitlements.
@@ -16,8 +16,10 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `claude-overview-{en,ko}-{dark,light}.png` | Research selected with a Desktop history fallback: 91% five-hour / 47% weekly, unknown resets, Received and original observation time |
 | `claude-connection-{en,ko}-{dark,light}.png` | Official CLI connection choices, existing Desktop login for server checks and manual usage-page access; advanced settings collapsed |
 | `cursor-popup-{en,ko}-{dark,light}.png` | Cursor Models and Other Models monthly allowances, Grok Bot weekly allowance, named usage ring, disabled on-demand and successful update time |
-| `cursor-widget-{en,ko}-{dark,light}.png` | The same Cursor allowances with reset countdowns and visible update time |
+| `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary, named ring and short update age; exact times and omitted budgets remain in tooltips/detail |
+| `cursor-widget-summary-{before,after}-{en,ko}-{dark,light}.png` | Fixed synthetic Codex / Cursor / Claude accounts in the actual WPF widget, before and after the Cursor summary change at 100% zoom |
 | `cursor-accounts-{en,ko}-{dark,light}.png` | Current Windows Cursor connection, reconnect/disconnect, nickname and saved-order controls |
+| `cursor-tray-icons.png` | Cursor fractional inputs shown as whole tray digits in number/ring styles at 16/24/32 pixels on dark/light taskbars; zero, full usage and unknown included |
 
 The multi-account fixtures live in `DocumentationScreenshots.SampleAccounts`. They use the
 names Personal / Work / Research (개인용 / 업무용 / 실험용), reserved `example.invalid` email
@@ -46,8 +48,8 @@ the ring, tray and widget. Selecting Claude removes the Codex reset-credit card.
 illustrate display states, not real-account compatibility. Connection previews drive the
 production window through `IClaudeConnectionActions` using `PreviewClaudeConnection`; the adapter
 returns fictional login metadata and only changes in-memory state. It never runs a CLI,
-starts a browser, creates a home, opens a session or changes settings. All dates are generated
-relative to export time.
+starts a browser, creates a home, opens a session or changes settings. These Claude fixture dates
+are generated relative to export time; the Cursor summary comparison below uses a fixed time.
 
 Generate on Windows after building the solution. Export to `artifacts/` for visual review
 before copying affected images into `docs/images`.
@@ -56,6 +58,27 @@ Cursor checks and previews (also exports the current System theme):
 
 ```powershell
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --cursor-ui artifacts/cursor-ui
+```
+
+Cursor summary checks and previews (standalone/mixed accounts, EN/KO, Dark/Light,
+80/100/150% zoom, plus unknown/stale/authentication states, long names and a budget-first response):
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --cursor-widget-summary-previews artifacts/cursor-widget-summary-after
+```
+
+`CursorWidgetSummaryChecks` uses a fixed observation time with Cursor Models 76.9%,
+Other Models 41.2%, Grok Bot 12.5%, disabled on-demand and a separate team pool.
+The mixed fixture places Cursor between Codex (63%) and Claude (34%) to expose vertical
+alignment. The before set was exported from `012d514` with the export harness added before
+production edits; the after set uses the same accounts and times. The checked-in comparison
+files are those actual renders, not generated mockups. Layout DPI checks separately include
+Cursor at 100/125/150/175/200% through `--widget-dpi`.
+
+Native tray pixel checks and contact sheets (including `cursor-tray-icons.png`):
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --tray-icons artifacts/tray-icons
 ```
 
 `CursorUiChecks` uses reserved `example.invalid` identity and synthetic Cursor Models 76.9%,
@@ -101,7 +124,8 @@ dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -
 ```
 
 The exporter never runs production startup, requests account data, or reads/writes user settings.
-All documentation previews use WPF `RenderTargetBitmap` at 2x resolution under the smoke harness's
-`OfflineApp`, without taking a desktop screenshot. Each image must be visually inspected before
+View previews use WPF `RenderTargetBitmap` at 2x resolution under the smoke harness's
+`OfflineApp`; tray contact sheets use the production GDI icon renderer at native sizes.
+Neither takes a desktop screenshot. Each image must be visually inspected before
 replacing the checked-in file. Keep English and Korean captions consistent with the account counts,
 selected profile, data source and separate Claude periods.

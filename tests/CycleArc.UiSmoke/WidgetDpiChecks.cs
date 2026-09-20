@@ -7,6 +7,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CycleArc.Codex;
 using CycleArc.Models;
+using CycleArc.Providers.Cursor;
 using CycleArc.Providers.Usage;
 using CycleArc.Services;
 using CycleArc.UI;
@@ -27,9 +28,11 @@ internal static class WidgetDpiChecks
                 new("five", 85, CodexWindowClassifier.FiveHourMinutes, now.AddMinutes(35), CodexWindowKind.FiveHour),
                 new("codex", 25, CodexWindowClassifier.WeeklyMinutes, now.AddDays(7), CodexWindowKind.Weekly)
             ], null);
+        var cursorSnapshot = CursorSnapshot(now);
         CodexAccountView[] accounts =
         [
             WidgetFixture.Synthetic("dpi-main", "Main", snapshot),
+            WidgetFixture.Synthetic("dpi-cursor", "Cursor Models", cursorSnapshot),
             WidgetFixture.Synthetic("dpi-long", "a-very-long-synthetic-widget-nickname", snapshot),
             WidgetFixture.Synthetic("dpi-claude", "Work Claude", snapshot with { Provider = UsageProviderId.Claude })
         ];
@@ -116,6 +119,16 @@ internal static class WidgetDpiChecks
             account with { Snapshot = account.Snapshot with { Status = status } }).ToArray(),
             accounts[0].Profile.Id, UsagePeriodPreference.Auto, WidgetFixture.Desktop);
 
+    private static CodexQuotaSnapshot CursorSnapshot(DateTimeOffset now) =>
+        new CodexQuotaSnapshot(CodexQuotaStatus.Available, "pro", now, now, null, null, null,
+        [
+            new("cursor-auto", 76.9, null, now.AddDays(12), CodexWindowKind.Other),
+            new("cursor-api", 41.2, null, now.AddDays(12), CodexWindowKind.Other),
+            new("cursor-on-demand", null, null, null, CodexWindowKind.Other) { IsEnabled = false },
+            new("cursor-sand", 12.5, null, now.AddDays(5), CodexWindowKind.Other),
+            new("cursor-team-pool", 22.5, null, now.AddDays(12), CodexWindowKind.Other)
+        ], CursorUsagePresentation.LiveDetail) with { Provider = UsageProviderId.Cursor };
+
     // Every module keeps its fixed width and readable text at each scale: nothing overlaps,
     // nothing is clipped, and the header stays above the grid.
     private static void AssertModuleLayout(FloatingWidget widget, string context)
@@ -154,6 +167,32 @@ internal static class WidgetDpiChecks
                 if (line.RemainingText.ActualWidth + 0.5 < line.RemainingText.DesiredSize.Width
                     || line.ResetText.ActualWidth + 0.5 < line.ResetText.DesiredSize.Width)
                     throw new InvalidOperationException($"A quota or reset value is clipped ({context}).");
+            }
+            if (module.Model?.Provider == UsageProviderId.Cursor)
+            {
+                if (module.Periods.Count != 3)
+                    throw new InvalidOperationException($"Cursor summary did not keep exactly three enabled primary allowances ({context}).");
+                var expected = new[] { "Cursor Models", "Other Models", "Grok Bot" };
+                var modelPeriods = module.Model.Periods;
+                if (!modelPeriods.Select(line => line.PeriodLabel).SequenceEqual(expected))
+                    throw new InvalidOperationException($"Cursor summary order or labels changed ({context}).");
+                if (module.Periods.Zip(modelPeriods).Any(pair => string.IsNullOrEmpty(pair.Second.CadenceLabel)
+                    || !string.IsNullOrEmpty(pair.First.ResetText.Text)
+                    || pair.Second.ResetTooltip is null))
+                    throw new InvalidOperationException($"Cursor summary repeated reset text or lost cadence/reset tooltip ({context}).");
+                for (var i = 0; i < module.Periods.Count; i++)
+                {
+                    var startsGroup = i == 0
+                        || !string.Equals(modelPeriods[i].CadenceLabel, modelPeriods[i - 1].CadenceLabel,
+                            StringComparison.Ordinal);
+                    var cadence = module.Periods[i].CadenceText;
+                    if (cadence.Visibility != (startsGroup ? Visibility.Visible : Visibility.Collapsed)
+                        || startsGroup && cadence.Text != modelPeriods[i].CadenceLabel + UiText.T(" · Left", " · 남음"))
+                        throw new InvalidOperationException($"Cursor cadence grouping changed ({context}).");
+                }
+                if (module.RingTargetText.Text != modelPeriods[0].PeriodLabel
+                    || module.RingTargetText.TextWrapping != TextWrapping.Wrap)
+                    throw new InvalidOperationException($"Cursor ring target is missing or not wrapped ({context}).");
             }
             if (Math.Abs(VisualTreeHelper.GetDpi(name).DpiScaleY - scale) > 0.001)
                 throw new InvalidOperationException($"Widget text did not inherit the tested DPI ({context}): "

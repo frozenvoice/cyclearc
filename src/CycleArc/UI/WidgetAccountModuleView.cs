@@ -8,7 +8,7 @@ namespace CycleArc.UI;
 
 /// <summary>
 /// One account inside the floating widget: identity, a small usage ring for the represented
-/// period, and one line per period the provider actually reported. Built once and rebound in
+/// period, and the provider's compact period summary. Built once and rebound in
 /// place, so a new sample repaints text instead of recreating the window.
 /// </summary>
 public sealed class WidgetAccountModuleView : Border
@@ -27,7 +27,7 @@ public sealed class WidgetAccountModuleView : Border
     private readonly PathFigure _ringFigure = new() { IsClosed = false };
     private readonly ArcSegment _ringSegment = new() { SweepDirection = SweepDirection.Clockwise };
     private readonly StackPanel _periodPanel = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly Grid _ringHost = new() { Width = RingDiameter, Height = RingDiameter, VerticalAlignment = VerticalAlignment.Center };
+    private readonly Grid _ringHost = new() { Width = RingDiameter, Height = RingDiameter, VerticalAlignment = VerticalAlignment.Top };
 
     public TextBlock NameText { get; } = new()
     {
@@ -46,6 +46,13 @@ public sealed class WidgetAccountModuleView : Border
         FontSize = 8.5, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center
     };
 
+    public TextBlock RingTargetText { get; } = new()
+    {
+        FontSize = 10.5, LineHeight = 13, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+        TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center,
+        Margin = new Thickness(0, 4, 0, 0), Visibility = Visibility.Collapsed
+    };
+
     public TextBlock StatusText { get; } = new()
     {
         FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
@@ -56,7 +63,7 @@ public sealed class WidgetAccountModuleView : Border
     public string ProfileId { get; private set; } = "";
     public WidgetAccountModel? Model { get; private set; }
 
-    /// The period lines currently shown, representative first. Empty when no quota may be shown.
+    /// The period lines currently shown. Cursor keeps its named allowance priority order.
     public IReadOnlyList<WidgetPeriodLineView> Periods { get; private set; } = [];
 
     public WidgetAccountModuleView()
@@ -72,6 +79,7 @@ public sealed class WidgetAccountModuleView : Border
         NameText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         RingValueText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         RingUsedLabel.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        RingTargetText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         StatusText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         _ringTrack.SetResourceReference(Shape.StrokeProperty, "LineBrush");
 
@@ -96,12 +104,15 @@ public sealed class WidgetAccountModuleView : Border
         var body = new Grid { Margin = new Thickness(0, 7, 0, 0) };
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        body.Children.Add(_ringHost);
+        var ringColumn = new StackPanel { Width = RingDiameter, VerticalAlignment = VerticalAlignment.Top };
+        ringColumn.Children.Add(_ringHost);
+        ringColumn.Children.Add(RingTargetText);
+        body.Children.Add(ringColumn);
         _periodPanel.Margin = new Thickness(9, 0, 0, 0);
         Grid.SetColumn(_periodPanel, 1);
         body.Children.Add(_periodPanel);
 
-        var content = new StackPanel();
+        var content = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
         content.Children.Add(identity);
         content.Children.Add(body);
         content.Children.Add(StatusText);
@@ -123,7 +134,10 @@ public sealed class WidgetAccountModuleView : Border
 
         StatusText.Text = model.StatusText;
         StatusText.Visibility = string.IsNullOrEmpty(model.StatusText) ? Visibility.Collapsed : Visibility.Visible;
-        StatusText.ToolTip = string.IsNullOrEmpty(model.StatusText) ? null : model.StatusText;
+        StatusText.ToolTip = CursorUsagePresentation.IsCursor(model.Provider) ? model.Tooltip
+            : string.IsNullOrEmpty(model.StatusText) ? null : model.StatusText;
+        StatusText.TextWrapping = CursorUsagePresentation.IsCursor(model.Provider)
+            ? TextWrapping.Wrap : TextWrapping.NoWrap;
         StatusText.SetResourceReference(TextBlock.ForegroundProperty, model.IsStale ? "StaleBrush" : "MutedBrush");
         StatusText.FontWeight = model.IsStale ? FontWeights.SemiBold : FontWeights.Normal;
 
@@ -141,7 +155,7 @@ public sealed class WidgetAccountModuleView : Border
     private static string AutomationText(WidgetAccountModel model)
     {
         var periods = model.Periods.Select(period =>
-            $"{period.PeriodLabel} {period.RemainingText}"
+            $"{period.PeriodLabel} {period.CadenceLabel} {period.RemainingText}"
             + (string.IsNullOrEmpty(period.ResetText) ? "" : $" · {UiText.WidgetReset} {period.ResetText}"));
         return string.Join(" · ", new[]
         {
@@ -159,6 +173,9 @@ public sealed class WidgetAccountModuleView : Border
         RingValueText.Text = ring.CenterValueText;
         // The ring fills with usage, so the value inside it is usage; remaining is on the lines.
         RingUsedLabel.Text = UiText.CodexLegendUsed;
+        RingTargetText.Text = model.RingTargetLabel ?? "";
+        RingTargetText.Visibility = string.IsNullOrEmpty(model.RingTargetLabel) ? Visibility.Collapsed : Visibility.Visible;
+        RingTargetText.ToolTip = ring.CenterSubLabel;
         _ringHost.ToolTip = ring.CenterSubLabel + " " + ring.CenterValueText;
         RingValueText.SetResourceReference(TextBlock.ForegroundProperty, model.IsStale ? "StaleBrush" : "TextBrush");
         var arcBrushKey = model.IsStale ? "StaleBrush" : ring.IsDangerLevel ? "DangerBrush" : "AccentBrush";
@@ -193,13 +210,24 @@ public sealed class WidgetAccountModuleView : Border
             Periods = rebuilt;
         }
         var isCursor = CursorUsagePresentation.IsCursor(model.Provider);
-        for (var i = 0; i < model.Periods.Count; i++) Periods[i].Bind(model.Periods[i], model.IsStale, isCursor);
+        for (var i = 0; i < model.Periods.Count; i++)
+        {
+            var line = model.Periods[i];
+            var startsGroup = isCursor && (i == 0 || line.CadenceLabel != model.Periods[i - 1].CadenceLabel);
+            Periods[i].Margin = new Thickness(0, i == 0 ? 0 : isCursor ? startsGroup ? 4 : 0 : 4, 0, 0);
+            Periods[i].Bind(line, model.IsStale, isCursor, startsGroup);
+        }
     }
 }
 
 /// <summary>One period inside a module: its name, what is left, and when it resets.</summary>
 public sealed class WidgetPeriodLineView : StackPanel
 {
+    public TextBlock CadenceText { get; } = new()
+    {
+        FontSize = 10.5, LineHeight = 14, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+        Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed
+    };
     public TextBlock PeriodText { get; } = new()
     {
         FontSize = 12, LineHeight = 16, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
@@ -228,6 +256,7 @@ public sealed class WidgetPeriodLineView : StackPanel
     {
         Tag = "WidgetPeriodLine";
         PeriodText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        CadenceText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         ResetText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         _representative.SetResourceReference(Shape.FillProperty, "AccentBrush");
 
@@ -241,22 +270,28 @@ public sealed class WidgetPeriodLineView : StackPanel
         _head.Children.Add(_label);
         Grid.SetColumn(RemainingText, 1);
         _head.Children.Add(RemainingText);
+        Children.Add(CadenceText);
         Children.Add(_head);
         Children.Add(ResetText);
     }
 
-    public void Bind(WidgetPeriodLine line, bool stale, bool isCursor = false)
+    public void Bind(WidgetPeriodLine line, bool stale, bool isCursor = false, bool startsGroup = false)
     {
         PeriodText.Text = line.PeriodLabel;
         PeriodText.TextWrapping = isCursor ? TextWrapping.Wrap : TextWrapping.NoWrap;
         PeriodText.TextTrimming = isCursor ? TextTrimming.None : TextTrimming.CharacterEllipsis;
-        Grid.SetColumnSpan(_label, isCursor ? 2 : 1);
-        Grid.SetColumn(RemainingText, isCursor ? 0 : 1);
-        Grid.SetColumnSpan(RemainingText, isCursor ? 2 : 1);
-        Grid.SetRow(RemainingText, isCursor ? 1 : 0);
+        // Cursor's cadence is shared once above each group. Keep the actual allowance
+        // names and values on one row, allowing a long monetary value to wrap the name.
+        _head.ColumnDefinitions[0].Width = isCursor ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        _head.ColumnDefinitions[1].Width = isCursor ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+        _label.Margin = new Thickness(0, 0, isCursor ? 4 : 0, 0);
+        CadenceText.Text = startsGroup ? line.CadenceLabel + UiText.T(" · Left", " · 남음") : "";
+        CadenceText.Visibility = startsGroup ? Visibility.Visible : Visibility.Collapsed;
+        ToolTip = line.Tooltip;
         RemainingText.Text = line.RemainingText;
         RemainingText.SetResourceReference(TextBlock.ForegroundProperty, stale ? "StaleBrush" : "TextBrush");
         ResetText.Text = line.ResetText;
+        ResetText.Visibility = string.IsNullOrEmpty(line.ResetText) ? Visibility.Collapsed : Visibility.Visible;
         // The countdown stays readable; the exact local reset time is one hover away.
         ResetText.ToolTip = line.ResetTooltip is null ? null : UiText.WidgetReset + " " + line.ResetTooltip;
         // Reserve the marker gutter so both period names start in the same column.
