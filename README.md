@@ -35,6 +35,8 @@ The **Codex**, **Claude** or **Cursor** label on account cards, selected details
 
 Cursor Models (Auto) and Other Models (API) remain separate. Reported on-demand budgets and the independent Grok allowance are also kept separate. Missing limits and reset times stay unknown; legacy dollar accounting is never added to model percentages. Failed checks keep the last good values and success time visibly stale. A changed Cursor login hides the previous account's quota; sign back in to the original Cursor account to reconnect that profile.
 
+If only Grok is unavailable, the monthly allowances remain updated and continue refreshing. Grok's retry delay applies only to Grok; its unverified value is omitted, with an explanation in the popup. Account mismatch still respects the configured automatic interval, including after reopening the popup or restarting CycleArc.
+
 CycleArc reads only the required access-token key in Cursor's local account database and uses it in memory for first-party queries. It never persists, logs or renews the token or modifies Cursor settings. Disconnect affects CycleArc only. The standard Windows user-data location is supported; custom `--user-data-dir` locations are not searched. These observed internal interfaces may change. See [Windows verification and quota semantics](docs/CURSOR.md).
 
 | Cursor popup | Cursor widget |

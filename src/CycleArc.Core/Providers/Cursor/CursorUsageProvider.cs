@@ -127,7 +127,7 @@ public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccount
                 _email = null;
                 _snapshot = current is { Disconnected: true }
                     ? Empty("cursor-disconnected") with { Status = CodexQuotaStatus.SignedOut }
-                    : Empty("cursor-live-identity-mismatch");
+                    : Empty("cursor-live-identity-mismatch") with { LastAttemptedRefresh = response.AttemptedAt };
                 PublishIfChanged(_snapshot);
                 return new(_snapshot, false, _snapshot.TechnicalDetail);
             }
@@ -216,14 +216,15 @@ public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccount
         if (binding is null)
             return Empty(_binding?.Disconnected == true ? "cursor-disconnected" : "cursor-not-connected") with
             { Status = _binding?.Disconnected == true ? CodexQuotaStatus.SignedOut : CodexQuotaStatus.Unavailable };
-        if (response.Failure == "cursor-live-identity-mismatch") return Empty(response.Failure);
+        if (response.Failure == "cursor-live-identity-mismatch")
+            return Empty(response.Failure) with { LastAttemptedRefresh = response.AttemptedAt };
         var sample = response.Sample;
         if (sample is null)
             return Empty(response.Failure ?? "cursor-connected-waiting") with
             { LastAttemptedRefresh = response.AttemptedAt };
         return new(response.Failure is null ? CodexQuotaStatus.Available : CodexQuotaStatus.Stale,
             sample.MembershipType, sample.ObservedAt, response.AttemptedAt ?? sample.ObservedAt, null, null,
-            null, sample.Windows, response.Failure, null)
+            null, sample.Windows, response.Failure ?? response.SandFailure, null)
         { Provider = UsageProviderId.Cursor, IdentityFingerprint = binding.IdentityFingerprint };
     }
 

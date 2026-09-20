@@ -64,13 +64,25 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
 - Cursor Auto/API allowances retain their own named rows, while on-demand, team and Grok
   limits keep their separate scope and reset timestamps. Missing values remain unknown;
   historical included-dollar accounting is never turned into the split model percentages.
-  Refresh failures retain the last successful observation, and identity mismatch hides it.
+  Monthly refresh failures retain the last successful observation, and identity mismatch
+  hides it while retaining the last attempt for the automatic-refresh gate. A mismatch marker
+  preserves that attempt even if the primary cache commit was interrupted.
+  Optional Sand/Grok failure and retry metadata are separate from monthly failure/backoff;
+  its retry delay skips only the optional request. A successful monthly response remains
+  Available, omits unverified Grok data and keeps its own observation time. The popup explains
+  optional failure without making the monthly tray/widget status stale.
+  Cursor usage-cache v2 reads v1 and separates legacy Sand failure/backoff on load. Older
+  Cursor builds cannot read v2 quota caches and may need a fresh query after rollback;
+  account bindings and the registry are separate and remain intact.
   Popup, tray and widget use the same projection; the Codex period selector and reset-credit
   actions do not apply to Cursor.
 - Adding Cursor advances the account registry to version 3 and upgrades the previous-good
   backup version before the primary. This prevents older builds from silently discarding the
   third provider. Existing profile IDs, labels, order, selection and Codex/Claude caches stay
   intact. Removing Cursor does not downgrade the registry.
+  The first version transition keeps the previous-good profile set in the backup, with its
+  version raised. If that new primary is damaged before another save, recovery can therefore
+  lose the just-added Cursor registry reference; it does not delete that profile's files.
 
 - Codex displays the five-hour (300 minutes) and weekly (10,080 minutes) windows supplied by
   the official App Server, regardless of plan name or primary/secondary position. Account

@@ -219,12 +219,15 @@ public sealed record CursorUsageResponse(
     DateTimeOffset? RetryAfter = null,
     string? Email = null,
     string? IdentityFingerprint = null,
-    DateTimeOffset? AttemptedAt = null);
+    DateTimeOffset? AttemptedAt = null,
+    string? SandFailure = null,
+    DateTimeOffset? SandRetryAfter = null);
 
 public interface ICursorUsageClient
 {
     Task<CursorConnectionResult> ReadIdentityAsync(CancellationToken token);
-    Task<CursorUsageResponse> FetchAsync(CursorConnectionBinding binding, CancellationToken token);
+    Task<CursorUsageResponse> FetchAsync(CursorConnectionBinding binding, CancellationToken token,
+        bool includeSand = true);
 }
 
 public interface ICursorUsageSource

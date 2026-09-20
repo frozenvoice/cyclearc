@@ -89,6 +89,10 @@ Show it only when the response establishes an included allowance or an
 unexpired trial. A paid allowance resets at `nextResetTimestampUtc`; a trial
 expiry is not a recurring reset. A missing/malformed/expired trial, or a Sand
 request failure, must omit only this lane and preserve the monthly lanes.
+Sand failure and retry metadata are persisted independently. A Sand retry deadline skips
+only that request; verified monthly responses continue to update their own timestamp and
+remain available. The popup can explain the missing Grok data without marking the monthly
+sample stale. A previously received Grok value is not attached to a new monthly receipt.
 
 Missing, null, malformed, or failed values remain unknown. They are not
 converted to zero. A failed refresh may retain the last valid snapshot and its

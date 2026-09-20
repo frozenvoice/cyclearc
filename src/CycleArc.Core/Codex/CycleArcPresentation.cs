@@ -15,6 +15,12 @@ public static class CycleArcPresentation
             return failure;
         if (CursorUsagePresentation.IsCursor(snapshot))
         {
+            // The optional Grok/Sand allowance is independent from Cursor's
+            // monthly limits.  A failed Sand request must not make an otherwise
+            // valid monthly sample look stale or unavailable on compact surfaces.
+            if (snapshot.Status == CodexQuotaStatus.Available
+                && string.Equals(snapshot.TechnicalDetail, "cursor-sand-unavailable", StringComparison.Ordinal))
+                return UiText.T("Updated", "업데이트됨");
             if (CursorUsagePresentation.FailureText(snapshot.TechnicalDetail) is { Length: > 0 } cursorFailure)
                 return cursorFailure;
             return snapshot.Status switch

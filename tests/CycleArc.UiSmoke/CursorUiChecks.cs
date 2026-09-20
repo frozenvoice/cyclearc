@@ -93,9 +93,93 @@ internal static class CursorUiChecks
                 flyout.Close();
                 widget.CloseWithoutActivation();
             }
+
+            CheckPartialSand(snapshot, now, language, theme, directory);
         }
         if (directory is not null)
             Console.WriteLine($"PASS: Cursor popup, widget and account controls EN/KO + Dark/Light; previews: {directory}");
+    }
+
+    private static void CheckPartialSand(CodexQuotaSnapshot source, DateTimeOffset now,
+        UiLanguage language, AppTheme theme, string? directory)
+    {
+        // Sand/Grok is optional. Keep the reported monthly buckets and their real
+        // timestamp when that independent request fails, without inventing a zero row.
+        var snapshot = source with
+        {
+            Windows = source.Windows.Where(window => window.LimitId != "cursor-sand").ToArray(),
+            TechnicalDetail = "cursor-sand-unavailable"
+        };
+        var flyout = new FlyoutWindow { ShowActivated = false };
+        var widget = new FloatingWidget { ShowActivated = false };
+        try
+        {
+            flyout.Bind(snapshot);
+            var flyoutContent = (FrameworkElement)flyout.Content;
+            flyoutContent.Measure(new Size(440, 1000));
+            flyoutContent.Arrange(new Rect(0, 0, 440, 1000));
+            flyoutContent.UpdateLayout();
+
+            var updated = UiText.T("Updated", "업데이트됨");
+            var grokUnavailable = UiText.T("Grok usage unavailable", "Grok 사용량 확인 불가");
+            var stale = UiText.T("Stale data", "오래된 데이터");
+            Check(snapshot.Status == CodexQuotaStatus.Available,
+                "Cursor partial Sand sample was not available.");
+            Check(Descendants<TextBlock>(flyoutContent).Any(text => text.Text == updated),
+                "Cursor partial popup lost its Updated status or timestamp.");
+            Check(((TextBlock)flyout.FindName("CodexStatusText")).Text == grokUnavailable,
+                "Cursor partial popup did not keep the optional Grok warning in detail.");
+            Check(((TextBlock)flyout.FindName("StatusText")).Text == updated,
+                "Cursor partial popup promoted the optional Grok warning to global status.");
+            Check(!Descendants<TextBlock>(flyoutContent).Any(text => text.Text.Contains(stale, StringComparison.Ordinal)),
+                "Cursor partial popup marked the monthly sample stale.");
+            Check(!Descendants<TextBlock>(flyoutContent).Any(text => text.Text.Contains("Grok", StringComparison.Ordinal)
+                && text != (TextBlock)flyout.FindName("CodexStatusText")),
+                "Cursor partial popup invented a Grok quota row outside its detail warning.");
+            Check(!Descendants<TextBlock>(flyoutContent).Any(text => text.Text.Contains("$0", StringComparison.Ordinal)),
+                "Cursor partial popup invented a zero Grok allowance.");
+
+            var profile = new CodexAccountProfile("cursor-ui-partial", "",
+                UiText.T("Cursor account", "Cursor 계정"))
+            {
+                Provider = UsageProviderId.Cursor
+            };
+            var account = new CodexAccountView(profile, snapshot, "cursor@example.invalid") { IsConnected = true };
+            WidgetFixture.BindOne(widget, account);
+            var module = WidgetFixture.Module(widget);
+            var updatedStamp = CursorUsagePresentation.UpdatedText(snapshot);
+            Check(module.Periods.Count == snapshot.Windows.Count,
+                "Cursor partial widget merged or invented a Sand allowance.");
+            Check(module.StatusText.Text.Contains(updatedStamp, StringComparison.Ordinal),
+                "Cursor partial widget lost the monthly update timestamp.");
+            Check(!module.StatusText.Text.Contains(stale, StringComparison.Ordinal)
+                && !module.StatusText.Text.Contains("Grok", StringComparison.Ordinal),
+                "Cursor partial widget exposed an optional Grok failure as stale/global status.");
+            Check((module.ToolTip as string ?? "").Contains(CursorUsagePresentation.QuotaLabel("cursor-auto"), StringComparison.Ordinal),
+                "Cursor partial widget lost the monthly allowance label.");
+            Check(!(module.ToolTip as string ?? "").Contains("Grok", StringComparison.Ordinal),
+                "Cursor partial widget invented a Grok allowance row.");
+            var tray = CycleArcPresentation.TrayTooltip(snapshot);
+            Check(tray.Contains(updatedStamp, StringComparison.Ordinal)
+                && tray.Contains(updated, StringComparison.Ordinal),
+                "Cursor partial tray lost the monthly update status.");
+            Check(!tray.Contains("Grok", StringComparison.Ordinal) && !tray.Contains(stale, StringComparison.Ordinal),
+                "Cursor partial tray exposed an optional Grok failure as global status.");
+
+            if (directory is not null)
+            {
+                Save(flyout, Path.Combine(directory,
+                    $"cursor-partial-popup-{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"), 440, null);
+                Save(widget, Path.Combine(directory,
+                    $"cursor-partial-widget-{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"),
+                    widget.LastLayout?.Width ?? 380, null);
+            }
+        }
+        finally
+        {
+            flyout.Close();
+            widget.CloseWithoutActivation();
+        }
     }
 
     private static void CheckRows(CodexQuotaSnapshot snapshot, DateTimeOffset now)
