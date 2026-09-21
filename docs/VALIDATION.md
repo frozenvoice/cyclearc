@@ -87,6 +87,18 @@
     and disposable managed-install checks remain the approved remote validation boundary.
     No real VS install/remove or local CycleArc Setup/install/repair/update/removal ran;
     the existing desktop at publish/local/CycleArc.exe was kept running.
+  - The first authorized [PR run 35551400427](https://github.com/frozenvoice/cyclearc/actions/runs/35551400427)
+    passed the entire shared gate, including VS 2022 Native AOT packaging and package-verify
+    for 0.6.1, but the managed-install job could not download its artifact. The build log
+    showed that upload-artifact excluded publish/.dev-velopack because its default ignores
+    files within dot-prefixed directories ([official behavior](https://github.com/actions/upload-artifact/blob/v6/README.md#uploading-hidden-files)).
+    Only that package upload now sets include-hidden-files: true, and missing assets fail
+    the upload step with if-no-files-found: error. Workflow guards and negative copies
+    rejecting both old options passed locally. The exact @actions/glob 0.5.0 dependency
+    reproduced the default exclusion locally (zero matches) and the corrected inclusion
+    (one synthetic CycleArc-Setup.exe match); an isolated js-yaml parse confirmed the
+    workflow values. Unchanged executable checks were reused.
+    No blind rerun or timeout change was made.
 
 - build-local fixture freshness (unreleased, 2026-09-21):
   - The reported `build-local-regression` failure on `1038363` came from the tests reusing

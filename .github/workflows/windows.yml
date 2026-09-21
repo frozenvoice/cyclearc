@@ -74,6 +74,8 @@ jobs:
         with:
           name: CycleArc-win-x64
           path: publish/.dev-velopack/*
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Upload failed test results
         if: failure()
