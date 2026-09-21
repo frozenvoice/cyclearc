@@ -190,9 +190,10 @@ internal static class WidgetDpiChecks
                         || startsGroup && cadence.Text != modelPeriods[i].CadenceLabel + UiText.T(" · Left", " · 남음"))
                         throw new InvalidOperationException($"Cursor cadence grouping changed ({context}).");
                 }
-                if (module.RingTargetText.Text != modelPeriods[0].PeriodLabel
-                    || module.RingTargetText.TextWrapping != TextWrapping.Wrap)
-                    throw new InvalidOperationException($"Cursor ring target is missing or not wrapped ({context}).");
+                if (module.RingTargetText.Text != "Cursor"
+                    || module.RingTargetText.TextWrapping != TextWrapping.NoWrap
+                    || !(module.RingTargetText.ToolTip as string ?? "").Contains(modelPeriods[0].PeriodLabel))
+                    throw new InvalidOperationException($"Cursor ring target lost its compact label or full tooltip ({context}).");
             }
             if (Math.Abs(VisualTreeHelper.GetDpi(name).DpiScaleY - scale) > 0.001)
                 throw new InvalidOperationException($"Widget text did not inherit the tested DPI ({context}): "

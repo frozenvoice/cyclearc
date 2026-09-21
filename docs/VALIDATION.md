@@ -2,6 +2,44 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Cursor widget compact ring follow-up (unreleased, 2026-09-21):
+  - Current-source baseline is `f0a9964`, which already contains the three-allowance
+    summary and account alignment. The repeated two-line caption below the Cursor ring
+    now sits inside it as Cursor / Other / Grok Bot. The full represented allowance row
+    is emphasized, with complete names and Monthly / Weekly group headings retained.
+    Module width stays 232 DIP, ring diameter 64 DIP, allowance/value text 12 DIP and
+    ring caption 10.5 DIP. Normal standalone/mixed content falls from 206 to 192 DIP high;
+    the mixed fixture stays 720 DIP wide and all name tops/ring centres remain aligned.
+  - Widget ring candidates now keep Cursor Models → Other Models → Grok Bot priority
+    regardless of provider response order, using the existing known-value fallback.
+    The source snapshot, provider queries, quota arithmetic, storage, popup and tray
+    selection logic are unchanged. Unknown values, authentication/identity failures,
+    retained stale data, omitted budgets and exact reset/update tooltips stay explicit.
+    Long monetary values may wrap their full label, and failure status may add a line;
+    neither is clipped to force the normal summary height.
+  - Focused checks passed 134 Cursor/widget unit tests and 76 actual WPF summary renders:
+    standalone/mixed/wrapped accounts, EN/KO, Dark/Light, 80/100/150% zoom, long names,
+    unknown values, Other/Grok ring fallback, enabled/disabled on-demand, omitted budgets,
+    large monetary values, stale request/auth failures and cached identity mismatch.
+    Cursor popup/account checks also passed across EN/KO and Dark/Light/System.
+  - Final `dev-run.ps1 -NoLaunch` passed in 4m 31s: Release build, 1,657 unit tests,
+    full production WPF suite, 180 DPI/layout renders at 100/125/150/175/200% and native
+    windows on three monitors, single-file publish, published Claude receiver, and isolated
+    package apply/restore. See `artifacts/cursor-compact-final-gate.log`. The sandbox-only
+    preflight could not read running-process metadata; rerunning with process-inspection
+    permission passed. No guard was bypassed and no installed process was replaced.
+  - After push/merge approval, integrated main `9bed0e2` (0.6.2, shared verification
+    and passive DPI recovery fixes) without changing the compact feature delta. The new
+    shared `dev-run.ps1 -NoLaunch` passed on the integrated source in 4m 28s, including
+    1,657 unit tests, all WPF/DPI checks, test-flavour compile and 0.6.2 package verification.
+    Evidence: `artifacts/cursor-compact-integration-gate.log` and
+    `artifacts/cursor-compact-integration/TestResults`. No installed-app replacement ran.
+  - Before/after images use the same offline accounts and fixed timestamps. See
+    `docs/images/cursor-widget-compact-{before,after}-{en,ko}-{dark,light}.png` and
+    `artifacts/cursor-compact-{before,after}`. Current standalone widget previews were
+    also updated. The changed views were visually inspected; no image generation,
+    real account/credential access or installed-app replacement was used.
+
 - Local prerequisite guidance and shared Windows verification (unreleased, 2026-09-21):
   - Started from clean main/origin/main f0a996442762b3d582054669b0478bd3fe33acb9
     on codex/build-local-prerequisites. Remote main was confirmed read-only.

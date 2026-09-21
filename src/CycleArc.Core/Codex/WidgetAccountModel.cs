@@ -54,7 +54,10 @@ public sealed record WidgetAccountModel(
             // without mutating the full snapshot used by the popup, tray and tooltip.
             ringSnapshot = snapshot with
             {
-                Windows = snapshot.Windows.Where(window => visibleWindows.Any(visible => ReferenceEquals(visible, window))).ToArray()
+                // CursorPeriodWindows is deliberately canonical (Cursor Models, Other Models,
+                // Grok Bot). Keep that order for the shared DisplayWindow known-value fallback
+                // even when the provider returns its windows in a different order.
+                Windows = visibleWindows
             };
         }
         var ring = CodexRingPresentation.From(ringSnapshot, preference);
