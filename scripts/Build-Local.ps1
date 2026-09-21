@@ -14,6 +14,9 @@
     Install without the setup window, for CI and scripted runs. The default path always
     shows the installer and waits for the person to approve or cancel it.
 
+.PARAMETER NoPrerequisitePrompt
+    Fail immediately when the setup build tools are missing, without offering to install them.
+
 .PARAMETER LoadOnly
     Dot-source the functions without running the default path.
 #>
@@ -22,6 +25,7 @@ param(
     [switch]$Fast,
     [switch]$NoInstall,
     [switch]$SilentInstall,
+    [switch]$NoPrerequisitePrompt,
     [switch]$LoadOnly
 )
 
@@ -30,6 +34,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shared with Package.ps1 so both demand the same Native AOT prerequisites.
 . (Join-Path $PSScriptRoot 'SetupUiToolchain.ps1')
+. (Join-Path $PSScriptRoot 'SetupUiPrerequisites.ps1')
 
 function Get-BuildLocalRepoRoot {
     [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -76,15 +81,15 @@ function Get-BuildLocalStage { $script:BuildLocalStage }
 
 function Test-BuildLocalVerificationStage([string]$Stage) {
     @(
-        'preflight', 'release-guard', 'restore', 'tool-restore', 'build',
+        'preflight', 'setup-ui-toolchain', 'workflow-contract', 'release-guard', 'restore', 'tool-restore', 'build',
         'ui-smoke-desktop-instance', 'local-install-regression', 'build-local-regression',
-        'unit-test', 'ui-smoke-full', 'publish', 'package', 'package-verify'
+        'unit-test', 'ui-smoke-full', 'widget-preview', 'test-flavour-build', 'publish', 'package', 'package-verify'
     ) -contains $Stage
 }
 
 function Get-BuildLocalStageGuidance([string]$Stage) {
     switch ($Stage) {
-        'preflight' { 'Nothing was built, stopped or installed. The installed CycleArc is unchanged and still running.' }
+        'preflight' { 'CycleArc was not built, stopped or installed. Its existing installation is unchanged.' }
         'stop-desktop' { 'The running CycleArc could not be stopped over desktop IPC. Setup.exe was not started and the installed version is unchanged; that desktop may still be running. Close it from its tray and retry.' }
         'install' { 'CycleArc-Setup.exe was already started, so the installation may be partially replaced. Read the Setup log before assuming the previous version is intact.' }
         'verify-install' { 'CycleArc-Setup.exe already ran and changed the installation, but the result is not this build. Do not assume the previous version is intact.' }
@@ -262,7 +267,7 @@ function Write-BuildLocalFailure {
         (Get-BuildLocalStageGuidance $Stage)
     )
     if ($LogPath) { $lines += "Log: $LogPath" }
-    if ($LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
+    if ($Stage -ne 'preflight' -and $LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
         $childLog = Join-Path $LogDirectory 'dev-run.err.log'
         if (Test-Path -LiteralPath $childLog -PathType Leaf) {
             $lines += "Child log: $childLog"
@@ -280,8 +285,8 @@ function Write-BuildLocalFailure {
     }
     $text = ($lines -join [Environment]::NewLine)
     if ($LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
-        # build-local.cmd prints this file instead of a blanket claim about the
-        # previous installation, so it has to survive a failed transcript.
+        # The console prints this summary once. The CMD wrapper uses its presence to
+        # avoid repeating that summary, so it has to survive a failed transcript.
         try { [IO.File]::WriteAllText((Join-Path $LogDirectory 'last-failure.txt'), $text + [Environment]::NewLine) } catch { }
     }
     $text
@@ -859,7 +864,9 @@ function Invoke-BuildLocal {
         [switch]$Fast,
         [switch]$NoInstall,
         [switch]$SilentInstall,
+        [switch]$NoPrerequisitePrompt,
         [string]$ManagedRoot,
+        [scriptblock]$PrerequisitePreflight,
         [scriptblock]$DevRun,
         [scriptblock]$PackagedSetup,
         [scriptblock]$StopDesktop,
@@ -875,13 +882,8 @@ function Invoke-BuildLocal {
     $transcript = $null
     try {
         $RepoRoot = ConvertTo-InstallAbsolutePath $RepoRoot
-        Assert-CycleArcTree -Root $RepoRoot
-        Assert-BuildLocalTools
-        # Only when this run will really package the installer. A caller that supplies its
-        # own packaged Setup.exe never builds the setup UI, so it must not need the toolchain.
-        if (!$PackagedSetup) { Assert-SetupUiToolchain -RepoRoot $RepoRoot | Out-Null }
-        $layout = Resolve-InstallLayout -RepoRoot $RepoRoot
-        $lease = New-InstallLease -InstallRoot $layout.InstallRoot -AllowedRoots @($layout.InstallRoot)
+        # Record failures before checking any prerequisite. A missing AOT toolchain must
+        # leave the same preflight summary in the console and the marker.
         $logDirectory = New-BuildLocalLogDirectory $RepoRoot
         # A stale marker from an earlier run must never describe this one.
         $failureMarker = Join-Path $logDirectory 'last-failure.txt'
@@ -890,6 +892,28 @@ function Invoke-BuildLocal {
         $logPath = Join-Path $logDirectory ('build-local-{0:yyyyMMdd-HHmmss}.log' -f $startedAt)
         $transcript = $logPath
         Start-Transcript -LiteralPath $logPath | Out-Null
+        Assert-CycleArcTree -Root $RepoRoot
+        Assert-BuildLocalTools
+        # Supplying a packaged fixture bypasses the source-build requirement. Production
+        # runs probe first, and may offer installation only with interactive approval.
+        if (!$PackagedSetup) {
+            $prerequisiteResult = if ($PrerequisitePreflight) {
+                & $PrerequisitePreflight $RepoRoot ([bool]$NoPrerequisitePrompt) ([bool]$SilentInstall)
+            }
+            else {
+                Invoke-SetupUiPrerequisitePreflight -RepoRoot $RepoRoot -NoPrompt:$NoPrerequisitePrompt -SilentInstall:$SilentInstall
+            }
+            if ($prerequisiteResult.Status -ne 'Ready') {
+                return [pscustomobject]@{
+                    PrerequisiteStatus = $prerequisiteResult.Status
+                    Cancelled = $prerequisiteResult.Status -eq 'Cancelled'
+                    Built = $false
+                    LogPath = $logPath
+                }
+            }
+        }
+        $layout = Resolve-InstallLayout -RepoRoot $RepoRoot
+        $lease = New-InstallLease -InstallRoot $layout.InstallRoot -AllowedRoots @($layout.InstallRoot)
         $git = Get-BuildLocalGitState $RepoRoot
         Write-Host "Branch: $($git.Branch)"
         Write-Host "HEAD: $($git.Head)"
@@ -1156,10 +1180,18 @@ if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
     . $localInstall
     $root = Get-BuildLocalRepoRoot
     Set-Location -LiteralPath $root
-    # Invoke-BuildLocal already printed the stage, cause and guidance, and wrote
-    # them to artifacts/build-local/last-failure.txt for build-local.cmd to show.
-    # Only the nonzero exit code still has to reach CMD.
-    try { Invoke-BuildLocal -RepoRoot $root -Fast:$Fast -NoInstall:$NoInstall -SilentInstall:$SilentInstall | Out-Null }
-    catch { exit 1 }
-    exit 0
+    # Invoke-BuildLocal owns the one failure summary, including failures during preflight.
+    # Keep a double-clicked window readable, but never wait for input in automation.
+    $runExitCode = 0
+    $pauseAfterRun = $false
+    try {
+        $result = Invoke-BuildLocal -RepoRoot $root -Fast:$Fast -NoInstall:$NoInstall -SilentInstall:$SilentInstall -NoPrerequisitePrompt:$NoPrerequisitePrompt
+        $pauseAfterRun = $null -ne $result -and $null -ne $result.PSObject.Properties['PrerequisiteStatus']
+    }
+    catch { $runExitCode = 1; $pauseAfterRun = $true }
+    if ($pauseAfterRun -and $env:CYCLEARC_BUILD_LOCAL_CMD -eq '1' -and
+        (Test-SetupUiPrerequisiteInteractive -NoPrompt:$NoPrerequisitePrompt -SilentInstall:$SilentInstall)) {
+        try { Read-Host 'Press Enter to close this window' | Out-Null } catch { }
+    }
+    exit $runExitCode
 }

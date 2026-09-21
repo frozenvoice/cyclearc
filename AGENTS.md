@@ -113,8 +113,9 @@ Run commands from the repository root. Use `--no-build` only for code already bu
   `dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build`.
   Desktop-instance process checks: add `-- --desktop-instance` to that `dotnet run`.
 - Full gate: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` on final executable changes.
-  It is fail-fast: restore, Release compile, `--desktop-instance`, installer/build-local script
-  regressions, the unit suite, remaining WPF checks, then publish/package/package-verify.
+  It is fail-fast: environment/toolchain and workflow/release guards, restore, Release compile,
+  `--desktop-instance`, installer/build-local script regressions, the unit suite, remaining WPF
+  checks, test-flavour compile, then publish/package/package-verify.
   If installation/run is requested, use `pwsh -NoProfile -File ./dev-run.ps1` instead: the same gate runs
   before installation. Choose the mode upfront to avoid repeating the gate.
 - Installed-app end to end: `pwsh -NoProfile -File ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment`.
@@ -126,6 +127,11 @@ Run commands from the repository root. Use `--no-build` only for code already bu
 - Synthetic fixtures do not establish real-account receipt/compatibility; Awaiting usage is not received usage.
 
 ### Local first
+
+Windows PR and main-push verification use the same `dev-run.ps1 -NoLaunch` gate.
+Feature-branch pushes do not also trigger a full run; newer PR commits cancel obsolete PR runs.
+Main push validation remains the source of release artifacts, and disposable installed-app
+checks consume those packaged artifacts without rebuilding.
 
 CI is not where a change is first verified. Before every push:
 

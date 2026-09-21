@@ -2,6 +2,68 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Local prerequisite guidance and shared Windows verification (unreleased, 2026-09-21):
+  - Started from clean main/origin/main f0a996442762b3d582054669b0478bd3fe33acb9
+    on codex/build-local-prerequisites. Remote main was confirmed read-only.
+    No push, workflow dispatch/rerun, PR, merge, tag or release is part of this work.
+  - Interactive build-local probes the VS 2022 toolchain before offering approved Microsoft
+    installation, manual instructions or cancellation. A ready machine needs no download.
+    The same resolver still requires vswhere, the VC x64/x86 component, the actual x64
+    linker and the Windows SDK x64 kernel32.lib. Build-local rechecks them after installation.
+    CI, silent installs, redirected input and the explicit prompt opt-out remain fail-fast.
+  - The VS 2022 bootstrapper source is
+    [Microsoft's versioned endpoint](https://aka.ms/vs/17/release/vs_buildtools.exe).
+    The [official command-line contract](https://learn.microsoft.com/en-us/visualstudio/install/use-command-line-parameters-to-install-visual-studio?view=vs-2022)
+    distinguishes bootstrapper --wait from installed setup.exe; --passive shows progress and
+    --norestart leaves reboot approval to the person. Build Tools uses VCTools; existing
+    IDEs use NativeDesktop. The installed app is untouched by all prerequisite outcomes.
+  - Preflight now initializes failure logging before checking prerequisites. PowerShell prints
+    the stage/cause once; CMD preserves its exit code without repeating the summary or claiming
+    that an absent log proves no stage was reached. Old child build logs are excluded from a
+    new preflight failure.
+  - Windows CI now calls the same PowerShell gate as local verification. Feature branches use
+    the pull_request event instead of also triggering a full push run; push remains main-only.
+    Main direct-push history and Release.ps1's exact-SHA successful-push artifact requirement
+    make keeping main validation necessary. PR merges can therefore still validate their new
+    main SHA; there is no API or commit-message heuristic to suppress them.
+  - The GitHub branch-protection endpoint reported unprotected main; branch rules and repository
+    rulesets both returned empty lists at audit time. This does not establish external IT or
+    organization policy. PR concurrency cancels an obsolete run only for the same PR; release
+    workflows and main push runs do not inherit that cancellation policy.
+  - Build uses the hosted windows-2022 image's preinstalled VS 2022 toolchain and fails before
+    expensive work if its actual linker/SDK contract is absent. The artifact-only managed
+    Setup install/repair job stays on windows-latest without SDK/VS installation or rebuilding.
+    This separates the VS 2022 compiler requirement from current-Windows installation coverage.
+  - Recent successful Windows runs 272-281 (for example [run 281](https://github.com/frozenvoice/cyclearc/actions/runs/35522987565)) measured build jobs at 446-554 seconds,
+    setup-dotnet at 27-43 seconds, and restore at 21-28 seconds. Keep setup-dotnet 8.0.x;
+    add no NuGet cache, binary cache, or global.json in this change. The duplicate feature
+    push run is the avoided work; no end-to-end speedup percentage has been measured.
+  - Local focused verification passed: BuildLocal.Tests.ps1 **60 PASS checkpoints**, including
+    all prerequisite flow and real HTTP/signature/process-boundary tests with fake adapters.
+    After the last review, exact discovered channelId/productId were also added to the
+    existing-installation modify command; SetupUiPrerequisites.Tests.ps1 passed again on
+    that final helper (artifacts/setup-prerequisites-focused.log).
+    Also passed:
+    LocalInstall.Tests.ps1 **15 isolated deployment/retry/rollback scenarios** plus its path,
+    lease, mutex, discovery and process checks; Release.Tests.ps1 isolated release guards;
+    VerificationWorkflow.Tests.ps1 both workflow/evidence-path sections; PowerShell parsing,
+    one PyYAML BaseLoader syntax parse and diff checks. Logs are
+    artifacts/build-local-prerequisites-focused.log, artifacts/local-first-local-install.log,
+    and artifacts/local-first-release-guard.log. The existing Unix-only direct-script launch
+    case remains skipped on Windows; the new actual CMD preflight fixture passed.
+  - The final command, pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch, was attempted once.
+    It passed preflight and workflow-contract, then **failed at setup-ui-toolchain** before
+    restore/build in 0.592 seconds (artifacts/local-first-final-gate.log). The machine has
+    only VS Build Tools 2026, version 18.10.12210.168, under Program Files (x86), and no
+    VS 2022 instance. The explicit 17.x requirement was not relaxed to make validation pass.
+    Consequently Release compilation, unit/WPF checks, test-flavour compilation, publish,
+    package and package-verify were not reached by this gate. No successful full-gate result
+    or executable/package validation is claimed for this work.
+  - No real Visual Studio install/remove, CycleArc Setup/install/repair/update/removal, or
+    remote CI execution occurred. GitHub event/concurrency behavior, artifact transfers and
+    disposable installed-app verification remain unverified until an approved remote run.
+    The running CycleArc desktop was identified read-only and was not stopped.
+
 - build-local fixture freshness (unreleased, 2026-09-21):
   - The reported `build-local-regression` failure on `1038363` came from the tests reusing
     the cancellation case's fake Setup.exe for the following exit-1 case. Once that file
