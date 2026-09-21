@@ -49,8 +49,8 @@ public sealed class WidgetAccountModuleView : Border
     public TextBlock RingTargetText { get; } = new()
     {
         FontSize = 10.5, LineHeight = 13, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-        TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center,
-        Margin = new Thickness(0, 4, 0, 0), Visibility = Visibility.Collapsed
+        TextWrapping = TextWrapping.NoWrap, TextAlignment = TextAlignment.Center,
+        HorizontalAlignment = HorizontalAlignment.Center, Visibility = Visibility.Collapsed
     };
 
     public TextBlock StatusText { get; } = new()
@@ -86,6 +86,7 @@ public sealed class WidgetAccountModuleView : Border
         _ringArc.Data = new PathGeometry { Figures = { _ringFigure } };
         _ringFigure.Segments.Add(_ringSegment);
         var ringCentre = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        ringCentre.Children.Add(RingTargetText);
         ringCentre.Children.Add(RingValueText);
         ringCentre.Children.Add(RingUsedLabel);
         _ringHost.Children.Add(_ringTrack);
@@ -104,10 +105,7 @@ public sealed class WidgetAccountModuleView : Border
         var body = new Grid { Margin = new Thickness(0, 7, 0, 0) };
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var ringColumn = new StackPanel { Width = RingDiameter, VerticalAlignment = VerticalAlignment.Top };
-        ringColumn.Children.Add(_ringHost);
-        ringColumn.Children.Add(RingTargetText);
-        body.Children.Add(ringColumn);
+        body.Children.Add(_ringHost);
         _periodPanel.Margin = new Thickness(9, 0, 0, 0);
         Grid.SetColumn(_periodPanel, 1);
         body.Children.Add(_periodPanel);
@@ -173,7 +171,14 @@ public sealed class WidgetAccountModuleView : Border
         RingValueText.Text = ring.CenterValueText;
         // The ring fills with usage, so the value inside it is usage; remaining is on the lines.
         RingUsedLabel.Text = UiText.CodexLegendUsed;
-        RingTargetText.Text = model.RingTargetLabel ?? "";
+        // Only the ring's repeated caption is shortened. The adjacent allowance rows,
+        // cadence headings, tooltip and accessible name keep the complete quota name.
+        RingTargetText.Text = model.RingTargetLabel switch
+        {
+            "Cursor Models" => "Cursor",
+            "Other Models" => "Other",
+            var target => target ?? ""
+        };
         RingTargetText.Visibility = string.IsNullOrEmpty(model.RingTargetLabel) ? Visibility.Collapsed : Visibility.Visible;
         RingTargetText.ToolTip = ring.CenterSubLabel;
         _ringHost.ToolTip = ring.CenterSubLabel + " " + ring.CenterValueText;
@@ -278,6 +283,11 @@ public sealed class WidgetPeriodLineView : StackPanel
     public void Bind(WidgetPeriodLine line, bool stale, bool isCursor = false, bool startsGroup = false)
     {
         PeriodText.Text = line.PeriodLabel;
+        // Match the named allowance to the ring visually as well as in its tooltip.
+        // Other providers retain their existing period typography.
+        PeriodText.FontWeight = isCursor && line.IsRepresentative ? FontWeights.SemiBold : FontWeights.Normal;
+        PeriodText.SetResourceReference(TextBlock.ForegroundProperty,
+            isCursor && line.IsRepresentative ? stale ? "StaleBrush" : "AccentBrush" : "MutedBrush");
         PeriodText.TextWrapping = isCursor ? TextWrapping.Wrap : TextWrapping.NoWrap;
         PeriodText.TextTrimming = isCursor ? TextTrimming.None : TextTrimming.CharacterEllipsis;
         // Cursor's cadence is shared once above each group. Keep the actual allowance

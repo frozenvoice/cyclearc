@@ -182,6 +182,53 @@ public sealed class CursorWidgetAccountModelTests
     }
 
     [Fact]
+    public void CursorRingUsesCanonicalOrderAndFallsThroughUnknownAllowances()
+    {
+        var grok = Window("cursor-sand", 12.5, null, null, null, Now.AddDays(3));
+        var other = Window("cursor-api", 41.2, null, null, null, Now.AddDays(2));
+        var unknownModels = Window("cursor-auto", null, null, null, null, null);
+        var snapshot = Snapshot(grok, other, unknownModels);
+
+        var model = WidgetAccountModel.From(Account(snapshot), selected: false, now: Now);
+
+        Assert.Equal(new[] { "Cursor Models", "Other Models", "Grok Bot" },
+            model.Periods.Select(period => period.PeriodLabel));
+        Assert.Equal("Other Models", model.RingTargetLabel);
+        Assert.Same(other, model.Ring.Window);
+        Assert.Equal("41.2%", model.Ring.CenterValueText);
+        Assert.Equal("?", model.Periods[0].RemainingText);
+        Assert.Same(grok, snapshot.Windows[0]);
+        Assert.Same(other, snapshot.Windows[1]);
+        Assert.Same(unknownModels, snapshot.Windows[2]);
+    }
+
+    [Fact]
+    public void CursorCanonicalRingDoesNotTrimFullSnapshotTooltipDetails()
+    {
+        var reset = Now.AddDays(7);
+        var disabled = Window("cursor-on-demand", null, 12, 20, 8, reset, enabled: false);
+        var teamPool = Window("cursor-team-pool", null, null, null, null, null);
+        var grok = Window("cursor-sand", 12.5, null, null, null, Now.AddDays(3));
+        var other = Window("cursor-api", 41.2, null, null, null, Now.AddDays(2));
+        var models = Window("cursor-auto", 76.9, null, null, null, Now.AddDays(1));
+        var snapshot = Snapshot(disabled, teamPool, grok, other, models);
+
+        var model = WidgetAccountModel.From(Account(snapshot), selected: true, now: Now);
+
+        Assert.Equal("Cursor Models", model.RingTargetLabel);
+        Assert.Same(models, model.Ring.Window);
+        Assert.Contains(CursorUsagePresentation.QuotaDisplayLabel(disabled.LimitId), model.Tooltip,
+            StringComparison.Ordinal);
+        Assert.Contains(UiText.T("Off", "꺼짐"), model.Tooltip, StringComparison.Ordinal);
+        Assert.Contains(CursorUsagePresentation.QuotaDisplayLabel(teamPool.LimitId), model.Tooltip,
+            StringComparison.Ordinal);
+        Assert.Contains("?", model.Tooltip, StringComparison.Ordinal);
+        Assert.Contains(CodexDeadlineFormatting.ResetStampTooltip(reset)!, model.Tooltip,
+            StringComparison.Ordinal);
+        Assert.Equal(5, snapshot.Windows.Count);
+    }
+
+    [Fact]
     public void RingTargetUsesFullCursorNameAndOtherProvidersRemainUnchanged()
     {
         var cursor = Snapshot(Window("cursor-auto", 25, 25, 100, 75, Now.AddDays(1)));

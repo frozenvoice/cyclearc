@@ -18,6 +18,7 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `cursor-popup-{en,ko}-{dark,light}.png` | Cursor Models and Other Models monthly allowances, Grok Bot weekly allowance, named usage ring, disabled on-demand and successful update time |
 | `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary, named ring and short update age; exact times and omitted budgets remain in tooltips/detail |
 | `cursor-widget-summary-{before,after}-{en,ko}-{dark,light}.png` | Fixed synthetic Codex / Cursor / Claude accounts in the actual WPF widget, before and after the Cursor summary change at 100% zoom |
+| `cursor-widget-compact-{before,after}-{en,ko}-{dark,light}.png` | The follow-up comparison from `f0a9964`: the same synthetic mixed accounts, with the repeated ring target moved inside the ring at unchanged width/font sizes |
 | `cursor-accounts-{en,ko}-{dark,light}.png` | Current Windows Cursor connection, reconnect/disconnect, nickname and saved-order controls |
 | `cursor-tray-icons.png` | Cursor fractional inputs shown as whole tray digits in number/ring styles at 16/24/32 pixels on dark/light taskbars; zero, full usage and unknown included |
 
@@ -74,6 +75,17 @@ alignment. The before set was exported from `012d514` with the export harness ad
 production edits; the after set uses the same accounts and times. The checked-in comparison
 files are those actual renders, not generated mockups. Layout DPI checks separately include
 Cursor at 100/125/150/175/200% through `--widget-dpi`.
+
+The compact follow-up uses the same fixed accounts and timestamps. Before images were
+exported from `f0a9964` before production edits into `artifacts/cursor-compact-before`;
+after images use `artifacts/cursor-compact-after`. The short ring labels Cursor / Other /
+Grok Bot sit above the used percentage; complete names and Monthly / Weekly headings
+remain in the adjacent list, with the represented row emphasized. Full ring targets remain
+in tooltips and accessibility text. Standard standalone and mixed content is 192 DIP high
+instead of 206, with the same 232-DIP modules and original font sizes. Large money amounts
+and failure messages can use additional lines to preserve their complete information.
+The earlier `cursor-widget-summary-*` comparison remains historical evidence of the first
+summary change. All comparisons are actual WPF renders, with no image generation.
 
 Native tray pixel checks and contact sheets (including `cursor-tray-icons.png`):
 

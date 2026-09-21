@@ -2,6 +2,38 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Cursor widget compact ring follow-up (unreleased, 2026-09-21):
+  - Current-source baseline is `f0a9964`, which already contains the three-allowance
+    summary and account alignment. The repeated two-line caption below the Cursor ring
+    now sits inside it as Cursor / Other / Grok Bot. The full represented allowance row
+    is emphasized, with complete names and Monthly / Weekly group headings retained.
+    Module width stays 232 DIP, ring diameter 64 DIP, allowance/value text 12 DIP and
+    ring caption 10.5 DIP. Normal standalone/mixed content falls from 206 to 192 DIP high;
+    the mixed fixture stays 720 DIP wide and all name tops/ring centres remain aligned.
+  - Widget ring candidates now keep Cursor Models → Other Models → Grok Bot priority
+    regardless of provider response order, using the existing known-value fallback.
+    The source snapshot, provider queries, quota arithmetic, storage, popup and tray
+    selection logic are unchanged. Unknown values, authentication/identity failures,
+    retained stale data, omitted budgets and exact reset/update tooltips stay explicit.
+    Long monetary values may wrap their full label, and failure status may add a line;
+    neither is clipped to force the normal summary height.
+  - Focused checks passed 134 Cursor/widget unit tests and 76 actual WPF summary renders:
+    standalone/mixed/wrapped accounts, EN/KO, Dark/Light, 80/100/150% zoom, long names,
+    unknown values, Other/Grok ring fallback, enabled/disabled on-demand, omitted budgets,
+    large monetary values, stale request/auth failures and cached identity mismatch.
+    Cursor popup/account checks also passed across EN/KO and Dark/Light/System.
+  - Final `dev-run.ps1 -NoLaunch` passed in 4m 31s: Release build, 1,657 unit tests,
+    full production WPF suite, 180 DPI/layout renders at 100/125/150/175/200% and native
+    windows on three monitors, single-file publish, published Claude receiver, and isolated
+    package apply/restore. See `artifacts/cursor-compact-final-gate.log`. The sandbox-only
+    preflight could not read running-process metadata; rerunning with process-inspection
+    permission passed. No guard was bypassed and no installed process was replaced.
+  - Before/after images use the same offline accounts and fixed timestamps. See
+    `docs/images/cursor-widget-compact-{before,after}-{en,ko}-{dark,light}.png` and
+    `artifacts/cursor-compact-{before,after}`. Current standalone widget previews were
+    also updated. The changed views were visually inspected; no image generation,
+    real account/credential access or installed-app replacement was used.
+
 - build-local fixture freshness (unreleased, 2026-09-21):
   - The reported `build-local-regression` failure on `1038363` came from the tests reusing
     the cancellation case's fake Setup.exe for the following exit-1 case. Once that file

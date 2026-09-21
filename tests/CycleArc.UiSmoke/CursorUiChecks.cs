@@ -123,6 +123,7 @@ internal static class CursorUiChecks
 
             CheckPartialSand(snapshot, now, language, theme, directory);
             CheckNamedAllowanceLayout(snapshot, language, theme, directory);
+            CheckLargeMonetaryWidget(snapshot, language, theme, directory);
         }
         if (directory is not null)
             Console.WriteLine($"PASS: Cursor popup, widget and account controls EN/KO + Dark/Light; previews: {directory}");
@@ -279,7 +280,12 @@ internal static class CursorUiChecks
                     {
                         Provider = UsageProviderId.Cursor
                     };
-                    var account = new CodexAccountView(profile, snapshot, "cursor@example.invalid")
+                    // The widget keeps its canonical Cursor priority order. Make the earlier
+                    // candidates unknown in this widget-only source so the same production
+                    // selection reaches Other Models and Grok Bot without changing the popup
+                    // fixture above (which still checks the complete source snapshot).
+                    var widgetSnapshot = WidgetSelectionSnapshot(snapshot, selectedId);
+                    var account = new CodexAccountView(profile, widgetSnapshot, "cursor@example.invalid")
                     {
                         IsConnected = true
                     };
@@ -288,10 +294,33 @@ internal static class CursorUiChecks
                     WidgetFixture.RenderWidget(widget, null);
                     var module = WidgetFixture.Module(widget);
                     var ringTarget = module.RingTargetText;
-                    Check(ringTarget.Text == selectedLabel
-                        && ringTarget.TextWrapping == TextWrapping.Wrap
+                    var widgetModel = module.Model ?? throw new InvalidOperationException(
+                        $"Cursor {name} widget has no model at {zoom}%.");
+                    var compactTarget = CompactRingTarget(selectedLabel);
+                    Check(widgetModel.RingTargetLabel == selectedLabel
+                        && ringTarget.Text == compactTarget
+                        && ringTarget.TextWrapping == TextWrapping.NoWrap
                         && Math.Abs(ringTarget.FontSize - 10.5) < 0.01,
-                        $"Cursor {name} widget ring target is missing or not wrapped at {zoom}%.");
+                        $"Cursor {name} widget ring target is missing or not compact at {zoom}%.");
+                    var widgetRingHost = (FrameworkElement)VisualTreeHelper.GetParent(VisualTreeHelper.GetParent(module.RingValueText));
+                    var ringCentre = VisualTreeHelper.GetParent(module.RingValueText);
+                    Check(ReferenceEquals(ringCentre, VisualTreeHelper.GetParent(ringTarget))
+                        && ringCentre is Panel centrePanel
+                        && centrePanel.Children.IndexOf(ringTarget) < centrePanel.Children.IndexOf(module.RingValueText),
+                        $"Cursor {name} widget ring target is not above the percentage at {zoom}%.");
+                    var content = (FrameworkElement)widget.Content;
+                    var targetBounds = Bounds(ringTarget, content);
+                    var ringBounds = Bounds(widgetRingHost, content);
+                    Check(targetBounds.Left >= ringBounds.Left - 1
+                        && targetBounds.Right <= ringBounds.Right + 1
+                        && targetBounds.Top >= ringBounds.Top - 1
+                        && targetBounds.Bottom <= ringBounds.Bottom + 1,
+                        $"Cursor {name} widget ring target is clipped at {zoom}%.");
+                    Check(ringTarget.ToolTip is string targetTooltip
+                        && targetTooltip.Contains(widgetModel.Ring.CenterSubLabel, StringComparison.Ordinal),
+                        $"Cursor {name} widget ring target tooltip lost the full name at {zoom}%.");
+                    Check((module.ToolTip as string ?? "").Contains(selectedLabel, StringComparison.Ordinal),
+                        $"Cursor {name} widget module tooltip lost the full name at {zoom}%.");
                     var widgetIndex = module.Periods
                         .Select((period, index) => (period, index))
                         .Where(item => item.period.PeriodText.Text == selectedLabel)
@@ -317,6 +346,10 @@ internal static class CursorUiChecks
                         if (widgetRow is not null && widgetValue is not null)
                             CheckNoOverlap(widgetLabel.PeriodText, widgetValue, widgetRow,
                                 $"Cursor {name} widget allowance overlaps its value at {zoom}%.");
+                        Check(widgetLabel.PeriodText.Text == selectedLabel
+                            && widgetLabel.PeriodText.ActualWidth + 1 >= widgetLabel.PeriodText.DesiredSize.Width
+                            && widgetLabel.RemainingText.ActualWidth + 1 >= widgetLabel.RemainingText.DesiredSize.Width,
+                            $"Cursor {name} widget full allowance name or value is clipped at {zoom}%.");
                     }
 
                     if (directory is not null && zoom == 100)
@@ -381,6 +414,74 @@ internal static class CursorUiChecks
             Windows = source.Windows.Where(window => !ReferenceEquals(window, selected))
                 .Prepend(selected).ToArray()
         };
+    }
+
+    private static CodexQuotaSnapshot WidgetSelectionSnapshot(CodexQuotaSnapshot source, string selectedId) =>
+        source with
+        {
+            Windows = source.Windows.Select(window => selectedId switch
+            {
+                "cursor-api" when window.LimitId == "cursor-auto" => window with { UsedPercent = null },
+                "cursor-sand" when window.LimitId is "cursor-auto" or "cursor-api"
+                    => window with { UsedPercent = null },
+                _ => window
+            }).ToArray()
+        };
+
+    private static string CompactRingTarget(string targetLabel) => targetLabel switch
+    {
+        "Cursor Models" => "Cursor",
+        "Other Models" => "Other",
+        "Grok Bot" => "Grok Bot",
+        _ => targetLabel
+    };
+
+    private static void CheckLargeMonetaryWidget(CodexQuotaSnapshot source,
+        UiLanguage language, AppTheme theme, string? directory)
+    {
+        var snapshot = source with
+        {
+            Windows = source.Windows.Select(window => window.LimitId == "cursor-auto"
+                ? window with
+                {
+                    UsedPercent = 10,
+                    RemainingAmount = 123456.78m,
+                    LimitAmount = 150000m,
+                    Unit = "USD"
+                } : window).ToArray()
+        };
+        var profile = new CodexAccountProfile("cursor-ui-large-money", "", UiText.T("Cursor account", "Cursor 계정"))
+        {
+            Provider = UsageProviderId.Cursor
+        };
+        var account = new CodexAccountView(profile, snapshot, "cursor@example.invalid") { IsConnected = true };
+        var widget = new FloatingWidget { ShowActivated = false };
+        try
+        {
+            widget.BindAccounts([account], profile.Id, UsagePeriodPreference.Auto, WidgetFixture.Desktop, source.LastSuccessfulRefresh);
+            WidgetFixture.RenderWidget(widget, null);
+            var module = WidgetFixture.Module(widget);
+            var auto = module.Periods.Single(period => period.PeriodText.Text == "Cursor Models");
+            Check(auto.RemainingText.Text == "$123456.78",
+                "Cursor widget lost a large monetary remaining value.");
+            Check(auto.PeriodText.ActualWidth + 1 >= auto.PeriodText.DesiredSize.Width
+                && auto.RemainingText.ActualWidth + 1 >= auto.RemainingText.DesiredSize.Width,
+                "Cursor widget clipped a full monetary allowance name or value.");
+            var row = Ancestor<Grid>(auto.PeriodText);
+            Check(row is not null, "Cursor monetary allowance lost its measured row.");
+            if (row is not null)
+            {
+                CheckNoOverlap(auto.PeriodText, auto.RemainingText, row,
+                    "Cursor monetary allowance overlaps its value.");
+            }
+            Check((module.ToolTip as string ?? "").Contains("$123456.78", StringComparison.Ordinal),
+                "Cursor widget monetary tooltip lost the exact remaining value.");
+            if (directory is not null)
+                Save(widget, Path.Combine(directory,
+                    $"cursor-large-money-widget-{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"),
+                    widget.LastLayout?.Width ?? 380, null);
+        }
+        finally { widget.CloseWithoutActivation(); }
     }
 
     private static void CheckRows(CodexQuotaSnapshot snapshot, DateTimeOffset now)
@@ -512,4 +613,7 @@ internal static class CursorUiChecks
     {
         if (!condition) throw new InvalidOperationException(message);
     }
+
+    private static Rect Bounds(FrameworkElement element, FrameworkElement ancestor) =>
+        element.TransformToAncestor(ancestor).TransformBounds(new Rect(element.RenderSize));
 }
