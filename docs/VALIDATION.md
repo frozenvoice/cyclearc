@@ -28,6 +28,12 @@
     package apply/restore. See `artifacts/cursor-compact-final-gate.log`. The sandbox-only
     preflight could not read running-process metadata; rerunning with process-inspection
     permission passed. No guard was bypassed and no installed process was replaced.
+  - After push/merge approval, integrated main `9bed0e2` (0.6.2, shared verification
+    and passive DPI recovery fixes) without changing the compact feature delta. The new
+    shared `dev-run.ps1 -NoLaunch` passed on the integrated source in 4m 28s, including
+    1,657 unit tests, all WPF/DPI checks, test-flavour compile and 0.6.2 package verification.
+    Evidence: `artifacts/cursor-compact-integration-gate.log` and
+    `artifacts/cursor-compact-integration/TestResults`. No installed-app replacement ran.
   - Before/after images use the same offline accounts and fixed timestamps. See
     `docs/images/cursor-widget-compact-{before,after}-{en,ko}-{dark,light}.png` and
     `artifacts/cursor-compact-{before,after}`. Current standalone widget previews were
