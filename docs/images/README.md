@@ -16,7 +16,7 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `claude-overview-{en,ko}-{dark,light}.png` | Research selected with a Desktop history fallback: 91% five-hour / 47% weekly, unknown resets, Received and original observation time |
 | `claude-connection-{en,ko}-{dark,light}.png` | Official CLI connection choices, existing Desktop login for server checks and manual usage-page access; advanced settings collapsed |
 | `cursor-popup-{en,ko}-{dark,light}.png` | Cursor Models and Other Models monthly allowances, Grok Bot weekly allowance, named usage ring, disabled on-demand and successful update time |
-| `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary, named ring and short update age; exact times and omitted budgets remain in tooltips/detail |
+| `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary with integer used/remaining percentages, named ring and short update age; exact values/times and omitted budgets remain in tooltips/detail |
 | `cursor-widget-summary-{before,after}-{en,ko}-{dark,light}.png` | Fixed synthetic Codex / Cursor / Claude accounts in the actual WPF widget, before and after the Cursor summary change at 100% zoom |
 | `cursor-widget-compact-{before,after}-{en,ko}-{dark,light}.png` | The follow-up comparison from `f0a9964`: the same synthetic mixed accounts, with the repeated ring target moved inside the ring at unchanged width/font sizes |
 | `cursor-accounts-{en,ko}-{dark,light}.png` | Current Windows Cursor connection, reconnect/disconnect, nickname and saved-order controls |
@@ -86,6 +86,15 @@ instead of 206, with the same 232-DIP modules and original font sizes. Large mon
 and failure messages can use additional lines to preserve their complete information.
 The earlier `cursor-widget-summary-*` comparison remains historical evidence of the first
 summary change. All comparisons are actual WPF renders, with no image generation.
+
+The integer-percent follow-up changes only the visible widget strings. The summary
+fixture's ring now reads 77%, with 23% / 59% / 88% remaining, while its source and
+tooltips retain 76.9% used and 23.1% / 58.8% / 87.5% remaining. The 192-DIP layout,
+ring geometry and warning colors are unchanged. The earlier compact comparison remains
+historical. `CursorUiChecks` also exports `cursor-rounded-{widget,popup}-*` from the same
+76.91% / 2.9% / 12.5% synthetic source: the widget shows 77% used and 23% / 97% / 88%
+remaining, while the actual popup retains its decimals. Outputs for this verification are
+under `artifacts/cursor-integer-ui` and `artifacts/cursor-integer-summary`.
 
 Native tray pixel checks and contact sheets (including `cursor-tray-icons.png`):
 

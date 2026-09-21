@@ -273,8 +273,8 @@ internal static class CursorWidgetSummaryChecks
             var period = model.Periods[index];
             Check(view.PeriodText.Text == period.PeriodLabel,
                 $"{name}: period {index} changed its official name.");
-            Check(view.RemainingText.Text == period.RemainingText,
-                $"{name}: period {index} changed its raw remaining value.");
+            Check(view.RemainingText.Text == period.DisplayRemainingText,
+                $"{name}: period {index} changed its widget remaining text.");
 
             var labelBounds = Bounds(view.PeriodText, content);
             var valueBounds = Bounds(view.RemainingText, content);

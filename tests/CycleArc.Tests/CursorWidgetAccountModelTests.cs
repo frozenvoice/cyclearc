@@ -164,6 +164,132 @@ public sealed class CursorWidgetAccountModelTests
         Assert.Same(budget, snapshot.DisplayWindow()); // Shared popup/tray policy is untouched.
     }
 
+    [Theory]
+    [InlineData(76.91, "77%", "23%", "76.91%", "23.09%")]
+    [InlineData(76.499, "76%", "24%", "76.5%", "23.5%")]
+    [InlineData(2.9, "3%", "97%", "2.9%", "97.1%")]
+    [InlineData(97.1, "97%", "3%", "97.1%", "2.9%")]
+    [InlineData(76.5, "77%", "24%", "76.5%", "23.5%")]
+    [InlineData(0.5, "1%", "100%", "0.5%", "99.5%")]
+    public void CursorWidgetPercentageTextRoundsOnlyTheVisibleStrings(
+        double usedPercent, string expectedRing, string expectedRemaining,
+        string rawRing, string rawRemaining)
+    {
+        var window = Window("cursor-auto", usedPercent, null, null, null, Now.AddDays(1));
+        var snapshot = Snapshot(window);
+        var model = WidgetAccountModel.From(Account(snapshot), selected: true, now: Now);
+        var period = Assert.Single(model.Periods);
+
+        Assert.Equal(expectedRing, model.RingValueText);
+        Assert.Equal(expectedRemaining, period.DisplayRemainingText);
+
+        // The existing presentation values remain the fractional source used by
+        // accessibility/detail surfaces, and the snapshot itself is untouched.
+        Assert.Equal(rawRing, model.Ring.CenterValueText);
+        Assert.Equal(rawRemaining, period.RemainingText);
+        Assert.Equal(usedPercent, snapshot.Windows[0].UsedPercent);
+    }
+
+    [Fact]
+    public void CursorWidgetRoundedHundredDoesNotChangeDangerOrUnderlyingPercent()
+    {
+        var window = Window("cursor-auto", 99.6, null, null, null, Now.AddDays(1));
+        var snapshot = Snapshot(window);
+        var model = WidgetAccountModel.From(Account(snapshot), selected: false, now: Now);
+        var period = Assert.Single(model.Periods);
+
+        Assert.Equal("100%", model.RingValueText);
+        Assert.Equal("99.6%", model.Ring.CenterValueText);
+        Assert.Equal(99.6, model.Ring.UsedPercent);
+        Assert.False(model.Ring.IsDangerLevel);
+        Assert.Equal("0%", period.DisplayRemainingText);
+        Assert.Equal("0.4%", period.RemainingText);
+        Assert.Equal(99.6, snapshot.Windows[0].UsedPercent);
+    }
+
+    [Fact]
+    public void CursorWidgetKeepsUnknownAmountsAndNonFinitePercentagesUnknown()
+    {
+        var unknown = WidgetAccountModel.From(
+            Account(Snapshot(Window("cursor-auto", null, null, null, null, null))),
+            selected: false, now: Now);
+        Assert.Equal("?", unknown.RingValueText);
+        Assert.Equal("?", Assert.Single(unknown.Periods).DisplayRemainingText);
+        Assert.Equal("?", unknown.Ring.CenterValueText);
+
+        var nonFinite = WidgetAccountModel.From(
+            Account(Snapshot(Window("cursor-auto", double.NaN, null, null, null, null))),
+            selected: false, now: Now);
+        Assert.Equal("?", nonFinite.RingValueText);
+        Assert.Equal("?", Assert.Single(nonFinite.Periods).DisplayRemainingText);
+        Assert.Equal("?", nonFinite.Ring.CenterValueText);
+    }
+
+    [Fact]
+    public void CursorWidgetKeepsMoneyAndUnlimitedRemainingTextUnchanged()
+    {
+        var money = Window("cursor-auto", 76.91, 50, 100, 23.09m, Now.AddDays(1));
+        var moneyModel = WidgetAccountModel.From(Account(Snapshot(money)), selected: false, now: Now);
+        var moneyPeriod = Assert.Single(moneyModel.Periods);
+        Assert.Equal("$23.09", moneyPeriod.RemainingText);
+        Assert.Equal("$23.09", moneyPeriod.DisplayRemainingText);
+
+        var unlimited = Window("cursor-auto", 76.91, null, null, null, Now.AddDays(1))
+            with { IsUnlimited = true };
+        var unlimitedModel = WidgetAccountModel.From(Account(Snapshot(unlimited)), selected: false, now: Now);
+        var unlimitedPeriod = Assert.Single(unlimitedModel.Periods);
+        Assert.Equal("Unlimited", unlimitedPeriod.RemainingText);
+        Assert.Equal("Unlimited", unlimitedPeriod.DisplayRemainingText);
+    }
+
+    [Fact]
+    public void CursorWidgetIntegerTextDoesNotRewriteTooltipOrPopupFractionalValues()
+    {
+        var window = Window("cursor-auto", 76.91, null, null, null, Now.AddDays(1));
+        var snapshot = Snapshot(window);
+        var model = WidgetAccountModel.From(Account(snapshot), selected: true, now: Now);
+
+        Assert.Equal("77%", model.RingValueText);
+        Assert.Equal("23%", Assert.Single(model.Periods).DisplayRemainingText);
+        Assert.Contains("23.09%", model.Tooltip, StringComparison.Ordinal);
+
+        var row = Assert.Single(CodexDisplayFormatting.Rows(snapshot, Now),
+            candidate => candidate.Label == CursorUsagePresentation.QuotaDisplayLabel(window.LimitId));
+        Assert.Equal("Remaining 23.09%", row.Value);
+        Assert.Equal("76.91%", model.Ring.CenterValueText);
+        Assert.Equal(76.91, snapshot.Windows[0].UsedPercent);
+    }
+
+    [Fact]
+    public void CursorDisplayPropertiesLeaveCodexAndClaudeWidgetTextUntouched()
+    {
+        var codexSnapshot = new CodexQuotaSnapshot(
+            CodexQuotaStatus.Available, "pro", Now, Now, null, null, null,
+            [new("five", 76.91, CodexWindowClassifier.FiveHourMinutes, Now.AddHours(1), CodexWindowKind.FiveHour)],
+            null)
+        {
+            Provider = UsageProviderId.Codex
+        };
+        var codexModel = WidgetAccountModel.From(
+            new CodexAccountView(new CodexAccountProfile("codex", "", "Codex")
+            {
+                Provider = UsageProviderId.Codex
+            }, codexSnapshot), selected: false, now: Now);
+        Assert.Equal(codexModel.Ring.CenterValueText, codexModel.RingValueText);
+        Assert.Equal(codexModel.Periods[0].RemainingText, codexModel.Periods[0].DisplayRemainingText);
+
+        var claudeSnapshot = codexSnapshot with { Provider = UsageProviderId.Claude };
+        var claudeModel = WidgetAccountModel.From(
+            new CodexAccountView(new CodexAccountProfile("claude", "", "Claude")
+            {
+                Provider = UsageProviderId.Claude
+            }, claudeSnapshot), selected: false, now: Now);
+        Assert.Equal("76.91%", claudeModel.Ring.CenterValueText);
+        Assert.Equal("76.91%", claudeModel.RingValueText);
+        Assert.Equal("Left 23.09%", claudeModel.Periods[0].RemainingText);
+        Assert.Equal("Left 23.09%", claudeModel.Periods[0].DisplayRemainingText);
+    }
+
     [Fact]
     public void CursorRingKeepsUnknownSummaryValuesUnknownEvenWhenAnOmittedBudgetIsKnown()
     {

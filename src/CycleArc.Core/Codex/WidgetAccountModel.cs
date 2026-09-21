@@ -17,6 +17,7 @@ public sealed record WidgetPeriodLine(
 {
     public string? CadenceLabel { get; init; }
     public string? Tooltip { get; init; }
+    public string DisplayRemainingText { get; init; } = RemainingText;
 }
 
 /// <summary>
@@ -37,6 +38,10 @@ public sealed record WidgetAccountModel(
     string Tooltip)
 {
     public string? RingTargetLabel { get; init; }
+    // Widget glyphs only: keep the shared ring's precise text, percentage and danger state.
+    public string RingValueText => CursorUsagePresentation.IsCursor(Provider)
+        ? CodexDisplayFormatting.PercentText(Ring.UsedPercent)
+        : Ring.CenterValueText;
 
     public static WidgetAccountModel From(CodexAccountView account, bool selected,
         UsagePeriodPreference preference = UsagePeriodPreference.Auto, DateTimeOffset? now = null)
@@ -148,7 +153,12 @@ public sealed record WidgetAccountModel(
             ReferenceEquals(window, ring.Window))
         {
             CadenceLabel = CursorUsagePresentation.QuotaPeriodLabel(window.LimitId),
-            Tooltip = CursorWindowTooltip(window)
+            Tooltip = CursorWindowTooltip(window),
+            // Round directly from the percentage, never from an already formatted string.
+            // Amounts, disabled/unlimited states and all tooltip text retain their own format.
+            DisplayRemainingText = window.IsEnabled != false && !window.IsUnlimited && window.RemainingAmount is null
+                ? CodexDisplayFormatting.PercentText(window.RemainingPercent)
+                : CursorUsagePresentation.RemainingText(window)
         };
     }
 

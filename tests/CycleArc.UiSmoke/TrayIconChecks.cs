@@ -318,7 +318,9 @@ internal static class TrayIconChecks
         var account = new CodexAccountView(
             new CodexAccountProfile("cursor-tray-text", "", "Cursor") { Provider = UsageProviderId.Cursor }, snapshot);
         Check(WidgetAccountModel.From(account, selected: false).Ring.CenterValueText == "76.9%",
-            "Cursor widget ring text rounded away the fractional percentage.");
+            "Cursor widget shared ring metadata lost the fractional percentage.");
+        Check(WidgetAccountModel.From(account, selected: false).RingValueText == "77%",
+            "Cursor widget visible ring text did not use whole percentages.");
     }
 
     private static void CheckEquivalent(Bitmap actual, Bitmap expected, string message)
