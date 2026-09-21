@@ -314,6 +314,8 @@ public partial class FloatingWidget : Window
             ? WidgetPlacement.RecoverInto(Left, Top, width, height, target)
             : WidgetPlacement.Recover(Left, Top, width, height, areas is { Count: > 0 } ? areas : [target]);
         if (position.Left == Left && position.Top == Top) return;
+        // A queued cross-monitor recovery can trigger WPF's nested DPI resize too.
+        using var activation = new PassiveUpdate();
         Left = position.Left;
         Top = position.Top;
         Moved?.Invoke(Left, Top);

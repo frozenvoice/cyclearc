@@ -155,6 +155,10 @@ internal static class WidgetLayoutChecks
     {
         var accounts = MixedHeights();
         var widget = new FloatingWidget { ShowActivated = false };
+        // Before Show, window and content are separate visual roots. Normalize both
+        // before binding; Show below still applies the real monitor DPI to the HWND.
+        VisualTreeHelper.SetRootDpi(widget, new DpiScale(1, 1));
+        VisualTreeHelper.SetRootDpi((FrameworkElement)widget.Content, new DpiScale(1, 1));
         try
         {
             widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, Narrow, Now);
@@ -194,7 +198,10 @@ internal static class WidgetLayoutChecks
             Check(layout.Height <= shortArea[0].Height - (2 * WidgetGridLayout.EdgeMargin),
                 $"{suffix}: layout height {layout.Height} exceeds the work area.");
             Check(content.DesiredSize.Height <= layout.Height + 2,
-                $"{suffix}: rendered height {content.DesiredSize.Height} exceeds layout {layout.Height}.");
+                $"{suffix}: rendered height {content.DesiredSize.Height} exceeds layout {layout.Height}; "
+                + $"dpi={VisualTreeHelper.GetDpi(widget).DpiScaleY}/{VisualTreeHelper.GetDpi(content).DpiScaleY}, "
+                + $"header={header.DesiredSize.Height}+{header.Margin.Bottom}, viewport={layout.ModuleViewportHeight}, "
+                + $"scroller={((FrameworkElement)widget.FindName("ModuleScroller")).DesiredSize.Height}.");
             Check(content.DesiredSize.Width <= layout.Width + layout.HairlineRoundingSlack(1) + 1.01,
                 $"{suffix}: rendered width {content.DesiredSize.Width} exceeds layout {layout.Width}.");
 

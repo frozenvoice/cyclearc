@@ -5,7 +5,8 @@
 - Local prerequisite guidance and shared Windows verification (unreleased, 2026-09-21):
   - Started from clean main/origin/main f0a996442762b3d582054669b0478bd3fe33acb9
     on codex/build-local-prerequisites. Remote main was confirmed read-only.
-    No push, workflow dispatch/rerun, PR, merge, tag or release is part of this work.
+    The initial implementation was kept local; push and merge were subsequently authorized.
+    No tag, release or local application installation was requested.
   - Interactive build-local probes the VS 2022 toolchain before offering approved Microsoft
     installation, manual instructions or cancellation. A ready machine needs no download.
     The same resolver still requires vswhere, the VC x64/x86 component, the actual x64
@@ -51,18 +52,41 @@
     artifacts/build-local-prerequisites-focused.log, artifacts/local-first-local-install.log,
     and artifacts/local-first-release-guard.log. The existing Unix-only direct-script launch
     case remains skipped on Windows; the new actual CMD preflight fixture passed.
-  - The final command, pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch, was attempted once.
-    It passed preflight and workflow-contract, then **failed at setup-ui-toolchain** before
-    restore/build in 0.592 seconds (artifacts/local-first-final-gate.log). The machine has
-    only VS Build Tools 2026, version 18.10.12210.168, under Program Files (x86), and no
-    VS 2022 instance. The explicit 17.x requirement was not relaxed to make validation pass.
-    Consequently Release compilation, unit/WPF checks, test-flavour compilation, publish,
-    package and package-verify were not reached by this gate. No successful full-gate result
-    or executable/package validation is claimed for this work.
-  - No real Visual Studio install/remove, CycleArc Setup/install/repair/update/removal, or
-    remote CI execution occurred. GitHub event/concurrency behavior, artifact transfers and
-    disposable installed-app verification remain unverified until an approved remote run.
-    The running CycleArc desktop was identified read-only and was not stopped.
+  - The shared gate was attempted locally before delivery, then checked once more after the
+    executable correction below. The final pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+    passed preflight and workflow-contract, then **failed at setup-ui-toolchain** in 0.635
+    seconds (artifacts/delivery-full-gate-final.log). This PC has only VS Build Tools 2026,
+    version 18.10.12210.168, and no VS 2022 instance. The 17.x requirement was not relaxed;
+    Native AOT package/package-verify need the hosted windows-2022 environment. No local
+    successful full-gate or installer-package result is claimed.
+  - All locally available stages were exercised separately before pushing. Release solution
+    build, desktop-instance IPC checks, **1,655 unit tests**, the full production WPF suite,
+    test-flavour compilation, self-contained single-file publish and the published receiver
+    checks passed. Final WPF evidence is artifacts/delivery-uismoke-final.log; build/publish
+    evidence is artifacts/delivery-local-20260921-103215/verification.log. The unit TRX is under
+    artifacts/delivery-local-20260921-101150/TestResults. Existing script checks above were reused.
+  - The first local unit run exposed four outdated DevRunScriptGuardTests assumptions about
+    commands duplicated in YAML. The guards now assert the common publish contract, package
+    upload path and shared stage order. Its 14 focused cases and the full unit suite passed.
+  - Local WPF verification also exposed hidden-fixture DPI mismatches: the unshown Window
+    was measured at 96 DPI while its separate Content visual root retained 144 DPI. Cursor
+    summary and mixed-height fixtures now set both roots to 96 DPI before binding; viewport
+    assertions are unchanged. Actual native monitor checks and the dedicated 100-200% DPI
+    suite remain intact. EN/Dark 80% and KO/Light 150% captures were visually inspected.
+  - An existing secondary-monitor position-reset focus failure was reproduced independently.
+    An activation stack identified QueueRelayout -> Relayout -> RecoverTo -> WPF's nested
+    DPI SetWindowPos. RecoverTo now uses the existing bounded PassiveUpdate guard around
+    its Left/Top assignments. The original lifecycle regression then passed EN/KO and
+    Dark/Light on both physical monitors, with the foreground, active window and activation
+    count preserved. Diagnostic reproduction is artifacts/delivery-recovery-trace.log;
+    passing evidence is artifacts/delivery-recovery-fixed.log. Temporary instrumentation
+    was removed, and no timeout, retry or weakened assertion was introduced.
+  - The final WPF suite also passed **151** layout checks, **531** zoom checks, **20** settings
+    checks, **183** tray renders, **180** DPI/layout renders on two monitors, and **36**
+    production resource/layout renders. Native AOT packaging, GitHub events/artifact transfers
+    and disposable managed-install checks remain the approved remote validation boundary.
+    No real VS install/remove or local CycleArc Setup/install/repair/update/removal ran;
+    the existing desktop at publish/local/CycleArc.exe was kept running.
 
 - build-local fixture freshness (unreleased, 2026-09-21):
   - The reported `build-local-regression` failure on `1038363` came from the tests reusing

@@ -61,6 +61,10 @@ internal static class CursorWidgetSummaryChecks
         string selectedId, int zoom)
     {
         var widget = new FloatingWidget();
+        // Before Show, window and content are separate roots; normalize both for fixed-DIP captures.
+        // Dedicated WidgetDpiChecks cover native and simulated monitor DPI separately.
+        VisualTreeHelper.SetRootDpi(widget, new DpiScale(1, 1));
+        VisualTreeHelper.SetRootDpi((FrameworkElement)widget.Content, new DpiScale(1, 1));
         try
         {
             widget.SetZoom(zoom, notify: false);
