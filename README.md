@@ -288,7 +288,9 @@ CycleArc is an independent project and is not affiliated with or endorsed by Ope
 
 ## Build from source
 
-Requires Windows, PowerShell 7, and the .NET 8 SDK. Building the installer from source also requires Visual Studio 2022 with the **Desktop development with C++** workload because the setup window is Native AOT; running a shipped installer does not.
+Requires Windows, PowerShell 7, and the .NET 8 SDK. Building `CycleArc-Setup.exe` from source also requires Visual Studio Build Tools 2022 with the **Desktop development with C++** workload (including the MSVC x64/x86 tools and Windows SDK) because the setup window is Native AOT. Running a shipped installer does not require Visual Studio or these development tools, and `build-local` reuses an existing Visual Studio installation when it already provides suitable components.
+
+When `build-local.cmd` or `scripts/Build-Local.ps1` runs interactively and the prerequisite check fails, it explains what is missing and offers only **Install required Microsoft build tools**, **Show manual installation instructions**, or **Cancel**. Installation requires explicit approval, uses the official Microsoft bootstrapper, and runs only after its Authenticode signature is verified as Microsoft-signed. Company-managed PCs may require administrator or IT approval. `-NoPrerequisitePrompt` opts out of this interactive prompt; `-SilentInstall`, CI, and redirected stdin never prompt or install automatically and instead report the missing prerequisites and remediation before failing.
 
 ```powershell
 git clone https://github.com/frozenvoice/cyclearc.git
@@ -307,6 +309,8 @@ Preflight reports existing desktop PIDs and executable paths. After validation, 
 - `-NoLaunch`: validate the staged executable without replacing the running local app.
 - `-Fast`: skip the unit suite only when it has already passed for the same changes.
 - CI builds and checks the development single-file executable and packages the Velopack installer assets for the stable release workflow.
+
+The same `dev-run.ps1 -NoLaunch` gate runs locally and for both pull requests and pushes to `main`.
 
 `scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment` drives the real `build-local.cmd` entry point end to end with nothing injected: build A through the real `dev-run.ps1` gate and the real `CycleArc-Setup.exe`, build B installed over it with the same version number but different executable content, and a deliberately broken build to check that the cause and a nonzero exit code reach CMD while the running installation is left alone. It installs and replaces a real installation for the current Windows user, so run it only on a disposable Windows VM or throwaway user; the `Windows build-local entry point` workflow runs it on a discarded GitHub-hosted runner.
 

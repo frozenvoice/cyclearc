@@ -14,34 +14,39 @@ public class DevRunScriptGuardTests
     }
 
     [Fact]
-    public void PublishFlags_MatchGitHubActionsWorkflow()
+    public void PublishFlags_SharedGateKeepsSingleFileContract()
     {
-        var workflowFlags = ExtractWorkflowPublishFlags(File.ReadAllText(WorkflowPath));
         var devRunText = File.ReadAllText(DevRunScriptPath);
-
-        Assert.NotEmpty(workflowFlags);
-        foreach (var flag in workflowFlags)
+        const string marker = "Invoke-Dotnet -Arguments @('publish'";
+        var start = devRunText.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, "The shared gate must publish the development executable.");
+        var end = devRunText.IndexOf('\n', start);
+        var publish = devRunText[start..(end < 0 ? devRunText.Length : end)];
+        foreach (var flag in new[]
         {
-            Assert.Contains(flag, devRunText, StringComparison.Ordinal);
+            "'-c', 'Release'", "'-r', 'win-x64'", "'--self-contained', 'true'",
+            "'-p:PublishSingleFile=true'", "'-p:IncludeNativeLibrariesForSelfExtract=true'",
+            "'-p:DebugType=None'", "'-p:DebugSymbols=false'", "'-o', $StagingDir"
+        })
+        {
+            Assert.Contains(flag, publish, StringComparison.Ordinal);
         }
     }
 
     [Fact]
-    public void RequiredArtifacts_MatchGitHubActionsAssertion()
+    public void RequiredArtifacts_WorkflowUploadsVerifiedSharedGatePackages()
     {
         var workflowText = File.ReadAllText(WorkflowPath);
         var devRunText = File.ReadAllText(DevRunScriptPath);
-
-        var workflowArtifacts = ExtractWorkflowRelativePaths(workflowText, "publish/win-x64/");
-        Assert.NotEmpty(workflowArtifacts);
-
-        foreach (var artifact in workflowArtifacts)
-        {
-            var backslash = artifact.Replace('/', '\\');
-            Assert.True(
-                devRunText.Contains(artifact, StringComparison.Ordinal) || devRunText.Contains(backslash, StringComparison.Ordinal),
-                $"dev-run.ps1 does not validate required artifact '{artifact}'");
-        }
+        var packageOutput = System.Text.RegularExpressions.Regex.Match(devRunText,
+            @"\$script:packageOutput = Join-Path \$RepoRoot '(?<path>[^']+)'");
+        Assert.True(packageOutput.Success, "The shared gate must declare its package output directory.");
+        var workflowArtifacts = ExtractWorkflowRelativePaths(workflowText,
+            packageOutput.Groups["path"].Value + "/");
+        Assert.Equal(new[] { "*" }, workflowArtifacts);
+        Assert.Contains("name: CycleArc-win-x64", workflowText, StringComparison.Ordinal);
+        Assert.Contains("$files.Count -ne 1 -or $files[0].Name -ne 'CycleArc.exe'", devRunText, StringComparison.Ordinal);
+        Assert.Contains("'--update-package', $script:packageOutput", devRunText, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -75,6 +80,8 @@ public class DevRunScriptGuardTests
         var expected = new[]
         {
             "preflight",
+            "workflow-contract",
+            "setup-ui-toolchain",
             "release-guard",
             "restore",
             "tool-restore",
@@ -84,6 +91,8 @@ public class DevRunScriptGuardTests
             "build-local-regression",
             "unit-test",
             "ui-smoke-full",
+            "widget-preview",
+            "test-flavour-build",
             "publish",
             "package",
             "package-verify"
@@ -111,18 +120,16 @@ public class DevRunScriptGuardTests
     }
 
     [Fact]
-    public void Workflow_MatchesFailFastOrder()
+    public void Workflow_DelegatesFailFastOrderToSharedGate()
     {
         var workflow = File.ReadAllText(WorkflowPath);
-        var desktop = workflow.IndexOf("--desktop-instance", StringComparison.Ordinal);
-        var localInstall = workflow.IndexOf("tests/LocalInstall.Tests.ps1", StringComparison.Ordinal);
-        var buildLocal = workflow.IndexOf("tests/BuildLocal.Tests.ps1", StringComparison.Ordinal);
-        var unit = workflow.IndexOf("dotnet test CycleArc.sln", StringComparison.Ordinal);
-        var fullSmoke = workflow.IndexOf("Validate desktop resources", StringComparison.Ordinal);
-        var publish = workflow.IndexOf("Publish win-x64", StringComparison.Ordinal);
-        Assert.True(desktop >= 0 && localInstall > desktop && buildLocal > localInstall);
-        Assert.True(unit > buildLocal && fullSmoke > unit && publish > fullSmoke);
-        Assert.Contains("Desktop instance process checks", workflow, StringComparison.Ordinal);
+        const string gate = "./dev-run.ps1 -NoLaunch";
+        var gateStart = workflow.IndexOf(gate, StringComparison.Ordinal);
+        Assert.True(gateStart >= 0);
+        Assert.Equal(-1, workflow.IndexOf(gate, gateStart + gate.Length, StringComparison.Ordinal));
+        Assert.True(workflow.IndexOf("name: Upload Windows installer assets", StringComparison.Ordinal) > gateStart);
+        Assert.DoesNotMatch(@"\bdotnet\s+(restore|build|test|publish)\b", workflow);
+        Assert.DoesNotContain("-Fast", workflow, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -158,40 +165,6 @@ public class DevRunScriptGuardTests
         Assert.Contains("Get-Process -Name 'prometer'", text, StringComparison.Ordinal);
         Assert.DoesNotContain("-Name 'prometer-companion-host'", text, StringComparison.Ordinal);
         Assert.DoesNotContain("-Name \"prometer-companion-host\"", text, StringComparison.Ordinal);
-    }
-
-    private static List<string> ExtractWorkflowPublishFlags(string workflowText)
-    {
-        var start = workflowText.IndexOf("dotnet publish", StringComparison.Ordinal);
-        Assert.True(start >= 0, "windows.yml does not contain a 'dotnet publish' step.");
-        var end = workflowText.IndexOf("- name:", start, StringComparison.Ordinal);
-        if (end < 0)
-        {
-            end = workflowText.Length;
-        }
-
-        var block = workflowText[start..end];
-        var tokens = block.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        var flags = new List<string>();
-        for (var i = 0; i < tokens.Length; i++)
-        {
-            var token = tokens[i].TrimEnd('\r');
-            if (token == "-o")
-            {
-                // dev-run.ps1 intentionally publishes to a local staging directory,
-                // not the CI output path - that's the one deliberate difference.
-                i++;
-                continue;
-            }
-
-            if (token.StartsWith('-') || token is "win-x64" or "true")
-            {
-                flags.Add(token);
-            }
-        }
-
-        return flags.Distinct(StringComparer.Ordinal).ToList();
     }
 
     private static List<string> ExtractWorkflowRelativePaths(string workflowText, string prefix)

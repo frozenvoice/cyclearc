@@ -34,6 +34,104 @@
     also updated. The changed views were visually inspected; no image generation,
     real account/credential access or installed-app replacement was used.
 
+- Local prerequisite guidance and shared Windows verification (unreleased, 2026-09-21):
+  - Started from clean main/origin/main f0a996442762b3d582054669b0478bd3fe33acb9
+    on codex/build-local-prerequisites. Remote main was confirmed read-only.
+    The initial implementation was kept local; push and merge were subsequently authorized.
+    No tag, release or local application installation was requested.
+  - Interactive build-local probes the VS 2022 toolchain before offering approved Microsoft
+    installation, manual instructions or cancellation. A ready machine needs no download.
+    The same resolver still requires vswhere, the VC x64/x86 component, the actual x64
+    linker and the Windows SDK x64 kernel32.lib. Build-local rechecks them after installation.
+    CI, silent installs, redirected input and the explicit prompt opt-out remain fail-fast.
+  - The VS 2022 bootstrapper source is
+    [Microsoft's versioned endpoint](https://aka.ms/vs/17/release/vs_buildtools.exe).
+    The [official command-line contract](https://learn.microsoft.com/en-us/visualstudio/install/use-command-line-parameters-to-install-visual-studio?view=vs-2022)
+    distinguishes bootstrapper --wait from installed setup.exe; --passive shows progress and
+    --norestart leaves reboot approval to the person. Build Tools uses VCTools; existing
+    IDEs use NativeDesktop. The installed app is untouched by all prerequisite outcomes.
+  - Preflight now initializes failure logging before checking prerequisites. PowerShell prints
+    the stage/cause once; CMD preserves its exit code without repeating the summary or claiming
+    that an absent log proves no stage was reached. Old child build logs are excluded from a
+    new preflight failure.
+  - Windows CI now calls the same PowerShell gate as local verification. Feature branches use
+    the pull_request event instead of also triggering a full push run; push remains main-only.
+    Main direct-push history and Release.ps1's exact-SHA successful-push artifact requirement
+    make keeping main validation necessary. PR merges can therefore still validate their new
+    main SHA; there is no API or commit-message heuristic to suppress them.
+  - The GitHub branch-protection endpoint reported unprotected main; branch rules and repository
+    rulesets both returned empty lists at audit time. This does not establish external IT or
+    organization policy. PR concurrency cancels an obsolete run only for the same PR; release
+    workflows and main push runs do not inherit that cancellation policy.
+  - Build uses the hosted windows-2022 image's preinstalled VS 2022 toolchain and fails before
+    expensive work if its actual linker/SDK contract is absent. The artifact-only managed
+    Setup install/repair job stays on windows-latest without SDK/VS installation or rebuilding.
+    This separates the VS 2022 compiler requirement from current-Windows installation coverage.
+  - Recent successful Windows runs 272-281 (for example [run 281](https://github.com/frozenvoice/cyclearc/actions/runs/35522987565)) measured build jobs at 446-554 seconds,
+    setup-dotnet at 27-43 seconds, and restore at 21-28 seconds. Keep setup-dotnet 8.0.x;
+    add no NuGet cache, binary cache, or global.json in this change. The duplicate feature
+    push run is the avoided work; no end-to-end speedup percentage has been measured.
+  - Local focused verification passed: BuildLocal.Tests.ps1 **60 PASS checkpoints**, including
+    all prerequisite flow and real HTTP/signature/process-boundary tests with fake adapters.
+    After the last review, exact discovered channelId/productId were also added to the
+    existing-installation modify command; SetupUiPrerequisites.Tests.ps1 passed again on
+    that final helper (artifacts/setup-prerequisites-focused.log).
+    Also passed:
+    LocalInstall.Tests.ps1 **15 isolated deployment/retry/rollback scenarios** plus its path,
+    lease, mutex, discovery and process checks; Release.Tests.ps1 isolated release guards;
+    VerificationWorkflow.Tests.ps1 both workflow/evidence-path sections; PowerShell parsing,
+    one PyYAML BaseLoader syntax parse and diff checks. Logs are
+    artifacts/build-local-prerequisites-focused.log, artifacts/local-first-local-install.log,
+    and artifacts/local-first-release-guard.log. The existing Unix-only direct-script launch
+    case remains skipped on Windows; the new actual CMD preflight fixture passed.
+  - The shared gate was attempted locally before delivery, then checked once more after the
+    executable correction below. The final pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+    passed preflight and workflow-contract, then **failed at setup-ui-toolchain** in 0.635
+    seconds (artifacts/delivery-full-gate-final.log). This PC has only VS Build Tools 2026,
+    version 18.10.12210.168, and no VS 2022 instance. The 17.x requirement was not relaxed;
+    Native AOT package/package-verify need the hosted windows-2022 environment. No local
+    successful full-gate or installer-package result is claimed.
+  - All locally available stages were exercised separately before pushing. Release solution
+    build, desktop-instance IPC checks, **1,655 unit tests**, the full production WPF suite,
+    test-flavour compilation, self-contained single-file publish and the published receiver
+    checks passed. Final WPF evidence is artifacts/delivery-uismoke-final.log; build/publish
+    evidence is artifacts/delivery-local-20260921-103215/verification.log. The unit TRX is under
+    artifacts/delivery-local-20260921-101150/TestResults. Existing script checks above were reused.
+  - The first local unit run exposed four outdated DevRunScriptGuardTests assumptions about
+    commands duplicated in YAML. The guards now assert the common publish contract, package
+    upload path and shared stage order. Its 14 focused cases and the full unit suite passed.
+  - Local WPF verification also exposed hidden-fixture DPI mismatches: the unshown Window
+    was measured at 96 DPI while its separate Content visual root retained 144 DPI. Cursor
+    summary and mixed-height fixtures now set both roots to 96 DPI before binding; viewport
+    assertions are unchanged. Actual native monitor checks and the dedicated 100-200% DPI
+    suite remain intact. EN/Dark 80% and KO/Light 150% captures were visually inspected.
+  - An existing secondary-monitor position-reset focus failure was reproduced independently.
+    An activation stack identified QueueRelayout -> Relayout -> RecoverTo -> WPF's nested
+    DPI SetWindowPos. RecoverTo now uses the existing bounded PassiveUpdate guard around
+    its Left/Top assignments. The original lifecycle regression then passed EN/KO and
+    Dark/Light on both physical monitors, with the foreground, active window and activation
+    count preserved. Diagnostic reproduction is artifacts/delivery-recovery-trace.log;
+    passing evidence is artifacts/delivery-recovery-fixed.log. Temporary instrumentation
+    was removed, and no timeout, retry or weakened assertion was introduced.
+  - The final WPF suite also passed **151** layout checks, **531** zoom checks, **20** settings
+    checks, **183** tray renders, **180** DPI/layout renders on two monitors, and **36**
+    production resource/layout renders. Native AOT packaging, GitHub events/artifact transfers
+    and disposable managed-install checks remain the approved remote validation boundary.
+    No real VS install/remove or local CycleArc Setup/install/repair/update/removal ran;
+    the existing desktop at publish/local/CycleArc.exe was kept running.
+  - The first authorized [PR run 35551400427](https://github.com/frozenvoice/cyclearc/actions/runs/35551400427)
+    passed the entire shared gate, including VS 2022 Native AOT packaging and package-verify
+    for 0.6.1, but the managed-install job could not download its artifact. The build log
+    showed that upload-artifact excluded publish/.dev-velopack because its default ignores
+    files within dot-prefixed directories ([official behavior](https://github.com/actions/upload-artifact/blob/v6/README.md#uploading-hidden-files)).
+    Only that package upload now sets include-hidden-files: true, and missing assets fail
+    the upload step with if-no-files-found: error. Workflow guards and negative copies
+    rejecting both old options passed locally. The exact @actions/glob 0.5.0 dependency
+    reproduced the default exclusion locally (zero matches) and the corrected inclusion
+    (one synthetic CycleArc-Setup.exe match); an isolated js-yaml parse confirmed the
+    workflow values. Unchanged executable checks were reused.
+    No blind rerun or timeout change was made.
+
 - build-local fixture freshness (unreleased, 2026-09-21):
   - The reported `build-local-regression` failure on `1038363` came from the tests reusing
     the cancellation case's fake Setup.exe for the following exit-1 case. Once that file

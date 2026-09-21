@@ -8,7 +8,11 @@ name: Windows
 # ReleaseNotesPath, so it does affect the packaged output.
 # The two lists are kept identical by hand: GitHub Actions does not expand YAML anchors.
 on:
+  # Feature branch commits are validated by pull_request only. Keep the main push as a
+  # separate post-merge clean-run check because release tooling consumes its artifact.
   push:
+    branches:
+      - main
     paths-ignore:
       - 'AGENTS.md'
       - 'CLAUDE.md'
@@ -27,9 +31,17 @@ on:
       - '.cursor/**'
       - '.github/**/*.md'
 
+# A newer commit supersedes an in-flight PR verification. Main pushes are retained
+# independently so the post-merge clean-run remains observable.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
-    runs-on: windows-latest
+    # The build includes Native AOT setup packaging. windows-latest now follows the
+    # VS2026 image, so pin this source-build gate to the VS2022 image contract.
+    runs-on: windows-2022
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -40,41 +52,14 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Restore local tools
-        run: dotnet tool restore
-
-      - name: Restore
-        run: dotnet restore
-
-      - name: Release guard tests
-        run: ./tests/Release.Tests.ps1
-
-      - name: Build
-        run: dotnet build CycleArc.sln -c Release
-
-      - name: Desktop instance process checks
-        run: >
-          dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj
-          -c Release --no-build -- --desktop-instance
-
-      - name: Installer recovery tests
-        run: ./tests/LocalInstall.Tests.ps1
-
-      - name: Local Setup one-click tests
-        run: ./tests/BuildLocal.Tests.ps1
-
-      - name: Test
-        run: dotnet test CycleArc.sln -c Release --no-build --logger trx --results-directory TestResults
-
-      - name: Validate desktop resources
-        run: dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build
-
-      # Render the production widget from synthetic accounts so a layout regression is visible
-      # in the run's artifacts, not only as a failed assertion.
-      - name: Render floating widget previews
-        run: >
-          dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj
-          -c Release --no-build -- --widget-accounts artifacts/widget-previews
+      # restore/build/test/UiSmoke/test-flavour/publish/package/package-verify are
+      # shared with the local -NoLaunch gate. CI only supplies evidence destinations.
+      - name: Run shared verification gate
+        shell: pwsh
+        run: >-
+          ./dev-run.ps1 -NoLaunch
+          -TestResultsDirectory TestResults
+          -PreviewDirectory artifacts/widget-previews
 
       - name: Upload floating widget previews
         if: always()
@@ -84,60 +69,13 @@ jobs:
           path: artifacts/widget-previews/*
           if-no-files-found: ignore
 
-      # Type-check the test-only code: every other build omits these constants, so without this
-      # step it first fails when someone runs the installed-app verification. Compile only, into
-      # a throwaway directory, so no shipped output is replaced. %3B is an escaped semicolon; an
-      # unescaped one ends the property and MSBuild reads the rest as another switch.
-      - name: Compile test-only build flavours
-        run: >
-          dotnet build src/CycleArc/CycleArc.csproj -c Release
-          -p:CycleArcTestBuild=CYCLEARC_TEST_E2E%3BCYCLEARC_TEST_FAIL_STARTUP
-          -o artifacts/test-flavour-build
-
-      - name: Publish win-x64
-        run: >
-          dotnet publish src/CycleArc/CycleArc.csproj
-          -c Release
-          -r win-x64
-          --self-contained true
-          -p:PublishSingleFile=true
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:DebugType=None
-          -p:DebugSymbols=false
-          -o publish/win-x64
-
-      - name: Assert single-file artifact
-        run: |
-          if (!(Test-Path publish/win-x64/CycleArc.exe)) { throw "CycleArc.exe missing" }
-          if (@(Get-ChildItem publish/win-x64 -File -Recurse).Count -ne 1) { throw "Unexpected companion files" }
-
-      - name: Validate published Claude statusLine receiver
-        run: >
-          dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj
-          -c Release --no-build -- --claude-process publish/win-x64/CycleArc.exe
-
-      - name: Package stable Windows release
-        shell: pwsh
-        run: |
-          $props = Get-Content -LiteralPath Directory.Build.props -Raw
-          $match = [regex]::Match($props, '<Version>\s*([^<]+?)\s*</Version>')
-          if (!$match.Success) { throw 'Directory.Build.props does not contain a Version' }
-          $version = $match.Groups[1].Value.Trim()
-          $notes = Join-Path $PWD "release-notes/$version.md"
-          $arguments = @{ PublishedDir = 'publish/win-x64'; OutputDir = 'publish/velopack'; Version = $version }
-          if (Test-Path -LiteralPath $notes -PathType Leaf) { $arguments.ReleaseNotesPath = $notes }
-          & ./scripts/Package.ps1 @arguments
-
-      - name: Validate packaged update behavior
-        run: >
-          dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj
-          -c Release --no-build -- --update-package publish/velopack
-
       - name: Upload Windows installer assets
         uses: actions/upload-artifact@v6
         with:
           name: CycleArc-win-x64
-          path: publish/velopack/*
+          path: publish/.dev-velopack/*
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Upload failed test results
         if: failure()

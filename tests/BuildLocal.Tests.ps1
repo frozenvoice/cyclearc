@@ -155,7 +155,7 @@ try {
     }
     $devRunText = Get-Content -LiteralPath (Join-Path $repoRoot 'dev-run.ps1') -Raw
     foreach ($stage in @(
-        'preflight', 'release-guard', 'restore', 'tool-restore', 'build', 'ui-smoke-desktop-instance',
+        'preflight', 'setup-ui-toolchain', 'workflow-contract', 'release-guard', 'restore', 'tool-restore', 'build', 'ui-smoke-desktop-instance',
         'local-install-regression', 'build-local-regression', 'unit-test', 'ui-smoke-full',
         'publish', 'package', 'package-verify'
     )) {
@@ -189,6 +189,109 @@ try {
         throw 'Build-Local.ps1 must not treat an absent desktop PID as a terminating error'
     }
     Write-Host 'PASS: build-local.cmd reports the recorded stage instead of a blanket claim.'
+
+    # Exercise the real preflight ordering without building or using the machine's VS.
+    # Every subsequent app operation is a forbidden adapter.
+    $preflightTree = Join-Path $testRoot 'prerequisite integration'
+    New-GitCycleArcTree $preflightTree
+    $forbiddenOperation = { throw 'Unexpected build, desktop stop or CycleArc Setup invocation' }
+    foreach ($preflightStatus in @('Cancelled', 'Manual', 'RebootRequired')) {
+        $earlyResult = Invoke-BuildLocal -RepoRoot $preflightTree -PrerequisitePreflight {
+            param($root, $noPrompt, $silent)
+            [pscustomobject]@{ Status = $preflightStatus }
+        } -DevRun $forbiddenOperation -StopDesktop $forbiddenOperation -RunSetup $forbiddenOperation -StartLauncher $forbiddenOperation
+        if ($earlyResult.PrerequisiteStatus -ne $preflightStatus -or $earlyResult.Built -or
+            (Get-BuildLocalStage) -ne 'preflight') {
+            throw "Prerequisite outcome $preflightStatus did not stop before the build"
+        }
+    }
+    Write-Host 'PASS: prerequisite cancellation, manual guidance and reboot never build, stop or install CycleArc.'
+
+    foreach ($suppression in @(@{ NoPrerequisitePrompt = $true }, @{ SilentInstall = $true })) {
+        $script:observedSuppression = $null
+        Assert-Throws {
+            Invoke-BuildLocal -RepoRoot $preflightTree @suppression -PrerequisitePreflight {
+                param($root, $noPrompt, $silent)
+                $script:observedSuppression = @($noPrompt, $silent)
+                throw 'isolated missing vswhere.exe'
+            } -DevRun $forbiddenOperation -StopDesktop $forbiddenOperation -RunSetup $forbiddenOperation
+        } 'isolated missing vswhere.exe'
+        if (!($observedSuppression[0] -or $observedSuppression[1])) {
+            throw 'The build entry point lost non-interactive prerequisite suppression'
+        }
+    }
+    $preflightMarker = Join-Path $preflightTree 'artifacts/build-local/last-failure.txt'
+    $preflightText = Get-Content -LiteralPath $preflightMarker -Raw
+    foreach ($fragment in @('Failed at: preflight', 'Stage: preflight', 'isolated missing vswhere.exe')) {
+        if (!$preflightText.Contains($fragment)) { throw "The preflight marker lost: $fragment" }
+    }
+    if ($preflightText -match 'still running|already ran|changed the installation') {
+        throw 'Preflight guidance claimed unobserved installation/process state'
+    }
+    Write-Host 'PASS: missing prerequisites record preflight before any build or app operation.'
+
+    $readyResult = Invoke-BuildLocal -RepoRoot $preflightTree -NoInstall -PrerequisitePreflight {
+        param($root, $noPrompt, $silent)
+        [pscustomobject]@{ Status = 'Ready' }
+    } -DevRun { New-FakePublished $preflightTree 'ready-publish' 'ready-setup' | Out-Null } -StopDesktop $forbiddenOperation -RunSetup $forbiddenOperation -StartLauncher $forbiddenOperation
+    if (!$readyResult.SetupPath -or (Get-BuildLocalStage) -ne 'package') {
+        throw 'A verified prerequisite result did not continue into the original build/package flow'
+    }
+    if (Test-Path -LiteralPath $preflightMarker) { throw 'A successful run retained a stale preflight failure marker' }
+    Write-Host 'PASS: a ready toolchain continues the build and clears a previous failure marker.'
+
+    # Drive the actual CMD wrapper with a synthetic entry point and the real reporter.
+    if ($IsWindows) {
+        $cmdTree = Join-Path $testRoot 'cmd preflight 한글'
+        New-GitCycleArcTree $cmdTree
+        $cmdScripts = Join-Path $cmdTree 'scripts'
+        New-Item -ItemType Directory -Path $cmdScripts | Out-Null
+        Copy-Item -LiteralPath (Join-Path $repoRoot 'build-local.cmd') -Destination $cmdTree
+        $stubText = @'
+param([switch]$NoPrerequisitePrompt)
+. '__REPO__/scripts/LocalInstall.ps1'
+. '__REPO__/scripts/Build-Local.ps1' -LoadOnly
+try {
+    Invoke-BuildLocal -RepoRoot (Split-Path -Parent $PSScriptRoot) -NoPrerequisitePrompt -PrerequisitePreflight {
+        throw 'CMD isolated missing vswhere.exe'
+    } -DevRun { throw 'build must not run' } | Out-Null
+}
+catch { exit 1 }
+exit 0
+'@
+        $stubText = $stubText.Replace('__REPO__', ($repoRoot -replace "'", "''"))
+        Set-Content -LiteralPath (Join-Path $cmdScripts 'Build-Local.ps1') -Value $stubText -Encoding utf8
+        $cmdStart = [Diagnostics.ProcessStartInfo]::new($env:ComSpec)
+        $cmdStart.Arguments = '/d /c ""' + (Join-Path $cmdTree 'build-local.cmd') + '" -NoPrerequisitePrompt"'
+        $cmdStart.UseShellExecute = $false
+        $cmdStart.CreateNoWindow = $true
+        $cmdStart.RedirectStandardInput = $true
+        $cmdStart.RedirectStandardOutput = $true
+        $cmdStart.RedirectStandardError = $true
+        $cmdChild = [Diagnostics.Process]::Start($cmdStart)
+        try {
+            $cmdChild.StandardInput.Close()
+            $cmdOutTask = $cmdChild.StandardOutput.ReadToEndAsync()
+            $cmdErrTask = $cmdChild.StandardError.ReadToEndAsync()
+            if (!$cmdChild.WaitForExit(30000)) {
+                $cmdChild.Kill($true)
+                throw 'CMD preflight waited for input in a non-interactive run'
+            }
+            $cmdOutput = $cmdOutTask.GetAwaiter().GetResult() + $cmdErrTask.GetAwaiter().GetResult()
+            if ($cmdChild.ExitCode -ne 1) { throw "CMD did not preserve failure exit code: $($cmdChild.ExitCode)" }
+            if ($cmdOutput -match 'before it could record a stage|no failure log is available') {
+                throw "CMD contradicted its recorded preflight stage: $cmdOutput"
+            }
+            foreach ($summaryLine in @('CycleArc build-local failed.', 'Failed at: preflight', 'Stage: preflight')) {
+                if ([regex]::Matches($cmdOutput, [regex]::Escape($summaryLine)).Count -ne 1) {
+                    throw "CMD must show '$summaryLine' exactly once: $cmdOutput"
+                }
+            }
+        }
+        finally { $cmdChild.Dispose() }
+        Write-Host 'PASS: real CMD failure records preflight once, preserves exit 1 and never waits on redirected stdin.'
+    }
+
 
     # PowerShell variable names are case-insensitive, so a local spelled like a
     # parameter is that parameter, and a typed parameter rejects the assignment.
@@ -294,7 +397,7 @@ try {
     New-GitCycleArcTree $tree
     $script:setupCalled = $false
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot (Join-Path $testRoot 'install-a') -DevRun { throw 'synthetic build failure' } -RunSetup {
+        Invoke-BuildLocal -RepoRoot $tree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot (Join-Path $testRoot 'install-a') -DevRun { throw 'synthetic build failure' } -RunSetup {
             param($setup, $args)
             $script:setupCalled = $true
             0
@@ -309,7 +412,7 @@ try {
     $script:staleSetupCalled = $false
     $script:staleStarted = $false
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot (Join-Path $testRoot 'install-b') -DevRun { } -SilentInstall `
+        Invoke-BuildLocal -RepoRoot $tree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot (Join-Path $testRoot 'install-b') -DevRun { } -SilentInstall `
             -PackagedSetup { $oldPack } -StopDesktop { $script:staleStopped = $true } `
             -RunSetup { $script:staleSetupCalled = $true; 0 } -StartLauncher { $script:staleStarted = $true }
     } 'older than this run'
@@ -321,7 +424,7 @@ try {
 
     $installC = Join-Path $testRoot 'install-c'
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installC -DevRun { } `
+        Invoke-BuildLocal -RepoRoot $tree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $installC -DevRun { } `
             -PackagedSetup { New-FakePublished $tree 'published-c' 'setup-c' } -StopDesktop { } -RunSetup {
             param($setup, $arguments)
             # The default run shows the installer; only -SilentInstall suppresses it.
@@ -336,7 +439,7 @@ try {
 
     $installD = Join-Path $testRoot 'install-d'
     $script:started = $false
-    $result = Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installD -DevRun { } `
+    $result = Invoke-BuildLocal -RepoRoot $tree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $installD -DevRun { } `
         -PackagedSetup { New-FakePublished $tree 'published-d' 'setup-d' } -StopDesktop { } -RunSetup {
         param($setup, $arguments)
         New-Item -ItemType Directory -Path (Join-Path $installD 'current') -Force | Out-Null
@@ -362,7 +465,7 @@ try {
     $installE = Join-Path $testRoot 'install-e'
     New-Item -ItemType Directory -Path $installE -Force | Out-Null
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $tree -ManagedRoot $installE -DevRun { } `
+        Invoke-BuildLocal -RepoRoot $tree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $installE -DevRun { } `
             -PackagedSetup { New-FakePublished $tree 'published-e' 'setup-e' } -StopDesktop { } -RunSetup { 7 }
     } 'CycleArc-Setup.exe failed'
     if (Test-Path -LiteralPath (Join-Path $installE 'current/CycleArc.exe')) {
@@ -372,7 +475,7 @@ try {
 
     $lease = New-InstallLease -InstallRoot $tree -AllowedRoots @($tree)
     try {
-        Assert-Throws { Invoke-BuildLocal -RepoRoot $tree -ManagedRoot (Join-Path $testRoot 'install-f') -DevRun { } } 'Another dev-run installation'
+        Assert-Throws { Invoke-BuildLocal -RepoRoot $tree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot (Join-Path $testRoot 'install-f') -DevRun { } } 'Another dev-run installation'
     }
     finally { $lease.Dispose() }
     Write-Host 'PASS: overlapping build-local runs are rejected by the existing install lease.'
@@ -380,7 +483,7 @@ try {
     $spaceRoot = Join-Path $testRoot 'path with space'
     New-GitCycleArcTree $spaceRoot
     $spaceInstall = Join-Path $testRoot 'install space'
-    $spaceResult = Invoke-BuildLocal -RepoRoot $spaceRoot -ManagedRoot $spaceInstall -DevRun { } `
+    $spaceResult = Invoke-BuildLocal -RepoRoot $spaceRoot -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $spaceInstall -DevRun { } `
         -PackagedSetup { New-FakePublished $spaceRoot 'published-space' 'setup-space' } -StopDesktop { } -RunSetup {
         param($setup, $arguments)
         New-Item -ItemType Directory -Path (Join-Path $spaceInstall 'current') -Force | Out-Null
@@ -408,7 +511,7 @@ try {
     New-TestDevRun $defaultTree $devRunMarker 0 | Out-Null
     $defaultInstall = Join-Path $testRoot 'install default'
     $script:defaultStopped = $false
-    $defaultResult = Invoke-BuildLocal -RepoRoot $defaultTree -ManagedRoot $defaultInstall `
+    $defaultResult = Invoke-BuildLocal -RepoRoot $defaultTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $defaultInstall `
         -PackagedSetup { New-FakePublished $defaultTree 'published-default' 'setup-default' } -StopDesktop { $script:defaultStopped = $true } -RunSetup {
             param($setup, $arguments)
             New-Item -ItemType Directory -Path (Join-Path $defaultInstall 'current') -Force | Out-Null
@@ -450,7 +553,7 @@ try {
     $silentManagedRoot = Join-Path $testRoot 'install silent'
     $script:silentStopped = $false
     $script:silentArguments = @()
-    $silentResult = Invoke-BuildLocal -RepoRoot $silentTree -ManagedRoot $silentManagedRoot -SilentInstall `
+    $silentResult = Invoke-BuildLocal -RepoRoot $silentTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $silentManagedRoot -SilentInstall `
         -PackagedSetup { New-FakePublished $silentTree 'published-silent' 'setup-silent' } -StopDesktop { $script:silentStopped = $true } -RunSetup {
             param($setup, $arguments)
             $script:silentArguments = @($arguments)
@@ -482,7 +585,7 @@ try {
     $cancelPackage = { New-FakePublished $cancelTree 'published-cancel' 'setup-cancel' }
     $script:cancelStopped = $false
     $script:cancelStarted = $false
-    $cancelResult = Invoke-BuildLocal -RepoRoot $cancelTree -ManagedRoot $cancelInstall `
+    $cancelResult = Invoke-BuildLocal -RepoRoot $cancelTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $cancelInstall `
         -PackagedSetup $cancelPackage -StopDesktop { $script:cancelStopped = $true } `
         -StartLauncher { $script:cancelStarted = $true } -RunSetup {
             param($setup, $arguments)
@@ -502,7 +605,7 @@ try {
     $failInstall = Join-Path $testRoot 'install setup-failure'
     $script:failureSetupCalled = $false
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $cancelTree -ManagedRoot $failInstall `
+        Invoke-BuildLocal -RepoRoot $cancelTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $failInstall `
             -PackagedSetup $cancelPackage -StopDesktop { } -RunSetup {
                 param($setup, $arguments)
                 $script:failureSetupCalled = $true
@@ -519,7 +622,7 @@ try {
     $fastMarker = Join-Path $fastTree 'dev-run-marker.txt'
     New-TestDevRun $fastTree $fastMarker 0 | Out-Null
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $fastTree -ManagedRoot (Join-Path $testRoot 'install fast') -Fast -StopDesktop { }
+        Invoke-BuildLocal -RepoRoot $fastTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot (Join-Path $testRoot 'install fast') -Fast -StopDesktop { }
     } 'Published CycleArc.exe is missing'
     if ((Get-Content -LiteralPath $fastMarker -Raw) -notmatch 'Fast=True') {
         throw '-Fast was not forwarded to the real dev-run.ps1'
@@ -534,7 +637,7 @@ try {
     $script:failStopped = $false
     $script:failSetup = $false
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $failTree -ManagedRoot (Join-Path $testRoot 'install failure') `
+        Invoke-BuildLocal -RepoRoot $failTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot (Join-Path $testRoot 'install failure') `
             -StopDesktop { $script:failStopped = $true } -RunSetup { $script:failSetup = $true; 0 }
     } 'dev-run.ps1 -NoLaunch failed (exit 3)'
     if ($failStopped) { throw 'A failed build still stopped the running desktop' }
@@ -575,7 +678,7 @@ try {
     $script:stageStopped = $false
     $script:stageSetup = $false
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $stageTree -ManagedRoot (Join-Path $testRoot 'install sub-stage') `
+        Invoke-BuildLocal -RepoRoot $stageTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot (Join-Path $testRoot 'install sub-stage') `
             -StopDesktop { $script:stageStopped = $true } -RunSetup { $script:stageSetup = $true; 0 }
     } 'dev-run.ps1 -NoLaunch failed (exit 1)'
     if ($stageStopped) { throw 'An early targeted-check failure still stopped the running desktop' }
@@ -610,7 +713,7 @@ try {
     New-TestDevRun $lateTree (Join-Path $lateTree 'dev-run-marker.txt') 0 | Out-Null
     $lateInstall = Join-Path $testRoot 'install late'
     Assert-Throws {
-        Invoke-BuildLocal -RepoRoot $lateTree -ManagedRoot $lateInstall `
+        Invoke-BuildLocal -RepoRoot $lateTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $lateInstall `
             -PackagedSetup { New-FakePublished $lateTree 'published-late' 'setup-late' } -StopDesktop { } -RunSetup {
             param($setup, $arguments)
             New-Item -ItemType Directory -Path (Join-Path $lateInstall 'current') -Force | Out-Null
@@ -694,7 +797,7 @@ exit 0
         $env:CYCLEARC_TEST_INSTALL_ROOT = $setupInstall
         $env:CYCLEARC_TEST_STAGING_EXE = $setupStagingExe
         try {
-            $setupResult = Invoke-BuildLocal -RepoRoot $setupTree -ManagedRoot $setupInstall -StopDesktop { } `
+            $setupResult = Invoke-BuildLocal -RepoRoot $setupTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $setupInstall -StopDesktop { } `
                 -PackagedSetup {
                     Set-Content -LiteralPath $setupStagingExe -Value 'published-real-setup'
                     $freshSetup = New-TestLaunchableScript 'fake-setup' $setupBody
@@ -1021,6 +1124,8 @@ exit 0
         }
     }
     Write-Host 'PASS: the AOT prerequisite check verifies the C++ components, not just vswhere.exe.'
+
+    & (Join-Path $repoRoot 'tests/SetupUiPrerequisites.Tests.ps1')
 
     # --- Regression: only 'installing' is held to the install deadline. -------------------
     # A synthetic installer walks the real state file through the real states. The budgets are

@@ -6,15 +6,25 @@ Build, test, publish and run the single-file CycleArc desktop app.
 Skip tests only after they have already been run for these changes.
 .PARAMETER NoLaunch
 Validate the staged artifact without stopping or replacing the installed local build.
+.PARAMETER TestResultsDirectory
+Write TRX evidence under TestResults or a subdirectory of artifacts (optional).
+.PARAMETER PreviewDirectory
+Render synthetic widget previews under TestResults or a subdirectory of artifacts (optional).
 #>
 [CmdletBinding()]
-param([switch]$Fast, [switch]$NoLaunch)
+param(
+    [switch]$Fast,
+    [switch]$NoLaunch,
+    [string]$TestResultsDirectory,
+    [string]$PreviewDirectory
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RepoRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 Set-Location -LiteralPath $RepoRoot
 $localInstallScript = Join-Path $RepoRoot 'scripts/LocalInstall.ps1'
 . $localInstallScript
+. (Join-Path $RepoRoot 'scripts/SetupUiToolchain.ps1')
 $StagingDir = Join-Path $RepoRoot 'publish/.dev-staging'
 $CurrentLocalDir = Join-Path $RepoRoot 'publish/local'
 # The development single-file build replaces itself here. Kept apart from the managed
@@ -26,12 +36,30 @@ $AllowedRoots = @($RepoRoot)
 function Assert-DevRunPath([string]$Target) {
     Assert-InstallPath -Path $Target -AllowedRoots $AllowedRoots | Out-Null
 }
+function Resolve-DevRunPath([string]$Target) {
+    if ([string]::IsNullOrWhiteSpace($Target)) { return $null }
+    $full = if ([IO.Path]::IsPathRooted($Target)) {
+        [IO.Path]::GetFullPath($Target)
+    }
+    else {
+        [IO.Path]::GetFullPath((Join-Path $RepoRoot $Target))
+    }
+    $artifactRoot = Join-Path $RepoRoot 'artifacts'
+    $testResultsRoot = Join-Path $RepoRoot 'TestResults'
+    if ($full.TrimEnd([char[]]@('\', '/')).Equals($artifactRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Choose an evidence subdirectory under artifacts, not the artifacts root.'
+    }
+    Assert-InstallPath -Path $full -AllowedRoots @($artifactRoot, $testResultsRoot) | Out-Null
+    $full
+}
 function Invoke-Dotnet([string[]]$Arguments) {
     Write-Host "Running: dotnet $($Arguments -join ' ')"
     & dotnet @Arguments
     if ($LASTEXITCODE -ne 0) { throw "dotnet $($Arguments[0]) failed (exit $LASTEXITCODE). See the command output above." }
 }
 foreach ($target in @($StagingDir, $CurrentLocalDir)) { Assert-DevRunPath $target }
+$TestResultsPath = Resolve-DevRunPath $TestResultsDirectory
+$PreviewPath = Resolve-DevRunPath $PreviewDirectory
 $KnownExecutablePaths = @(
     foreach ($directory in @($CurrentLocalDir, $LocalDir)) {
         foreach ($name in @('CycleArc.exe', 'CodexMeter.exe', 'prometer.exe')) {
@@ -114,6 +142,18 @@ Invoke-DevRunStep 'preflight' {
     finally { foreach ($processRecord in $earlyDesktopProcesses) { $processRecord.Process.Dispose() } }
 }
 
+Invoke-DevRunStep 'workflow-contract' { & (Join-Path $RepoRoot 'tests/VerificationWorkflow.Tests.ps1') }
+Invoke-DevRunStep 'setup-ui-toolchain' {
+    try {
+        Assert-SetupUiToolchain -RepoRoot $RepoRoot | Out-Null
+    }
+    catch {
+        if ($env:GITHUB_ACTIONS -eq 'true') {
+            throw ("The hosted runner does not satisfy the preinstalled VS2022 Native AOT toolchain contract; CI will not download or run a Visual Studio installer. " + $_.Exception.Message)
+        }
+        throw
+    }
+}
 Invoke-DevRunStep 'release-guard' { & (Join-Path $RepoRoot 'tests/Release.Tests.ps1') }
 Invoke-DevRunStep 'restore' {
     if (Test-Path -LiteralPath $StagingDir) {
@@ -137,10 +177,33 @@ Invoke-DevRunStep 'unit-test' {
         Write-Host 'unit-test skipped (-Fast)'
         return
     }
-    Invoke-Dotnet -Arguments @('test', 'CycleArc.sln', '-c', 'Release', '--no-build')
+    $testArguments = @('test', 'CycleArc.sln', '-c', 'Release', '--no-build')
+    if ($TestResultsPath) {
+        New-Item -ItemType Directory -Path $TestResultsPath -Force | Out-Null
+        $testArguments += @('--logger', 'trx', '--results-directory', $TestResultsPath)
+    }
+    Invoke-Dotnet -Arguments $testArguments
 }
 Invoke-DevRunStep 'ui-smoke-full' {
     Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build')
+}
+if ($PreviewPath) {
+    Invoke-DevRunStep 'widget-preview' {
+        New-Item -ItemType Directory -Path $PreviewPath -Force | Out-Null
+        Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--widget-accounts', $PreviewPath)
+    }
+}
+Invoke-DevRunStep 'test-flavour-build' {
+    $flavourOutput = Join-Path $RepoRoot 'artifacts/test-flavour-build'
+    Assert-DevRunPath $flavourOutput
+    if (Test-Path -LiteralPath $flavourOutput) {
+        Remove-Item -LiteralPath $flavourOutput -Recurse -Force
+    }
+    Invoke-Dotnet -Arguments @(
+        'build', 'src/CycleArc/CycleArc.csproj', '-c', 'Release',
+        '-p:CycleArcTestBuild=CYCLEARC_TEST_E2E%3BCYCLEARC_TEST_FAIL_STARTUP',
+        '-o', $flavourOutput
+    )
 }
 Invoke-DevRunStep 'publish' {
     Invoke-Dotnet -Arguments @('publish', 'src/CycleArc/CycleArc.csproj', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $StagingDir)
