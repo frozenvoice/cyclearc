@@ -34,7 +34,7 @@ public static class TrayIconRenderer
         var palette = Palette(snapshot, exact, ring.IsDangerLevel, claudeAwaitingUsage);
         var text = exact ? CodexDisplayFormatting.PercentText(ring.UsedPercent, snapshot.Provider).TrimEnd('%') : "?";
         // Keep Cursor's tiny tray glyph to whole digits; the source value, arc and
-        // larger views retain their precision. Match Codex's whole-percent rounding.
+        // detailed views retain their precision. Match Codex's whole-percent rounding.
         if (snapshot.Provider == UsageProviderId.Cursor && ring.UsedPercent is { } cursorUsed)
             text = Math.Round(cursorUsed, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
 

@@ -74,7 +74,7 @@ internal static class CursorUiChecks
                     Check(line.CadenceText.Visibility == (startsGroup ? Visibility.Visible : Visibility.Collapsed)
                         && (!startsGroup || line.CadenceText.Text == expectedCadence),
                         "Cursor widget does not render the cadence group label: " + label);
-                    Check(line.RemainingText.Text == CursorUsagePresentation.RemainingText(window),
+                    Check(line.RemainingText.Text == modelLine.DisplayRemainingText,
                         "Cursor widget changed the compact remaining value: " + label);
                     Check(string.IsNullOrEmpty(line.ResetText.Text),
                         "Cursor widget repeated reset text on every compact allowance: " + label);
@@ -124,6 +124,7 @@ internal static class CursorUiChecks
             CheckPartialSand(snapshot, now, language, theme, directory);
             CheckNamedAllowanceLayout(snapshot, language, theme, directory);
             CheckLargeMonetaryWidget(snapshot, language, theme, directory);
+            CheckWidgetPercentRounding(snapshot, language, theme, directory);
         }
         if (directory is not null)
             Console.WriteLine($"PASS: Cursor popup, widget and account controls EN/KO + Dark/Light; previews: {directory}");
@@ -427,6 +428,69 @@ internal static class CursorUiChecks
                 _ => window
             }).ToArray()
         };
+
+    private static void CheckWidgetPercentRounding(CodexQuotaSnapshot source,
+        UiLanguage language, AppTheme theme, string? directory)
+    {
+        var widget = new FloatingWidget { ShowActivated = false };
+        var flyout = new FlyoutWindow { ShowActivated = false };
+        try
+        {
+            foreach (var used in new[] { 76.91, 99.6 })
+            {
+                var snapshot = source with
+                {
+                    Windows = source.Windows.Select(window => window.LimitId switch
+                    {
+                        "cursor-auto" => window with { UsedPercent = used },
+                        "cursor-api" => window with { UsedPercent = 2.9 },
+                        _ => window
+                    }).ToArray()
+                };
+                WidgetFixture.BindOne(widget, WidgetFixture.Synthetic("cursor-rounding",
+                    UiText.T("Cursor account", "Cursor 계정"), snapshot));
+                WidgetFixture.RenderWidget(widget, null);
+                var module = WidgetFixture.Module(widget);
+                Check(module.RingValueText.Text == (used == 76.91 ? "77%" : "100%"),
+                    "Cursor widget ring did not round only its visible percent.");
+                Check(module.Periods.Select(line => line.RemainingText.Text)
+                    .SequenceEqual(used == 76.91 ? new[] { "23%", "97%", "88%" } : new[] { "0%", "97%", "88%" }),
+                    "Cursor widget remaining percentages did not round independently from raw values.");
+
+                var ringHost = (Grid)VisualTreeHelper.GetParent(VisualTreeHelper.GetParent(module.RingValueText));
+                var exactUsed = CodexDisplayFormatting.PercentText(used, UsageProviderId.Cursor);
+                var exactLeft = CodexDisplayFormatting.PercentText(100 - used, UsageProviderId.Cursor);
+                Check((ringHost.ToolTip as string ?? "").Contains(exactUsed, StringComparison.Ordinal)
+                    && (module.Periods[0].ToolTip as string ?? "").Contains(exactLeft, StringComparison.Ordinal)
+                    && (module.ToolTip as string ?? "").Contains(exactLeft, StringComparison.Ordinal),
+                    "Cursor widget tooltip lost the original decimal precision.");
+                var arc = ringHost.Children.OfType<System.Windows.Shapes.Path>().Single();
+                var segment = (ArcSegment)((PathGeometry)arc.Data).Figures[0].Segments[0];
+                var expectedArc = RingGeometry.ComputeUsedArc(used, 32, 32, 29);
+                Check(arc.Visibility == Visibility.Visible
+                    && Math.Abs(segment.Point.X - expectedArc.End.X) < 0.0001
+                    && Math.Abs(segment.Point.Y - expectedArc.End.Y) < 0.0001
+                    && ReferenceEquals(arc.Stroke, module.FindResource("AccentBrush"))
+                    && ringHost.Children.OfType<System.Windows.Shapes.Ellipse>().Last().Visibility == Visibility.Collapsed,
+                    "Rounding changed the Cursor widget arc, full-circle state or warning color.");
+
+                flyout.Bind(snapshot);
+                Arrange((FrameworkElement)flyout.Content, 440, 1000);
+                Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == exactUsed
+                    && Descendants<TextBlock>((FrameworkElement)flyout.Content)
+                        .Any(text => text.Text.Contains(exactLeft, StringComparison.Ordinal)),
+                    "Cursor detail popup lost its decimal used/remaining percentages.");
+                if (directory is not null && used == 76.91)
+                {
+                    Save(widget, Path.Combine(directory, $"cursor-rounded-widget-{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"),
+                        widget.LastLayout!.Width, null);
+                    Save(flyout, Path.Combine(directory, $"cursor-rounded-popup-{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"),
+                        440, null);
+                }
+            }
+        }
+        finally { widget.CloseWithoutActivation(); flyout.Close(); }
+    }
 
     private static string CompactRingTarget(string targetLabel) => targetLabel switch
     {

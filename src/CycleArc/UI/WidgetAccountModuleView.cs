@@ -168,7 +168,7 @@ public sealed class WidgetAccountModuleView : Border
     private void ApplyRing(WidgetAccountModel model)
     {
         var ring = model.Ring;
-        RingValueText.Text = ring.CenterValueText;
+        RingValueText.Text = model.RingValueText;
         // The ring fills with usage, so the value inside it is usage; remaining is on the lines.
         RingUsedLabel.Text = UiText.CodexLegendUsed;
         // Only the ring's repeated caption is shortened. The adjacent allowance rows,
@@ -298,7 +298,7 @@ public sealed class WidgetPeriodLineView : StackPanel
         CadenceText.Text = startsGroup ? line.CadenceLabel + UiText.T(" · Left", " · 남음") : "";
         CadenceText.Visibility = startsGroup ? Visibility.Visible : Visibility.Collapsed;
         ToolTip = line.Tooltip;
-        RemainingText.Text = line.RemainingText;
+        RemainingText.Text = line.DisplayRemainingText;
         RemainingText.SetResourceReference(TextBlock.ForegroundProperty, stale ? "StaleBrush" : "TextBrush");
         ResetText.Text = line.ResetText;
         ResetText.Visibility = string.IsNullOrEmpty(line.ResetText) ? Visibility.Collapsed : Visibility.Visible;

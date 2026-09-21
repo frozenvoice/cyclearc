@@ -2,6 +2,32 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Cursor widget integer percentages (unreleased, 2026-09-21):
+  - Only visible Cursor widget strings use whole-percent rounding, directly from the
+    original numeric value with midpoint rounding away from zero. Examples: 76.91% used
+    becomes 77%; 23.09% and 97.1% remaining become 23% and 97%. The existing precise ring
+    and period strings remain available; tooltips, popup, numeric values, calculations,
+    arcs and warning thresholds are unchanged. Unknown stays `?`; money, unlimited
+    labels and Codex/Claude display formats are unchanged.
+  - Focused verification passed 57 widget-model/ring unit cases, including 11 new cases
+    for the requested examples, midpoint and double-rounding boundaries, unknown/NaN,
+    money/unlimited, other providers, popup/tooltip precision, and 99.6% displayed as
+    100% without changing its percentage or danger state. Production WPF tests verify
+    the actual fractional arc endpoint and normal color at 99.6%, the integer ring/rows,
+    and fractional ring/row/module tooltips and popup text in EN/KO and all themes.
+  - All 76 production summary captures passed in EN/KO, Dark/Light and 80/100/150% zoom,
+    including mixed/wrapped accounts, unknown/stale/auth states and monetary values.
+    The normal mixed fixture stays 720 × 192 DIP with aligned names and rings.
+    Current widget previews were visually inspected and updated; historical comparisons
+    retain their original screenshots. See `artifacts/cursor-integer-ui` and
+    `artifacts/cursor-integer-summary`; all views use synthetic accounts, no live queries.
+  - Final `dev-run.ps1 -NoLaunch` passed in 4m 45s: Release build, all 1,668 unit tests,
+    full production WPF checks (including 180 DPI/layout renders and native windows on
+    three monitors), test-flavour compile, single-file publish, published Claude receiver,
+    and isolated package apply/restore. Evidence: `artifacts/cursor-integer-final-gate.log`
+    and `artifacts/cursor-integer/TestResults`. No installed app was replaced and no
+    main merge, release or tag was created for this change.
+
 - Cursor widget compact ring follow-up (unreleased, 2026-09-21):
   - Current-source baseline is `f0a9964`, which already contains the three-allowance
     summary and account alignment. The repeated two-line caption below the Cursor ring
