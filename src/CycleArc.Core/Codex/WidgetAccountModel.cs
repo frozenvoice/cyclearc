@@ -38,6 +38,8 @@ public sealed record WidgetAccountModel(
     string Tooltip)
 {
     public string? RingTargetLabel { get; init; }
+    // Keep the full status for tooltips/accessibility even when the healthy footer is folded.
+    public bool ShowStatusRow { get; init; } = !string.IsNullOrEmpty(StatusText);
     // Widget glyphs only: keep the shared ring's precise text, percentage and danger state.
     public string RingValueText => CursorUsagePresentation.IsCursor(Provider)
         ? CodexDisplayFormatting.PercentText(Ring.UsedPercent)
@@ -75,7 +77,7 @@ public sealed record WidgetAccountModel(
             ? Lines(snapshot, ring, at)
             : [];
 
-        // Claude always names its receipt state. Codex names any state that is not plain
+        // Retain Claude's receipt state as metadata. Codex names any state that is not plain
         // success, including identity mismatch while Status stays Available, so a
         // quota-hidden account still says why instead of relying on color or tooltip.
         var showStatus = account.Profile.Provider == UsageProviderId.Claude
@@ -105,11 +107,23 @@ public sealed record WidgetAccountModel(
 
         return model with
         {
+            ShowStatusRow = !string.IsNullOrEmpty(status)
+                && (account.IsSigningIn || !HasHealthyServerSample(snapshot)),
             RingTargetLabel = CursorUsagePresentation.IsCursor(snapshot) && !cursorProtected && ring.Window is not null
                 ? CursorUsagePresentation.QuotaLabel(ring.Window.LimitId)
                 : null
         };
     }
+
+    private static bool HasHealthyServerSample(CodexQuotaSnapshot snapshot) =>
+        snapshot.Status == CodexQuotaStatus.Available
+        && snapshot.LastSuccessfulRefresh is not null
+        && snapshot.Windows.Count > 0
+        && (ClaudeUsagePresentation.IsLive(snapshot)
+            // Cursor's production projection uses null for a successful check; the explicit
+            // live marker is also used by presentation fixtures. Any failure detail stays visible.
+            || (CursorUsagePresentation.IsCursor(snapshot)
+                && snapshot.TechnicalDetail is null or CursorUsagePresentation.LiveDetail));
 
     public static IReadOnlyList<WidgetAccountModel> All(IReadOnlyList<CodexAccountView> accounts, string selectedId,
         UsagePeriodPreference preference = UsagePeriodPreference.Auto, DateTimeOffset? now = null) =>

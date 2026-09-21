@@ -16,7 +16,8 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `claude-overview-{en,ko}-{dark,light}.png` | Research selected with a Desktop history fallback: 91% five-hour / 47% weekly, unknown resets, Received and original observation time |
 | `claude-connection-{en,ko}-{dark,light}.png` | Official CLI connection choices, existing Desktop login for server checks and manual usage-page access; advanced settings collapsed |
 | `cursor-popup-{en,ko}-{dark,light}.png` | Cursor Models and Other Models monthly allowances, Grok Bot weekly allowance, named usage ring, disabled on-demand and successful update time |
-| `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary with integer used/remaining percentages, named ring and short update age; exact values/times and omitted budgets remain in tooltips/detail |
+| `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary with integer used/remaining percentages and a named ring; healthy server status has no footer, with exact values/times and omitted budgets in tooltips/detail |
+| `widget-status-{before,after}-{en,ko}-{dark,light}.png` | Actual WPF Codex / Claude / Cursor accounts before and after collapsing healthy server status rows, at unchanged 100% width and typography |
 | `cursor-widget-summary-{before,after}-{en,ko}-{dark,light}.png` | Fixed synthetic Codex / Cursor / Claude accounts in the actual WPF widget, before and after the Cursor summary change at 100% zoom |
 | `cursor-widget-compact-{before,after}-{en,ko}-{dark,light}.png` | The follow-up comparison from `f0a9964`: the same synthetic mixed accounts, with the repeated ring target moved inside the ring at unchanged width/font sizes |
 | `cursor-accounts-{en,ko}-{dark,light}.png` | Current Windows Cursor connection, reconnect/disconnect, nickname and saved-order controls |
@@ -81,7 +82,7 @@ exported from `f0a9964` before production edits into `artifacts/cursor-compact-b
 after images use `artifacts/cursor-compact-after`. The short ring labels Cursor / Other /
 Grok Bot sit above the used percentage; complete names and Monthly / Weekly headings
 remain in the adjacent list, with the represented row emphasized. Full ring targets remain
-in tooltips and accessibility text. Standard standalone and mixed content is 192 DIP high
+in tooltips and accessibility text. At that revision, standard standalone and mixed content was 192 DIP high
 instead of 206, with the same 232-DIP modules and original font sizes. Large money amounts
 and failure messages can use additional lines to preserve their complete information.
 The earlier `cursor-widget-summary-*` comparison remains historical evidence of the first
@@ -89,12 +90,29 @@ summary change. All comparisons are actual WPF renders, with no image generation
 
 The integer-percent follow-up changes only the visible widget strings. The summary
 fixture's ring now reads 77%, with 23% / 59% / 88% remaining, while its source and
-tooltips retain 76.9% used and 23.1% / 58.8% / 87.5% remaining. The 192-DIP layout,
-ring geometry and warning colors are unchanged. The earlier compact comparison remains
+tooltips retain 76.9% used and 23.1% / 58.8% / 87.5% remaining. That change kept the 192-DIP layout,
+ring geometry and warning colors. The earlier compact comparison remains
 historical. `CursorUiChecks` also exports `cursor-rounded-{widget,popup}-*` from the same
 76.91% / 2.9% / 12.5% synthetic source: the widget shows 77% used and 23% / 97% / 88%
 remaining, while the actual popup retains its decimals. Outputs for this verification are
 under `artifacts/cursor-integer-ui` and `artifacts/cursor-integer-summary`.
+
+The healthy-status follow-up uses `WidgetStatusRowChecks` and a fixed 2035-06-07 timestamp.
+The before images render the production model/view from `5875b52`; after images use the
+same accounts, values and times with only healthy server footers collapsed. All 36
+standalone/mixed image pairs retain their widths and reduce their heights across EN/KO,
+Dark/Light and 80/100/150% zoom. At 100%, mixed PNGs are 720 × 192 → 720 × 174 pixels,
+Cursor is 254 × 192 → 254 × 174, and Claude is 254 × 176 → 254 × 158. Font sizes and ring
+positions are unchanged; collapsing the status also removes its 5-DIP top margin.
+The four-language/theme mixed comparisons above are checked in. Other captures and
+the generated dimension report are in `artifacts/widget-status-{before,after}` and
+`artifacts/widget-status-image-metrics.json`.
+
+The after check also exercises healthy → stale/request/auth/identity failure → healthy
+on the same WPF widget, preserves Claude Desktop/Code receipt rows and initial waiting,
+and checks exact timestamps/source details in tooltips and the detail popup. Regenerate
+with `--widget-status <directory>` after a Release build; `--widget-status-before <directory>`
+is the baseline-only export path, intended to run with the original production model/view.
 
 Native tray pixel checks and contact sheets (including `cursor-tray-icons.png`):
 

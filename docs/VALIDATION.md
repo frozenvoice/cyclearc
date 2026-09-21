@@ -2,6 +2,34 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Healthy widget status rows (unreleased, 2026-09-21):
+  - Started from main `5875b52` on `codex/widget-hide-healthy-status`. Only the widget
+    model's `ShowStatusRow` and its WPF visibility binding change production behavior.
+    Available Claude server data (`claude-live`) and successful Cursor data (no failure
+    detail or the explicit live marker) collapse the footer when a success timestamp and
+    quota windows exist. Signing in, partial Grok failure, stale/error/identity/waiting
+    states, missing metadata and all Claude Desktop/Code receipts keep their footer.
+    Status text, accessibility, exact tooltip/popup details, original quota values,
+    integer Cursor glyphs, geometry, querying and persistence are unchanged.
+  - Focused tests passed 94 widget model cases and the new WPF status/source/recovery
+    checks. Existing Cursor popup/widget checks, 76 summary layouts and 246 mixed
+    Codex/Claude WPF renders passed. Actual state rebinds cover healthy → failure →
+    healthy without leftover spacing, hidden errors or changed ring/name alignment.
+  - Before/after captures use the same offline fixtures, with baseline production files
+    from `5875b52`. All 36 standalone/mixed EN/KO, Dark/Light, 80/100/150% pairs retained
+    width and reduced height. At 100% the actual PNG dimensions are: mixed 720 × 192 →
+    720 × 174, Cursor 254 × 192 → 254 × 174, Claude 254 × 176 → 254 × 158. The removed
+    footer includes its 5-DIP top margin. Inspected views include healthy states, retained
+    stale errors and Claude local receipts. See `docs/images/widget-status-*`,
+    `artifacts/widget-status-image-metrics.json` and `artifacts/widget-status-{before,after}`.
+  - Final `dev-run.ps1 -NoLaunch` passed in 4m 23s: Release build, all 1,721 unit tests,
+    full WPF/DPI/layout suite, test-flavour compile, single-file publish, published
+    Claude receiver and isolated package apply/restore. Evidence:
+    `artifacts/widget-status-final-gate.log` and `artifacts/widget-status/TestResults`.
+    NuGet emitted NU1900 warnings because vulnerability metadata could not be reached;
+    build and executable checks passed. No source timeout or verification guard changed.
+    No main merge, release/tag or installed-app replacement was performed for this change.
+
 - Cursor widget integer percentages (unreleased, 2026-09-21):
   - Only visible Cursor widget strings use whole-percent rounding, directly from the
     original numeric value with midpoint rounding away from zero. Examples: 76.91% used
