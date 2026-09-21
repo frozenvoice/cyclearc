@@ -131,7 +131,7 @@ public sealed class WidgetAccountModuleView : Border
         ApplyPeriods(model);
 
         StatusText.Text = model.StatusText;
-        StatusText.Visibility = string.IsNullOrEmpty(model.StatusText) ? Visibility.Collapsed : Visibility.Visible;
+        StatusText.Visibility = model.ShowStatusRow ? Visibility.Visible : Visibility.Collapsed;
         StatusText.ToolTip = CursorUsagePresentation.IsCursor(model.Provider) ? model.Tooltip
             : string.IsNullOrEmpty(model.StatusText) ? null : model.StatusText;
         StatusText.TextWrapping = CursorUsagePresentation.IsCursor(model.Provider)

@@ -35,7 +35,7 @@ The **Codex**, **Claude** or **Cursor** label on account cards, selected details
 
 **Cursor Models · Monthly**, **Other Models · Monthly** and **Grok Bot · Weekly** use the official names in both languages. Account cards, popup, tray and widget show the allowance and its cadence; the large ring names the allowance whose usage percentage it represents. Reported on-demand budgets remain separate. Missing limits and reset times stay unknown; legacy dollar accounting is never added to model percentages. Failed checks keep the last good values and success time visibly stale. A changed Cursor login hides the previous account's quota; sign back in to the original Cursor account to reconnect that profile.
 
-The Cursor widget prioritizes **Cursor Models**, **Other Models**, then **Grok Bot**, showing at most three reported allowances under Monthly / Weekly headings. Inside the ring, **Cursor**, **Other** or **Grok Bot** identifies the allowance above its used percentage; the adjacent rows and tooltip retain the full name. The ring prefers a known value in that same order, regardless of response order. Disabled on-demand and other budget rows stay in the tooltip and detail popup, along with exact reset and update times. The visible status uses a short update age; unknown values, stale data and authentication errors remain explicit.
+The Cursor widget prioritizes **Cursor Models**, **Other Models**, then **Grok Bot**, showing at most three reported allowances under Monthly / Weekly headings. Inside the ring, **Cursor**, **Other** or **Grok Bot** identifies the allowance above its used percentage; the adjacent rows and tooltip retain the full name. The ring prefers a known value in that same order, regardless of response order. Disabled on-demand and other budget rows stay in the tooltip and detail popup, along with exact reset and update times. Healthy server data has no bottom status row; unknown values, stale data and authentication errors remain explicit.
 
 If only Grok Bot is unavailable, the monthly allowances remain updated and continue refreshing. Grok Bot's retry delay applies only to Grok Bot; its unverified value is omitted, with an explanation in the popup. Account mismatch still respects the configured automatic interval, including after reopening the popup or restarting CycleArc.
 
@@ -43,7 +43,7 @@ CycleArc reads only the required access-token key in Cursor's local account data
 
 | Cursor popup | Cursor widget |
 | --- | --- |
-| ![Cursor popup with separate allowances](docs/images/cursor-popup-en-light.png) | ![Cursor widget with update time](docs/images/cursor-widget-en-light.png) |
+| ![Cursor popup with separate allowances](docs/images/cursor-popup-en-light.png) | ![Compact Cursor widget with exact update time in its tooltip](docs/images/cursor-widget-en-light.png) |
 
 Production views with synthetic usage values; these images do not show a real account.
 
@@ -257,6 +257,8 @@ With **Show widget** enabled and a displayable account, CycleArc checks the nati
 The **Usage number** tray style shows bold digits as large as the native icon slot allows, keeping their original font proportions on a transparent background. The **%** sign is omitted: **67** means **67% used**. Text is white on a dark Windows taskbar and dark on a light taskbar, independently of the app theme. The number is the selected account's percentage used for the period chosen in the detail card. **Auto** prefers a known five-hour value, then weekly. The tooltip identifies the period being shown; switching periods only changes the display of the received data. Unknown usage is **?**. Check the tooltip or detail card for status and receipt time. The optional **Usage ring** retains its status colors: blue for a valid sample, red for a valid sample at 100%, and amber for stale data or a lookup/connection problem. Without a known value, the ring is gray with **?**.
 
 Cursor's tray digits round to the nearest whole percent: **76.91% → 77**. The widget also rounds its visible percentages: **76.91% → 77%** used, **23.09% → 23%** remaining. The widget keeps monetary amounts unchanged. Tooltips and the detail popup retain decimal precision; the original values, calculations, ring arc and warning colors are unchanged. Unknown values stay **?**, and Codex/Claude formatting is unchanged.
+
+The widget collapses the entire bottom **Updated** row and its spacing for successful Claude and Cursor server samples. Exact check times and source information remain in the account tooltip and detail popup. Claude Desktop history and Code statusLine samples keep **Received**; stale data, failed checks, sign-in/account changes and initial waiting states keep their status row. A new failure restores the row, and a subsequent successful server check collapses it again without changing the quota rows, ring alignment or widget width.
 
 <details>
 <summary><strong>Settings and compact widget</strong></summary>

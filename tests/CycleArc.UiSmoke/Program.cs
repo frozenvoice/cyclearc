@@ -178,6 +178,16 @@ internal static class Program
                 CursorWidgetSummaryChecks.Run(cursorWidgetDirectory);
                 return 0;
             }
+            if (args is ["--widget-status-before", var widgetStatusBeforeDirectory])
+            {
+                WidgetStatusRowChecks.Run(widgetStatusBeforeDirectory, expectHealthyCollapsed: false);
+                return 0;
+            }
+            if (args is ["--widget-status", var widgetStatusDirectory])
+            {
+                WidgetStatusRowChecks.Run(widgetStatusDirectory);
+                return 0;
+            }
             if (args is ["--flyout-activation"] or ["--flyout-activation", _])
             {
                 FlyoutActivationChecks.Run(app, args.Length == 2 ? args[1] : null);
@@ -200,6 +210,7 @@ internal static class Program
             CodexWindowUiChecks.Run();
             CursorUiChecks.Run();
             CursorWidgetSummaryChecks.Run();
+            WidgetStatusRowChecks.Run();
             UsagePeriodUiChecks.Run(app);
             MixedProviderUiChecks.Run();
             ToolTipUiChecks.Run();
