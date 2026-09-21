@@ -123,6 +123,10 @@ function Resolve-SetupUiToolchain {
     # Ask for an installation that actually carries the C++ tools, rather than any at all.
     $installations = & $VsWhereInvoker $vswhere @(
         '-latest', '-prerelease', '-products', '*',
+        # The setup UI is built with the VS 2022 toolchain. Keep VS 2019 and any
+        # future major edition out of this probe even when they carry the same
+        # component id.
+        '-version', '[17.0,18.0)',
         '-requires', $script:SetupUiVcComponent,
         '-property', 'installationPath'
     )

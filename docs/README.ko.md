@@ -260,7 +260,9 @@ Cursor는 두 트레이 아이콘 스타일 모두 숫자를 정수로 반올림
 
 ## 개발
 
-Windows, PowerShell 7, .NET 8 SDK가 필요합니다. 설치기를 소스에서 빌드하려면 Setup 창이 Native AOT로 빌드되므로 Visual Studio 2022의 **Desktop development with C++** 워크로드도 필요합니다. 배포된 설치기를 실행할 때는 이 개발 도구가 필요하지 않습니다.
+Windows, PowerShell 7, .NET 8 SDK가 필요합니다. 소스에서 `CycleArc-Setup.exe` 설치기를 빌드하려면 Setup 창이 Native AOT로 빌드되므로 Visual Studio Build Tools 2022의 **Desktop development with C++** 워크로드(MSVC x64/x86 도구와 Windows SDK 포함)도 필요합니다. 배포된 설치기를 실행할 때는 Visual Studio나 이 개발 도구가 필요하지 않으며, 적합한 구성 요소가 이미 있는 Visual Studio 설치가 있으면 `build-local`이 재사용합니다.
+
+대화형 `build-local.cmd`/`scripts/Build-Local.ps1`에서 prerequisite 확인에 실패하면 누락 항목과 함께 **필요한 Microsoft 빌드 도구 설치**, **수동 설치 안내**, **취소**만 제시합니다. 설치는 명시적으로 동의한 경우에만 진행하며, Microsoft 공식 bootstrapper를 사용하고 Authenticode 서명이 Microsoft인지 확인한 경우에만 실행합니다. 회사 관리 PC에서는 관리자 권한이나 회사 IT 승인이 필요할 수 있습니다. `-NoPrerequisitePrompt`는 이 대화형 프롬프트를 끄며, `-SilentInstall`, CI, stdin 리디렉션 등 비대화형 실행에서는 프롬프트나 자동 설치 없이 누락 사항과 해결 방법을 출력하고 빠르게 실패합니다.
 
 제품명과 배포 파일, 솔루션 `CycleArc.sln`, 프로젝트·폴더·네임스페이스는 모두 `CycleArc`로 통일합니다.
 `src/CycleArc`는 현재 WPF 앱, `src/CycleArc.Core`는 Codex·Claude 연동과 표시·저장 로직 및 남아 있는 레거시 로직,
@@ -277,7 +279,8 @@ Windows, PowerShell 7, .NET 8 SDK가 필요합니다. 설치기를 소스에서 
 실행 중인 데스크톱은 검증 게이트가 통과하고 이번 실행의 Setup.exe가 준비된 뒤에만 종료합니다. 종료는 현재 사용자 세션에서 신원이 확인된 데스크톱 IPC 요청으로만 하며 이름 기반 일괄 종료는 쓰지 않습니다. 따라서 빌드가 실패하면 설치된 앱은 그대로 실행 중으로 남습니다. 실패하면 `artifacts\build-local\last-failure.txt`에 기록된 실제 실패 단계(`Failed at:`와 `ui-smoke-desktop-instance` 같은 하위 단계. `Stage: build`로 뭉개지 않음)를 창에 출력하므로, Setup.exe가 이미 시작된 뒤의 실패를 "기존 설치는 그대로"라고 잘못 안내하지 않으며 0이 아닌 종료 코드가 CMD까지 전달됩니다. `dev-run.ps1`의 표준 출력과 오류는 `artifacts\build-local\dev-run.out.log`와 `dev-run.err.log`에 남고, 게이트가 실패하면 그 파일의 끝부분을 같은 창에 출력하므로 UiSmoke 오류를 바로 볼 수 있습니다. 성공 시에는 각 단계 소요 시간만 출력하고 그 로그를 전부 덤프하지는 않습니다.
 
 `.\dev-run.ps1`은 기존 개발용 게시 경로입니다. 실패를 빨리 보도록 restore와 Release 컴파일 다음에 데스크톱 인스턴스 프로세스 검사, 설치/build-local 스크립트 회귀, 단위 테스트, 나머지 WPF 검사, 그다음 게시·패키지·패키지 검증 순으로 실행한 뒤 디버그 심볼을 제외한 개발용 Windows x64 단일 파일을 게시·실행합니다. 개발용은 각 PC의 `%LOCALAPPDATA%\Programs\CycleArc-dev\CycleArc.exe`를 사용하며, 새 안정 Velopack 설치 `%LOCALAPPDATA%\Programs\CycleArc`(기존 설치는 기존 위치)와 분리되어 GitHub 업데이트 대상이 아닙니다. 빌드 임시 파일은 현재 작업 폴더에 남으며 `-NoLaunch`는 설치된 앱을 교체하지 않습니다. 파일 교체가 실패하면 이전 파일을 복원할 수 있지만, 파일 롤백이 새 앱의 시작 상태까지 보장하지는 않습니다.
-CI는 개발용 단일 파일을 검사하고 안정 배포용 Velopack 설치 자산을 패키징합니다. 수동 릴리즈 스크립트는 CI 자산의 버전과 SHA-256을 확인한 뒤 게시합니다.
+CI는 개발용 단일 파일을 검사하고 안정 배포용 Velopack 설치 자산을 패키징합니다.
+`dev-run.ps1 -NoLaunch` 동일 게이트를 로컬과 pull request 및 `main` push 검증에서 공통으로 실행합니다. 수동 릴리즈 스크립트는 CI 자산의 버전과 SHA-256을 확인한 뒤 게시합니다.
 시작 시 실행 중인 앱의 PID와 경로를 표시합니다. 빌드 산출물에서 직접 실행 중인 앱은 정리 전에 경로와 PID를 알려주므로, 해당 앱을 종료한 뒤 다시 실행하세요.
 `-NoLaunch`는 검증된 파일을 staging에만 만들고 실행 중인 앱을 건드리지 않습니다.
 
