@@ -88,14 +88,39 @@ and failure messages can use additional lines to preserve their complete informa
 The earlier `cursor-widget-summary-*` comparison remains historical evidence of the first
 summary change. All comparisons are actual WPF renders, with no image generation.
 
-The integer-percent follow-up changes only the visible widget strings. The summary
-fixture's ring now reads 77%, with 23% / 59% / 88% remaining, while its source and
+The historical Cursor-only integer-percent follow-up changed the visible widget strings.
+At that revision the ring read 77%, with 23% / 59% / 88% remaining, while its source and
 tooltips retain 76.9% used and 23.1% / 58.8% / 87.5% remaining. That change kept the 192-DIP layout,
 ring geometry and warning colors. The earlier compact comparison remains
 historical. `CursorUiChecks` also exports `cursor-rounded-{widget,popup}-*` from the same
 76.91% / 2.9% / 12.5% synthetic source: the widget shows 77% used and 23% / 97% / 88%
-remaining, while the actual popup retains its decimals. Outputs for this verification are
+remaining, while the actual popup retained its decimals. The 88% expectation for 12.5%
+used is superseded: the current complementary display is 13% used / 87% remaining.
+Outputs for that historical verification are
 under `artifacts/cursor-integer-ui` and `artifacts/cursor-integer-summary`.
+
+The current all-provider precision correction uses `UsagePercentUiChecks` to render
+the actual widget and detail popup from the same synthetic source side by side.
+All providers show 77% used / 23% left in the widget for 76.91% / 23.09%; detail rings,
+account summaries and quota rows retain decimals. At 99.6% / 0.4%, the widget uses
+">99%" / "<1%"; at 12.5% / 87.5%, it uses 13% / 87%. Tiny detail values use <0.01% / >99.99%.
+The existing Cursor widget preview changes Grok Bot remaining from 88% to 87%.
+Historical comparison and execution images remain unchanged.
+
+Reproduce the paired precision checks after a Release build:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --usage-percent artifacts/percent-display
+```
+
+The 306 rendered cases cover all three providers in EN/KO, Dark/Light/System and
+80/100/150% zoom, plus three simultaneously shown native widget/flyout pairs. These
+fixtures use the fixed observation time 2035-06-07; reset countdowns in the popup
+are relative to export time. No real account is accessed.
+Checked-in examples: [Codex](usage-percent-codex-en-light.png),
+[Claude](usage-percent-claude-ko-dark.png), [Cursor](usage-percent-cursor-en-light.png),
+[widget boundary](usage-percent-cursor-ko-light-boundary.png), and
+[tiny detail boundary](usage-percent-codex-en-dark-tiny.png).
 
 The healthy-status follow-up uses `WidgetStatusRowChecks` and a fixed 2035-06-07 timestamp.
 The before images render the production model/view from `5875b52`; after images use the

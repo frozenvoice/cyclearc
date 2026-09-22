@@ -99,7 +99,7 @@ public static class CodexDisplayFormatting
             {
                 rows.Add(new CodexDisplayRow(
                     CursorUsagePresentation.QuotaDisplayLabel(window.LimitId),
-                    CursorUsagePresentation.RemainingSummary(window),
+                    CursorUsagePresentation.DetailRemainingSummary(window),
                     window.RemainingAmount is 0,
                     window.ResetsAt is { } cursorReset ? ResetStamp(cursorReset) : null,
                     window.ResetsAt is { } cursorResetTooltip ? CodexDeadlineFormatting.ResetStampTooltip(cursorResetTooltip) : null));
@@ -109,8 +109,8 @@ public static class CodexDisplayFormatting
             var hasRemaining = window.RemainingPercent is not null;
             var label = hasRemaining ? $"{usedLabel} / {UiText.T("left", "남음")}" : usedLabel;
             var value = hasRemaining
-                ? $"{PercentText(window.UsedPercent, snapshot.Provider)} / {PercentText(window.RemainingPercent, snapshot.Provider)}"
-                : PercentText(window.UsedPercent, snapshot.Provider);
+                ? $"{UsagePercentFormatting.Detail(window.UsedPercent)} / {UsagePercentFormatting.DetailRemaining(window)}"
+                : UsagePercentFormatting.Detail(window.UsedPercent);
             rows.Add(new CodexDisplayRow(label, value, window.UsedPercent >= 100));
 
             rows.Add(new CodexDisplayRow(UiText.Reset, ResetStamp(window.ResetsAt), false,
@@ -263,9 +263,9 @@ public static class CodexDisplayFormatting
 
     public static string QuotaSummaryText(CodexQuotaWindow window, UsageProviderId provider = UsageProviderId.Codex) =>
         CursorUsagePresentation.IsCursor(provider)
-            ? CursorUsagePresentation.RemainingSummary(window)
-            : UiText.T($"Used {PercentText(window.UsedPercent, provider)} · Left {PercentText(window.RemainingPercent, provider)}",
-                $"사용 {PercentText(window.UsedPercent, provider)} · 잔여 {PercentText(window.RemainingPercent, provider)}");
+            ? CursorUsagePresentation.DetailRemainingSummary(window)
+            : UiText.T($"Used {UsagePercentFormatting.Detail(window.UsedPercent)} · Left {UsagePercentFormatting.DetailRemaining(window)}",
+                $"사용 {UsagePercentFormatting.Detail(window.UsedPercent)} · 잔여 {UsagePercentFormatting.DetailRemaining(window)}");
 
     private static string SignInLabel(CodexQuotaSnapshot snapshot) => snapshot.Status switch
     {

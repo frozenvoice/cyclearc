@@ -41,9 +41,7 @@ public sealed record WidgetAccountModel(
     // Keep the full status for tooltips/accessibility even when the healthy footer is folded.
     public bool ShowStatusRow { get; init; } = !string.IsNullOrEmpty(StatusText);
     // Widget glyphs only: keep the shared ring's precise text, percentage and danger state.
-    public string RingValueText => CursorUsagePresentation.IsCursor(Provider)
-        ? CodexDisplayFormatting.PercentText(Ring.UsedPercent)
-        : Ring.CenterValueText;
+    public string RingValueText => UsagePercentFormatting.Widget(Ring.IsAvailable ? Ring.Window?.UsedPercent : null);
 
     public static WidgetAccountModel From(CodexAccountView account, bool selected,
         UsagePeriodPreference preference = UsagePeriodPreference.Auto, DateTimeOffset? now = null)
@@ -67,7 +65,7 @@ public sealed record WidgetAccountModel(
                 Windows = visibleWindows
             };
         }
-        var ring = CodexRingPresentation.From(ringSnapshot, preference);
+        var ring = CodexRingPresentation.FromDetail(ringSnapshot, preference);
 
         // A mismatched or unverified identity must never surface the previous binding's numbers,
         // so its module shows the reconnection status alone.
@@ -148,10 +146,14 @@ public sealed record WidgetAccountModel(
             window.Kind,
             window.WindowDurationMinutes,
             CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes),
-            UiText.WidgetLeft(CodexDisplayFormatting.RemainingText(window, snapshot.Provider)),
+            UiText.WidgetLeft(UsagePercentFormatting.DetailRemaining(window)),
             CodexDeadlineFormatting.ResetCountdown(window.ResetsAt, at),
             CodexDeadlineFormatting.ResetStampTooltip(window.ResetsAt),
-            ReferenceEquals(window, ring.Window))).ToArray();
+            ReferenceEquals(window, ring.Window))
+        {
+            DisplayRemainingText = UiText.WidgetLeft(
+                UsagePercentFormatting.WidgetRemaining(window))
+        }).ToArray();
     }
 
     private static WidgetPeriodLine CursorLine(CodexQuotaWindow window, CodexRingPresentation ring)
@@ -171,7 +173,7 @@ public sealed record WidgetAccountModel(
             // Round directly from the percentage, never from an already formatted string.
             // Amounts, disabled/unlimited states and all tooltip text retain their own format.
             DisplayRemainingText = window.IsEnabled != false && !window.IsUnlimited && window.RemainingAmount is null
-                ? CodexDisplayFormatting.PercentText(window.RemainingPercent)
+                ? UsagePercentFormatting.WidgetRemaining(window)
                 : CursorUsagePresentation.RemainingText(window)
         };
     }

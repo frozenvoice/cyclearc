@@ -451,11 +451,11 @@ internal static class CursorUiChecks
                     UiText.T("Cursor account", "Cursor 계정"), snapshot));
                 WidgetFixture.RenderWidget(widget, null);
                 var module = WidgetFixture.Module(widget);
-                Check(module.RingValueText.Text == (used == 76.91 ? "77%" : "100%"),
+                Check(module.RingValueText.Text == (used == 76.91 ? "77%" : ">99%"),
                     "Cursor widget ring did not round only its visible percent.");
                 Check(module.Periods.Select(line => line.RemainingText.Text)
-                    .SequenceEqual(used == 76.91 ? new[] { "23%", "97%", "88%" } : new[] { "0%", "97%", "88%" }),
-                    "Cursor widget remaining percentages did not round independently from raw values.");
+                    .SequenceEqual(used == 76.91 ? new[] { "23%", "97%", "87%" } : new[] { "<1%", "97%", "87%" }),
+                    "Cursor widget remaining percentages did not apply the boundary and complement rules.");
 
                 var ringHost = (Grid)VisualTreeHelper.GetParent(VisualTreeHelper.GetParent(module.RingValueText));
                 var exactUsed = CodexDisplayFormatting.PercentText(used, UsageProviderId.Cursor);

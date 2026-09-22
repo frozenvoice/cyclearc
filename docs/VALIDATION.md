@@ -2,6 +2,52 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- All-provider percentage precision (unreleased, 2026-09-22):
+  - From clean main `91d82922f555bbbe1439822a2b55652f0e2cb71d` on
+    `codex/percent-display-policy`. Codex, Claude and Cursor now share explicit
+    widget/detail text policies. Widget boundaries use `<1%` / `>99%`; valid
+    complementary pairs round usage directly and complement that displayed integer.
+    Thus 76.5 / 23.5 displays 77% / 23%, and 12.5 / 87.5 displays 13% / 87%.
+    Detail rings, account summaries and quota rows keep up to two trimmed decimal
+    places, with `<0.01%` / `>99.99%` at the smallest boundaries.
+  - Invalid source percentages stay unknown on these surfaces, including when the
+    model's existing derived remainder is clamped. No source values, parsing, caches,
+    geometry, thresholds, money, unlimited/off states or tray policy were changed.
+    Healthy widget footer folding, local receipts and failure states are preserved.
+    The detail ring only scales down unusually wide text inside its existing 92-DIP
+    inner width; the widget geometry and original font sizes are unchanged.
+  - Replaced the old 77% / 24%, 1% / 100%, 100% / 0% and fractional Claude widget
+    expectations. Small helper checks passed 23 cases; existing Cursor widget checks
+    passed 21 cases. Provider-path checks passed 28 cases across the three providers,
+    and the corrected detail-call source contract passed 13 cases.
+  - Actual production WPF checks passed 306 percentage cases in EN/KO,
+    Dark/Light/System and 80/100/150% zoom, plus three simultaneously shown native
+    widget/flyout pairs. They assert the visible widget, detail ring, account card
+    and quota-row text, unrounded arc endpoints/colors, and measured text bounds.
+    Existing Cursor UI checks also passed. Inspected paired captures are linked in
+    `docs/images/README.md`; only four affected current Cursor widget previews
+    were replaced. Historical screenshots and run evidence remain unchanged.
+  - The first gate exposed one old source assertion for `From(...)`; it now requires
+    the detail-specific `FromDetail(...)` call, preserving its other assertions.
+    A subsequent desktop process check encountered an existing temporary report-file
+    sharing violation. The focused desktop check then passed without any source or
+    timeout change. Failed-attempt evidence: `artifacts/percent-display-first-gate.log`,
+    `artifacts/percent-display-desktop-failure.log`; focused results:
+    `artifacts/percent-display-ui.log`, `artifacts/percent-display-cursor.log`,
+    `artifacts/percent-display-desktop-recheck.log`, and
+    `artifacts/percent-display/TestResults`.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch -TestResultsDirectory
+    artifacts/percent-display/TestResults` passed in 4m 56s (exit 0): Release build,
+    all 1,772 unit tests, complete WPF/tray/DPI/layout checks, test-flavour compile,
+    self-contained single-file publish, built/published Claude receiver checks,
+    installer packaging and isolated package apply/restore. Log:
+    `artifacts/percent-display-final-gate.log`.
+  - No installed-app replacement or destructive `Verify-InstalledUpdate.ps1` run:
+    this is a working Windows profile, not a disposable VM/user, and installation
+    behavior is unchanged. No real-account/model request, push, CI execution,
+    main merge, version change, tag or release was performed.
+
+
 - Healthy widget status rows (unreleased, 2026-09-21):
   - Started from main `5875b52` on `codex/widget-hide-healthy-status`. Only the widget
     model's `ShowStatusRow` and its WPF visibility binding change production behavior.
@@ -30,7 +76,9 @@
     build and executable checks passed. No source timeout or verification guard changed.
     No main merge, release/tag or installed-app replacement was performed for this change.
 
-- Cursor widget integer percentages (unreleased, 2026-09-21):
+- Cursor widget integer percentages (historical, 2026-09-21; superseded by the all-provider precision correction above):
+  - This records the earlier implementation and its then-passing tests. Its Cursor-only
+    policy and 99.6% → 100% expectation are not the current contract.
   - Only visible Cursor widget strings use whole-percent rounding, directly from the
     original numeric value with midpoint rounding away from zero. Examples: 76.91% used
     becomes 77%; 23.09% and 97.1% remaining become 23% and 97%. The existing precise ring

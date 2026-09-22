@@ -327,7 +327,9 @@
                                             </Path>
                                             <Ellipse x:Name="CodexRingFullCircle" Width="112" Height="112" StrokeThickness="10" Stroke="{DynamicResource AccentBrush}" Visibility="Collapsed"/>
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <TextBlock x:Name="CodexRingValueText" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+                                                <Viewbox MaxWidth="92" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Center">
+                                                    <TextBlock x:Name="CodexRingValueText" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+                                                </Viewbox>
                                                 <TextBlock x:Name="CodexRingSubLabel" FontSize="11" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="96" Margin="0,4,0,0" Foreground="{DynamicResource MutedBrush}"/>
                                             </StackPanel>
                                         </Grid>

@@ -121,14 +121,20 @@ public static class CursorUsagePresentation
         };
     }
 
-    public static string RemainingText(CodexQuotaWindow window)
+    public static string RemainingText(CodexQuotaWindow window) =>
+        RemainingText(window, percent => CodexDisplayFormatting.PercentText(percent, UsageProviderId.Cursor));
+
+    public static string DetailRemainingText(CodexQuotaWindow window) =>
+        RemainingText(window, _ => UsagePercentFormatting.DetailRemaining(window));
+
+    private static string RemainingText(CodexQuotaWindow window, Func<double?, string> percentText)
     {
         if (window.IsEnabled == false) return UiText.T("Off", "꺼짐");
         if (window.IsUnlimited == true) return UiText.T("Unlimited", "무제한");
         if (window.RemainingAmount is { } remaining)
             return AmountText(remaining, window.Unit);
         if (window.RemainingPercent is { } percent && double.IsFinite(percent))
-            return CodexDisplayFormatting.PercentText(percent, UsageProviderId.Cursor);
+            return percentText(percent);
         return "?";
     }
 
@@ -139,4 +145,8 @@ public static class CursorUsagePresentation
     public static string RemainingSummary(CodexQuotaWindow window) => window.IsEnabled == false
         ? RemainingText(window)
         : UiText.T($"Remaining {RemainingText(window)}", $"잔여 {RemainingText(window)}");
+
+    public static string DetailRemainingSummary(CodexQuotaWindow window) => window.IsEnabled == false
+        ? DetailRemainingText(window)
+        : UiText.T($"Remaining {DetailRemainingText(window)}", $"잔여 {DetailRemainingText(window)}");
 }
