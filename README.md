@@ -250,7 +250,7 @@ Usage comes from the Desktop live profile/usage check when available, then the o
 | Widget header buttons | Resize the widget, refresh, open Settings, or hide it without exiting CycleArc |
 | Right-click the widget | Open its menu, including Close widget |
 
-Drop the widget or detail popup near a screen edge to align it with an 8-DIP inset, keeping its size. Hold **Shift** when releasing a drag to skip snapping for that move. Attached edges keep their inset when you zoom or the content changes. Turn this off in **Settings → General → Snap windows to screen edges**.
+Drop the widget or detail popup near a screen edge to align it with a 2-DIP inset, keeping its size. Hold **Shift** when releasing a drag to skip snapping for that move. Attached edges keep their inset when you zoom or the content changes. Turn this off in **Settings → General → Snap windows to screen edges**.
 
 The zoom shortcuts also support the numeric keypad. The detail card and the widget keep their own size: a shortcut or button changes only the window it was aimed at, and both sizes are saved across restarts. The tray menu resets either one: **Reset size (100%)** for the detail card, **Reset widget size (100%)** for the widget. Widget position can be reset from **Settings → Widget**; saving moves it to the primary screen and recreates its window so a missing widget can recover even when Windows reports it as visible.
 

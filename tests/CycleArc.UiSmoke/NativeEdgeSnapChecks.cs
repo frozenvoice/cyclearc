@@ -22,7 +22,7 @@ internal static class NativeEdgeSnapChecks
         Directory.CreateDirectory(directory);
         UiText.SetLanguage(UiLanguage.English);
         typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [AppTheme.Dark]);
-        var now = DateTimeOffset.Now;
+        var now = new DateTimeOffset(2035, 6, 7, 12, 0, 0, TimeSpan.Zero);
         var snapshot = new CodexQuotaSnapshot(CodexQuotaStatus.Available, "pro", now, now,
             null, null, 0, [new("five", 38, 300, now.AddHours(2), CodexWindowKind.FiveHour)], null);
         var account = WidgetFixture.Synthetic("edge-native", "Synthetic account", snapshot);
@@ -74,8 +74,9 @@ internal static class NativeEdgeSnapChecks
                     var dpi = VisualTreeHelper.GetDpi(window);
                     var initial = Bounds(window);
                     var start = HeaderPoint(window);
-                    var targetLeft = work.Right - initial.Width - (8 + 6) * dpi.DpiScaleX;
-                    var targetTop = work.Bottom - initial.Height - (8 + 6) * dpi.DpiScaleY;
+                    var targetLeft = work.Right - initial.Width - (2 + 6) * dpi.DpiScaleX;
+                    var targetTop = work.Bottom - initial.Height - (2 + 6) * dpi.DpiScaleY;
+                    Console.WriteLine($"Native drop {kind}: initial={initial.Left},{initial.Top},{initial.Width},{initial.Height}; pointer={start}; target={targetLeft},{targetTop}; DPI={dpi.DpiScaleX}/{dpi.DpiScaleY}");
                     EdgeSnapNativeInput.Drag(window, start,
                         new Point(start.X + targetLeft - initial.Left, start.Y + targetTop - initial.Top));
                     AssertAttached(window, work, "native release");
@@ -106,7 +107,7 @@ internal static class NativeEdgeSnapChecks
                     Check(Bounds(window).Left < before.Left, kind + " native Shift drag did not move.");
                     if (window is FlyoutWindow popup)
                         Check(!popup.Pinned && !popup.Topmost, "Snapping changed flyout pin/topmost state.");
-                    lines.Add($"PASS {kind} {screen.DeviceName}: physical work={work}, OS DPI={dpi.DpiScaleX * 100:0}/{dpi.DpiScaleY * 100:0}%; native drag/release, header click, 100/150/80% header-button zoom, passive size/content update without focus theft, pixel/anchor recreation, Shift detach. No monitor geometry was injected.");
+                    lines.Add($"PASS {kind} {screen.DeviceName}: physical work={work}, OS DPI={dpi.DpiScaleX * 100:0}/{dpi.DpiScaleY * 100:0}%; native drag/release, header click, 100/150/80% header-button zoom, passive size/content update without focus theft, legacy 8-DIP pixel/anchor recreation at 2 DIP, Shift detach. No monitor geometry was injected.");
                 }
                 finally { window.Close(); }
             }
@@ -123,11 +124,18 @@ internal static class NativeEdgeSnapChecks
             Status = CodexQuotaStatus.Stale, TechnicalDetail = "Synthetic refresh failure for height verification."
         } };
         var anchors = Anchors(original);
+        // Recreate an already attached window whose saved coordinates still have the old
+        // 8-DIP inset. The current policy must place it 6 DIP closer, on the same monitor.
+        var dpi = VisualTreeHelper.GetDpi(original);
+        var oldPixelLeft = bounds.Left - (int)Math.Round(6 * dpi.DpiScaleX);
+        var oldPixelTop = bounds.Top - (int)Math.Round(6 * dpi.DpiScaleY);
         var settings = new AppSettings
         {
-            WidgetLeft = original.Left, WidgetTop = original.Top, WidgetPixelLeft = bounds.Left, WidgetPixelTop = bounds.Top,
+            WidgetLeft = original.Left - 6, WidgetTop = original.Top - 6,
+            WidgetPixelLeft = oldPixelLeft, WidgetPixelTop = oldPixelTop,
             WidgetHorizontalAnchor = anchors.Horizontal, WidgetVerticalAnchor = anchors.Vertical, WidgetZoomPercent = Zoom(original),
-            FlyoutLeft = original.Left, FlyoutTop = original.Top, FlyoutPixelLeft = bounds.Left, FlyoutPixelTop = bounds.Top,
+            FlyoutLeft = original.Left - 6, FlyoutTop = original.Top - 6,
+            FlyoutPixelLeft = oldPixelLeft, FlyoutPixelTop = oldPixelTop,
             FlyoutHorizontalAnchor = anchors.Horizontal, FlyoutVerticalAnchor = anchors.Vertical, FlyoutZoomPercent = Zoom(original),
             FlyoutPositionConfigured = true
         };
@@ -224,8 +232,8 @@ internal static class NativeEdgeSnapChecks
         var dpi = VisualTreeHelper.GetDpi(window);
         Check(anchors == new WindowEdgeAnchors(HorizontalEdgeAnchor.Right, VerticalEdgeAnchor.Bottom),
             $"{window.GetType().Name} {stage}: expected right/bottom, got {anchors}; bounds={bounds.Left},{bounds.Top},{bounds.Right},{bounds.Bottom}, work={work}.");
-        Check(Math.Abs(work.Right - bounds.Right - 8 * dpi.DpiScaleX) <= 2
-            && Math.Abs(work.Bottom - bounds.Bottom - 8 * dpi.DpiScaleY) <= 2,
+        Check(Math.Abs(work.Right - bounds.Right - 2 * dpi.DpiScaleX) <= 2
+            && Math.Abs(work.Bottom - bounds.Bottom - 2 * dpi.DpiScaleY) <= 2,
             $"{window.GetType().Name} {stage}: wrong native inset; right={work.Right - bounds.Right}, bottom={work.Bottom - bounds.Bottom}, DPI={dpi.DpiScaleX}/{dpi.DpiScaleY}.");
     }
 
@@ -248,6 +256,15 @@ internal static class NativeEdgeSnapChecks
             graphics.DrawImageUnscaled(capture, bounds.Left - work.Left, bounds.Top - work.Top);
         }
         canvas.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        // Record actual HWND geometry so before/after captures can verify that only
+        // the outside position changed, with equal window sizes at each app zoom.
+        var dpi = VisualTreeHelper.GetDpi(window);
+        File.WriteAllText(Path.ChangeExtension(path, ".json"), System.Text.Json.JsonSerializer.Serialize(new
+        {
+            bounds.Left, bounds.Top, bounds.Width, bounds.Height,
+            WorkLeft = work.Left, WorkTop = work.Top, WorkRight = work.Right, WorkBottom = work.Bottom,
+            dpi.DpiScaleX, dpi.DpiScaleY, Zoom = Zoom(window)
+        }));
     }
 
     private static NativeRect Bounds(Window window)

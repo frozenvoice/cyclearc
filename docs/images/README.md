@@ -9,7 +9,8 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | --- | --- |
 | `updates-{en,ko}-{dark,light}.png` | Production update window showing a sample 0.6.0 → 0.6.1 upgrade with the release's widget and installer highlights; download and restart require separate approval |
 | `overview-dark.png`, `overview-light.png`, `settings.png`, `widget.png` | English single-account popup, settings, and the multi-account widget (three synthetic accounts in one row) |
-| `edge-snap-{widget,flyout}-{100,150}.png` | Native synthetic widget/detail windows at 100% and 150% app zoom, attached right/bottom on the 150%-DPI primary monitor; measured work-area surround is neutral and excludes other apps |
+| `edge-snap-{widget,flyout}-{100,150}.png` | Native synthetic widget/detail windows at 100% and 150% app zoom, attached right/bottom at the current 2-DIP inset on the 150%-DPI primary monitor; measured work-area surround is neutral and excludes other apps |
+| `edge-snap-margin-before-{widget,flyout}-100.png` | Historical 8-DIP baseline from `c08558d`, with the same fixed synthetic data and 100% app zoom as the current edge-snap images |
 | `accounts-overview-{en,ko}-{dark,light}.png` | Two ready Codex accounts, with Work / 업무용 selected; the unconnected Claude profile is absent from the cards and counts |
 | `accounts-manage-{en,ko}-{dark,light}.png` | All three registered profiles, including unconnected Research / 실험용 Claude, with connection, nickname and saved-order controls |
 | `claude-waiting-{en,ko}-{dark,light}.png` | Connected Research before its first sample, with unknown shared subscription limits, Awaiting usage and Open usage page |
@@ -54,6 +55,15 @@ drives actual mouse drags and header clicks on the connected monitors. It restor
 uses synthetic accounts, and captures only those HWNDs with `PrintWindow`. Each capture is placed
 at its measured physical coordinates on a neutral work-area background; other applications are
 not captured. This hardware/input check is opt-in and is not part of the unattended gate.
+
+The 2-DIP comparison uses the fixed synthetic timestamp 2035-06-07 in both runs. Reset
+countdowns still use the current clock, so their hour digit can differ between captures.
+The PNG sidecars record HWND size/position, work area, OS DPI and app zoom. Across the
+12 before/after pairs (two windows, two monitors, 80/100/150% zoom), sizes are identical;
+positions move 6 physical pixels at 100% OS DPI and 9 pixels at 150%. Only the reset
+countdown hour digit differs inside the window. Local paired evidence and geometry are
+in `artifacts/snap-margin-2dip/{before,after}` and `comparison.json`; only affected current
+edge-snap previews and the two 100% baseline images are checked in.
 
 The Claude previews use those same profiles with Research connected and selected, so all three
 accounts appear. The waiting view has no quota yet. The server preview supplies synthetic

@@ -156,8 +156,8 @@ internal static class FlyoutEdgeSnapChecks
                 flyout.UpdateLayout();
                 Pump();
                 var area = CurrentWorkArea(flyout);
-                Require(Math.Abs(flyout.Left + flyout.Width - (area.Right - 8)) <= 1
-                    && Math.Abs(flyout.Top + flyout.ActualHeight - (area.Bottom - 8)) <= 1,
+                Require(Math.Abs(flyout.Left + flyout.Width - (area.Right - 2)) <= 1
+                    && Math.Abs(flyout.Top + flyout.ActualHeight - (area.Bottom - 2)) <= 1,
                     $"Account count {count} changed the attached margin.");
             }
             // Restore the original binding shape for the recreation comparison below.
