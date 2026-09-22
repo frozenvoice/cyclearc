@@ -26,21 +26,25 @@ public class WindowEdgeSnapTests
             WindowEdgeSnap.Detect(right, bottom, width, height, Work));
     }
 
-    [Fact]
-    public void ThresholdIsInclusiveAndOutsideThresholdIsFree()
+    [Theory]
+    [InlineData(11.999, true)]
+    [InlineData(12, true)]
+    [InlineData(12.001, false)]
+    public void ThresholdIsInclusiveAndOutsideThresholdIsFree(double distance, bool attaches)
     {
-        var width = 320d;
-        var height = 180d;
-        var target = Work.X + WindowEdgeSnap.MarginDip;
-
-        Assert.Equal(HorizontalEdgeAnchor.Left,
-            WindowEdgeSnap.Detect(target + WindowEdgeSnap.ThresholdDip, 400, width, height, Work).Horizontal);
-        Assert.Equal(HorizontalEdgeAnchor.None,
-            WindowEdgeSnap.Detect(target + WindowEdgeSnap.ThresholdDip + 0.0001, 400, width, height, Work).Horizontal);
-        Assert.Equal(VerticalEdgeAnchor.Top,
-            WindowEdgeSnap.Detect(400, Work.Y + WindowEdgeSnap.MarginDip - WindowEdgeSnap.ThresholdDip, width, height, Work).Vertical);
-        Assert.Equal(VerticalEdgeAnchor.None,
-            WindowEdgeSnap.Detect(400, Work.Y + WindowEdgeSnap.MarginDip - WindowEdgeSnap.ThresholdDip - 0.0001, width, height, Work).Vertical);
+        // Independent policy expectations: 2-DIP targets and a 12-DIP threshold.
+        Assert.Equal(12, WindowEdgeSnap.ThresholdDip);
+        foreach (var direction in new[] { -1, 1 })
+        {
+            Assert.Equal(attaches ? HorizontalEdgeAnchor.Left : HorizontalEdgeAnchor.None,
+                WindowEdgeSnap.Detect(Work.X + 2 + direction * distance, 400, 320, 180, Work).Horizontal);
+            Assert.Equal(attaches ? HorizontalEdgeAnchor.Right : HorizontalEdgeAnchor.None,
+                WindowEdgeSnap.Detect(Work.Right - 2 - 320 + direction * distance, 400, 320, 180, Work).Horizontal);
+            Assert.Equal(attaches ? VerticalEdgeAnchor.Top : VerticalEdgeAnchor.None,
+                WindowEdgeSnap.Detect(0, Work.Y + 2 + direction * distance, 320, 180, Work).Vertical);
+            Assert.Equal(attaches ? VerticalEdgeAnchor.Bottom : VerticalEdgeAnchor.None,
+                WindowEdgeSnap.Detect(0, Work.Bottom - 2 - 180 + direction * distance, 320, 180, Work).Vertical);
+        }
     }
 
     [Fact]
@@ -59,7 +63,7 @@ public class WindowEdgeSnapTests
             WindowEdgeSnap.Detect(400, bottomTarget + 1, width, height, Work).Vertical);
 
         // The two candidate targets can both be inside the threshold only when the
-        // window nearly fills the work area, leaving the two 8 DIP margins between
+        // window nearly fills the work area, leaving the two 2 DIP margins between
         // them. Use that boundary shape to exercise the deterministic tie rule.
         var tieWidth = Work.Width - (int)(WindowEdgeSnap.MarginDip * 2);
         var tieHeight = Work.Height - (int)(WindowEdgeSnap.MarginDip * 2);
@@ -163,8 +167,8 @@ public class WindowEdgeSnapTests
         var work = new ScreenRect(100, 100, 20, 20);
         var placed = WindowEdgeSnap.Place(double.NaN, double.PositiveInfinity, 10, 10, work, default);
 
-        Assert.Equal(work.X + WindowEdgeSnap.MarginDip, placed.Left);
-        Assert.Equal(work.Y + WindowEdgeSnap.MarginDip, placed.Top);
+        Assert.Equal(work.X + 8, placed.Left);
+        Assert.Equal(work.Y + 8, placed.Top);
         Assert.True(double.IsFinite(placed.Left));
         Assert.True(double.IsFinite(placed.Top));
     }
@@ -181,6 +185,27 @@ public class WindowEdgeSnapTests
         Assert.True(placed.Top + 180 <= Work.Bottom - WindowEdgeSnap.MarginDip);
     }
 
+    [Fact]
+    public void SavedEightDipAttachmentRestoresAtTwoDipButFreePositionDoesNotMove()
+    {
+        var oldPosition = (Left: Work.Right - 8d - 320, Top: Work.Bottom - 8d - 180);
+        var anchors = new WindowEdgeAnchors(HorizontalEdgeAnchor.Right, VerticalEdgeAnchor.Bottom);
+        Assert.Equal((Work.Right - 2d - 320, Work.Bottom - 2d - 180),
+            WindowEdgeSnap.Place(oldPosition.Left, oldPosition.Top, 320, 180, Work, anchors));
+        Assert.Equal(oldPosition,
+            WindowEdgeSnap.Place(oldPosition.Left, oldPosition.Top, 320, 180, Work, default));
+    }
+
+    [Fact]
+    public void OversizeAndInvalidUnattachedPositionsKeepTheExistingEightDipRecovery()
+    {
+        var work = new ScreenRect(0, 0, 800, 600);
+        var anchors = new WindowEdgeAnchors(HorizontalEdgeAnchor.Right, VerticalEdgeAnchor.Bottom);
+        Assert.Equal((8d, 8d), WindowEdgeSnap.Place(-100, -100, 900, 700, work, anchors));
+        Assert.Equal((8d, 8d), WindowEdgeSnap.Place(double.NaN, double.NaN, 900, 700, work, default));
+        Assert.Equal((592d, 392d), WindowEdgeSnap.Place(900, 700, 200, 200, work, default));
+    }
+
     [Theory]
     [InlineData(-1080, 48, 1080, 1872)] // portrait, top taskbar
     [InlineData(-1032, 0, 1032, 1920)] // portrait, left taskbar
@@ -194,8 +219,8 @@ public class WindowEdgeSnapTests
         {
             var anchors = new WindowEdgeAnchors(horizontal, vertical);
             var placed = WindowEdgeSnap.Place(x + 200, y + 200, 320, 280, work, anchors);
-            Assert.Equal(horizontal == HorizontalEdgeAnchor.Left ? x + 8 : work.Right - 8 - 320, placed.Left);
-            Assert.Equal(vertical == VerticalEdgeAnchor.Top ? y + 8 : work.Bottom - 8 - 280, placed.Top);
+            Assert.Equal(horizontal == HorizontalEdgeAnchor.Left ? x + 2 : work.Right - 2 - 320, placed.Left);
+            Assert.Equal(vertical == VerticalEdgeAnchor.Top ? y + 2 : work.Bottom - 2 - 280, placed.Top);
             Assert.Equal(anchors, WindowEdgeSnap.Detect(placed.Left, placed.Top, 320, 280, work));
         }
     }
@@ -212,15 +237,15 @@ public class WindowEdgeSnapTests
         {
             var width = 320 * zoom;
             var height = 280 * zoom;
-            var physicalLeft = (work.Right - 8 - width - 11.99) * osScale;
-            var physicalTop = (work.Bottom - 8 - height) * osScale;
+            var physicalLeft = (work.Right - 2 - width - 11.99) * osScale;
+            var physicalTop = (work.Bottom - 2 - height) * osScale;
             var anchors = WindowEdgeSnap.Detect(physicalLeft / osScale, physicalTop / osScale,
                 width, height, work);
             Assert.Equal(new WindowEdgeAnchors(HorizontalEdgeAnchor.Right, VerticalEdgeAnchor.Bottom), anchors);
             var placed = WindowEdgeSnap.Place(physicalLeft / osScale, physicalTop / osScale,
                 width, height, work, anchors);
-            Assert.Equal(8 * osScale, (work.Right - placed.Left - width) * osScale, 6);
-            Assert.Equal(8 * osScale, (work.Bottom - placed.Top - height) * osScale, 6);
+            Assert.Equal(2 * osScale, (work.Right - placed.Left - width) * osScale, 6);
+            Assert.Equal(2 * osScale, (work.Bottom - placed.Top - height) * osScale, 6);
         }
     }
 }

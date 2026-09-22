@@ -2253,3 +2253,46 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   portrait monitor, or taskbars placed on other edges. Those geometry cases use injected
   tests. No actual account login/quota/model request, installation/update/removal, remote CI,
   push, version change, tag or release was used for this work.
+
+
+## Screen-edge inset reduced to 2 DIP, 2026-09-22
+
+- Baseline: `c08558d675b3cc5120c6be9bb492930bef5d0783`. `WindowEdgeSnap.MarginDip`
+  is now 2, while `ThresholdDip` remains 12. Both windows already apply anchored placement
+  after generic recovery, so their WPF drag, zoom, sizing and restore code needs no change.
+  Internal layout, fonts, rings, account sizing, settings and persisted anchor formats are unchanged.
+- General recovery remains 8 DIP. In particular, `ClampRecoveredAxis` previously reused the
+  snap constant for non-finite input; it now has a separate private 8-DIP recovery constant.
+  `FlyoutPlacement` safety clamping and `WidgetGridLayout` wrapping clearance are unchanged.
+- Focused tests passed: 38 coordinate/settings/placement tests, then production `--edge-snap`
+  checks for both windows. Literal 2-DIP expectations independently pin every corner and
+  supplied work-area inset; both directions around each edge test 11.999/12/12.001 DIP.
+  Old 8-DIP attached coordinates restore at 2 DIP, while the same unanchored position stays
+  unchanged. Invalid/oversized safety recovery, independent free axes, Shift and disabled
+  snapping retain their previous behavior.
+- Native `--edge-snap-native` passed on actual primary `(0,0,2560,1528)` work area at
+  150% OS DPI and secondary `(-1920,0,1920,1032)` at 100%. It covers native drop/release,
+  header clicks, 80/100/150% app zoom, passive height/status changes without focus theft,
+  and recreation from saved pixel/DIP coordinates still carrying the old 8-DIP inset.
+  Both windows retain their anchors and the new inset; Shift detaches as before.
+- Twelve before/after native capture pairs use identical fixed synthetic snapshots and
+  matching app zoom. Every HWND width/height is unchanged; each moves exactly 6px at
+  100% OS DPI or 9px at 150%. Measured gaps are 1-2px at 100% and 2-4px at 150%, within
+  the existing 1px native-coordinate rounding of the 2/3px targets. After aligning window
+  origins for pixel comparison, only the reset-countdown hour digit differs (the real clock
+  crossed an hour boundary); other internal pixels are identical. Geometry and full-size
+  captures are under `artifacts/snap-margin-2dip`, including `comparison.json`.
+- The first pre-change native attempt did not reach the requested drop coordinates and
+  failed its anchor assertion. A rerun with start/target/DPI diagnostics passed, as did the
+  post-change run. Its cause was not established; no input logic or timeout was changed.
+- Only the four current edge-snap previews were refreshed; two 100% baseline captures were
+  added. The previous 8-DIP validation record above remains historical evidence.
+- Final local gate passed in 5m10s: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+  -TestResultsDirectory artifacts/snap-margin-2dip/test-results`. All 1,800 unit tests,
+  complete WPF checks (including input/focus, 151 layout, 531 zoom and 180 DPI/layout cases),
+  test-flavour build, single-file publish, built/published receiver checks, installer packaging
+  and isolated portable apply/rollback verification passed. Log: `artifacts/snap-margin-2dip/full-gate.log`.
+- Not run: physical 200% OS DPI, monitor removal/rotation, or taskbar relocation, because
+  the connected desktop remains at its existing 100/150% configuration. Other DPI/work-area
+  cases use injected arithmetic/layout checks. No user installation, account or developer-tool
+  configuration was changed; no push, CI run, merge, version change, tag or release was performed.

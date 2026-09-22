@@ -32,8 +32,10 @@ public readonly record struct WindowEdgeAnchors(
 
 public static class WindowEdgeSnap
 {
-    public const double MarginDip = 8;
+    public const double MarginDip = 2;
     public const double ThresholdDip = 12;
+    // Invalid-coordinate recovery retains its existing safety inset, independent of snapping.
+    private const double RecoveryMarginDip = 8;
 
     public static WindowEdgeAnchors Detect(
         double left,
@@ -200,8 +202,8 @@ public static class WindowEdgeSnap
 
     private static double ClampRecoveredAxis(double origin, double size, int workOrigin, int workLength)
     {
-        var min = workOrigin + MarginDip;
-        var max = workOrigin + (double)workLength - size - MarginDip;
+        var min = workOrigin + RecoveryMarginDip;
+        var max = workOrigin + (double)workLength - size - RecoveryMarginDip;
         return max < min ? min : Math.Clamp(FiniteOrZero(origin), min, max);
     }
 
