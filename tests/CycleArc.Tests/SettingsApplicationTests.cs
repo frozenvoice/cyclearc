@@ -136,6 +136,7 @@ public class SettingsApplicationTests
         ImportHistoricalStatistics = settings.ImportHistoricalStatistics,
         WidgetOpacity = settings.WidgetOpacity,
         WidgetAlwaysOnTop = settings.WidgetAlwaysOnTop,
+        SnapWindowsToScreenEdges = settings.SnapWindowsToScreenEdges,
         WidgetClickThrough = settings.WidgetClickThrough
     };
 }

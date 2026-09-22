@@ -3,6 +3,8 @@ using System.Linq;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
+using CycleArc.Codex;
 using CycleArc.Models;
 using CycleArc.Services;
 using CycleArc.UI;
@@ -44,6 +46,11 @@ internal static class SettingsWindowChecks
                     var height = window.Height;
                     var content = (FrameworkElement)window.Content;
                     var tabs = (TabControl)window.FindName("SettingsTabs");
+                    var snap = (CheckBox)window.FindName("EdgeSnapBox");
+                    Check(snap.IsChecked == true && snap.IsEnabled, "Edge snapping must default on independently of widget visibility.");
+                    Check(AutomationProperties.GetName(snap) == UiText.T("Snap windows to screen edges", "화면 가장자리에 자동 정렬"),
+                        "Edge snapping needs the localized accessible name.");
+                    checks += 2;
 
                     foreach (var name in new[] { "GeneralTab", "WidgetTab", "ConnectionTab" })
                     {
@@ -68,6 +75,11 @@ internal static class SettingsWindowChecks
                         // Collected across every language and theme, so one failure reports the
                         // whole picture instead of the first combination that happens to overflow.
                         firstTab.Add(($"{language}/{theme}", overflow, width, height));
+                        if (directory is not null)
+                        {
+                            var suffix = $"{(language == UiLanguage.English ? "en" : "ko")}-{theme.ToString().ToLowerInvariant()}";
+                            DocumentationScreenshots.Save(window, Path.Combine(directory, $"settings-{suffix}.png"), width, height);
+                        }
                         Check(scroller.VerticalScrollBarVisibility == ScrollBarVisibility.Auto,
                             $"{where} cannot scroll.");
                         checks++;
@@ -80,9 +92,24 @@ internal static class SettingsWindowChecks
                         }
                         checks++;
                     }
+                    tabs.SelectedItem = window.FindName("GeneralTab");
+                    content.Measure(new Size(window.MinWidth, window.MinHeight));
+                    content.Arrange(new Rect(0, 0, window.MinWidth, window.MinHeight));
+                    content.UpdateLayout();
+                    var compactScroll = (ScrollViewer)((TabItem)tabs.SelectedItem).Content;
+                    snap.BringIntoView();
+                    content.UpdateLayout();
+                    var label = (TextBlock)window.FindName("EdgeSnapLabel");
+                    Check(label.ActualHeight + 0.5 >= label.DesiredSize.Height && snap.ActualWidth >= 44,
+                        "The edge option clips at the minimum settings size.");
+                    Check(compactScroll.ScrollableHeight >= 0 && compactScroll.VerticalScrollBarVisibility == ScrollBarVisibility.Auto,
+                        "Compact settings must keep every option reachable.");
+                    checks += 2;
                 }
                 finally { window.Close(); }
             }
+            CheckSavingSnapOption();
+            checks += 9;
         }
         finally
         {
@@ -100,6 +127,35 @@ internal static class SettingsWindowChecks
         Console.WriteLine($"PASS: {checks} settings window checks; the General tab fits the window's own "
             + $"declared size in both languages and themes (worst tab overflow {worst:n0} DIP), and every "
             + "tab can still scroll.");
+    }
+
+    private static void CheckSavingSnapOption()
+    {
+        var settings = new AppSettings
+        {
+            WidgetLeft = 600, WidgetTop = 500, FlyoutLeft = 200, FlyoutTop = 300,
+            WidgetHorizontalAnchor = HorizontalEdgeAnchor.Right, WidgetVerticalAnchor = VerticalEdgeAnchor.Bottom,
+            FlyoutHorizontalAnchor = HorizontalEdgeAnchor.Left, FlyoutVerticalAnchor = VerticalEdgeAnchor.Top
+        };
+        // Drive the production Save button, without App startup or the user's settings store.
+        foreach (var enabled in new[] { true, false, true })
+        {
+            var window = new SettingsWindow(settings);
+            AppSettings? saved = null;
+            window.Saved += value => saved = value;
+            ((CheckBox)window.FindName("EdgeSnapBox")).IsChecked = enabled;
+            ((Button)window.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(ReferenceEquals(settings, saved) && settings.SnapWindowsToScreenEdges == enabled,
+                "The settings save path dropped the edge option.");
+            if (enabled && settings.WidgetHorizontalAnchor == HorizontalEdgeAnchor.Right)
+                Check(settings.FlyoutHorizontalAnchor == HorizontalEdgeAnchor.Left, "Unrelated Save lost an independent anchor.");
+            else
+                Check(settings.WidgetHorizontalAnchor == HorizontalEdgeAnchor.None
+                    && settings.WidgetVerticalAnchor == VerticalEdgeAnchor.None
+                    && settings.FlyoutHorizontalAnchor == HorizontalEdgeAnchor.None
+                    && settings.FlyoutVerticalAnchor == VerticalEdgeAnchor.None, "Disabled anchors reattached on Save.");
+            Check(settings.WidgetLeft == 600 && settings.FlyoutLeft == 200, "Changing the option moved a saved window.");
+        }
     }
 
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject

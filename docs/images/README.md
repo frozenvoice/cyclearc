@@ -9,6 +9,7 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | --- | --- |
 | `updates-{en,ko}-{dark,light}.png` | Production update window showing a sample 0.6.0 → 0.6.1 upgrade with the release's widget and installer highlights; download and restart require separate approval |
 | `overview-dark.png`, `overview-light.png`, `settings.png`, `widget.png` | English single-account popup, settings, and the multi-account widget (three synthetic accounts in one row) |
+| `edge-snap-{widget,flyout}-{100,150}.png` | Native synthetic widget/detail windows at 100% and 150% app zoom, attached right/bottom on the 150%-DPI primary monitor; measured work-area surround is neutral and excludes other apps |
 | `accounts-overview-{en,ko}-{dark,light}.png` | Two ready Codex accounts, with Work / 업무용 selected; the unconnected Claude profile is absent from the cards and counts |
 | `accounts-manage-{en,ko}-{dark,light}.png` | All three registered profiles, including unconnected Research / 실험용 Claude, with connection, nickname and saved-order controls |
 | `claude-waiting-{en,ko}-{dark,light}.png` | Connected Research before its first sample, with unknown shared subscription limits, Awaiting usage and Open usage page |
@@ -36,7 +37,23 @@ weekly), Lab (Codex, 62% five-hour), and selected Work Claude (85% five-hour / 2
 Its header shows independent size controls, shared refresh, Settings and Close widget.
 Period labels share a baseline with the remaining values and a fixed marker gutter;
 the two-period block and the rings across accounts share the same vertical alignment.
-The settings preview uses the production window's declared size so the General tab is fully visible.
+The settings preview uses the production window's declared size so the General tab, including
+**Snap windows to screen edges**, is fully visible. To update only the affected settings previews:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --settings-window artifacts/window-edge-snap/settings
+```
+
+The four EN/KO, Dark/Light renders also check clipping and the saved option. `settings.png`
+is the English Dark render. Edge placement captures and gesture checks run separately with
+`--edge-snap artifacts/window-edge-snap/placement`; these use synthetic accounts in production
+WPF windows and report injected coordinates separately from host-monitor checks.
+
+For an interactive local desktop only, `--edge-snap-native artifacts/window-edge-snap/native`
+drives actual mouse drags and header clicks on the connected monitors. It restores the pointer,
+uses synthetic accounts, and captures only those HWNDs with `PrintWindow`. Each capture is placed
+at its measured physical coordinates on a neutral work-area background; other applications are
+not captured. This hardware/input check is opt-in and is not part of the unattended gate.
 
 The Claude previews use those same profiles with Research connected and selected, so all three
 accounts appear. The waiting view has no quota yet. The server preview supplies synthetic

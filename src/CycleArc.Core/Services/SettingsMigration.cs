@@ -35,6 +35,13 @@ public static class SettingsMigration
         // Each window's own value, normalised separately: one must never overwrite the other.
         settings.FlyoutZoomPercent = Codex.FlyoutZoom.Normalize(settings.FlyoutZoomPercent);
         settings.WidgetZoomPercent = Codex.FlyoutZoom.Normalize(settings.WidgetZoomPercent);
+        var widgetAnchors = new Codex.WindowEdgeAnchors(settings.WidgetHorizontalAnchor, settings.WidgetVerticalAnchor).Normalize();
+        var flyoutAnchors = new Codex.WindowEdgeAnchors(settings.FlyoutHorizontalAnchor, settings.FlyoutVerticalAnchor).Normalize();
+        settings.WidgetHorizontalAnchor = widgetAnchors.Horizontal;
+        settings.WidgetVerticalAnchor = widgetAnchors.Vertical;
+        settings.FlyoutHorizontalAnchor = flyoutAnchors.Horizontal;
+        settings.FlyoutVerticalAnchor = flyoutAnchors.Vertical;
+        if (!settings.SnapWindowsToScreenEdges) settings.ClearWindowEdgeAnchors();
         return settings;
     }
 

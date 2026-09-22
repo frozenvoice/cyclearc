@@ -53,6 +53,11 @@ public sealed class AppSettings
     public double WidgetOpacity { get; set; } = 0.92;
     public bool WidgetAlwaysOnTop { get; set; } = true;
     public bool WidgetClickThrough { get; set; }
+    public bool SnapWindowsToScreenEdges { get; set; } = true;
+    public Codex.HorizontalEdgeAnchor WidgetHorizontalAnchor { get; set; }
+    public Codex.VerticalEdgeAnchor WidgetVerticalAnchor { get; set; }
+    public Codex.HorizontalEdgeAnchor FlyoutHorizontalAnchor { get; set; }
+    public Codex.VerticalEdgeAnchor FlyoutVerticalAnchor { get; set; }
     public UiLanguage UiLanguage { get; set; } = UiLanguage.English;
     public TrayIconStyle TrayIconStyle { get; set; } = TrayIconStyle.RemainingNumber;
     // Deprecated: retained only for settings JSON compatibility. Detail Flyout no longer auto-hides on focus loss.
@@ -64,6 +69,8 @@ public sealed class AppSettings
     public int WidgetZoomPercent { get; set; } = 100;
     public double FlyoutLeft { get; set; }
     public double FlyoutTop { get; set; }
+    public int? FlyoutPixelLeft { get; set; }
+    public int? FlyoutPixelTop { get; set; }
     public bool FlyoutPositionConfigured { get; set; }
     public bool NotifyAt20 { get; set; } = true;
     public bool NotifyAt10 { get; set; } = true;
@@ -89,6 +96,12 @@ public sealed class AppSettings
     public string LastNotifiedProRestrictionKey { get; set; } = "";
 
     public static AppSettings CreateDefaults() => new();
+
+    public void ClearWindowEdgeAnchors()
+    {
+        WidgetHorizontalAnchor = FlyoutHorizontalAnchor = Codex.HorizontalEdgeAnchor.None;
+        WidgetVerticalAnchor = FlyoutVerticalAnchor = Codex.VerticalEdgeAnchor.None;
+    }
 
     public static AppSettings CreateNewInstall(CultureInfo? uiCulture = null)
     {

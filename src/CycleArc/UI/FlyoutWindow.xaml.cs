@@ -1,8 +1,10 @@
+using System.Runtime.InteropServices;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Reflection;
+using System.Windows.Threading;
 using CycleArc.Codex;
 using CycleArc.Providers.Usage;
 using CycleArc.Providers.Claude;
@@ -36,6 +38,35 @@ public partial class FlyoutWindow : Window
     private bool _bindingUsagePeriod;
     private bool _creditsExpanded = true;
     private System.Windows.Controls.ToolTip? _creditHelpTip;
+    private WindowEdgeAnchors _edgeAnchors;
+    private bool _snapWindowsToScreenEdges = true;
+    private bool _dragActive;
+    private bool _dragMoved;
+    private double _dragStartLeft;
+    private double _dragStartTop;
+    private bool _positionInitialized;
+    private bool _applyingPosition;
+    private (int X, int Y)? _savedPixels;
+    private bool _pixelRestorePending;
+    private bool _relayoutAfterDrag;
+    private bool _sizeRelayoutQueued;
+    private bool _sizeRelayouting;
+    private bool _suppressSizeRelayout;
+    private (int Percent, bool Notify)? _deferredZoom;
+    private (double Left, double Top, WindowEdgeAnchors Anchors)? _lastPersistedPosition;
+
+    public WindowEdgeAnchors EdgeAnchors => _edgeAnchors;
+
+    public (int X, int Y)? PixelPosition
+    {
+        get
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            return hwnd != IntPtr.Zero && GetWindowRect(hwnd, out var rect)
+                ? (rect.Left, rect.Top)
+                : null;
+        }
+    }
 
     public FlyoutWindow()
     {
@@ -43,6 +74,8 @@ public partial class FlyoutWindow : Window
         ApplyLocalizedTexts();
         SourceInitialized += (_, _) => FitContentToWorkArea();
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(RefreshWorkArea);
+        LocationChanged += (_, _) => TrackNativeDragMovement();
+        SizeChanged += (_, _) => QueueSizeRelayout();
         ToolTipService.SetIsEnabled(CreditHelpButton, false);
         IsVisibleChanged += (_, _) =>
         {
@@ -58,22 +91,167 @@ public partial class FlyoutWindow : Window
         };
     }
 
+    public void ApplyEdgeSnapSettings(AppSettings settings)
+    {
+        var previousAnchors = _edgeAnchors;
+        _snapWindowsToScreenEdges = settings.SnapWindowsToScreenEdges;
+        _edgeAnchors = _snapWindowsToScreenEdges
+            ? new WindowEdgeAnchors(settings.FlyoutHorizontalAnchor, settings.FlyoutVerticalAnchor).Normalize()
+            : default;
+        // A later drop may reattach at identical coordinates after settings clear the anchors.
+        if (previousAnchors != _edgeAnchors) _lastPersistedPosition = null;
+    }
+
     public void ApplyWindowSettings(AppSettings settings)
     {
+        ApplyEdgeSnapSettings(settings);
+        if (!_positionInitialized && !_pixelRestorePending
+            && settings.FlyoutPixelLeft is { } pixelLeft && settings.FlyoutPixelTop is { } pixelTop)
+        {
+            _savedPixels = (pixelLeft, pixelTop);
+            _pixelRestorePending = true;
+        }
         SetZoom(settings.FlyoutZoomPercent, notify: false);
         Pinned = settings.FlyoutPinned;
         Topmost = FlyoutWindowState.IsTopmost(Pinned);
         ApplyPinGlyph();
     }
 
-    public void RestorePosition(double left, double top)
+    public void RestorePosition(double left, double top) =>
+        RestorePositionCore(left, top, preferNativeWorkArea: false);
+
+    private void RestorePositionCore(double left, double top, bool preferNativeWorkArea)
     {
-        UpdateLayout();
-        var height = Math.Max(ActualHeight, 1);
-        var work = FlyoutPlacement.SelectWorkArea(left, top, Width, height, EnumerateWorkAreas());
-        var clamped = FlyoutPlacement.ClampToWorkArea(left, top, Width, height, work);
-        Left = clamped.Left;
-        Top = clamped.Top;
+        if (_dragActive) { _relayoutAfterDrag = true; return; }
+        var wasInitialized = _positionInitialized;
+        preferNativeWorkArea |= _pixelRestorePending && _savedPixels is not null;
+        (left, top) = RestoreSavedPixels(left, top);
+        var work = SelectWorkArea(left, top, Width, Math.Max(ActualHeight, 1), preferNativeWorkArea);
+        PlaceWithin(work, left, top, persist: wasInitialized);
+    }
+
+    // One target owns fitting, final measurement, recovery and optional drop detection.
+    private void PlaceWithin(ScreenRect work, double left, double top,
+        bool detectDrop = false, bool bypass = false, bool persist = true)
+    {
+        var before = (Left, Top);
+        _suppressSizeRelayout = true;
+        try
+        {
+            FitContentToWorkArea(work);
+            UpdateLayout();
+            var height = Math.Max(ActualHeight, 1);
+            if (detectDrop)
+                _edgeAnchors = WindowEdgeSnap.Detect(left, top, Width, height, work,
+                    _snapWindowsToScreenEdges, bypass);
+            var placed = _edgeAnchors.IsAttached || detectDrop
+                ? WindowEdgeSnap.Place(left, top, Width, height, work, _edgeAnchors)
+                : FlyoutPlacement.ClampToWorkArea(left, top, Width, height, work);
+            ApplyPosition(placed.Left, placed.Top);
+            _positionInitialized = true;
+        }
+        finally { _suppressSizeRelayout = false; }
+        if (persist && (Math.Abs(before.Left - Left) > .01 || Math.Abs(before.Top - Top) > .01))
+            PersistPosition();
+    }
+
+    private (double Left, double Top) RestoreSavedPixels(double left, double top)
+    {
+        if (!_pixelRestorePending || _savedPixels is not { } pixels)
+            return (left, top);
+
+        _pixelRestorePending = false;
+        SetPixelPosition(pixels.X, pixels.Y);
+        var fromDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice
+            ?? Matrix.Identity;
+        var restored = fromDevice.Transform(new System.Windows.Point(pixels.X, pixels.Y));
+        return double.IsFinite(restored.X) && double.IsFinite(restored.Y)
+            ? (restored.X, restored.Y)
+            : (left, top);
+    }
+
+    private ScreenRect SelectWorkArea(
+        double left, double top, double width, double height, bool preferNative)
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (preferNative && hwnd != IntPtr.Zero)
+        {
+            var screen = System.Windows.Forms.Screen.FromHandle(hwnd);
+            return ToDipWorkArea(screen.WorkingArea);
+        }
+
+        return FlyoutPlacement.SelectWorkArea(left, top, width, height, EnumerateWorkAreas());
+    }
+
+    private ScreenRect ToDipWorkArea(System.Drawing.Rectangle area)
+    {
+        var fromDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice
+            ?? Matrix.Identity;
+        var topLeft = fromDevice.Transform(new System.Windows.Point(area.Left, area.Top));
+        var bottomRight = fromDevice.Transform(new System.Windows.Point(area.Right, area.Bottom));
+        return new ScreenRect(
+            (int)Math.Round(topLeft.X),
+            (int)Math.Round(topLeft.Y),
+            Math.Max(1, (int)Math.Round(bottomRight.X - topLeft.X)),
+            Math.Max(1, (int)Math.Round(bottomRight.Y - topLeft.Y)));
+    }
+
+    private void ApplyPosition(double left, double top)
+    {
+        _applyingPosition = true;
+        try
+        {
+            Left = left;
+            Top = top;
+        }
+        finally { _applyingPosition = false; }
+    }
+
+    private void QueueSizeRelayout()
+    {
+        if (_suppressSizeRelayout || _applyingPosition || !IsVisible || !_positionInitialized)
+            return;
+        if (_dragActive)
+        {
+            _relayoutAfterDrag = true;
+            return;
+        }
+        if (_sizeRelayoutQueued || _sizeRelayouting) return;
+        _sizeRelayoutQueued = true;
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.ContextIdle,
+            new Action(RelayoutAfterSize));
+    }
+
+    private void RelayoutAfterSize()
+    {
+        _sizeRelayoutQueued = false;
+        if (_suppressSizeRelayout || _applyingPosition || !IsVisible || !_positionInitialized)
+            return;
+        if (_dragActive)
+        {
+            _relayoutAfterDrag = true;
+            return;
+        }
+
+        _sizeRelayouting = true;
+        try
+        {
+            var work = SelectWorkArea(Left, Top, Width, Math.Max(ActualHeight, 1),
+                preferNative: _edgeAnchors.IsAttached);
+            PlaceWithin(work, Left, Top);
+        }
+        finally { _sizeRelayouting = false; }
+    }
+
+    private void FlushDeferredAfterDrag()
+    {
+        var deferredZoom = _deferredZoom;
+        var relayout = _relayoutAfterDrag;
+        _deferredZoom = null;
+        _relayoutAfterDrag = false;
+        if (deferredZoom is { } zoom) SetZoom(zoom.Percent, zoom.Notify);
+        else if (relayout) RefreshWorkArea();
     }
 
     public void Bind(CodexQuotaSnapshot snapshot, bool refreshing = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
@@ -240,8 +418,12 @@ public partial class FlyoutWindow : Window
         var fromDevice = source?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
         var topLeft = fromDevice.Transform(new System.Windows.Point(area.Left, area.Top));
         var bottomRight = fromDevice.Transform(new System.Windows.Point(area.Right, area.Bottom));
-        Left = Math.Max(topLeft.X + 8, bottomRight.X - Width - 12);
-        Top = Math.Max(topLeft.Y + 8, bottomRight.Y - ActualHeight - 12);
+        _edgeAnchors = default;
+        _pixelRestorePending = false;
+        ApplyPosition(
+            Math.Max(topLeft.X + 8, bottomRight.X - Width - 12),
+            Math.Max(topLeft.Y + 8, bottomRight.Y - ActualHeight - 12));
+        _positionInitialized = true;
     }
 
     public void PlaceNear(Rect anchor, TaskbarEdge edge)
@@ -263,8 +445,10 @@ public partial class FlyoutWindow : Window
                 (int)workTopLeft.Y,
                 (int)(workBottomRight.X - workTopLeft.X),
                 (int)(workBottomRight.Y - workTopLeft.Y)));
-        Left = left;
-        Top = top;
+        _edgeAnchors = default;
+        _pixelRestorePending = false;
+        ApplyPosition(left, top);
+        _positionInitialized = true;
     }
 
     private const double CodexRingDiameter = 112;
@@ -490,16 +674,19 @@ One credit will be consumed.",
         if (!_creditsExpanded && _creditHelpTip is not null) _creditHelpTip.IsOpen = false;
     }
 
-    private void FitContentToWorkArea()
+    private ScreenRect CurrentFitWorkArea()
     {
-        var source = PresentationSource.FromVisual(this);
-        var fromDevice = source?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
         var cursor = System.Windows.Forms.Control.MousePosition;
         var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         var screen = handle == IntPtr.Zero ? System.Windows.Forms.Screen.FromPoint(cursor)
             : System.Windows.Forms.Screen.FromHandle(handle);
-        var work = screen.WorkingArea;
-        var size = fromDevice.Transform(new System.Windows.Vector(work.Width, work.Height));
+        return ToDipWorkArea(screen.WorkingArea);
+    }
+
+    private void FitContentToWorkArea(ScreenRect? target = null)
+    {
+        var work = target ?? CurrentFitWorkArea();
+        var size = new System.Windows.Vector(work.Width, work.Height);
         var scale = Math.Min(ZoomPercent / 100d, Math.Max(1, size.X - 24) / 440d);
         FlyoutScale.ScaleX = FlyoutScale.ScaleY = scale;
         Width = 440 * scale;
@@ -508,21 +695,32 @@ One credit will be consumed.",
 
     public void RefreshWorkArea()
     {
-        FitContentToWorkArea();
-        if (IsVisible) RestorePosition(Left, Top);
+        if (_dragActive) { _relayoutAfterDrag = true; return; }
+        if (IsVisible) RestorePositionCore(Left, Top, preferNativeWorkArea: _edgeAnchors.IsAttached);
+        else FitContentToWorkArea();
     }
 
     private void SetZoom(int percent, bool notify)
     {
         var next = FlyoutZoom.Normalize(percent);
+        if (_dragActive) { _deferredZoom = (next, notify); return; }
+        // Select before the size changes, then use only this work area for the pass.
+        var target = IsVisible
+            ? SelectWorkArea(Left, Top, Width, Math.Max(ActualHeight, 1), preferNative: _edgeAnchors.IsAttached)
+            : (ScreenRect?)null;
         var changed = next != ZoomPercent;
         ZoomPercent = next;
-        FitContentToWorkArea();
+        UpdateZoomPresentation();
+        if (target is { } work) PlaceWithin(work, Left, Top, persist: _positionInitialized);
+        else FitContentToWorkArea();
+        if (changed && notify) ZoomChanged?.Invoke(ZoomPercent);
+    }
+
+    private void UpdateZoomPresentation()
+    {
         TitleText.ToolTip = UiText.T($"Size {ZoomPercent}% · Ctrl + / Ctrl - · Ctrl 0 to reset",
             $"크기 {ZoomPercent}% · Ctrl + / Ctrl - · Ctrl 0으로 초기화");
         UpdateZoomControls();
-        if (IsVisible) RestorePosition(Left, Top);
-        if (changed && notify) ZoomChanged?.Invoke(ZoomPercent);
     }
 
     private void UpdateZoomControls()
@@ -704,6 +902,11 @@ One credit will be consumed.",
             return;
         }
 
+        _dragStartLeft = Left;
+        _dragStartTop = Top;
+        _dragMoved = false;
+        _dragActive = true;
+        var bypassSnap = false;
         try
         {
             DragMove();
@@ -711,13 +914,64 @@ One credit will be consumed.",
         catch (InvalidOperationException)
         {
         }
+        finally
+        {
+            // LocationChanged normally observes native WM_MOVING. The final comparison also
+            // covers the last native move when WPF delivers it after DragMove returns.
+            if (!_dragMoved && HasMovedPastDragThreshold())
+            {
+                _dragMoved = true;
+                _edgeAnchors = default;
+            }
+            bypassSnap = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+            _dragActive = false;
+        }
 
+        if (!_dragMoved)
+        {
+            // A click on the header is still only a click. In particular, it must not snap or
+            // detach an already attached window.
+            FlushDeferredAfterDrag();
+            return;
+        }
+
+        var deferredZoom = _deferredZoom;
+        var zoomChanged = deferredZoom is { } pending && pending.Percent != ZoomPercent;
+        if (deferredZoom is { } zoom)
+        {
+            ZoomPercent = zoom.Percent;
+            UpdateZoomPresentation();
+        }
+        _deferredZoom = null;
+        _relayoutAfterDrag = false;
+        CompleteDragSnap(bypassSnap);
         PersistPosition();
+        if (zoomChanged && deferredZoom is { Notify: true }) ZoomChanged?.Invoke(ZoomPercent);
+    }
+
+    private bool HasMovedPastDragThreshold() =>
+        double.IsFinite(Left) && double.IsFinite(Top)
+        && WidgetInteraction.IsDrag(_dragStartLeft, _dragStartTop, Left, Top);
+
+    private void TrackNativeDragMovement()
+    {
+        if (!_dragActive || _applyingPosition || _dragMoved) return;
+        if (!HasMovedPastDragThreshold()) return;
+        _dragMoved = true;
+        _edgeAnchors = default;
+    }
+
+    private void CompleteDragSnap(bool bypassSnap)
+    {
+        var work = SelectWorkArea(Left, Top, Width, Math.Max(ActualHeight, 1), preferNative: true);
+        PlaceWithin(work, Left, Top, detectDrop: true, bypass: bypassSnap, persist: false);
     }
 
     private void PersistPosition()
     {
-        RestorePosition(Left, Top);
+        var current = (Left, Top, _edgeAnchors);
+        if (_lastPersistedPosition == current) return;
+        _lastPersistedPosition = current;
         PositionChanged?.Invoke(Left, Top);
     }
 
@@ -749,6 +1003,34 @@ One credit will be consumed.",
 
         return false;
     }
+
+    private void SetPixelPosition(int x, int y)
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0,
+            SwpNoSize | SwpNoZOrder | SwpNoActivate);
+    }
+
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
 
     private IReadOnlyList<ScreenRect> EnumerateWorkAreas()
     {

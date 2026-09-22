@@ -33,6 +33,11 @@ public partial class FloatingWidget : Window
     private bool _relayoutQueued;
     private bool _sizeApplyPending;
     private (double Width, double Height)? _appliedSize;
+    private bool _snapWindowsToScreenEdges = true;
+    private bool _dragAnchorsCleared;
+
+    /// <summary>The edges currently attached to the widget, persisted by the app.</summary>
+    public WindowEdgeAnchors EdgeAnchors { get; private set; }
 
     public FloatingWidget()
     {
@@ -202,6 +207,11 @@ public partial class FloatingWidget : Window
     /// unchanged, so an off-screen origin or a shrunken work area is not skipped.
     /// </summary>
     public void Relayout(IReadOnlyList<ScreenRect>? workAreas = null)
+        => RelayoutCore(workAreas);
+
+    private void RelayoutCore(IReadOnlyList<ScreenRect>? workAreas = null,
+        ScreenRect? fixedTarget = null, (double Left, double Top)? droppedPosition = null,
+        bool detectDroppedSnap = false, bool bypassDroppedSnap = false)
     {
         if (_closed || _relayouting || _applying) return;
         if (_drag is not null)
@@ -215,10 +225,25 @@ public partial class FloatingWidget : Window
         try
         {
             var areas = _workAreas ?? DesktopWorkAreas.For(this);
-            var target = CurrentWorkArea(areas);
+            var target = fixedTarget ?? CurrentWorkArea(areas);
             LastLayout = ArrangeModules(_modules.Count, target);
             ApplyArrangedLayout();
-            RecoverTo(target);
+            if (detectDroppedSnap && droppedPosition is { } dropped)
+            {
+                // Detection deliberately sees the raw drop before safety recovery. A distant
+                // drop can be clamped to an edge by RecoverInto, but that must not invent an
+                // edge attachment. The same target and final arranged size then feed placement.
+                var (width, height) = ArrangedSize();
+                EdgeAnchors = WindowEdgeSnap.Detect(dropped.Left, dropped.Top, width, height,
+                    target, _snapWindowsToScreenEdges, bypassDroppedSnap).Normalize();
+                var position = WindowEdgeSnap.Place(dropped.Left, dropped.Top, width, height,
+                    target, EdgeAnchors);
+                SetPosition(position.Left, position.Top);
+            }
+            else
+            {
+                RecoverTo(target);
+            }
         }
         finally { _relayouting = false; }
     }
@@ -310,15 +335,22 @@ public partial class FloatingWidget : Window
         var (width, height) = ArrangedSize();
         var onTarget = double.IsFinite(Left) && double.IsFinite(Top)
             && Left >= target.X && Left < target.Right && Top >= target.Y && Top < target.Bottom;
-        var position = onTarget
-            ? WidgetPlacement.RecoverInto(Left, Top, width, height, target)
-            : WidgetPlacement.Recover(Left, Top, width, height, areas is { Count: > 0 } ? areas : [target]);
+        var position = EdgeAnchors.IsAttached
+            ? WindowEdgeSnap.Place(Left, Top, width, height, target, EdgeAnchors)
+            : onTarget
+                ? WidgetPlacement.RecoverInto(Left, Top, width, height, target)
+                : WidgetPlacement.Recover(Left, Top, width, height, areas is { Count: > 0 } ? areas : [target]);
         if (position.Left == Left && position.Top == Top) return;
         // A queued cross-monitor recovery can trigger WPF's nested DPI resize too.
         using var activation = new PassiveUpdate();
-        Left = position.Left;
-        Top = position.Top;
+        SetPosition(position.Left, position.Top);
         Moved?.Invoke(Left, Top);
+    }
+
+    private void SetPosition(double left, double top)
+    {
+        Left = left;
+        Top = top;
     }
 
     private void QueueRelayout()
@@ -524,8 +556,21 @@ public partial class FloatingWidget : Window
         CloseRequested?.Invoke();
     }
 
+    /// <summary>
+    /// Loads edge-snap settings without moving the window. This is intentionally separate from
+    /// Apply so settings changes can release an existing attachment before a size relayout.
+    /// </summary>
+    public void ApplyEdgeSnapSettings(AppSettings settings)
+    {
+        _snapWindowsToScreenEdges = settings.SnapWindowsToScreenEdges;
+        EdgeAnchors = _snapWindowsToScreenEdges
+            ? new WindowEdgeAnchors(settings.WidgetHorizontalAnchor, settings.WidgetVerticalAnchor).Normalize()
+            : default;
+    }
+
     public void Apply(AppSettings settings)
     {
+        ApplyEdgeSnapSettings(settings);
         using var activation = new PassiveUpdate();
         _applying = true;
         var applied = false;
@@ -555,7 +600,15 @@ public partial class FloatingWidget : Window
         if (areas is null)
         {
             if (!_positionReady) return;
-            RecoverPhysicalPosition();
+            if (EdgeAnchors.IsAttached && IsLoaded)
+            {
+                var liveAreas = DesktopWorkAreas.For(this);
+                RecoverTo(CurrentWorkArea(liveAreas));
+            }
+            else
+            {
+                RecoverPhysicalPosition();
+            }
             return;
         }
         _recoveringPosition = true;
@@ -565,9 +618,11 @@ public partial class FloatingWidget : Window
             var target = WidgetPlacement.AreaContaining(Left, Top, areas);
             var onTarget = double.IsFinite(Left) && double.IsFinite(Top)
                 && Left >= target.X && Left < target.Right && Top >= target.Y && Top < target.Bottom;
-            var position = onTarget
-                ? WidgetPlacement.RecoverInto(Left, Top, width, height, target)
-                : WidgetPlacement.Recover(Left, Top, width, height, areas);
+            var position = EdgeAnchors.IsAttached
+                ? WindowEdgeSnap.Place(Left, Top, width, height, target, EdgeAnchors)
+                : onTarget
+                    ? WidgetPlacement.RecoverInto(Left, Top, width, height, target)
+                    : WidgetPlacement.Recover(Left, Top, width, height, areas);
             if (position.Left == Left && position.Top == Top) return;
             Left = position.Left;
             Top = position.Top;
@@ -752,8 +807,9 @@ public partial class FloatingWidget : Window
     {
         if (_drag is null) return;
         var pointer = PointerOnScreen(e);
+        var bypassEdgeSnap = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         UpdateDragPosition(pointer);
-        FinishDrag(true);
+        FinishDragCore(true, bypassEdgeSnap);
         e.Handled = true;
     }
 
@@ -761,6 +817,7 @@ public partial class FloatingWidget : Window
 
     private void BeginDrag(System.Windows.Point pointer)
     {
+        _dragAnchorsCleared = false;
         _drag = new WidgetDragSession(Left, Top, pointer.X, pointer.Y);
         if (!CaptureMouse()) _drag = null;
     }
@@ -769,20 +826,43 @@ public partial class FloatingWidget : Window
     {
         if (_drag is null) return;
         var position = _drag.Move(pointer.X, pointer.Y);
-        if (_drag.IsDragging) { Left = position.Left; Top = position.Top; }
+        if (_drag.IsDragging)
+        {
+            // Keep a click on an attached widget attached. Release the old anchors only
+            // once the drag threshold has actually been crossed.
+            if (!_dragAnchorsCleared)
+            {
+                EdgeAnchors = default;
+                _dragAnchorsCleared = true;
+            }
+            SetPosition(position.Left, position.Top);
+        }
     }
 
-    private void FinishDrag(bool allowClick)
+    private void FinishDrag(bool allowClick) => FinishDragCore(allowClick, false);
+
+    private void FinishDragCore(bool allowClick, bool bypassEdgeSnap)
     {
         var gesture = _drag;
         var pressed = _pressedProfileId;
+        var dropped = (Left, Top);
         _drag = null;
         _pressedProfileId = null;
         if (IsMouseCaptured) ReleaseMouseCapture();
         // A move that ended is a move, never an accidental open.
         if (gesture?.IsDragging == true)
         {
-            Relayout();
+            if (!_dragAnchorsCleared) EdgeAnchors = default;
+            _dragAnchorsCleared = false;
+            if (allowClick) {
+                var areas = _workAreas ?? (IsLoaded ? DesktopWorkAreas.For(this) : null);
+                var target = CurrentWorkArea(areas);
+                RelayoutCore(areas, target, dropped, detectDroppedSnap: true,
+                    bypassDroppedSnap: bypassEdgeSnap);
+            }
+            else {
+                Relayout();
+            }
             Moved?.Invoke(Left, Top);
             return;
         }
