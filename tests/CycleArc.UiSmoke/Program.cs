@@ -178,6 +178,11 @@ internal static class Program
                 CursorWidgetSummaryChecks.Run(cursorWidgetDirectory);
                 return 0;
             }
+            if (args is ["--usage-percent"] or ["--usage-percent", _])
+            {
+                UsagePercentUiChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--widget-status-before", var widgetStatusBeforeDirectory])
             {
                 WidgetStatusRowChecks.Run(widgetStatusBeforeDirectory, expectHealthyCollapsed: false);
@@ -211,6 +216,7 @@ internal static class Program
             CursorUiChecks.Run();
             CursorWidgetSummaryChecks.Run();
             WidgetStatusRowChecks.Run();
+            UsagePercentUiChecks.Run();
             UsagePeriodUiChecks.Run(app);
             MixedProviderUiChecks.Run();
             ToolTipUiChecks.Run();

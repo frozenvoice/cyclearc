@@ -169,8 +169,8 @@ public sealed class CursorWidgetAccountModelTests
     [InlineData(76.499, "76%", "24%", "76.5%", "23.5%")]
     [InlineData(2.9, "3%", "97%", "2.9%", "97.1%")]
     [InlineData(97.1, "97%", "3%", "97.1%", "2.9%")]
-    [InlineData(76.5, "77%", "24%", "76.5%", "23.5%")]
-    [InlineData(0.5, "1%", "100%", "0.5%", "99.5%")]
+    [InlineData(76.5, "77%", "23%", "76.5%", "23.5%")]
+    [InlineData(0.5, "<1%", ">99%", "0.5%", "99.5%")]
     public void CursorWidgetPercentageTextRoundsOnlyTheVisibleStrings(
         double usedPercent, string expectedRing, string expectedRemaining,
         string rawRing, string rawRemaining)
@@ -191,18 +191,18 @@ public sealed class CursorWidgetAccountModelTests
     }
 
     [Fact]
-    public void CursorWidgetRoundedHundredDoesNotChangeDangerOrUnderlyingPercent()
+    public void CursorBoundaryMarkersDoNotChangeDangerOrUnderlyingPercent()
     {
         var window = Window("cursor-auto", 99.6, null, null, null, Now.AddDays(1));
         var snapshot = Snapshot(window);
         var model = WidgetAccountModel.From(Account(snapshot), selected: false, now: Now);
         var period = Assert.Single(model.Periods);
 
-        Assert.Equal("100%", model.RingValueText);
+        Assert.Equal(">99%", model.RingValueText);
         Assert.Equal("99.6%", model.Ring.CenterValueText);
         Assert.Equal(99.6, model.Ring.UsedPercent);
         Assert.False(model.Ring.IsDangerLevel);
-        Assert.Equal("0%", period.DisplayRemainingText);
+        Assert.Equal("<1%", period.DisplayRemainingText);
         Assert.Equal("0.4%", period.RemainingText);
         Assert.Equal(99.6, snapshot.Windows[0].UsedPercent);
     }
@@ -261,7 +261,7 @@ public sealed class CursorWidgetAccountModelTests
     }
 
     [Fact]
-    public void CursorDisplayPropertiesLeaveCodexAndClaudeWidgetTextUntouched()
+    public void AllProvidersUseIntegerWidgetTextAndPreciseDetailText()
     {
         var codexSnapshot = new CodexQuotaSnapshot(
             CodexQuotaStatus.Available, "pro", Now, Now, null, null, null,
@@ -275,8 +275,10 @@ public sealed class CursorWidgetAccountModelTests
             {
                 Provider = UsageProviderId.Codex
             }, codexSnapshot), selected: false, now: Now);
-        Assert.Equal(codexModel.Ring.CenterValueText, codexModel.RingValueText);
-        Assert.Equal(codexModel.Periods[0].RemainingText, codexModel.Periods[0].DisplayRemainingText);
+        Assert.Equal("76.91%", codexModel.Ring.CenterValueText);
+        Assert.Equal("77%", codexModel.RingValueText);
+        Assert.Equal("Left 23.09%", codexModel.Periods[0].RemainingText);
+        Assert.Equal("Left 23%", codexModel.Periods[0].DisplayRemainingText);
 
         var claudeSnapshot = codexSnapshot with { Provider = UsageProviderId.Claude };
         var claudeModel = WidgetAccountModel.From(
@@ -285,9 +287,9 @@ public sealed class CursorWidgetAccountModelTests
                 Provider = UsageProviderId.Claude
             }, claudeSnapshot), selected: false, now: Now);
         Assert.Equal("76.91%", claudeModel.Ring.CenterValueText);
-        Assert.Equal("76.91%", claudeModel.RingValueText);
+        Assert.Equal("77%", claudeModel.RingValueText);
         Assert.Equal("Left 23.09%", claudeModel.Periods[0].RemainingText);
-        Assert.Equal("Left 23.09%", claudeModel.Periods[0].DisplayRemainingText);
+        Assert.Equal("Left 23%", claudeModel.Periods[0].DisplayRemainingText);
     }
 
     [Fact]

@@ -17,6 +17,17 @@ public sealed record CodexRingPresentation(
 {
     public CodexQuotaWindow? Window { get; init; }
 
+    public static CodexRingPresentation FromDetail(CodexQuotaSnapshot snapshot,
+        UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+    {
+        var ring = From(snapshot, preference);
+        return ring with
+        {
+            // Format the original value, not the clamped geometry or widget glyph.
+            CenterValueText = UsagePercentFormatting.Detail(ring.IsAvailable ? ring.Window?.UsedPercent : null)
+        };
+    }
+
     public static CodexRingPresentation From(CodexQuotaSnapshot snapshot, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
         var window = snapshot.DisplayWindow(preference);

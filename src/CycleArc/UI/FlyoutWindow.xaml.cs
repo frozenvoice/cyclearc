@@ -568,7 +568,7 @@ One credit will be consumed.",
 
     private void ApplyCodexRing(CodexQuotaSnapshot snapshot)
     {
-        var ring = CodexRingPresentation.From(snapshot, UsagePeriod);
+        var ring = CodexRingPresentation.FromDetail(snapshot, UsagePeriod);
         UpdatePeriodControls(snapshot, ring);
         CodexRingValueText.Text = ring.CenterValueText;
         CodexRingSubLabel.Text = ring.CenterSubLabel;
