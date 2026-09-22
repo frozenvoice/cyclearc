@@ -2205,3 +2205,51 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   publish, packaging and package verification reran and passed in 2m54s. The generated
   installer's live `CycleArc Setup` window and `awaiting-approval` state were verified;
   installation was left at its confirmation screen for the user.
+
+
+## Screen-edge snapping, 2026-09-22
+
+- `WindowEdgeSnap` is shared DIP arithmetic: detection is inclusive at 12 DIP from the
+  8-DIP inset target, with independent axes, closest-candidate selection and left/top ties.
+  Each production window detects only after an actual drag, after choosing its monitor and
+  measuring its final content. Shift skips detection, while safety recovery remains active.
+- `FloatingWidget` and `FlyoutWindow` keep their own horizontal/vertical anchors. Relayout
+  reuses these anchors after zoom, wrapping, content-height and DPI/work-area changes; it
+  never infers an attachment from a refresh or a legacy saved position. App callbacks save
+  final positions and anchors into the existing settings store, including physical pixel
+  positions for mixed-DPI recreation. Disabling clears both windows' anchors; widget position
+  reset clears only the widget's. Re-enabling waits for a new drag.
+- Focused verification passed: Release build (0 warnings/errors), deterministic production
+  `--edge-snap` checks, and 45 `--settings-window` checks. The latter drives Save, checks the
+  localized accessible name, both languages/themes, the declared size and minimum-size
+  scrolling. Only `settings.png` and the new snap comparison captures were updated.
+- `--edge-snap-native artifacts/window-edge-snap/native` passed on the actual connected
+  monitors: primary work area `(0,0,2560,1528)` at 150% OS DPI and secondary
+  `(-1920,0,1920,1032)` at 100%. For **both** production windows it used native mouse
+  down/move/up, header clicks and zoom buttons at 100/150/80%, Shift release near the target,
+  passive content/zoom updates with a separate foreground window, and pixel/anchor recreation.
+  The negative-coordinate monitor cases also crossed the physical monitor/DPI boundary with
+  a native drag. No monitor geometry or DPI was injected in this opt-in run.
+- The default `--edge-snap` suite simulates production gesture state and uses synthetic
+  coordinates; it is not evidence of OS mouse delivery. Core tests additionally cover
+  thresholds, corners, portrait/taskbar rectangles, negative origins, removed-monitor
+  recovery, oversize/invalid inputs and scaling. Existing WPF DPI fixtures inject
+  100/125/150/175/200% layout DPI; they are separate from the two hardware DPIs above.
+- The disable -> re-enable -> same-coordinate reattachment regression caught a stale
+  flyout persistence-deduplication tuple. Applying changed anchors now invalidates that tuple,
+  so the new attachment is saved even if the final coordinates match the earlier drop.
+- Final local gate: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+  -TestResultsDirectory artifacts/window-edge-snap/test-results` passed in 5m17s:
+  1,796 unit tests, complete UiSmoke (including 151 layout, 531 zoom, 45 settings and the new
+  edge-snap checks), test-flavour compile, single-file publish, built/published receiver
+  checks, Velopack packaging and isolated portable apply/rollback verification. The build
+  reported only the two existing xUnit1031 warnings in `ChildReportFileTests` and
+  `UpdateRecoverySnapshotTests`. The log and TRX are in `artifacts/window-edge-snap`.
+- Native screenshots use `PrintWindow` on the synthetic HWND only, positioned at its measured
+  coordinates on a neutral work-area canvas. Other apps and actual account data are never
+  captured. Checked-in `edge-snap-{widget,flyout}-{100,150}.png` show the primary monitor;
+  80% and secondary-monitor captures plus `native-monitors.txt` remain in the local artifacts.
+- Not run: changing this PC's monitor configuration, physical monitor removal, a physical
+  portrait monitor, or taskbars placed on other edges. Those geometry cases use injected
+  tests. No actual account login/quota/model request, installation/update/removal, remote CI,
+  push, version change, tag or release was used for this work.

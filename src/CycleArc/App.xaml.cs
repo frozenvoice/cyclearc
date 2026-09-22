@@ -373,6 +373,13 @@ public partial class App : Application
         {
             _settings.FlyoutLeft = left;
             _settings.FlyoutTop = top;
+            _settings.FlyoutHorizontalAnchor = _flyout.EdgeAnchors.Horizontal;
+            _settings.FlyoutVerticalAnchor = _flyout.EdgeAnchors.Vertical;
+            if (_flyout.PixelPosition is { } pixels)
+            {
+                _settings.FlyoutPixelLeft = pixels.X;
+                _settings.FlyoutPixelTop = pixels.Y;
+            }
             _settings.FlyoutPositionConfigured = true;
             _settingsStore.Save(_settings);
         };
@@ -402,12 +409,17 @@ public partial class App : Application
                 var work = SystemParameters.WorkArea;
                 settings.WidgetPixelLeft = null;
                 settings.WidgetPixelTop = null;
+                settings.WidgetHorizontalAnchor = HorizontalEdgeAnchor.None;
+                settings.WidgetVerticalAnchor = VerticalEdgeAnchor.None;
                 settings.WidgetLeft = work.Left + 40;
                 settings.WidgetTop = work.Top + 40;
             }
             _settings = settings;
             _settingsStore.Save(settings);
             ApplyRefreshSchedule();
+            // Disabling clears the live anchors before theme/layout callbacks can save them again.
+            _flyout?.ApplyEdgeSnapSettings(settings);
+            _widgetController?.CurrentWindow?.ApplyEdgeSnapSettings(settings);
             UiText.SetLanguage(settings.UiLanguage);
             ApplyTheme(settings.Theme);
             StartupConsent.ApplyIfPermitted(new WindowsStartupService(), settings);
@@ -540,6 +552,8 @@ public partial class App : Application
                 if (IsExiting || !ReferenceEquals(_widgetController?.CurrentWindow, widget)) return;
                 _settings.WidgetLeft = left;
                 _settings.WidgetTop = top;
+                _settings.WidgetHorizontalAnchor = widget.EdgeAnchors.Horizontal;
+                _settings.WidgetVerticalAnchor = widget.EdgeAnchors.Vertical;
                 if (widget.PixelPosition is { } pixels)
                 {
                     _settings.WidgetPixelLeft = pixels.X;

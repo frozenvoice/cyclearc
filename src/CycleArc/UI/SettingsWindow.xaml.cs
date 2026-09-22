@@ -33,6 +33,10 @@ public partial class SettingsWindow : Window
         IconBox.SelectedIndex = (int)settings.TrayIconStyle;
         StartupLabel.Text = UiText.StartWithWindows;
         StartupBox.IsChecked = settings.StartWithWindows;
+        EdgeSnapLabel.Text = UiText.T("Snap windows to screen edges", "화면 가장자리에 자동 정렬");
+        EdgeSnapBox.IsChecked = settings.SnapWindowsToScreenEdges;
+        EdgeSnapBox.ToolTip = UiText.T("Applies to the widget and detail popup. Hold Shift when releasing a drag to skip snapping.",
+            "위젯과 상세 팝업에 적용합니다. Shift를 누른 채 드래그를 끝내면 이번 정렬을 생략합니다.");
         TrayHint.Text = UiText.T(
             "The tray shows the used percentage as large digits without the % sign (67 means 67%); the background is transparent. Text follows your Windows taskbar theme. Unknown usage shows ?. Check the tooltip or detail card for status. The ring style shows usage as progress.",
             "트레이는 % 기호 없이 사용률 숫자를 크게 표시합니다(67은 67% 사용). 배경은 투명합니다. 글자색은 Windows 작업표시줄 테마에 맞춰 바뀌며, 알 수 없는 값은 ?로 표시합니다. 상태는 툴팁이나 상세 카드에서 확인하세요. 링은 같은 값을 진행률로 표시합니다.");
@@ -79,6 +83,7 @@ public partial class SettingsWindow : Window
         SetName(CloseSettingsButton, UiText.Close);
         SetName(ThemeBox, ThemeLabel.Text); SetName(LanguageBox, LanguageLabel.Text);
         SetName(IconBox, IconLabel.Text); SetName(StartupBox, StartupLabel.Text);
+        SetName(EdgeSnapBox, EdgeSnapLabel.Text);
         SetName(WidgetBox, WidgetLabel.Text); SetName(WidgetTopBox, WidgetTopLabel.Text);
         SetName(WidgetClickThroughBox, WidgetClickThroughLabel.Text);
         SetName(WidgetOpacityBox, WidgetOpacityLabel.Text); SetName(CodexExeBox, CodexExeLabel.Text);
@@ -109,6 +114,8 @@ public partial class SettingsWindow : Window
         _settings.WidgetOpacity = WidgetOpacityBox.Value;
         _settings.WidgetAlwaysOnTop = WidgetTopBox.IsChecked == true;
         _settings.WidgetClickThrough = WidgetClickThroughBox.IsChecked == true;
+        _settings.SnapWindowsToScreenEdges = EdgeSnapBox.IsChecked == true;
+        if (!_settings.SnapWindowsToScreenEdges) _settings.ClearWindowEdgeAnchors();
         Saved?.Invoke(_settings);
         Close();
     }

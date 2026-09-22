@@ -108,6 +108,17 @@ internal static class Program
                 WidgetLayoutChecks.Run(widgetLayoutDirectory);
                 return 0;
             }
+            if (args is ["--edge-snap-native", var nativeSnapDirectory])
+            {
+                NativeEdgeSnapChecks.Run(nativeSnapDirectory);
+                return 0;
+            }
+            if (args is ["--edge-snap"] or ["--edge-snap", _])
+            {
+                WidgetEdgeSnapChecks.Run(args.Length == 2 ? args[1] : null);
+                FlyoutEdgeSnapChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--settings-window"] or ["--settings-window", _])
             {
                 SettingsWindowChecks.Run(args.Length == 2 ? args[1] : null);
@@ -229,6 +240,8 @@ internal static class Program
             WidgetLayoutChecks.Run();
             WidgetZoomChecks.Run();
             SettingsWindowChecks.Run();
+            WidgetEdgeSnapChecks.Run();
+            FlyoutEdgeSnapChecks.Run();
             TrayIconChecks.Run();
             WidgetDpiChecks.Run();
             CheckPositionReset();

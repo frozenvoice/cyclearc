@@ -28,6 +28,7 @@ public sealed class FloatingWidgetController(Action<FloatingWidget> configure, A
         var created = EnsureWindow();
         // Before binding, so the grid is measured at the scale it will be shown at. Silent:
         // restoring a saved value is not a user change and must not be written back.
+        if (created || applySettings) _window!.ApplyEdgeSnapSettings(settings);
         _window!.SetZoom(settings.WidgetZoomPercent, notify: false);
         // Every displayable account, in account-management order, not only the selected one.
         _window.BindAccounts(overview.Accounts, overview.SelectedId, overview.Preference);

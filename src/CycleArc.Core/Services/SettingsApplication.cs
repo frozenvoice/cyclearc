@@ -33,6 +33,7 @@ public sealed record SettingsEdit
     public double WidgetOpacity { get; set; } = 0.92;
     public bool WidgetAlwaysOnTop { get; set; } = true;
     public bool WidgetClickThrough { get; set; }
+    public bool SnapWindowsToScreenEdges { get; set; } = true;
 }
 
 public static class SettingsApplication
@@ -71,5 +72,7 @@ public static class SettingsApplication
         target.WidgetOpacity = Math.Clamp(edit.WidgetOpacity, 0.3, 1);
         target.WidgetAlwaysOnTop = edit.WidgetAlwaysOnTop;
         target.WidgetClickThrough = edit.WidgetClickThrough;
+        target.SnapWindowsToScreenEdges = edit.SnapWindowsToScreenEdges;
+        if (!target.SnapWindowsToScreenEdges) target.ClearWindowEdgeAnchors();
     }
 }

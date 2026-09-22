@@ -221,7 +221,7 @@ internal static class DocumentationScreenshots
             throw new InvalidOperationException("Documentation previews cannot open a session.");
     }
 
-    private static void Save(Window window, string path, double width, double? height, Action? arranged = null)
+    internal static void Save(Window window, string path, double width, double? height, Action? arranged = null)
     {
         var content = (FrameworkElement)window.Content;
         content.UpdateLayout();

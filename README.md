@@ -250,6 +250,8 @@ Usage comes from the Desktop live profile/usage check when available, then the o
 | Widget header buttons | Resize the widget, refresh, open Settings, or hide it without exiting CycleArc |
 | Right-click the widget | Open its menu, including Close widget |
 
+Drop the widget or detail popup near a screen edge to align it with an 8-DIP inset, keeping its size. Hold **Shift** when releasing a drag to skip snapping for that move. Attached edges keep their inset when you zoom or the content changes. Turn this off in **Settings → General → Snap windows to screen edges**.
+
 The zoom shortcuts also support the numeric keypad. The detail card and the widget keep their own size: a shortcut or button changes only the window it was aimed at, and both sizes are saved across restarts. The tray menu resets either one: **Reset size (100%)** for the detail card, **Reset widget size (100%)** for the widget. Widget position can be reset from **Settings → Widget**; saving moves it to the primary screen and recreates its window so a missing widget can recover even when Windows reports it as visible.
 
 With **Show widget** enabled and a displayable account, CycleArc checks the native window every two seconds and restores unexpected hiding, minimization or displacement behind ordinary windows despite an enabled always-on-top setting, without taking keyboard focus. After sleep, unlock or display changes it recreates the widget with the saved position, opacity and interaction settings. Turning the widget off still keeps it hidden. Recovery events are recorded in the local app log.
@@ -263,7 +265,7 @@ The widget collapses the entire bottom **Updated** row and its spacing for succe
 <details>
 <summary><strong>Settings and compact widget</strong></summary>
 
-<p><img src="docs/images/settings.png" alt="English settings with theme, language, tray style, and optional Windows startup" width="640"></p>
+<p><img src="docs/images/settings.png" alt="English settings with theme, language, tray style, optional Windows startup, and screen-edge snapping" width="640"></p>
 <p><img src="docs/images/widget.png" alt="Compact desktop widget comparing three sample accounts side by side" width="740"></p>
 
 </details>
