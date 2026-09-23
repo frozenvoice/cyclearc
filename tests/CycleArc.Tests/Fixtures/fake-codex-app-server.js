@@ -1,4 +1,14 @@
 const readline = require("readline");
+const fs = require("fs");
+const path = require("path");
+const directoryIndex = process.argv.indexOf("--fixture-directory");
+function mark(stage, value = process.pid) {
+  if (directoryIndex < 0) return;
+  const target = path.join(process.argv[directoryIndex + 1], stage);
+  fs.writeFileSync(target + ".tmp", String(value));
+  fs.renameSync(target + ".tmp", target);
+}
+process.on("exit", code => mark("exit-code", code));
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
@@ -15,7 +25,15 @@ rl.on("line", (line) => {
   }
 
   if (message.method === "initialize") {
-    const respond = () => write({ id: message.id, result: { protocolVersion: "1" } });
+    mark("initialize-received");
+    if (process.argv.includes("--exit-on-initialize")) {
+      process.stderr.write("synthetic initialize failure\n", () => process.exit(23));
+      return;
+    }
+    const respond = () => {
+      mark("initialize-response");
+      write({ id: message.id, result: { protocolVersion: "1" } });
+    };
     if (process.argv.includes("--flood-stderr")) {
       // Respond only after a payload larger than the OS pipe buffer has drained.
       process.stderr.write("가".repeat(128 * 1024), "utf8", respond);
@@ -31,6 +49,7 @@ rl.on("line", (line) => {
   }
 
   if (message.method === "account/read") {
+    mark("account-read");
     write({ id: message.id, result: {
       account: { type: "chatgpt", email: "synthetic@example.invalid", planType: "plus" },
       requiresOpenaiAuth: true
@@ -39,6 +58,7 @@ rl.on("line", (line) => {
   }
 
   if (message.method === "account/rateLimits/read") {
+    mark("rate-limits-read");
     const response = {
       id: message.id,
       result: {
@@ -69,3 +89,5 @@ rl.on("line", (line) => {
     }
   }
 });
+// Separate fixture readiness from the protocol response (and stderr drain).
+mark("ready");

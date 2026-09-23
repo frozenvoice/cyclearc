@@ -160,10 +160,10 @@ Invoke-DevRunStep 'restore' {
         Assert-DevRunPath $StagingDir
         Remove-Item -LiteralPath $StagingDir -Recurse -Force
     }
-    Invoke-Dotnet -Arguments @('restore')
+    Invoke-Dotnet -Arguments @('restore', 'CycleArc.sln', '-p:Configuration=Release')
 }
 Invoke-DevRunStep 'tool-restore' { Invoke-Dotnet -Arguments @('tool', 'restore') }
-Invoke-DevRunStep 'build' { Invoke-Dotnet -Arguments @('build', 'CycleArc.sln', '-c', 'Release') }
+Invoke-DevRunStep 'build' { Invoke-Dotnet -Arguments @('build', 'CycleArc.sln', '-c', 'Release', '--no-restore') }
 # Process/IPC checks are load-sensitive and used to fail after the unit suite and
 # the rest of UiSmoke. Run them immediately after compile; empty-args UiSmoke
 # no longer repeats this same check.

@@ -355,6 +355,8 @@ public class ClaudeConnectionTests
         if (!OperatingSystem.IsWindows()) return;
         var data = new ClaudeTestData();
         Process? child = null;
+        Task<ClaudeAuthentication>? pendingLogin = null;
+        using var cancel = new CancellationTokenSource();
         var passed = false;
         try
         {
@@ -369,25 +371,37 @@ public class ClaudeConnectionTests
                 + "[Threading.Thread]::Sleep(30000)";
             var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
             File.WriteAllText(System.IO.Path.Combine(data.Root, "child.cmd"),
-                "@echo off\r\npowershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + encoded + "\r\n");
-            File.WriteAllText(path, "@echo off\r\ncmd /d /s /c \"\"%~dp0child.cmd\"\"\r\n");
-            using var cancel = new CancellationTokenSource();
-            var login = new ClaudeCli().AuthenticateAsync(path, data.Root, true, cancel.Token);
+                "@echo off\r\n>>\"%~dp0fixture-stage\" echo nested-command-started\r\n"
+                + "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + encoded
+                + " 2>\"%~dp0fixture-stderr\"\r\n"
+                + "set \"fixtureExit=%ERRORLEVEL%\"\r\n"
+                + ">>\"%~dp0fixture-stage\" echo powershell-exit=%fixtureExit%\r\nexit /b %fixtureExit%\r\n");
+            File.WriteAllText(path, "@echo off\r\n>\"%~dp0fixture-stage\" echo batch-started\r\n"
+                + "cmd /d /s /c \"\"%~dp0child.cmd\"\"\r\n"
+                + "set \"fixtureExit=%ERRORLEVEL%\"\r\n"
+                + ">>\"%~dp0fixture-stage\" echo child-command-exit=%fixtureExit%\r\nexit /b %fixtureExit%\r\n");
+            var login = pendingLogin = new ClaudeCli().AuthenticateAsync(path, data.Root, true, cancel.Token);
             try
             {
-                Assert.True(await WaitForFileAsync(ready, TimeSpan.FromSeconds(10)),
-                    "The cancellation fixture did not start its child process.");
-                Assert.True(int.TryParse(File.ReadAllText(ready).Trim(), out var pid));
+                Assert.True(await WaitForFileAsync(ready, TimeSpan.FromSeconds(10), login),
+                    "fixture-ready: cancellation child did not become ready. " + DescribeFixture(data.Root, login));
+                Assert.True(int.TryParse(File.ReadAllText(ready).Trim(), out var pid), DescribeFixture(data.Root, login));
                 child = Process.GetProcessById(pid);
                 _ = child.Handle; // Retain this process identity before cancellation, avoiding PID reuse.
-                Assert.False(child.HasExited, "The cancellation fixture exited before cancellation.");
+                Assert.False(child.HasExited, "fixture-ready: child exited before cancellation. " + DescribeFixture(data.Root, login, child));
             }
             finally { cancel.Cancel(); }
-            var status = (await login.WaitAsync(TimeSpan.FromSeconds(10))).Status;
-            Assert.Equal(ClaudeAuthStatus.Cancelled, status);
+            ClaudeAuthStatus status;
+            try { status = (await login.WaitAsync(TimeSpan.FromSeconds(10))).Status; }
+            catch (TimeoutException)
+            {
+                Assert.Fail("authentication-cancel timed out: " + DescribeFixture(data.Root, login, child));
+                throw;
+            }
+            Assert.True(status == ClaudeAuthStatus.Cancelled, "authentication-cancel: " + DescribeFixture(data.Root, login, child));
             try { await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)); }
             catch (TimeoutException)
-            { Assert.Fail($"Cancelled authentication left synthetic child PID {child.Id} running after two seconds."); }
+            { Assert.Fail("descendant-exit: child still running after two seconds. " + DescribeFixture(data.Root, login, child)); }
 
             // Check process exit independently before allowing a short filesystem rundown.
             // A leaked 30-second child must fail above, not be hidden by a deletion retry.
@@ -396,6 +410,14 @@ public class ClaudeConnectionTests
         }
         finally
         {
+            cancel.Cancel();
+            // A readiness assertion can fail before the normal await. Join cancellation
+            // before fixture disposal so its still-running adapter cannot leak into another test.
+            try
+            {
+                if (pendingLogin is not null) await pendingLogin.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            catch (Exception) when (!passed) { }
             try
             {
                 if (child is { HasExited: false })
@@ -502,12 +524,35 @@ public class ClaudeConnectionTests
             $"Process fixture directory remained locked after {cleanup.Elapsed}: {cleanupError}");
     }
 
-    private static async Task<bool> WaitForFileAsync(string path, TimeSpan timeout)
+    private static async Task<bool> WaitForFileAsync(string path, TimeSpan timeout, Task? operation = null)
     {
         var watch = Stopwatch.StartNew();
-        while (!File.Exists(path) && watch.Elapsed < timeout)
+        while (!File.Exists(path) && watch.Elapsed < timeout && operation?.IsCompleted != true)
             await Task.Delay(25);
         return File.Exists(path);
+    }
+
+    // Read only this synthetic fixture's bounded phase/error files. The real adapter must
+    // continue discarding authentication output; no product logging or credentials are added.
+    private static string DescribeFixture(string root, Task<ClaudeAuthentication> operation, Process? child = null)
+    {
+        string Read(string name)
+        {
+            try
+            {
+                using var stream = new FileStream(Path.Combine(root, name), FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream);
+                var chars = new char[1024];
+                return new string(chars, 0, reader.Read(chars, 0, chars.Length));
+            }
+            catch (IOException) { return "(missing)"; }
+        }
+        var status = operation.IsCompletedSuccessfully ? operation.Result.Status.ToString() : operation.Status.ToString();
+        var process = child is null ? "unobserved"
+            : $"pid={child.Id} exit={(child.HasExited ? child.ExitCode.ToString() : "running")}";
+        return $"operation={status} child={process} stages=[{Read("fixture-stage")}] "
+            + $"ready=[{Read("child-ready")}] stderr=[{Read("fixture-stderr")}]";
     }
 
     private static string FrozenManualCommand(string executable, string profileId, string dataRoot)
