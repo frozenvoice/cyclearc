@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.Text;
 using CycleArc.Codex;
+using Xunit.Abstractions;
+using static CycleArc.Tests.CodexProcessTestSupport;
 
 namespace CycleArc.Tests;
 
-public class CodexAppServerClientTests
+public class CodexAppServerClientTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task ExecutableNotFound_ReturnsCodexNotFound()
@@ -146,10 +148,7 @@ public class CodexAppServerClientTests
     [Fact]
     public async Task RealNodeServer_CleansUpAfterSuccess()
     {
-        if (!TryNode(out var node, out var script))
-        {
-            return;
-        }
+        var (node, script) = RequireNode("fake-codex-app-server.js");
 
         using var fixture = new CodexProcessFixture();
         var command = new CodexLaunchCommand(node, $"\"{script}\" {fixture.Arguments}", script, false);
@@ -166,7 +165,7 @@ public class CodexAppServerClientTests
     [Fact]
     public async Task RealStderrContinuesDrainingAfterUtf8DiagnosticBudget()
     {
-        if (!TryNode(out var node, out var script)) return;
+        var (node, script) = RequireNode("fake-codex-app-server.js");
         using var fixture = new CodexProcessFixture();
         var command = new CodexLaunchCommand(node, $"\"{script}\" --flood-stderr {fixture.Arguments}", script, false);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -206,7 +205,7 @@ public class CodexAppServerClientTests
     [Fact]
     public async Task RealNodeServer_EarlyExitReportsPhaseAndExitCode()
     {
-        if (!TryNode(out var node, out var script)) return;
+        var (node, script) = RequireNode("fake-codex-app-server.js");
         using var fixture = new CodexProcessFixture();
         var command = new CodexLaunchCommand(node,
             $"\"{script}\" --exit-on-initialize {fixture.Arguments}", script, false);
@@ -261,10 +260,7 @@ public class CodexAppServerClientTests
     [Fact]
     public async Task CmdWrapper_LaunchesAndCleansUp()
     {
-        if (!TryNode(out var node, out var script))
-        {
-            return;
-        }
+        var (node, script) = RequireNode("fake-codex-app-server.js");
 
         using var fixture = new CodexProcessFixture();
         var cmdPath = Path.Combine(fixture.Root, "synthetic codex.cmd");
@@ -288,14 +284,14 @@ public class CodexAppServerClientTests
     [InlineData(false)]
     public async Task HangProcess_CancelOrTimeoutCleansTree(bool cancelAfterReady)
     {
-        if (!TryNode(out var node, out _, out var hang)) return;
-        using var fixture = new CodexProcessFixture();
+        var (node, hang) = RequireNode("hang-codex-app-server.js");
+        var fixture = new CodexProcessFixture();
         var command = new CodexLaunchCommand(node, $"\"{hang}\" {fixture.Arguments}", hang, false);
         using var cts = new CancellationTokenSource();
         Process? child = null;
         var elapsed = Stopwatch.StartNew();
         var pending = new CodexAppServerClient(fixture).ReadQuotaAsync(command, "1.0.0", cts.Token);
-        try
+        await RunWithCleanupAsync(async () =>
         {
             await fixture.WaitForStageAsync("child-ready", pending);
             child = Process.GetProcessById(int.Parse(File.ReadAllText(fixture.StagePath("child-ready"))));
@@ -319,53 +315,23 @@ public class CodexAppServerClientTests
             fixture.AssertExited();
             try { await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)); }
             catch (TimeoutException) { Assert.Fail($"descendant-exit pid={child.Id}; {fixture.Describe()}"); }
-        }
-        finally
-        {
-            cts.Cancel();
-            // Reap before deleting fixture reports even if readiness or an assertion failed.
-            try { await pending.WaitAsync(TimeSpan.FromSeconds(5)); }
-            finally
+        }, output.WriteLine,
+            ("cancel", () => { cts.Cancel(); return Task.CompletedTask; }),
+            ("protocol-completion", async () => { await pending.WaitAsync(TimeSpan.FromSeconds(5)); }),
+            ("descendant-exit", async () =>
             {
                 if (child is { HasExited: false })
                 {
                     child.Kill(entireProcessTree: true);
                     await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
                 }
-                child?.Dispose();
-            }
-        }
+            }),
+            ("descendant-dispose", () => { child?.Dispose(); return Task.CompletedTask; }),
+            ("fixture-dispose", () => { fixture.Dispose(); return Task.CompletedTask; }));
     }
 
     private static CodexLaunchCommand DummyCommand() =>
         new(@"C:\Tools\codex.exe", "app-server --stdio", @"C:\Tools\codex.exe", false);
-
-    private static bool TryNode(out string node, out string script) => TryNode(out node, out script, out _);
-
-    private static bool TryNode(out string node, out string script, out string hang)
-    {
-        node = "node";
-        script = Path.Combine(AppContext.BaseDirectory, "Fixtures", "fake-codex-app-server.js");
-        hang = Path.Combine(AppContext.BaseDirectory, "Fixtures", "hang-codex-app-server.js");
-        try
-        {
-            var where = Environment.GetEnvironmentVariable("PATH") ?? "";
-            foreach (var dir in where.Split(Path.PathSeparator))
-            {
-                var candidate = Path.Combine(dir, "node.exe");
-                if (File.Exists(candidate) && File.Exists(script))
-                {
-                    node = candidate;
-                    return true;
-                }
-            }
-        }
-        catch
-        {
-        }
-
-        return false;
-    }
 
     private sealed class MissingProcessFactory : ICodexProcessFactory
     {

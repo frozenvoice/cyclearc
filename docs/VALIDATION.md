@@ -2,6 +2,32 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Codex process-test failure reporting follow-up (unreleased, 2026-09-23):
+  - The hang/cancellation test retains the original assertion and stack if cleanup also fails.
+    Each failed cleanup step is recorded in xUnit output with its stage and exception; later
+    steps still attempt descendant termination, handle disposal and fixture disposal.
+    If the assertions succeeded, cleanup failures instead fail the test with an aggregate.
+  - All six real Node process cases now require `node.exe` on PATH and their specific copied
+    fixture (`fake-codex-app-server.js` or `hang-codex-app-server.js`). Missing prerequisites
+    fail explicitly with the runtime requirement or fixture path, instead of returning success.
+  - Six deterministic regressions cover a stalled join plus a second cleanup failure, with and
+    without a prior assertion; empty/missing Node search paths; and both missing fixture paths.
+    The cleanup cases verify the original exception identity, additional diagnostic messages,
+    and completion of the remaining cleanup steps.
+  - Focused Release verification:
+    `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "FullyQualifiedName~CodexAppServerClientTests|FullyQualifiedName~CodexProcessTestSupportTests"`
+    passed **21/21, zero skipped**, including the six real process cases and six new regressions.
+    Only the two existing xUnit1031 warnings in `ChildReportFileTests.cs` and
+    `UpdateRecoverySnapshotTests.cs` were emitted.
+  - A separate `--no-build` negative run used an isolated process PATH without Node.
+    All six real process cases failed with `node.exe must be on PATH`; none passed or skipped.
+    This checks the actual test entry points as well as the injected prerequisite regressions.
+    Evidence: `TestResults/codex-process-followup/codex-process-followup.trx` and
+    `TestResults/codex-process-followup/missing-node/missing-node.trx`.
+  - Changes are limited to tests and this record. Product/UI code, build/restore configuration,
+    process deadlines and installed app state are unchanged; no full packaging/install gate was
+    required or run. This does not establish the cause of historical intermittent CI timeouts.
+
 - CI process evidence and shared restore (unreleased, 2026-09-23):
   - Read-only investigation of [run 35605445527 / job 106351276865](https://github.com/frozenvoice/cyclearc/actions/runs/35605445527/job/106351276865)
     found four actual xUnit failures, not expected negative-test output: Codex real success,
