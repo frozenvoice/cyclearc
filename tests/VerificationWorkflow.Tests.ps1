@@ -74,9 +74,19 @@ Assert-Contract ($devRun.Contains('Assert-SetupUiToolchain -RepoRoot $RepoRoot')
 Assert-Contract ($devRun.Contains('''--logger'', ''trx''') -and $devRun.Contains('''--results-directory'', $TestResultsPath')) 'TRX output must be optional and shared'
 Assert-Contract ($devRun.Contains('''--widget-accounts'', $PreviewPath')) 'preview output must be optional and shared'
 Assert-Contract ($devRun.Contains('CycleArcTestBuild=CYCLEARC_TEST_E2E%3BCYCLEARC_TEST_FAIL_STARTUP')) 'test-only build flavours must be in the shared gate'
+$releaseRestore = "Invoke-Dotnet -Arguments @('restore', 'CycleArc.sln', '-p:Configuration=Release')"
+$releaseBuild = "Invoke-Dotnet -Arguments @('build', 'CycleArc.sln', '-c', 'Release', '--no-restore')"
+Assert-Contract ($devRun.Contains($releaseRestore)) 'the shared Release build must have a matching solution restore'
+Assert-Contract ($devRun.Contains($releaseBuild)) 'the shared solution build must reuse its matching Release restore'
+$testFlavourStage = [regex]::Match($devRun, "(?s)Invoke-DevRunStep 'test-flavour-build'.*?(?=Invoke-DevRunStep 'publish')").Value
+$publishStage = [regex]::Match($devRun, "(?s)Invoke-DevRunStep 'publish'.*?(?=Invoke-DevRunStep 'package')").Value
+Assert-Contract ($testFlavourStage -and $testFlavourStage -notmatch '--no-restore') 'the distinct test-flavour build must keep its own restore evaluation'
+Assert-Contract ($publishStage -and $publishStage -notmatch '--no-restore') 'the win-x64 self-contained publish must keep its RID-specific restore evaluation'
 $toolchainIndex = $devRun.IndexOf("Invoke-DevRunStep 'setup-ui-toolchain'")
 $restoreIndex = $devRun.IndexOf("Invoke-DevRunStep 'restore'")
+$buildIndex = $devRun.IndexOf("Invoke-DevRunStep 'build'")
 Assert-Contract ($toolchainIndex -ge 0 -and $toolchainIndex -lt $restoreIndex) 'toolchain check must precede restore'
+Assert-Contract ($restoreIndex -ge 0 -and $restoreIndex -lt $buildIndex) 'the matching Release restore must precede the no-restore build'
 $flavourIndex = $devRun.IndexOf("Invoke-DevRunStep 'test-flavour-build'")
 $publishIndex = $devRun.IndexOf("Invoke-DevRunStep 'publish'")
 Assert-Contract ($flavourIndex -ge 0 -and $flavourIndex -lt $publishIndex) 'test-only build must precede publish'

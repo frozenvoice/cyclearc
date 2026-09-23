@@ -112,6 +112,9 @@ Run commands from the repository root. Use `--no-build` only for code already bu
   Use an existing test name/category for the filter. WPF checks: `dotnet build CycleArc.sln -c Release`, then
   `dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build`.
   Desktop-instance process checks: add `-- --desktop-instance` to that `dotnet run`.
+- During development, run the smallest existing regression that covers the change. Run the shared
+  `dev-run.ps1` gate once after changes converge for executable, installer, startup or distribution changes;
+  local and CI use this same gate. Use `-Fast` only for unchanged unit-test code whose tests already passed.
 - Full gate: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` on final executable changes.
   It is fail-fast: environment/toolchain and workflow/release guards, restore, Release compile,
   `--desktop-instance`, installer/build-local script regressions, the unit suite, remaining WPF

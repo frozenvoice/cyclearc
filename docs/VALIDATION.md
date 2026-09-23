@@ -2,6 +2,105 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- CI process evidence and shared restore (unreleased, 2026-09-23):
+  - Read-only investigation of [run 35605445527 / job 106351276865](https://github.com/frozenvoice/cyclearc/actions/runs/35605445527/job/106351276865)
+    found four actual xUnit failures, not expected negative-test output: Codex real success,
+    large stderr and CMD wrapper initialization timed out; Claude's cancellation fixture
+    did not publish its child-ready PID. Two detailed Codex failures took 12.1 seconds with
+    `initialize-failed`, `sent=[initialize]` and empty captured stderr.
+    Process creation had returned and the initialize send had completed, but there was no
+    child readiness/receipt signal to distinguish delayed startup from protocol/pipe failure.
+    Empty stderr alone does not prove a blocked drain: capture is published when draining ends,
+    and the product omits an unfinished capture. Cleanup booleans also did not prove descendant exit.
+  - [Main run 35701674343](https://github.com/frozenvoice/cyclearc/actions/runs/35701674343)
+    subsequently passed 1,800 tests and managed Setup install/repair. Read-only failure listing
+    still identifies 35605445527 as the latest failed run. The preceding failure 35551400427
+    was different: the build succeeded without uploading its hidden package directory, so the
+    installer job could not find the artifact. Commit `1c3acee` added `include-hidden-files: true`
+    and `if-no-files-found: error`; follow-up run 35552175682 uploaded six files and passed
+    install/repair. Those existing guards are preserved. The two process test files and
+    their primary Codex/Claude process implementations did not change between the failed SHA
+    `5875b529` and current baseline `e70a88da`. This is intermittent behavior, not evidence
+    of a fix. Runner load, cross-process interference and a product defect remain hypotheses.
+    The test assembly already disables xUnit parallelization; this change adds no serialization.
+  - The Codex hang fixture previously had no descendant and cancelled after 500 ms, before
+    proving readiness. It now publishes atomic parent/child/initialize signals; cancellation
+    follows readiness, while a separate case exercises the unchanged real initialize timeout.
+    Both cases require their exact Cancelled/TimedOut result and retain parent/descendant handles
+    to verify exit. Normal success, CMD launch, large Korean stderr draining and UTF-8 bounds
+    remain covered. A synthetic exit-23 regression checks phase, exit-code and stderr diagnostics.
+    No production timeout, retry, process implementation or authentication logging changed.
+  - Real Codex tests now record creation time, bounded phase files, retained process exit code
+    and bounded sanitized stderr. Claude's nested CMD fixture records batch/nested phases and
+    synthetic command exit/error output. Its readiness poll stops on operation completion;
+    assertion failure now cancels and joins the pending adapter before deleting its directory.
+    These fix test ownership/readiness gaps; they do not establish the historical timeout cause.
+  - `dev-run.ps1` restores `CycleArc.sln -p:Configuration=Release` and builds that same
+    Release solution with `--no-restore`. Only that duplicate restore evaluation was removed.
+    Test-flavour, win-x64 self-contained publish and Native AOT setup publishing retain their
+    own property/RID-specific restore/build evaluation. `Package.ps1` already reuses the one
+    local-tool restore; it does not perform another. Existing stage markers are reused.
+    The workflow contract regression guards matching restore/build order and the distinct stages.
+  - No `packages.lock.json` is tracked. .NET 8 supports NuGet caching, but
+    [setup-dotnet v5's cache contract](https://github.com/actions/setup-dotnet/blob/v5/README.md#caching-nuget-packages)
+    requires a lock file and errors when it is missing. Caching remains opt-in; no new cache
+    action, lockfile policy, runner, CI-only script or retry was introduced.
+  - Main push, PR, documentation filters, PR-only cancellation, windows-2022 source build,
+    VS2022 toolchain, main artifact release flow and installer/hash/repair/rollback checks remain.
+    Read-only GitHub queries returned unprotected main and empty branch/repository rulesets;
+    no currently configured required check was found. If this workflow later becomes required,
+    documentation path filtering must be reconsidered because skipped required workflows can
+    remain Pending. No repository protection setting was changed.
+  - Focused commands: `pwsh -NoProfile -File ./tests/VerificationWorkflow.Tests.ps1`,
+    `pwsh -NoProfile -File ./tests/Release.Tests.ps1`, and
+    `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter
+    "FullyQualifiedName~CodexAppServerClientTests|FullyQualifiedName~ClaudeConnectionTests"`.
+    Unchanged baseline: 47/47 in three bounded diagnostic runs (18, 10, 10 seconds reported by
+    vstest); final focused code: 49/49 twice (27, 24 seconds), with `--no-build` only on the
+    second run of identical Release output. An intermediate 48-case run also passed.
+    These short runs are not proof that flakiness is eliminated.
+  - Final shared gate passed once: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch -TestResultsDirectory TestResults/ci-stability/full-gate -PreviewDirectory artifacts/ci-stability/widget-previews`.
+    All **1,802 tests passed, zero skipped**; desktop-instance, full WPF/receivers, previews,
+    test-flavour build, one-file development publish and package verification passed.
+    Package checks include corrupted cache recovery, tamper-before-apply rejection and real
+    Update.exe application/rollback in an isolated portable root; these are component checks,
+    not an installed-app E2E. The pre-existing installed desktop remained PID 35556 at the
+    same managed `current/CycleArc.exe` path after the gate.
+  - Measurement environment: Windows 11 Pro 10.0.26200, Ryzen 7 8845HS (16 logical CPUs),
+    .NET SDK 8.0.424, PowerShell 7.6.5, Node 22.12.0 and the existing VS2022 toolchain.
+    Only for the gate's process tree, `NUGET_PACKAGES`, `NUGET_HTTP_CACHE_PATH` and
+    `DOTNET_CLI_HOME` pointed to initially nonexistent `packages`, `http-cache` and
+    `cli-home` directories under `TestResults/ci-stability/cold-cache`.
+    The restored unit-test assets name only that package directory. This validates an empty
+    package/HTTP/tool cache with the installed toolchain; it is not a pristine hosted VM.
+    No same-condition before/after full-gate comparison was run, so no speedup percentage
+    is claimed. Two existing xUnit1031 warnings remain in `ChildReportFileTests.cs:157`
+    and `UpdateRecoverySnapshotTests.cs:56`; there were no build errors.
+  - Existing `##dev-run##` markers measured **578.0 seconds total** (no extra timing framework):
+
+    | Stage | Seconds |
+    | --- | ---: |
+    | Preflight / workflow / toolchain / release guards | 2.9 |
+    | Solution restore | 32.3 |
+    | Tool restore | 16.3 |
+    | Release build | 9.0 |
+    | Desktop-instance checks | 3.3 |
+    | Local-install regression | 19.4 |
+    | Build-local regression | 203.9 |
+    | Unit tests | 118.7 |
+    | Full WPF checks | 101.4 |
+    | Widget previews | 8.1 |
+    | Test-flavour build | 3.0 |
+    | Single-file publish + published receivers | 30.1 |
+    | Package | 16.9 |
+    | Package verification | 12.7 |
+
+  - Local evidence: `TestResults/ci-history/github-actions-35605445527-and-35701674343.md`,
+    `TestResults/ci-stability/*.trx` and `TestResults/ci-stability/full-gate-cold.log`.
+    The initial checkout was clean. No push, PR, remote dispatch/rerun, release or installation
+    was performed. Installed-app E2E requires a disposable VM/user and was not run on this
+    working profile.
+
 - All-provider percentage precision (unreleased, 2026-09-22):
   - From clean main `91d82922f555bbbe1439822a2b55652f0e2cb71d` on
     `codex/percent-display-policy`. Codex, Claude and Cursor now share explicit

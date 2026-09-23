@@ -151,13 +151,15 @@ public class CodexAppServerClientTests
             return;
         }
 
-        var command = new CodexLaunchCommand(node, $"\"{script}\"", script, false);
-        var client = new CodexAppServerClient(new CodexProcessFactory());
+        using var fixture = new CodexProcessFixture();
+        var command = new CodexLaunchCommand(node, $"\"{script}\" {fixture.Arguments}", script, false);
+        var client = new CodexAppServerClient(fixture);
         var elapsed = Stopwatch.StartNew();
         var session = await client.ReadQuotaAsync(command, "1.0.0", CancellationToken.None);
         elapsed.Stop();
-        Assert.True(session.Status == CodexQuotaStatus.Available, Describe(session, elapsed.Elapsed));
-        Assert.True(session.ProcessCleanedUp, Describe(session, elapsed.Elapsed));
+        Assert.True(session.Status == CodexQuotaStatus.Available, Describe(session, elapsed.Elapsed) + fixture.Describe());
+        Assert.True(session.ProcessCleanedUp, Describe(session, elapsed.Elapsed) + fixture.Describe());
+        fixture.AssertExited();
         Assert.DoesNotContain("thread/", string.Join(",", session.SentMethods), StringComparison.Ordinal);
     }
 
@@ -165,17 +167,19 @@ public class CodexAppServerClientTests
     public async Task RealStderrContinuesDrainingAfterUtf8DiagnosticBudget()
     {
         if (!TryNode(out var node, out var script)) return;
-        var command = new CodexLaunchCommand(node, $"\"{script}\" --flood-stderr", script, false);
+        using var fixture = new CodexProcessFixture();
+        var command = new CodexLaunchCommand(node, $"\"{script}\" --flood-stderr {fixture.Arguments}", script, false);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var elapsed = Stopwatch.StartNew();
-        var session = await new CodexAppServerClient(new CodexProcessFactory())
+        var session = await new CodexAppServerClient(fixture)
             .ReadQuotaAsync(command, "test", deadline.Token);
         elapsed.Stop();
         // This one has failed on CI without leaving anything to go on, so every assertion
         // carries the whole session. See Describe for how to read it.
-        Assert.True(session.Status == CodexQuotaStatus.Available, Describe(session, elapsed.Elapsed));
-        Assert.True(session.ProcessCleanedUp, Describe(session, elapsed.Elapsed));
-        Assert.True(session.SanitizedStderr.Length > 0, Describe(session, elapsed.Elapsed));
+        Assert.True(session.Status == CodexQuotaStatus.Available, Describe(session, elapsed.Elapsed) + fixture.Describe());
+        Assert.True(session.ProcessCleanedUp, Describe(session, elapsed.Elapsed) + fixture.Describe());
+        fixture.AssertExited();
+        Assert.True(session.SanitizedStderr.Length > 0, Describe(session, elapsed.Elapsed) + fixture.Describe());
         Assert.True(System.Text.Encoding.UTF8.GetByteCount(session.SanitizedStderr) <= CodexProtocol.MaxStderrBytes,
             Describe(session, elapsed.Elapsed));
         Assert.DoesNotContain('\uFFFD', session.SanitizedStderr);
@@ -185,20 +189,38 @@ public class CodexAppServerClientTests
     /// Everything needed to tell one failure of these real-process tests from another, because
     /// the status alone does not say where the run stopped.
     ///
-    /// Detail names the stage for the two it can: "startup-timed-out" before the child answered
-    /// anything, "initialize-failed" for the first exchange. After that it is only "timed-out",
-    /// so the methods already sent are what say how far the protocol got. The elapsed time
-    /// separates a single stage timeout (ten seconds) from the whole-session ceiling (thirty),
-    /// and the captured stderr length separates a child that was never read from one that was:
-    /// the flooding fixture answers initialize only once its oversized stderr write has drained,
-    /// so a timeout there with nothing captured means the drain never moved.
+    /// "startup-timed-out" means process creation did not finish in its five-second budget;
+    /// it does not establish child readiness. The fixture markers separately identify readiness,
+    /// initialize receipt and response (after the oversized stderr write's callback).
+    /// stderrChars=0 alone cannot identify a stalled drain: capture is published only when
+    /// draining ends, and an incomplete drain is intentionally omitted by the product.
     /// </summary>
     private static string Describe(CodexProtocolSession session, TimeSpan elapsed) =>
         $"status={session.Status} detail={session.Detail ?? "(none)"} "
         + $"elapsed={elapsed.TotalSeconds:n1}s sent=[{string.Join(" ", session.SentMethods)}] "
         + $"stderrChars={session.SanitizedStderr.Length} cleanedUp={session.ProcessCleanedUp} "
         + $"killed={session.KillCalled} "
-        + $"stageTimeoutMs={CodexProtocol.InitializeTimeoutMs} ceilingMs={CodexProtocol.TotalHardCeilingMs}";
+        + $"stageTimeoutMs={CodexProtocol.InitializeTimeoutMs} ceilingMs={CodexProtocol.TotalHardCeilingMs} "
+        + $"stderr={session.SanitizedStderr[..Math.Min(512, session.SanitizedStderr.Length)]} ";
+
+    [Fact]
+    public async Task RealNodeServer_EarlyExitReportsPhaseAndExitCode()
+    {
+        if (!TryNode(out var node, out var script)) return;
+        using var fixture = new CodexProcessFixture();
+        var command = new CodexLaunchCommand(node,
+            $"\"{script}\" --exit-on-initialize {fixture.Arguments}", script, false);
+        var session = await new CodexAppServerClient(fixture)
+            .ReadQuotaAsync(command, "test", CancellationToken.None);
+        var diagnostic = Describe(session, TimeSpan.Zero) + fixture.Describe();
+        Assert.True(session.Status == CodexQuotaStatus.Unavailable, diagnostic);
+        Assert.True(session.ProcessCleanedUp, diagnostic);
+        fixture.AssertExited();
+        Assert.Contains("exit=23", diagnostic);
+        Assert.DoesNotContain("initialize-received=(missing)", diagnostic);
+        Assert.Contains("initialize-response=(missing)", diagnostic);
+        Assert.Contains("synthetic initialize failure", session.SanitizedStderr);
+    }
 
     [Fact]
     public async Task CompletionWaitsForStderrDrainBeforeSnapshot()
@@ -244,35 +266,75 @@ public class CodexAppServerClientTests
             return;
         }
 
-        var cmdPath = Path.Combine(Path.GetTempPath(), $"cyclearc-codex-{Guid.NewGuid():N}.cmd");
+        using var fixture = new CodexProcessFixture();
+        var cmdPath = Path.Combine(fixture.Root, "synthetic codex.cmd");
         await File.WriteAllTextAsync(cmdPath, $"@echo off{Environment.NewLine}\"{node}\" \"{script}\" %*{Environment.NewLine}");
         var files = new MemoryCodexFileSystem();
         files.Files.Add(Path.GetFullPath(cmdPath));
         var command = CodexExecutableLocator.ValidateConfigured(cmdPath, files);
         Assert.NotNull(command);
         Assert.True(command.UsesCmd);
-        var session = await new CodexAppServerClient(new CodexProcessFactory())
+        command = command with { Arguments = command.Arguments[..^1] + " " + fixture.Arguments + "\"" };
+        var elapsed = Stopwatch.StartNew();
+        var session = await new CodexAppServerClient(fixture)
             .ReadQuotaAsync(command, "1.0.0", CancellationToken.None);
-        Assert.Equal(CodexQuotaStatus.Available, session.Status);
-        Assert.True(session.ProcessCleanedUp);
-        File.Delete(cmdPath);
+        Assert.True(session.Status == CodexQuotaStatus.Available, Describe(session, elapsed.Elapsed) + fixture.Describe());
+        Assert.True(session.ProcessCleanedUp, Describe(session, elapsed.Elapsed) + fixture.Describe());
+        fixture.AssertExited();
     }
 
-    [Fact]
-    public async Task HangProcess_CancelCleansTree()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HangProcess_CancelOrTimeoutCleansTree(bool cancelAfterReady)
     {
-        if (!TryNode(out var node, out _, out var hang))
+        if (!TryNode(out var node, out _, out var hang)) return;
+        using var fixture = new CodexProcessFixture();
+        var command = new CodexLaunchCommand(node, $"\"{hang}\" {fixture.Arguments}", hang, false);
+        using var cts = new CancellationTokenSource();
+        Process? child = null;
+        var elapsed = Stopwatch.StartNew();
+        var pending = new CodexAppServerClient(fixture).ReadQuotaAsync(command, "1.0.0", cts.Token);
+        try
         {
-            return;
+            await fixture.WaitForStageAsync("child-ready", pending);
+            child = Process.GetProcessById(int.Parse(File.ReadAllText(fixture.StagePath("child-ready"))));
+            _ = child.Handle;
+            await fixture.WaitForStageAsync("initialize-received", pending);
+            Assert.False(child.HasExited, fixture.Describe());
+            var behavior = Stopwatch.StartNew();
+            if (cancelAfterReady) cts.Cancel();
+            // Keep the product's ten-second initialize and two-second cleanup limits.
+            CodexProtocolSession session;
+            try { session = await pending.WaitAsync(TimeSpan.FromSeconds(cancelAfterReady ? 5 : 15)); }
+            catch (TimeoutException)
+            {
+                Assert.Fail($"protocol-completion cancel={cancelAfterReady}; {fixture.Describe()}");
+                throw;
+            }
+            var expected = cancelAfterReady ? CodexQuotaStatus.Cancelled : CodexQuotaStatus.TimedOut;
+            Assert.True(session.Status == expected, Describe(session, elapsed.Elapsed) + fixture.Describe());
+            Assert.True(session.ProcessCleanedUp, Describe(session, elapsed.Elapsed) + fixture.Describe());
+            Assert.True(behavior.Elapsed < TimeSpan.FromSeconds(cancelAfterReady ? 5 : 15), fixture.Describe());
+            fixture.AssertExited();
+            try { await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)); }
+            catch (TimeoutException) { Assert.Fail($"descendant-exit pid={child.Id}; {fixture.Describe()}"); }
         }
-
-        var command = new CodexLaunchCommand(node, $"\"{hang}\"", hang, false);
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
-        var session = await new CodexAppServerClient(new CodexProcessFactory())
-            .ReadQuotaAsync(command, "1.0.0", cts.Token);
-        Assert.True(session.Status is CodexQuotaStatus.Cancelled or CodexQuotaStatus.TimedOut,
-            Describe(session, TimeSpan.Zero));
-        Assert.True(session.ProcessCleanedUp, Describe(session, TimeSpan.Zero));
+        finally
+        {
+            cts.Cancel();
+            // Reap before deleting fixture reports even if readiness or an assertion failed.
+            try { await pending.WaitAsync(TimeSpan.FromSeconds(5)); }
+            finally
+            {
+                if (child is { HasExited: false })
+                {
+                    child.Kill(entireProcessTree: true);
+                    await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
+                }
+                child?.Dispose();
+            }
+        }
     }
 
     private static CodexLaunchCommand DummyCommand() =>
