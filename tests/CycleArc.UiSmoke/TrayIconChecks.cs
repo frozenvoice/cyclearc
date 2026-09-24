@@ -20,6 +20,16 @@ internal static class TrayIconChecks
             ("stale", Snapshot(CodexQuotaStatus.Stale, 63, "codex-refresh-failed"), Color.FromArgb(251, 191, 36), false),
             ("unknown", Snapshot(CodexQuotaStatus.Unavailable, null), Color.FromArgb(251, 191, 36), false),
             ("danger", Snapshot(CodexQuotaStatus.Available, 100), Color.FromArgb(220, 38, 38), false),
+            ("caution", Snapshot(CodexQuotaStatus.Available, 70), Color.FromArgb(245, 158, 11), false),
+            ("caution-edge", Snapshot(CodexQuotaStatus.Available, 84.99), Color.FromArgb(245, 158, 11), false),
+            ("near-limit", Snapshot(CodexQuotaStatus.Available, 85), Color.FromArgb(234, 88, 12), false),
+            ("near-limit-rounded", Snapshot(CodexQuotaStatus.Available, 99.6), Color.FromArgb(234, 88, 12), false),
+            ("normal-edge", Snapshot(CodexQuotaStatus.Available, 69.99), Color.FromArgb(37, 99, 235), false),
+            ("stale-near-limit", Snapshot(CodexQuotaStatus.Stale, 90, "codex-refresh-failed"), Color.FromArgb(251, 191, 36), false),
+            ("claude-near-limit", Snapshot(CodexQuotaStatus.Available, 88, "claude-live", UsageProviderId.Claude),
+                Color.FromArgb(234, 88, 12), false),
+            ("cursor-caution", Snapshot(CodexQuotaStatus.Available, 72, null, UsageProviderId.Cursor),
+                Color.FromArgb(245, 158, 11), false),
             ("claude-waiting", Snapshot(CodexQuotaStatus.Unavailable, null, "claude-connected-waiting",
                 UsageProviderId.Claude), Color.FromArgb(107, 114, 128), true)
         };
@@ -69,6 +79,7 @@ internal static class TrayIconChecks
         }
 
         CheckUnknownIsNotZero();
+        CheckRoundedNearLimitIsNotExhausted();
         CheckNaturalProportions();
         count += CheckCursorPixelRegression();
         CheckCursorProjectionText();
@@ -133,6 +144,24 @@ internal static class TrayIconChecks
                     || bitmap.GetPixel(0, i).A > 160 || bitmap.GetPixel(requestedSize - 1, i).A > 160)
                     throw new InvalidOperationException($"Tray digit is clipped at the icon edge: {label}/{requestedSize}.");
             }
+        }
+    }
+
+    private static void CheckRoundedNearLimitIsNotExhausted()
+    {
+        // Codex's tray glyph rounds 99.6 to 100; the ring stays orange rather than red.
+        var snapshot = Snapshot(CodexQuotaStatus.Available, 99.6);
+        if (CodexDisplayFormatting.PercentText(99.6) != "100%" || CodexRingPresentation.From(snapshot).IsDangerLevel)
+            throw new InvalidOperationException("Rounded 99.6% fixture changed meaning.");
+        foreach (var size in new[] { 16, 24, 32 })
+        {
+            using var icon = TrayIconRenderer.Render(snapshot, TrayIconStyle.ProgressRing, size);
+            using var bitmap = icon.ToBitmap();
+            var red = 0;
+            for (var y = 0; y < bitmap.Height; y++)
+            for (var x = 0; x < bitmap.Width; x++)
+                if (bitmap.GetPixel(x, y) is { A: > 180 } pixel && Distance(pixel, Color.FromArgb(220, 38, 38)) <= 8) red++;
+            if (red > 0) throw new InvalidOperationException($"Rounded 99.6% tray ring is red at {size}px.");
         }
     }
 
@@ -264,7 +293,7 @@ internal static class TrayIconChecks
             }
             else if (value > 0)
             {
-                CheckColor(cursorBitmap, value >= 100 ? Color.FromArgb(220, 38, 38) : Color.FromArgb(37, 99, 235),
+                CheckColor(cursorBitmap, TrayIconRenderer.BandColor(UsageRingBands.From(value)),
                     $"cursor/{value:0.0}", size);
             }
             count++;

@@ -64,7 +64,8 @@ internal static class MixedProviderUiChecks
                             CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), selected.Snapshot);
                             var ringColor = ((SolidColorBrush)((System.Windows.Shapes.Path)flyout.FindName("CodexRingArcPath")).Stroke).Color;
                             var expectedRing = (SolidColorBrush)Application.Current.FindResource(
-                                selected.Snapshot.Status == CodexQuotaStatus.Stale ? "StaleBrush" : "AccentBrush");
+                                UsageRingBands.ArcBrushKey(CodexRingPresentation.From(selected.Snapshot).Band,
+                                    selected.Snapshot.Status == CodexQuotaStatus.Stale));
                             Check(ringColor == expectedRing.Color, "Claude ring does not distinguish stale values.");
                             string? opened = null;
                             var refreshed = false;

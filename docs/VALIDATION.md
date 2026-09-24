@@ -2421,3 +2421,45 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   the connected desktop remains at its existing 100/150% configuration. Other DPI/work-area
   cases use injected arithmetic/layout checks. No user installation, account or developer-tool
   configuration was changed; no push, CI run, merge, version change, tag or release was performed.
+
+## Usage ring color bands, 2026-09-24
+
+- Baseline: `02dc07a`. `UsageRingBands.From` classifies the unrounded used percentage of the
+  limit each ring already represents: below 70 blue (`AccentBrush`), 70 amber
+  (`RingCautionBrush`), 85 orange (`RingNearLimitBrush`), 100 red (`RingExhaustedBrush`).
+  Exhaustion stays `IsDangerLevel` (clamped value >= 100), so 99.6% is orange and not
+  exhausted even where the Codex tray glyph rounds it to 100. Stale color keeps priority
+  (Claude in detail/widget, Claude/Cursor in widget, any non-available status in the tray);
+  unknown values keep the gray track without a band. Fetching, authentication, storage,
+  refresh, representative-limit selection, percent text and arc geometry are unchanged.
+- Resources: dark amber `#F59E0B`, orange `#EA580C`, red `#F87171` (as `DangerBrush`);
+  light amber `#D97706`, orange `#C2410C`, red `#DC2626`. The light ring red is deeper than
+  `DangerBrush`, which stays for text, because `#F87171` measured about 2.4:1 on the light
+  background. Tray icons keep their fixed dark center and use amber `#F59E0B`, orange
+  `#EA580C` and the existing red `#DC2626`/blue `#2563EB`. Widget/detail tooltips and
+  accessible names append Caution/Near limit/Limit reached (주의/소진 임박/소진) only when the
+  ring shows a band; values and existing text are retained. The 127-character tray tooltip is
+  unchanged.
+- Focused tests: new `UsageRingBandTests` (boundaries 69.99/70/84.99/85/99.5/99.6/99.999/100,
+  NaN/infinity/null, unknown statuses, stale priority, representative five-hour vs weekly
+  window, Cursor allowance, selection independence and EN/KO labels) with the existing ring,
+  surface-percent and Cursor widget tests: 98 passed.
+- WPF: new `--ring-bands` check renders the production widget with eight mixed Codex/Claude/
+  Cursor accounts (two different selections) and the detail popup for each, in EN/KO and
+  Dark/Light: 128 cases. It asserts arc/full-circle brush per band, unchanged value-text,
+  selection-border and stale colors, 99.6% not drawn full, accessible band labels, 3:1 ring
+  contrast on cards (2.8:1 on the page background) and separation between band colors.
+  Tray checks add band, 99.99/70/84.99/85/99.6, stale 90, Claude and Cursor cases and assert
+  the rounded 99.6% ring has no red pixels. Existing usage-percent, Cursor and mixed-provider
+  checks now expect the band color instead of the former blue/red rule.
+- Previews: previews were exported from both `main` and this branch and pixel-compared; only
+  the images whose rings crossed a band were replaced (`widget.png`, `claude-overview-*`,
+  `cursor-popup-*`, `cursor-widget-*`, `cursor-tray-icons.png`). Other differences were clock
+  text only. `ring-bands-*` images were added and visually inspected in both themes.
+- Final local gate passed in 4m30s: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch`
+  (1,841 unit tests, complete WPF checks, test-flavour build, publish, package and isolated
+  package apply/rollback verification).
+- Synthetic only: no live account, installed-app update or native notification-area screen
+  capture was run. Tray results are the production `TrayIconRenderer` bitmaps, not a capture
+  of the Windows taskbar. Dark-theme amber is close in hue to the existing stale yellow;
+  stale values are also distinguished by their value text and status row.

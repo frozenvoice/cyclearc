@@ -189,6 +189,11 @@ internal static class Program
                 CursorWidgetSummaryChecks.Run(cursorWidgetDirectory);
                 return 0;
             }
+            if (args is ["--ring-bands"] or ["--ring-bands", _])
+            {
+                RingBandUiChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--usage-percent"] or ["--usage-percent", _])
             {
                 UsagePercentUiChecks.Run(args.Length == 2 ? args[1] : null);
@@ -228,6 +233,7 @@ internal static class Program
             CursorWidgetSummaryChecks.Run();
             WidgetStatusRowChecks.Run();
             UsagePercentUiChecks.Run();
+            RingBandUiChecks.Run();
             UsagePeriodUiChecks.Run(app);
             MixedProviderUiChecks.Run();
             ToolTipUiChecks.Run();

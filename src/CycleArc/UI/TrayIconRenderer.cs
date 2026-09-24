@@ -31,7 +31,7 @@ public static class TrayIconRenderer
         var ring = CodexRingPresentation.From(snapshot, preference);
         var exact = ring.IsAvailable;
         var ratio = (ring.UsedPercent ?? 0) / 100;
-        var palette = Palette(snapshot, exact, ring.IsDangerLevel, claudeAwaitingUsage);
+        var palette = Palette(snapshot, exact, ring.Band, claudeAwaitingUsage);
         var text = exact ? CodexDisplayFormatting.PercentText(ring.UsedPercent, snapshot.Provider).TrimEnd('%') : "?";
         // Keep Cursor's tiny tray glyph to whole digits; the source value, arc and
         // detailed views retain their precision. Match Codex's whole-percent rounding.
@@ -77,7 +77,7 @@ public static class TrayIconRenderer
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyIcon(IntPtr hIcon);
 
-    private static IconPalette Palette(CodexQuotaSnapshot snapshot, bool exact, bool danger, bool claudeAwaitingUsage)
+    private static IconPalette Palette(CodexQuotaSnapshot snapshot, bool exact, UsageRingBand band, bool claudeAwaitingUsage)
     {
         // A connected Claude profile without a received sample is a neutral state;
         // it must not look like a usage failure and must not add to attention totals.
@@ -90,15 +90,23 @@ public static class TrayIconRenderer
 
         if (exact && snapshot.Status is (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing))
         {
-            return danger
-                ? new IconPalette(DrawingColor.FromArgb(220, 38, 38), DrawingColor.White)
-                : new IconPalette(DrawingColor.FromArgb(37, 99, 235), DrawingColor.White);
+            // The ring sits on the icon's fixed dark center, so one set serves both taskbars.
+            // Amber and orange match the dark theme's ring resources.
+            return new IconPalette(BandColor(band), DrawingColor.White);
         }
 
         return new IconPalette(
             DrawingColor.FromArgb(251, 191, 36),
             DrawingColor.FromArgb(23, 27, 34));
     }
+
+    public static DrawingColor BandColor(UsageRingBand band) => band switch
+    {
+        UsageRingBand.Caution => DrawingColor.FromArgb(245, 158, 11),
+        UsageRingBand.NearLimit => DrawingColor.FromArgb(234, 88, 12),
+        UsageRingBand.Exhausted => DrawingColor.FromArgb(220, 38, 38),
+        _ => DrawingColor.FromArgb(37, 99, 235)
+    };
 
     private static void DrawGlyph(Graphics graphics, string text, int size, DrawingColor color, bool ringStyle)
     {
