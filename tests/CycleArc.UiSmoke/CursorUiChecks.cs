@@ -470,7 +470,8 @@ internal static class CursorUiChecks
                 Check(arc.Visibility == Visibility.Visible
                     && Math.Abs(segment.Point.X - expectedArc.End.X) < 0.0001
                     && Math.Abs(segment.Point.Y - expectedArc.End.Y) < 0.0001
-                    && ReferenceEquals(arc.Stroke, module.FindResource("AccentBrush"))
+                    && ReferenceEquals(arc.Stroke, module.FindResource(
+                        UsageRingBands.ArcBrushKey(UsageRingBands.From(used), stale: false)))
                     && ringHost.Children.OfType<System.Windows.Shapes.Ellipse>().Last().Visibility == Visibility.Collapsed,
                     "Rounding changed the Cursor widget arc, full-circle state or warning color.");
 

@@ -12,6 +12,9 @@
     <SolidColorBrush x:Key="LineBrush" Color="#2A3140"/>
     <SolidColorBrush x:Key="DangerBrush" Color="#F87171"/>
     <SolidColorBrush x:Key="StaleBrush" Color="#FBBF24"/>
+    <SolidColorBrush x:Key="RingCautionBrush" Color="#F59E0B"/>
+    <SolidColorBrush x:Key="RingNearLimitBrush" Color="#EA580C"/>
+    <SolidColorBrush x:Key="RingExhaustedBrush" Color="#F87171"/>
     <SolidColorBrush x:Key="OkBrush" Color="#34D399"/>
     <SolidColorBrush x:Key="ExtraHighAccentBrush" Color="#8B7CF6"/>
     <SolidColorBrush x:Key="ControlBrush" Color="#252A34"/>

@@ -595,6 +595,11 @@ public partial class App : Application
         app.Resources["TextBrush"] = new SolidColorBrush(dark ? MediaColor(238, 241, 246) : MediaColor(23, 27, 34));
         app.Resources["MutedBrush"] = new SolidColorBrush(dark ? MediaColor(139, 147, 167) : MediaColor(90, 98, 114));
         app.Resources["StaleBrush"] = new SolidColorBrush(dark ? MediaColor(251, 191, 36) : MediaColor(146, 79, 0));
+        // Usage ring arcs only. Amber, orange and red keep distinct hues and stay visible on
+        // each theme's cards; the light red is deeper than DangerBrush, which stays for text.
+        app.Resources["RingCautionBrush"] = new SolidColorBrush(dark ? MediaColor(245, 158, 11) : MediaColor(217, 119, 6));
+        app.Resources["RingNearLimitBrush"] = new SolidColorBrush(dark ? MediaColor(234, 88, 12) : MediaColor(194, 65, 12));
+        app.Resources["RingExhaustedBrush"] = new SolidColorBrush(dark ? MediaColor(248, 113, 113) : MediaColor(220, 38, 38));
         app.Resources["LineBrush"] = new SolidColorBrush(dark ? MediaColor(42, 49, 64) : MediaColor(213, 218, 227));
         app.Resources["ControlBrush"] = new SolidColorBrush(dark ? MediaColor(37, 42, 52) : MediaColor(255, 255, 255));
         app.Resources["GhostBrush"] = new SolidColorBrush(dark ? MediaColor(37, 42, 52) : MediaColor(232, 236, 242));

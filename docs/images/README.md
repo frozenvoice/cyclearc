@@ -23,6 +23,7 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `cursor-widget-summary-{before,after}-{en,ko}-{dark,light}.png` | Fixed synthetic Codex / Cursor / Claude accounts in the actual WPF widget, before and after the Cursor summary change at 100% zoom |
 | `cursor-widget-compact-{before,after}-{en,ko}-{dark,light}.png` | The follow-up comparison from `f0a9964`: the same synthetic mixed accounts, with the repeated ring target moved inside the ring at unchanged width/font sizes |
 | `cursor-accounts-{en,ko}-{dark,light}.png` | Current Windows Cursor connection, reconnect/disconnect, nickname and saved-order controls |
+| `ring-bands-{widget,detail}-{en,ko}-{dark,light}.png`, `ring-bands-tray.png`, `ring-bands-comparison.png` | Usage ring color bands on the production widget, detail popup and tray renderer: 69.99% blue, 70% / 84.99% amber, 85% / 99.6% orange (99.6% reads 100 in the Codex tray but is not exhausted), 100% red, stale Claude 90% in its existing stale color and unknown gray; the widget mixes Codex, Claude and Cursor with the 85% account selected |
 | `cursor-tray-icons.png` | Cursor fractional inputs shown as whole tray digits in number/ring styles at 16/24/32 pixels on dark/light taskbars; zero, full usage and unknown included |
 
 The multi-account fixtures live in `DocumentationScreenshots.SampleAccounts`. They use the
@@ -205,6 +206,12 @@ All 16 Claude server, history, waiting and connection previews:
 
 ```powershell
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --claude-desktop-screenshots artifacts/claude-docs
+```
+
+Only the ring color band previews and their widget/detail/tray assertions:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --ring-bands artifacts/ring-bands
 ```
 
 Only the 18 detail previews affected by the shared display-period selector or the version

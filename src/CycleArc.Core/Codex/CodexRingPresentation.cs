@@ -16,6 +16,8 @@ public sealed record CodexRingPresentation(
     string CenterSubLabel)
 {
     public CodexQuotaWindow? Window { get; init; }
+    // Color band of this ring's own limit, from the unrounded value; unknown stays Normal.
+    public UsageRingBand Band { get; init; }
 
     public static CodexRingPresentation FromDetail(CodexQuotaSnapshot snapshot,
         UsagePeriodPreference preference = UsagePeriodPreference.Auto)
@@ -46,7 +48,8 @@ public sealed record CodexRingPresentation(
                 UiText.T($"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} used",
                     $"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} 사용"))
         {
-            Window = window
+            Window = window,
+            Band = clamped is null ? UsageRingBand.Normal : UsageRingBands.From(used)
         };
     }
 }

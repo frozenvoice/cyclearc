@@ -128,10 +128,13 @@ internal static class UsagePercentUiChecks
         if (expectedArc.Visible)
             Check(Math.Abs(actualSegment.Point.X - expectedArc.End.X) < 0.0001
                 && Math.Abs(actualSegment.Point.Y - expectedArc.End.Y) < 0.0001, label + ": fractional arc.");
-        Check(ReferenceEquals(arc.Stroke, module.FindResource(sample.Used >= 100 ? "DangerBrush" : "AccentBrush")),
-            label + ": original warning color.");
+        var bandBrush = module.FindResource(UsageRingBands.ArcBrushKey(UsageRingBands.From(sample.Used), stale: false));
+        Check(ReferenceEquals(arc.Stroke, bandBrush), label + ": widget ring band color.");
 
         var ringText = (TextBlock)flyout.FindName("CodexRingValueText");
+        var detailArc = (System.Windows.Shapes.Path)flyout.FindName("CodexRingArcPath");
+        Check(ReferenceEquals(detailArc.Stroke, flyout.FindResource(
+            UsageRingBands.ArcBrushKey(UsageRingBands.From(sample.Used), stale: false))), label + ": detail ring band color.");
         Check(ringText.Text == sample.DetailUsed, label + ": detail ring.");
         CheckFits(ringText, (FrameworkElement)flyout.FindName("CodexRingHost"), 10, label + ": detail ring text");
         var expectedLabel = cursor ? CursorUsagePresentation.QuotaDisplayLabel("cursor-auto")

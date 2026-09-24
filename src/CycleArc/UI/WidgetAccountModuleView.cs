@@ -159,7 +159,7 @@ public sealed class WidgetAccountModuleView : Border
         {
             model.DisplayName,
             model.Provider.Name(),
-            model.Ring.CenterSubLabel + " " + model.Ring.CenterValueText
+            UsageRingBands.WithLabel(model.Ring.CenterSubLabel + " " + model.Ring.CenterValueText, model.Ring, model.IsStale)
         }.Concat(periods).Append(model.StatusText)
             .Where(part => !string.IsNullOrEmpty(part)))
             + (model.IsSelected ? UiText.T(" · Selected", " · 선택됨") : "");
@@ -181,9 +181,9 @@ public sealed class WidgetAccountModuleView : Border
         };
         RingTargetText.Visibility = string.IsNullOrEmpty(model.RingTargetLabel) ? Visibility.Collapsed : Visibility.Visible;
         RingTargetText.ToolTip = ring.CenterSubLabel;
-        _ringHost.ToolTip = ring.CenterSubLabel + " " + ring.CenterValueText;
+        _ringHost.ToolTip = UsageRingBands.WithLabel(ring.CenterSubLabel + " " + ring.CenterValueText, ring, model.IsStale);
         RingValueText.SetResourceReference(TextBlock.ForegroundProperty, model.IsStale ? "StaleBrush" : "TextBrush");
-        var arcBrushKey = model.IsStale ? "StaleBrush" : ring.IsDangerLevel ? "DangerBrush" : "AccentBrush";
+        var arcBrushKey = UsageRingBands.ArcBrushKey(ring.Band, model.IsStale);
         _ringArc.SetResourceReference(Shape.StrokeProperty, arcBrushKey);
         _ringFull.SetResourceReference(Shape.StrokeProperty, arcBrushKey);
         _ringTrack.SetResourceReference(Shape.StrokeProperty, ring.IsAvailable ? "LineBrush" : "DisabledBrush");
