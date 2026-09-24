@@ -2463,3 +2463,7 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   capture was run. Tray results are the production `TrayIconRenderer` bitmaps, not a capture
   of the Windows taskbar. Dark-theme amber is close in hue to the existing stale yellow;
   stale values are also distinguished by their value text and status row.
+- 0.6.3 preparation: ring-band previews were re-exported with synthetic English-named accounts
+  (Personal, Research, Design, Work, Writing, Prototype, Travel, Lab; `example.invalid` emails)
+  and embedded in both README guides. The 18 version-bearing previews and the Cursor popups
+  were re-exported after the version change; no user account store was read.
