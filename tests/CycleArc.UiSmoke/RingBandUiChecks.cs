@@ -22,19 +22,20 @@ internal static class RingBandUiChecks
 {
     private static readonly DateTimeOffset Now = new(2035, 6, 7, 8, 9, 0, TimeSpan.Zero);
 
-    private sealed record Case(string Id, UsageProviderId Provider, double? Used, bool Stale = false,
+    // Synthetic English-named accounts with reserved example.invalid emails; no user data.
+    private sealed record Case(string Id, string Name, UsageProviderId Provider, double? Used, bool Stale = false,
         bool Unknown = false);
 
     private static readonly Case[] Cases =
     [
-        new("normal", UsageProviderId.Codex, 69.99),
-        new("caution", UsageProviderId.Claude, 70),
-        new("caution-edge", UsageProviderId.Cursor, 84.99),
-        new("near-limit", UsageProviderId.Codex, 85),
-        new("rounded", UsageProviderId.Claude, 99.6),
-        new("exhausted", UsageProviderId.Cursor, 100),
-        new("stale", UsageProviderId.Claude, 90, Stale: true),
-        new("unknown", UsageProviderId.Codex, null, Unknown: true)
+        new("normal", "Personal", UsageProviderId.Codex, 69.99),
+        new("caution", "Research", UsageProviderId.Claude, 70),
+        new("caution-edge", "Design", UsageProviderId.Cursor, 84.99),
+        new("near-limit", "Work", UsageProviderId.Codex, 85),
+        new("rounded", "Writing", UsageProviderId.Claude, 99.6),
+        new("exhausted", "Prototype", UsageProviderId.Cursor, 100),
+        new("stale", "Travel", UsageProviderId.Claude, 90, Stale: true),
+        new("unknown", "Lab", UsageProviderId.Codex, null, Unknown: true)
     ];
 
     public static void Run(string? directory = null)
@@ -126,9 +127,8 @@ internal static class RingBandUiChecks
             "pro", Now, Now, null, null, null, [window],
             provider == UsageProviderId.Claude ? "claude-live" : null) { Provider = provider };
         if (sample.Stale) snapshot = snapshot.AsStale(Now, "claude-live-request-failed");
-        var name = $"{provider.Name()} · {sample.Used?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?"}";
-        return new CodexAccountView(new CodexAccountProfile(sample.Id, "", name) { Provider = provider }, snapshot,
-            "sample@example.invalid") { IsConnected = true };
+        return new CodexAccountView(new CodexAccountProfile(sample.Id, "", sample.Name) { Provider = provider }, snapshot,
+            $"{sample.Name.ToLowerInvariant()}@example.invalid") { IsConnected = true };
     }
 
     private static string ExpectedKey(Case sample) =>
