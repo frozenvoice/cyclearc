@@ -27,11 +27,27 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `ring-bands-{widget,detail}-{en,ko}-{dark,light}.png`, `ring-bands-tray.png`, `ring-bands-comparison.png` | Usage ring color bands on the production widget, detail popup and tray renderer, with synthetic English-named accounts (Personal, Research, Design, Work, Writing, Prototype, Travel, Lab) and `example.invalid` emails: 69.99% blue, 70% / 84.99% amber, 85% / 99.6% orange (99.6% reads 100 in the Codex tray but is not exhausted), 100% red, stale Claude 90% with an orange usage ring, normal quota text and a separate yellow status warning, and unknown gray (the native tray keeps its separate stale-ring policy); the widget mixes Codex, Claude and Cursor with the 85% account selected |
 | `cursor-tray-icons.png` | Cursor fractional inputs shown as whole tray digits in number/ring styles at 16/24/32 pixels on dark/light taskbars; zero, full usage and unknown included |
 
+To refresh the current-layout previews after a popup or widget change, export into a scratch
+folder and copy back only files that already exist here, so historical before/after comparisons
+and other check outputs are left alone:
+
+```powershell
+dotnet build CycleArc.sln -c Release
+$ui = 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj'
+$out = 'artifacts/doc-previews'
+dotnet run --project $ui -c Release --no-build -- --screenshots $out
+dotnet run --project $ui -c Release --no-build -- --claude-desktop-screenshots $out
+dotnet run --project $ui -c Release --no-build -- --cursor-ui $out
+dotnet run --project $ui -c Release --no-build -- --ring-bands $out
+Get-ChildItem $out -Filter *.png | Where-Object { Test-Path (Join-Path docs/images $_.Name) } |
+    Copy-Item -Destination docs/images -Force
+```
+
 The multi-account fixtures live in `DocumentationScreenshots.SampleAccounts`. They use the
 names Personal / Work / Research (개인용 / 업무용 / 실험용), reserved `example.invalid` email
 addresses and display-only paths under `C:\CycleArc-Samples`. Personal and Work have Codex
-weekly usage of 18% and 64%; Work is selected in the account overview, so its detail ring shows
-64% used and its quota row includes 36% remaining. Research is unconnected in the main/manager
+weekly usage of 18% and 64%; Work is selected in the account overview, so its detail card leads the popup, its ring shows
+36% left and its quota row keeps 64% used; the account list below keeps the saved order. Research is unconnected in the main/manager
 comparison: the main popup counts two ready accounts, while management retains all three profiles.
 Account-management previews scroll to the bottom so all three sets of actions are visible.
 
