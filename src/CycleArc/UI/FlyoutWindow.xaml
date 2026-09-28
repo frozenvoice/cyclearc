@@ -341,11 +341,17 @@
                                 <TextBlock x:Name="UsagePeriodHint" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
                                 <TextBlock x:Name="UsagePeriodFallback" FontSize="11" Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed"/>
                             </StackPanel>
+                            <!-- The ring and the limit it shows share the top row; every other limit and
+                                 the check time run full width below, so the ring never floats in a tall column. -->
                             <Grid x:Name="CodexBodyGrid">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="140"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
                                 <StackPanel VerticalAlignment="Center">
                                     <Button x:Name="CyclePeriodButton" Style="{StaticResource UsageRingButton}" Click="OnCyclePeriodClick" HorizontalAlignment="Center">
                                         <Grid x:Name="CodexRingHost" Width="112" Height="112">
@@ -355,7 +361,8 @@
                                             </Path>
                                             <Ellipse x:Name="CodexRingFullCircle" Width="112" Height="112" StrokeThickness="10" Stroke="{DynamicResource AccentBrush}" Visibility="Collapsed"/>
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <Viewbox MaxWidth="92" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Center">
+                                                <!-- Leaves side room inside the ring for two-decimal values such as 23.09%. -->
+                                                <Viewbox MaxWidth="84" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Center">
                                                     <TextBlock x:Name="CodexRingValueText" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
                                                 </Viewbox>
                                                 <TextBlock x:Name="CodexRingSubLabel" FontSize="11" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="96" Margin="0,4,0,0" Foreground="{DynamicResource MutedBrush}"/>
@@ -365,6 +372,10 @@
                                 </StackPanel>
                                 <Border Grid.Column="1" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0" Padding="12,0,0,0" Margin="4,0,0,0">
                                     <ItemsControl x:Name="CodexRows" VerticalAlignment="Center"/>
+                                </Border>
+                                <Border x:Name="CodexSecondaryRowsHost" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,10,0,0"
+                                        BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Visibility="Collapsed">
+                                    <ItemsControl x:Name="CodexSecondaryRows"/>
                                 </Border>
                             </Grid>
                         </StackPanel>

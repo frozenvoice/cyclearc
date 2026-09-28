@@ -315,8 +315,8 @@ internal static class Program
                                 CheckWidgetTextLayout(compactWidget, content);
                             if (window is FlyoutWindow)
                             {
-                                var rows = (System.Windows.Controls.ItemsControl)window.FindName("CodexRows");
-                                foreach (System.Windows.Controls.Border row in rows.Items)
+                                // Both the ring-side and the full-width detail rows.
+                                foreach (var row in ((FlyoutWindow)window).DetailRows)
                                 {
                                     var grid = (System.Windows.Controls.Grid)row.Child;
                                     var label = (FrameworkElement)grid.Children[0];

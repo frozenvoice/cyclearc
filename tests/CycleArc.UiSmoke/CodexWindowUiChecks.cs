@@ -119,7 +119,7 @@ internal static class CodexWindowUiChecks
         var inputs = new[] { scenario.Primary, scenario.Secondary }.OfType<WindowData>().ToArray();
         var summary = (StackPanel)((Button)((ItemsControl)flyout.FindName("AccountOverview")).Items[0]).Content;
         var summaryRows = summary.Children.OfType<Grid>().Skip(1).ToArray();
-        var details = ((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>().Select(b => (Grid)b.Child).ToArray();
+        var details = flyout.DetailRows.Select(b => (Grid)b.Child).ToArray();
         if (summaryRows.Length != inputs.Length || details.Length != inputs.Length * 2 + 1)
             throw new InvalidOperationException($"Codex optional window was omitted or invented: {scenario.Name}.");
         for (var i = 0; i < inputs.Length; i++)

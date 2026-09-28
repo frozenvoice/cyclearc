@@ -328,10 +328,12 @@ public sealed class WidgetPeriodLineView : StackPanel
         RemainingText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         ResetText.Text = line.ResetText;
         ResetText.Visibility = string.IsNullOrEmpty(line.ResetText) ? Visibility.Collapsed : Visibility.Visible;
-        // Only where a countdown row already exists, so no line grows for the bar.
-        var showBar = !line.IsRepresentative && !isCursor && line.RemainingPercent is not null
-            && ResetText.Visibility == Visibility.Visible;
+        // Every limit that is not in the ring gets the same bar when its remainder is known.
+        // A missing reset time only removes the countdown text; the bar row then stands alone.
+        var showBar = !line.IsRepresentative && line.RemainingPercent is not null;
         _bar.Visibility = showBar ? Visibility.Visible : Visibility.Collapsed;
+        // Beside a countdown the bar shares its row; alone it takes a thin row under the value.
+        _bar.Margin = ResetText.Visibility == Visibility.Visible ? new Thickness(12, 0, 8, 0) : new Thickness(12, 2, 0, 0);
         if (showBar)
         {
             var left = line.RemainingPercent!.Value;
