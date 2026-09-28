@@ -205,7 +205,7 @@ internal static class WidgetRecoveryChecks
                 "Repeated desktop notifications did not coalesce into a replacement window.");
             Check(GetForegroundWindow() == foreground && GetActiveWindow() == focusHwnd && activations == activationStart,
                 $"Desktop recovery took keyboard focus: afterWidget={GetForegroundWindow() == Handle(window)}, active={window.IsActive}, activations={activationStart}/{activations}.");
-            Check(window.PixelPosition == savedPosition && Math.Abs(window.Opacity - .92) < .001
+            Check(window.PixelPosition == savedPosition && window.Opacity == 1 && Math.Abs(window.BackgroundOpacity - .92) < .001
                 && !window.Topmost && (GetWindowLong(Handle(window), -20) & 0x20) != 0,
                 "Resume recovery lost saved position, opacity or interaction settings.");
 
@@ -273,7 +273,7 @@ internal static class WidgetRecoveryChecks
             window = controller.CurrentWindow!;
             var resetHwnd = Handle(window);
             Check(configured == 4 && resetHwnd != previousResetHwnd && !IsWindowVisible(previousResetHwnd)
-                && Visible(window) && Math.Abs(window.Opacity - settings.WidgetOpacity) < .001
+                && Visible(window) && window.Opacity == 1 && Math.Abs(window.BackgroundOpacity - settings.WidgetOpacity) < .001
                 && !window.Topmost && (GetWindowLong(resetHwnd, -20) & 0x20) != 0,
                 "Position reset did not recreate the widget with its saved display settings.");
             var resetForeground = GetForegroundWindow();

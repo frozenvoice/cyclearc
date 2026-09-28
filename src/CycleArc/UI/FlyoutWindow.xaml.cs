@@ -36,7 +36,8 @@ public partial class FlyoutWindow : Window
     private readonly RefreshIndicatorController _refreshIndicator = new();
     private bool _refreshActive;
     private bool _bindingUsagePeriod;
-    private bool _creditsExpanded = true;
+    // Folded by default: the summary line names the count and the nearest expiry.
+    private bool _creditsExpanded;
     private System.Windows.Controls.ToolTip? _creditHelpTip;
     private WindowEdgeAnchors _edgeAnchors;
     private bool _snapWindowsToScreenEdges = true;
@@ -483,69 +484,85 @@ public partial class FlyoutWindow : Window
         ClaudeUsageScope.ToolTip = healthy && !string.IsNullOrWhiteSpace(CodexStatusText.Text)
             ? MakeTooltip(CodexStatusText.Text) : null;
         CodexRows.Items.Clear();
+        CodexSecondaryRows.Items.Clear();
         var cursor = CursorUsagePresentation.IsCursor(snapshot.Provider);
-        foreach (var item in CodexDisplayFormatting.Rows(snapshot, includeResetCredits: false))
-        {
-            var row = new Grid { Margin = new Thickness(0, 7, 0, 7), MinHeight = 18 };
-            if (item.Tooltip is not null)
-            {
-                row.ToolTip = item.Tooltip;
-            }
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            if (cursor)
-            {
-                row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            }
-            var label = new TextBlock
-            {
-                Text = item.Label,
-                Margin = new Thickness(0, 0, 12, 0), FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
-                Foreground = (Brush)FindResource("MutedBrush")
-            };
-            if (cursor)
-            {
-                label.TextWrapping = TextWrapping.Wrap;
-                label.TextTrimming = TextTrimming.None;
-                label.Margin = new Thickness(0, 0, 0, 3);
-                Grid.SetColumnSpan(label, 2);
-            }
-            row.Children.Add(label);
-            var values = new StackPanel { HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
-            Grid.SetColumn(values, 1);
-            if (cursor)
-            {
-                Grid.SetColumn(values, 0);
-                Grid.SetColumnSpan(values, 2);
-                Grid.SetRow(values, 1);
-            }
-            values.Children.Add(new TextBlock
-            {
-                Text = item.Value, FontSize = 14,
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
-                Style = (Style)FindResource("FlyoutValueText"),
-                Foreground = item.EmphasizeDanger ? (Brush)FindResource("DangerBrush") : (Brush)FindResource("TextBrush")
-            });
-            if (!string.IsNullOrWhiteSpace(item.Detail))
-            {
-                values.Children.Add(new TextBlock
-                {
-                    Text = item.Detail, FontSize = 11, Margin = new Thickness(0, 2, 0, 2),
-                    TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Right,
-                    Foreground = (Brush)FindResource("MutedBrush")
-                });
-            }
-            row.Children.Add(values);
-            CodexRows.Items.Add(new Border
-            {
-                Child = row, BorderBrush = (Brush)FindResource("LineBrush"),
-                BorderThickness = CodexRows.Items.Count == 0 ? new Thickness(0) : new Thickness(0, 1, 0, 0)
-            });
-        }
+        // The ring's limit sits beside the ring; other limits and the check time go full width below.
+        var (primary, secondary, primaryStart) = CodexDisplayFormatting.DetailSections(snapshot,
+            CodexRingPresentation.FromDetail(snapshot, UsagePeriod).Window);
+        var beside = primary.Select(item => AddDetailRow(CodexRows, item, stacked: cursor)).ToArray();
+        var below = secondary.Select(item => AddDetailRow(CodexSecondaryRows, item, stacked: false)).ToArray();
+        DetailRows = below.Take(primaryStart).Concat(beside).Concat(below.Skip(primaryStart)).ToArray();
+        CodexSecondaryRowsHost.Visibility = secondary.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         ApplyCodexRing(snapshot);
     }
+
+    // One detail row: label and value, with the value's detail (reset countdown, time) below it.
+    // Stacked puts the label above the value, for long Cursor names in the narrow ring-side column.
+    private Border AddDetailRow(ItemsControl target, CodexDisplayRow item, bool stacked)
+    {
+        var row = new Grid { Margin = new Thickness(0, 7, 0, 7), MinHeight = 18 };
+        if (item.Tooltip is not null)
+        {
+            row.ToolTip = item.Tooltip;
+        }
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        if (stacked)
+        {
+            row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+        var label = new TextBlock
+        {
+            Text = item.Label,
+            Margin = new Thickness(0, 0, 12, 0), FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("MutedBrush")
+        };
+        if (stacked)
+        {
+            label.TextWrapping = TextWrapping.Wrap;
+            label.TextTrimming = TextTrimming.None;
+            label.Margin = new Thickness(0, 0, 0, 3);
+            Grid.SetColumnSpan(label, 2);
+        }
+        row.Children.Add(label);
+        var values = new StackPanel { HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
+        Grid.SetColumn(values, 1);
+        if (stacked)
+        {
+            Grid.SetColumn(values, 0);
+            Grid.SetColumnSpan(values, 2);
+            Grid.SetRow(values, 1);
+        }
+        values.Children.Add(new TextBlock
+        {
+            Text = item.Value, FontSize = 14,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+            Style = (Style)FindResource("FlyoutValueText"),
+            Foreground = item.EmphasizeDanger ? (Brush)FindResource("DangerBrush") : (Brush)FindResource("TextBrush")
+        });
+        if (!string.IsNullOrWhiteSpace(item.Detail))
+        {
+            values.Children.Add(new TextBlock
+            {
+                Text = item.Detail, FontSize = 11, Margin = new Thickness(0, 2, 0, 2),
+                TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Right,
+                Foreground = (Brush)FindResource("MutedBrush")
+            });
+        }
+        row.Children.Add(values);
+        var border = new Border
+        {
+            Child = row, BorderBrush = (Brush)FindResource("LineBrush"),
+            BorderThickness = target.Items.Count == 0 ? new Thickness(0) : new Thickness(0, 1, 0, 0)
+        };
+        target.Items.Add(border);
+        return border;
+    }
+
+    // Every detail row in CodexDisplayFormatting.Rows order, whichever list shows it.
+    internal IReadOnlyList<Border> DetailRows { get; private set; } = [];
 
     private void BindCreditCard(CodexQuotaSnapshot snapshot)
     {
@@ -600,6 +617,9 @@ public partial class FlyoutWindow : Window
         CreditListBorder.Visibility = credits.Rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         CreditExpiryNotice.Text = credits.Notice;
         CreditExpiryNotice.Visibility = credits.Notice is null ? Visibility.Collapsed : Visibility.Visible;
+        // The first row is the nearest expiry; without rows the notice explains why.
+        CreditSummaryText.Text = credits.Rows.Count > 0 ? credits.Rows[0].Text : credits.Notice ?? "";
+        CreditSummaryText.ToolTip = string.IsNullOrEmpty(CreditSummaryText.Text) ? null : CreditSummaryText.Text;
     }
 
     private async Task UseCreditAsync(CodexCreditExpiryRow item)
@@ -874,7 +894,8 @@ One credit will be consumed.",
     public void ApplyUsagePeriod(UsagePeriodPreference preference)
     {
         UsagePeriod = preference;
-        if (_creditSnapshot is not null) ApplyCodexRing(_creditSnapshot);
+        // The ring's limit decides which rows sit beside it, so rebuild the rows with the ring.
+        if (_creditSnapshot is not null) BindCodex(_creditSnapshot);
     }
 
     private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)

@@ -224,7 +224,10 @@ public class GptProEstimatedPeriodPresentationTests
     {
         var source = File.ReadAllText(Find("src/CycleArc/UI/FlyoutWindow.xaml.cs"));
         Assert.DoesNotContain("ResetDisplay(snapshot)", source, StringComparison.Ordinal);
-        Assert.Contains("CodexDisplayFormatting.Rows(snapshot, includeResetCredits: false)", source, StringComparison.Ordinal);
+        // The popup splits CodexDisplayFormatting.Rows(..., includeResetCredits: false) beside and below its ring.
+        Assert.Contains("CodexDisplayFormatting.DetailSections(snapshot,", source, StringComparison.Ordinal);
+        var formatting = File.ReadAllText(Find("src/CycleArc.Core/Codex/CodexDisplayFormatting.cs"));
+        Assert.Contains("var rows = Rows(snapshot, now, includeResetCredits: false);", formatting, StringComparison.Ordinal);
     }
 
     [Fact]

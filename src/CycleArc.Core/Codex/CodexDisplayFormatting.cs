@@ -139,6 +139,35 @@ public static class CodexDisplayFormatting
         return rows;
     }
 
+    /// <summary>
+    /// The popup detail's rows, split by place. <c>Primary</c> is the limit the ring shows
+    /// (its usage and reset) and sits beside the ring; <c>Secondary</c> holds every other
+    /// reported limit and the check time, full width below. Order within and across both
+    /// lists is exactly <see cref="Rows"/>; nothing is dropped. Without a ring window every
+    /// row stays primary, as before.
+    /// </summary>
+    public static (IReadOnlyList<CodexDisplayRow> Primary, IReadOnlyList<CodexDisplayRow> Secondary, int PrimaryStart) DetailSections(
+        CodexQuotaSnapshot snapshot, CodexQuotaWindow? ringWindow, DateTimeOffset? now = null)
+    {
+        var rows = Rows(snapshot, now, includeResetCredits: false);
+        var index = ringWindow is null ? -1 : IndexOfWindow(snapshot, ringWindow);
+        if (index < 0 || !ShowsQuotaWindows(snapshot)) return (rows, [], 0);
+        // Cursor has one row per limit; the others have a usage row and a reset row each.
+        var perWindow = CursorUsagePresentation.IsCursor(snapshot.Provider) ? 1 : 2;
+        var start = index * perWindow;
+        if (start + perWindow > rows.Count) return (rows, [], 0);
+        var primary = rows.Skip(start).Take(perWindow).ToArray();
+        var secondary = rows.Take(start).Concat(rows.Skip(start + perWindow)).ToArray();
+        return (primary, secondary, start);
+    }
+
+    private static int IndexOfWindow(CodexQuotaSnapshot snapshot, CodexQuotaWindow window)
+    {
+        for (var i = 0; i < snapshot.Windows.Count; i++)
+            if (ReferenceEquals(snapshot.Windows[i], window)) return i;
+        return -1;
+    }
+
     public static string OverviewText(CodexQuotaSnapshot snapshot)
     {
         var status = StatusText(snapshot);

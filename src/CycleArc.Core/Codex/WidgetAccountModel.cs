@@ -186,7 +186,12 @@ public sealed record WidgetAccountModel(
             // Amounts, disabled/unlimited states and all tooltip text retain their own format.
             DisplayRemainingText = window.IsEnabled != false && !window.IsUnlimited && window.RemainingAmount is null
                 ? UsagePercentFormatting.WidgetRemaining(window)
-                : CursorUsagePresentation.RemainingText(window)
+                : CursorUsagePresentation.RemainingText(window),
+            // A percentage allowance gets the same small bar as other providers; money,
+            // unlimited and disabled allowances keep their text only.
+            RemainingPercent = window.IsEnabled != false && !window.IsUnlimited && window.RemainingAmount is null
+                && window.UsedPercent is >= 0 and <= 100 ? window.RemainingPercent : null,
+            BarBrushKey = UsageRingBands.ArcBrushKey(UsageRingBands.From(window.UsedPercent))
         };
     }
 

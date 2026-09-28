@@ -141,7 +141,7 @@ internal static class UsagePercentUiChecks
         CheckFits(ringText, (FrameworkElement)flyout.FindName("CodexRingHost"), 10, label + ": detail ring text");
         var expectedLabel = cursor ? CursorUsagePresentation.QuotaDisplayLabel("cursor-auto")
             : UiText.FiveHourUsed + " / " + UiText.T("left", "남음");
-        var row = ((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>().Select(border => (Grid)border.Child)
+        var row = flyout.DetailRows.Select(border => (Grid)border.Child)
             .Single(grid => ((TextBlock)grid.Children[0]).Text == expectedLabel);
         var value = (TextBlock)row.Children.OfType<StackPanel>().Single().Children[0];
         var remaining = UiText.T($"Remaining {sample.DetailLeft}", $"잔여 {sample.DetailLeft}");

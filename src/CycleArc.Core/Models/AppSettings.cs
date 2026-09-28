@@ -50,7 +50,8 @@ public sealed class AppSettings
     // Physical screen coordinates are stable across mixed-DPI process restarts.
     public int? WidgetPixelLeft { get; set; }
     public int? WidgetPixelTop { get; set; }
-    public double WidgetOpacity { get; set; } = 0.92;
+    // Opaque by default; lower values fade only the widget background.
+    public double WidgetOpacity { get; set; } = 1;
     public bool WidgetAlwaysOnTop { get; set; } = true;
     public bool WidgetClickThrough { get; set; }
     public bool SnapWindowsToScreenEdges { get; set; } = true;

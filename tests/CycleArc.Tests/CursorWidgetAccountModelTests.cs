@@ -382,6 +382,22 @@ public sealed class CursorWidgetAccountModelTests
         Assert.Null(codexModel.RingTargetLabel);
     }
 
+    [Fact]
+    public void CursorPercentAllowancesGetABarWhileMoneyAndOffAllowancesKeepTextOnly()
+    {
+        var snapshot = Snapshot(
+            Window("cursor-auto", 76.91, null, null, null, Now.AddDays(1)),
+            Window("cursor-api", 2.9, null, null, null, Now.AddDays(1)),
+            Window("cursor-sand", 12.5, 5m, 40m, 35m, Now.AddDays(1)));
+        var model = WidgetAccountModel.From(Account(snapshot), selected: false, now: Now);
+
+        Assert.Equal(23.09, model.Periods[0].RemainingPercent!.Value, 10);
+        Assert.Equal(97.1, model.Periods[1].RemainingPercent!.Value, 10);
+        Assert.Equal(UsageRingBands.ArcBrushKey(UsageRingBand.Caution), model.Periods[0].BarBrushKey);
+        // A money allowance keeps its amount text and draws no percentage bar.
+        Assert.Null(model.Periods[2].RemainingPercent);
+    }
+
     private static CodexAccountView Account(CodexQuotaSnapshot snapshot) =>
         new(new CodexAccountProfile("cursor-widget", "", "Cursor widget")
         {

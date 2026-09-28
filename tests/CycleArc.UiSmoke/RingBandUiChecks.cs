@@ -200,8 +200,8 @@ internal static class RingBandUiChecks
         Check(ReferenceEquals(arc.Stroke, expected) && ReferenceEquals(full.Stroke, expected), label + ": detail arc color.");
         Check(ReferenceEquals(value.Foreground, flyout.FindResource("TextBrush")),
             label + ": detail quota text inherited the stale warning color.");
-        var rows = (ItemsControl)flyout.FindName("CodexRows");
-        foreach (var quotaValue in AccountUiChecks.Descendants<TextBlock>(rows).Where(text => text.Text.Contains('%')))
+        foreach (var quotaValue in flyout.DetailRows.SelectMany(AccountUiChecks.Descendants<TextBlock>)
+                     .Where(text => text.Text.Contains('%')))
             Check(ReferenceEquals(quotaValue.Foreground, flyout.FindResource("TextBrush")),
                 label + ": detail quota row inherited the stale warning color.");
         if (sample.Stale)
@@ -322,7 +322,7 @@ internal static class RingBandUiChecks
                 Check(value.Text == "100%"
                     && ReferenceEquals(value.Foreground, flyout.FindResource("TextBrush")),
                     "Claude rate-limit changed or warned the remaining 100% ring value.");
-                var detailRows = ((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>()
+                var detailRows = flyout.DetailRows
                     .Select(border => (Grid)border.Child).ToArray();
                 var quotaValues = detailRows.Where(row => row.Children.Count > 1 && row.Children[1] is StackPanel)
                     .Select(row => (StackPanel)row.Children[1]).Select(stack => stack.Children.OfType<TextBlock>().First())

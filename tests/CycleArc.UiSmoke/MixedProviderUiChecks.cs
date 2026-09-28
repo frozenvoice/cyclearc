@@ -156,7 +156,7 @@ internal static class MixedProviderUiChecks
                     : Path.Combine(directory, $"claude-desktop-{language}-{theme}.png"));
                 var desktopNotice = (TextBlock)flyout.FindName("CodexStatusText");
                 Check(desktopNotice.Text.Contains("Desktop", StringComparison.Ordinal), "Desktop receipt hides its source.");
-                var desktopRows = ((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>()
+                var desktopRows = flyout.DetailRows
                     .Select(border => (Grid)border.Child).ToArray();
                 Check(desktopRows.Length == 5, "Desktop quota, reset and receipt rows were omitted.");
                 string ValueAt(int index) => ((TextBlock)((StackPanel)desktopRows[index].Children[1]).Children[0]).Text;
@@ -197,7 +197,7 @@ internal static class MixedProviderUiChecks
                     && liveScope.Visibility == Visibility.Visible
                     && liveScope.ToolTip is System.Windows.Controls.ToolTip { Content: string scopeTip } && scopeTip == liveNotice.Text,
                     "Healthy live Claude detail still repeats its update sentence or lost it entirely.");
-                Check(((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>()
+                Check(flyout.DetailRows
                     .Select(border => (Grid)border.Child)
                     .Select(grid => ((TextBlock)grid.Children[0]).Text)
                     .Contains(ClaudeUsagePresentation.LastCheckedLabel),
@@ -276,7 +276,7 @@ internal static class MixedProviderUiChecks
                     var notice = (TextBlock)flyout.FindName("CodexStatusText");
                     Check(notice.Visibility == Visibility.Visible && notice.Text.Contains("Claude", StringComparison.Ordinal)
                         && !notice.Text.Contains("Codex", StringComparison.Ordinal), "Missing Claude data has wrong connection guidance.");
-                    Check(((ItemsControl)flyout.FindName("CodexRows")).Items.Count == 0, "Missing usage was shown as zero.");
+                    Check(flyout.DetailRows.Count == 0, "Missing usage was shown as zero.");
                     count++;
                 }
                 manager.Bind(accounts, accounts[1].Profile.Id);
@@ -475,7 +475,7 @@ internal static class MixedProviderUiChecks
         Check(((TextBlock)flyout.FindName("ClaudeUsageScope")).Text == ClaudeUsagePresentation.SharedScope
             && ((Button)flyout.FindName("ClaudeUsagePageButton")).Visibility == Visibility.Visible,
             "Waiting profile lacks shared quota meaning or access to current usage.");
-        Check(((ItemsControl)flyout.FindName("CodexRows")).Items.Count == 0, "Waiting connection invented quota numbers.");
+        Check(flyout.DetailRows.Count == 0, "Waiting connection invented quota numbers.");
         var waitingText = ((TextBlock)flyout.FindName("CodexStatusText")).Text;
         Check(waitingText.Contains("Claude Desktop") && waitingText.Contains(UiText.T("refresh", "새로고침")),
             "Awaiting usage omits Desktop sign-in and refresh guidance.");

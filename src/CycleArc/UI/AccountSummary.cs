@@ -108,9 +108,11 @@ internal static class AccountSummary
     private static Grid QuotaRow(CodexQuotaWindow window, UsageProviderId provider)
     {
         var row = new Grid { Tag = "AccountQuotaRow", Margin = new Thickness(0, 6, 0, 0) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 64 });
+        // Shared across the whole account list (the ItemsControl is the size scope), so every
+        // bar starts and ends at the same x and equal remainders draw equal lengths.
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 64, SharedSizeGroup = "AccountQuotaLabel" });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 40 });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "AccountQuotaValue" });
         var cursor = CursorUsagePresentation.IsCursor(provider);
         var label = Text(QuotaLabel(window, provider), 11, "MutedBrush");
         label.Margin = new Thickness(0, 0, 10, 0);

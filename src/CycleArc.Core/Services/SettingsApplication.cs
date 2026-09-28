@@ -30,7 +30,8 @@ public sealed record SettingsEdit
     public bool NotifyReset { get; set; }
     public bool NotifySyncError { get; set; }
     public bool ImportHistoricalStatistics { get; set; }
-    public double WidgetOpacity { get; set; } = 0.92;
+    // Opaque by default; lower values fade only the widget background.
+    public double WidgetOpacity { get; set; } = 1;
     public bool WidgetAlwaysOnTop { get; set; } = true;
     public bool WidgetClickThrough { get; set; }
     public bool SnapWindowsToScreenEdges { get; set; } = true;
