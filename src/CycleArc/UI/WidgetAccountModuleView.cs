@@ -267,8 +267,12 @@ public sealed class WidgetPeriodLineView : StackPanel
     // A limit that is not in the ring gets a small remaining bar in the otherwise empty
     // space left of its reset countdown, so the line keeps its height.
     private readonly Grid _foot = new();
+    // One length everywhere, so a bar beside a countdown and a bar on its own row read as the
+    // same mark; the fill inside it is the remainder. Its column gives way to a long countdown
+    // instead of clipping the bar, so the fill always stays proportional.
+    internal const double PeriodBarWidth = 56;
     private readonly Grid _bar = new() { Height = 4, VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(12, 0, 8, 0), Tag = "WidgetPeriodBar", Visibility = Visibility.Collapsed };
+        Margin = new Thickness(12, 0, 6, 0), Tag = "WidgetPeriodBar", Visibility = Visibility.Collapsed };
     private readonly Border _barFill = new() { CornerRadius = new CornerRadius(2) };
 
     public WidgetPeriodLineView()
@@ -296,10 +300,16 @@ public sealed class WidgetPeriodLineView : StackPanel
         _bar.ColumnDefinitions.Add(new ColumnDefinition());
         _bar.Children.Add(track);
         _bar.Children.Add(_barFill);
+        // [bar, at most its fixed length] [spare space] [countdown, right-aligned as before]
+        // The heavy weight lets the bar column fill up to its cap before the spare column gets any.
+        _foot.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1000, GridUnitType.Star), MaxWidth = PeriodBarWidth + 18
+        });
         _foot.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _foot.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _foot.Children.Add(_bar);
-        Grid.SetColumn(ResetText, 1);
+        Grid.SetColumn(ResetText, 2);
         _foot.Children.Add(ResetText);
         Children.Add(CadenceText);
         Children.Add(_head);
@@ -333,7 +343,7 @@ public sealed class WidgetPeriodLineView : StackPanel
         var showBar = !line.IsRepresentative && line.RemainingPercent is not null;
         _bar.Visibility = showBar ? Visibility.Visible : Visibility.Collapsed;
         // Beside a countdown the bar shares its row; alone it takes a thin row under the value.
-        _bar.Margin = ResetText.Visibility == Visibility.Visible ? new Thickness(12, 0, 8, 0) : new Thickness(12, 2, 0, 0);
+        _bar.Margin = ResetText.Visibility == Visibility.Visible ? new Thickness(12, 0, 6, 0) : new Thickness(12, 2, 6, 0);
         if (showBar)
         {
             var left = line.RemainingPercent!.Value;
