@@ -137,6 +137,37 @@ public class CodexRingPresentationTests
         Assert.DoesNotContain(snapshot.Windows, window => window.Kind == CodexWindowKind.FiveHour);
     }
 
+    [Theory]
+    [InlineData(14, 86, "86%")]
+    [InlineData(76.91, 23.09, "23.09%")]
+    [InlineData(99.6, 0.4, "0.4%")]
+    [InlineData(100, 0, "0%")]
+    public void RingFillsWithRemainingWhileBandStaysOnUnroundedUsage(double used, double remaining, string text)
+    {
+        var ring = CodexRingPresentation.FromDetail(Available(used));
+
+        Assert.Equal(remaining, ring.RemainingPercent!.Value, 10);
+        Assert.Equal(text, ring.RemainingValueText);
+        Assert.Equal(UsageRingBands.From(used), ring.Band);
+        Assert.Equal(used >= 100, ring.IsDangerLevel);
+        Assert.Equal(UiText.T("Weekly left", "주간 남음"), ring.RemainingSubLabel);
+    }
+
+    [Fact]
+    public void UnknownOrInvalidUsageNeverBecomesAFullRemainingRing()
+    {
+        var unknown = CodexRingPresentation.FromDetail(CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable));
+        Assert.Null(unknown.RemainingPercent);
+        Assert.Equal("?", unknown.RemainingValueText);
+        Assert.False(RingGeometry.ComputeFillArc(unknown.RemainingPercent, 0, 0, 40).Visible);
+        Assert.False(RingGeometry.ComputeFillArc(unknown.RemainingPercent, 0, 0, 40).IsFullCircle);
+
+        // Out-of-range usage keeps the existing clamped geometry but never reads as a valid remainder.
+        var invalid = CodexRingPresentation.FromDetail(Available(140));
+        Assert.Equal(0, invalid.RemainingPercent);
+        Assert.Equal("?", invalid.RemainingValueText);
+    }
+
     private static CodexQuotaSnapshot Available(double percent) => new(
         CodexQuotaStatus.Available,
         null,

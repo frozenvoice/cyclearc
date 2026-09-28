@@ -23,7 +23,8 @@
             <Setter Property="MinHeight" Value="28"/>
             <Setter Property="Padding" Value="6,2"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Background" Value="{DynamicResource GhostBrush}"/>
+            <!-- Icons rest without a box; the chrome appears on hover, press and keyboard focus. -->
+            <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Focusable" Value="True"/>
@@ -43,9 +44,13 @@
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="HeaderIconChrome" Property="Background" Value="{DynamicResource AccentBrush}"/>
                             </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="HeaderIconChrome" Property="Background" Value="{DynamicResource GhostBrush}"/>
+                            </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Foreground" Value="{DynamicResource DisabledBrush}"/>
-                                <Setter TargetName="HeaderIconChrome" Property="Background" Value="{DynamicResource GhostBrush}"/>
+                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter TargetName="HeaderIconChrome" Property="Background" Value="Transparent"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -275,25 +280,19 @@
             </Grid>
             <ScrollViewer x:Name="FlyoutContentScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="14,4,14,14" MaxHeight="640">
                 <StackPanel>
-                    <StackPanel x:Name="AccountSection" Visibility="Collapsed" Margin="0,0,0,12">
-                        <DockPanel Margin="0,0,0,8">
-                            <Button x:Name="ManageAccountsButton" DockPanel.Dock="Right" Style="{StaticResource CreditUseButton}"
-                                    Padding="10,5" Click="OnAccountsClick"/>
-                            <TextBlock x:Name="AccountsHeading" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        </DockPanel>
-                        <ItemsControl x:Name="AccountOverview"/>
-                        <TextBlock x:Name="AccountSelectionHint" FontSize="11" Foreground="{DynamicResource MutedBrush}"
-                                   TextWrapping="Wrap" Margin="0,2,0,8"/>
-                    </StackPanel>
-                    <Grid x:Name="SelectedAccountHeader" HorizontalAlignment="Left" Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="SelectedAccountText" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                                   VerticalAlignment="Center" Margin="0,0,8,0" Visibility="Collapsed" Foreground="{DynamicResource TextBrush}"/>
-                        <ui:UsageProviderBadge x:Name="SelectedProviderBadge" Grid.Column="1"/>
-                    </Grid>
+                    <DockPanel Margin="0,0,0,10">
+                        <ContentControl x:Name="SelectedAvatarHost" DockPanel.Dock="Left" Margin="0,0,9,0"
+                                        VerticalAlignment="Center" Focusable="False" IsTabStop="False"/>
+                        <Grid x:Name="SelectedAccountHeader" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="SelectedAccountText" FontWeight="SemiBold" FontSize="15" TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center" Margin="0,0,8,0" Visibility="Collapsed" Foreground="{DynamicResource TextBrush}"/>
+                            <ui:UsageProviderBadge x:Name="SelectedProviderBadge" Grid.Column="1"/>
+                        </Grid>
+                    </DockPanel>
                     <Border x:Name="CodexCard" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12">
                         <StackPanel>
                             <StackPanel x:Name="ClaudeUsageHeader" Visibility="Collapsed" Margin="0,0,0,8">
@@ -367,6 +366,17 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
+                    <!-- Selected account first; the account list below keeps its order and compares all. -->
+                    <StackPanel x:Name="AccountSection" Visibility="Collapsed" Margin="0,16,0,0">
+                        <DockPanel Margin="0,0,0,8">
+                            <Button x:Name="ManageAccountsButton" DockPanel.Dock="Right" Style="{StaticResource CreditUseButton}"
+                                    Padding="10,5" Click="OnAccountsClick"/>
+                            <TextBlock x:Name="AccountsHeading" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <ItemsControl x:Name="AccountOverview"/>
+                        <TextBlock x:Name="AccountSelectionHint" FontSize="11" Foreground="{DynamicResource MutedBrush}"
+                                   TextWrapping="Wrap" Margin="0,2,0,8"/>
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
         </DockPanel>

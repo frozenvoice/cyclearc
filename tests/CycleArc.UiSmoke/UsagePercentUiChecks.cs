@@ -113,7 +113,9 @@ internal static class UsagePercentUiChecks
     {
         var cursor = account.Profile.Provider == UsageProviderId.Cursor;
         var module = WidgetFixture.Module(widget);
-        Check(module.RingValueText.Text == sample.WidgetUsed, label + ": widget ring.");
+        // Rings show what is left; the used value keeps its own widget-precision model text.
+        Check(module.RingValueText.Text == sample.WidgetLeft && module.Model!.RingValueText == sample.WidgetUsed,
+            label + ": widget ring.");
         Check(module.Periods.Single().RemainingText.Text == (cursor ? sample.WidgetLeft : UiText.WidgetLeft(sample.WidgetLeft)),
             label + ": widget remaining.");
         Check(module.StatusText.Visibility == Visibility.Collapsed, label + ": healthy footer reappeared.");
@@ -122,7 +124,7 @@ internal static class UsagePercentUiChecks
         var widgetRing = (Grid)VisualTreeHelper.GetParent(VisualTreeHelper.GetParent(module.RingValueText));
         CheckFits(module.RingValueText, widgetRing, 6, label + ": widget ring text");
         var arc = widgetRing.Children.OfType<System.Windows.Shapes.Path>().Single();
-        var expectedArc = RingGeometry.ComputeUsedArc(sample.Used, 32, 32, 29);
+        var expectedArc = RingGeometry.ComputeFillArc(100 - sample.Used, 32, 32, 29);
         var actualSegment = (ArcSegment)((PathGeometry)arc.Data).Figures[0].Segments[0];
         Check(arc.Visibility == (expectedArc.Visible ? Visibility.Visible : Visibility.Collapsed), label + ": arc visibility.");
         if (expectedArc.Visible)
@@ -135,7 +137,7 @@ internal static class UsagePercentUiChecks
         var detailArc = (System.Windows.Shapes.Path)flyout.FindName("CodexRingArcPath");
         Check(ReferenceEquals(detailArc.Stroke, flyout.FindResource(
             UsageRingBands.ArcBrushKey(UsageRingBands.From(sample.Used)))), label + ": detail ring band color.");
-        Check(ringText.Text == sample.DetailUsed, label + ": detail ring.");
+        Check(ringText.Text == sample.DetailLeft, label + ": detail ring.");
         CheckFits(ringText, (FrameworkElement)flyout.FindName("CodexRingHost"), 10, label + ": detail ring text");
         var expectedLabel = cursor ? CursorUsagePresentation.QuotaDisplayLabel("cursor-auto")
             : UiText.FiveHourUsed + " / " + UiText.T("left", "남음");
@@ -147,8 +149,8 @@ internal static class UsagePercentUiChecks
         Check(value.ActualWidth + 1 >= value.DesiredSize.Width, label + ": detail row clipped.");
         var card = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>()
             .Single(button => (string)button.Tag == account.Profile.Id);
-        var summary = cursor ? remaining : UiText.T($"Used {sample.DetailUsed} · Left {sample.DetailLeft}",
-            $"사용 {sample.DetailUsed} · 잔여 {sample.DetailLeft}");
+        // The account row keeps popup precision for what is left, never the widget's integer glyph.
+        var summary = UiText.WidgetLeft(sample.DetailLeft);
         Check(AccountUiChecks.Descendants<TextBlock>(card).Any(text => text.Text == summary), label + ": account summary.");
     }
 

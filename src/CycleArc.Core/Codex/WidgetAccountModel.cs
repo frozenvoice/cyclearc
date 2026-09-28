@@ -18,6 +18,10 @@ public sealed record WidgetPeriodLine(
     public string? CadenceLabel { get; init; }
     public string? Tooltip { get; init; }
     public string DisplayRemainingText { get; init; } = RemainingText;
+    // Validated remainder of this limit for its small bar; unknown usage draws no bar.
+    public double? RemainingPercent { get; init; }
+    // Usage band of the unrounded value, the same rule the rings use.
+    public string BarBrushKey { get; init; } = UsageRingBands.ArcBrushKey(UsageRingBand.Normal);
 }
 
 /// <summary>
@@ -42,6 +46,10 @@ public sealed record WidgetAccountModel(
     public bool ShowStatusRow { get; init; } = !string.IsNullOrEmpty(StatusText);
     // Widget glyphs only: keep the shared ring's precise text, percentage and danger state.
     public string RingValueText => UsagePercentFormatting.Widget(Ring.IsAvailable ? Ring.Window?.UsedPercent : null);
+    // The widget ring fills with what is left, so its glyph is the widget-precision remainder
+    // of the same limit, sharing rounding with the used value above.
+    public string RingRemainingValueText => Ring.IsAvailable && Ring.Window is { } window
+        ? UsagePercentFormatting.WidgetRemaining(window) : "?";
 
     public static WidgetAccountModel From(CodexAccountView account, bool selected,
         UsagePeriodPreference preference = UsagePeriodPreference.Auto, DateTimeOffset? now = null)
@@ -152,7 +160,10 @@ public sealed record WidgetAccountModel(
             ReferenceEquals(window, ring.Window))
         {
             DisplayRemainingText = UiText.WidgetLeft(
-                UsagePercentFormatting.WidgetRemaining(window))
+                UsagePercentFormatting.WidgetRemaining(window)),
+            RemainingPercent = window.UsedPercent is >= 0 and <= 100 && double.IsFinite(window.UsedPercent.Value)
+                ? window.RemainingPercent : null,
+            BarBrushKey = UsageRingBands.ArcBrushKey(UsageRingBands.From(window.UsedPercent))
         }).ToArray();
     }
 

@@ -77,4 +77,13 @@ public class RingGeometryTests
 
     private static bool PointsClose(RingPoint a, RingPoint b) =>
         Math.Abs(a.X - b.X) < 0.01 && Math.Abs(a.Y - b.Y) < 0.01;
+
+    [Fact]
+    public void FillArcMatchesUsedArcAndRejectsNonFiniteShares()
+    {
+        foreach (var percent in new double?[] { null, 0, 1, 50, 99, 100, 140, -5 })
+            Assert.Equal(RingGeometry.ComputeUsedArc(percent, 0, 0, 40), RingGeometry.ComputeFillArc(percent, 0, 0, 40));
+        Assert.False(RingGeometry.ComputeFillArc(double.NaN, 0, 0, 40).Visible);
+        Assert.False(RingGeometry.ComputeFillArc(double.PositiveInfinity, 0, 0, 40).IsFullCircle);
+    }
 }

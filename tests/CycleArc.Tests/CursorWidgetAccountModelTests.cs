@@ -199,6 +199,8 @@ public sealed class CursorWidgetAccountModelTests
         var period = Assert.Single(model.Periods);
 
         Assert.Equal(">99%", model.RingValueText);
+        Assert.Equal("<1%", model.RingRemainingValueText);
+        Assert.Equal("0.4%", model.Ring.RemainingValueText);
         Assert.Equal("99.6%", model.Ring.CenterValueText);
         Assert.Equal(99.6, model.Ring.UsedPercent);
         Assert.False(model.Ring.IsDangerLevel);
@@ -214,6 +216,7 @@ public sealed class CursorWidgetAccountModelTests
             Account(Snapshot(Window("cursor-auto", null, null, null, null, null))),
             selected: false, now: Now);
         Assert.Equal("?", unknown.RingValueText);
+        Assert.Equal("?", unknown.RingRemainingValueText);
         Assert.Equal("?", Assert.Single(unknown.Periods).DisplayRemainingText);
         Assert.Equal("?", unknown.Ring.CenterValueText);
 
@@ -221,6 +224,7 @@ public sealed class CursorWidgetAccountModelTests
             Account(Snapshot(Window("cursor-auto", double.NaN, null, null, null, null))),
             selected: false, now: Now);
         Assert.Equal("?", nonFinite.RingValueText);
+        Assert.Equal("?", nonFinite.RingRemainingValueText);
         Assert.Equal("?", Assert.Single(nonFinite.Periods).DisplayRemainingText);
         Assert.Equal("?", nonFinite.Ring.CenterValueText);
     }
@@ -250,6 +254,8 @@ public sealed class CursorWidgetAccountModelTests
         var model = WidgetAccountModel.From(Account(snapshot), selected: true, now: Now);
 
         Assert.Equal("77%", model.RingValueText);
+        Assert.Equal("23%", model.RingRemainingValueText);
+        Assert.Equal("23.09%", model.Ring.RemainingValueText);
         Assert.Equal("23%", Assert.Single(model.Periods).DisplayRemainingText);
         Assert.Contains("23.09%", model.Tooltip, StringComparison.Ordinal);
 
@@ -277,6 +283,8 @@ public sealed class CursorWidgetAccountModelTests
             }, codexSnapshot), selected: false, now: Now);
         Assert.Equal("76.91%", codexModel.Ring.CenterValueText);
         Assert.Equal("77%", codexModel.RingValueText);
+        Assert.Equal("23%", codexModel.RingRemainingValueText);
+        Assert.Equal("23.09%", codexModel.Ring.RemainingValueText);
         Assert.Equal("Left 23.09%", codexModel.Periods[0].RemainingText);
         Assert.Equal("Left 23%", codexModel.Periods[0].DisplayRemainingText);
 

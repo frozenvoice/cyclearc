@@ -147,8 +147,15 @@ internal static class RingBandUiChecks
         var expected = module.FindResource(ExpectedKey(sample));
         Check(ReferenceEquals(arc.Stroke, expected), label + ": widget arc color.");
         Check(full.Any(ellipse => ReferenceEquals(ellipse.Stroke, expected)), label + ": widget full-circle color.");
-        Check(arc.Visibility == (RingGeometry.ComputeUsedArc(sample.Unknown ? null : sample.Used, 32, 32, 29).Visible
-                ? Visibility.Visible : Visibility.Collapsed), label + ": widget arc visibility.");
+        // The widget ring fills with what is left; its color stays the unrounded usage band.
+        var widgetArc = RingGeometry.ComputeFillArc(sample.Unknown ? null : 100 - sample.Used, 32, 32, 29);
+        Check(arc.Visibility == (widgetArc.Visible ? Visibility.Visible : Visibility.Collapsed)
+            // The first ellipse is the always-visible track; the last is the full-circle fill.
+            && (full.Last().Visibility == Visibility.Visible) == widgetArc.IsFullCircle,
+            label + ": widget arc visibility.");
+        Check(module.RingUsedLabel.Text == (sample.Used is >= 100 && !sample.Unknown
+                ? UsageRingBands.Label(UsageRingBand.Exhausted) : UiText.CodexLegendRemaining),
+            label + ": widget ring caption does not say what the fill means.");
         // Usage numbers follow the normal text color; only the status line carries stale warning color.
         Check(ReferenceEquals(module.RingValueText.Foreground, module.FindResource("TextBrush")),
             label + ": widget quota text inherited the stale warning color.");
@@ -175,7 +182,7 @@ internal static class RingBandUiChecks
         var model = module.Model!;
         Check(model.Ring.IsDangerLevel == (sample.Used is >= 100 && !sample.Unknown), label + ": exhaustion changed.");
         var name = AutomationProperties.GetName(module);
-        Check(name.Contains(model.Ring.CenterValueText, StringComparison.Ordinal), label + ": accessible value lost.");
+        Check(name.Contains(model.Ring.RemainingValueText, StringComparison.Ordinal), label + ": accessible value lost.");
         var bandLabel = UsageRingBands.Label(model.Ring.Band);
         if (!sample.Unknown && bandLabel.Length > 0)
             Check(name.Contains(" · " + bandLabel, StringComparison.Ordinal), label + ": accessible band missing.");
@@ -211,10 +218,14 @@ internal static class RingBandUiChecks
             var cardTexts = AccountUiChecks.Descendants<TextBlock>(card).ToArray();
             foreach (var window in Account(sample).Snapshot.Windows)
             {
-                var summary = CodexDisplayFormatting.QuotaSummaryText(window, sample.Provider);
+                var summary = AccountSummary.QuotaValue(window, sample.Provider);
                 var text = cardTexts.Single(candidate => candidate.Text == summary);
                 Check(ReferenceEquals(text.Foreground, flyout.FindResource("TextBrush")),
                     label + ": account summary quota inherited the stale warning color.");
+                var fill = AccountUiChecks.Descendants<Border>(card)
+                    .Single(border => border.Tag as string == "AccountQuotaBarFill");
+                Check(ReferenceEquals(fill.Background, flyout.FindResource(ExpectedKey(sample))),
+                    label + ": account summary bar left the usage band.");
             }
             if (sample.Stale)
             {
@@ -223,10 +234,17 @@ internal static class RingBandUiChecks
                     label + ": account summary freshness status lost its warning color.");
             }
         }
+        var caption = (TextBlock)flyout.FindName("CodexRingSubLabel");
         if (sample.Id == "rounded")
-            Check(value.Text == "99.6%" && full.Visibility == Visibility.Collapsed, label + ": 99.6% drew as exhausted.");
+            Check(value.Text == "0.4%" && arc.Visibility == Visibility.Visible && full.Visibility == Visibility.Collapsed
+                && caption.Text != UsageRingBands.Label(UsageRingBand.Exhausted), label + ": 99.6% drew as exhausted.");
         if (sample.Id == "exhausted")
-            Check(full.Visibility == Visibility.Visible, label + ": 100% is not a full circle.");
+            Check(value.Text == "0%" && arc.Visibility == Visibility.Collapsed && full.Visibility == Visibility.Collapsed
+                && caption.Text == UsageRingBands.Label(UsageRingBand.Exhausted)
+                && ReferenceEquals(caption.Foreground, flyout.FindResource("RingExhaustedBrush")),
+                label + ": an exhausted limit does not name itself on its empty ring.");
+        if (sample.Id == "normal")
+            Check(value.Text == "30.01%" && arc.Visibility == Visibility.Visible, label + ": ring did not show what is left.");
         var button = (Button)flyout.FindName("CyclePeriodButton");
         var name = AutomationProperties.GetName(button);
         var band = sample.Unknown ? UsageRingBand.Normal : UsageRingBands.From(sample.Used);
@@ -301,7 +319,7 @@ internal static class RingBandUiChecks
                 var notice = (TextBlock)flyout.FindName("CodexStatusText");
                 var globalStatus = (TextBlock)flyout.FindName("StatusText");
                 var value = (TextBlock)flyout.FindName("CodexRingValueText");
-                Check(value.Text == "0%"
+                Check(value.Text == "100%"
                     && ReferenceEquals(value.Foreground, flyout.FindResource("TextBrush")),
                     "Claude rate-limit changed or warned the remaining 100% ring value.");
                 var detailRows = ((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>()
@@ -324,7 +342,7 @@ internal static class RingBandUiChecks
                 var cardTexts = AccountUiChecks.Descendants<TextBlock>(card).ToArray();
                 foreach (var window in sample.Snapshot.Windows)
                 {
-                    var summary = CodexDisplayFormatting.QuotaSummaryText(window, UsageProviderId.Claude);
+                    var summary = AccountSummary.QuotaValue(window, UsageProviderId.Claude);
                     var summaryText = cardTexts.Single(text => text.Text == summary);
                     Check(ReferenceEquals(summaryText.Foreground, flyout.FindResource("TextBrush")),
                         "Claude account summary quota inherited the freshness warning color.");
@@ -332,6 +350,9 @@ internal static class RingBandUiChecks
                 var cardStatus = cardTexts.Single(text => text.Text == CycleArcPresentation.StatusLabel(sample.Snapshot));
                 Check(ReferenceEquals(cardStatus.Foreground, flyout.FindResource(stale ? "StaleBrush" : "MutedBrush")),
                     "Claude account summary status did not follow freshness.");
+                // A healthy server check is not repeated on every row; a failure always is.
+                Check(cardStatus.Visibility == (stale ? Visibility.Visible : Visibility.Collapsed),
+                    "Claude account summary status did not appear only while the server request was failing.");
 
                 widget.BindAccounts([sample], sample.Profile.Id, UsagePeriodPreference.Auto, WidgetFixture.Desktop, Now);
                 WidgetFixture.RenderWidget(widget, directory is null ? null
