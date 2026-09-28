@@ -162,10 +162,30 @@ public class CodexRingPresentationTests
         Assert.False(RingGeometry.ComputeFillArc(unknown.RemainingPercent, 0, 0, 40).Visible);
         Assert.False(RingGeometry.ComputeFillArc(unknown.RemainingPercent, 0, 0, 40).IsFullCircle);
 
-        // Out-of-range usage keeps the existing clamped geometry but never reads as a valid remainder.
-        var invalid = CodexRingPresentation.FromDetail(Available(140));
-        Assert.Equal(0, invalid.RemainingPercent);
-        Assert.Equal("?", invalid.RemainingValueText);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(140)]
+    public void OutOfRangeUsageDrawsNoRemainingFillAndIsNotExhausted(double used)
+    {
+        // The clamped usage stays for the tray; the remaining ring agrees with its "?" text.
+        var ring = CodexRingPresentation.FromDetail(Available(used));
+
+        Assert.Null(ring.RemainingPercent);
+        Assert.Equal("?", ring.RemainingValueText);
+        Assert.False(ring.IsExhausted);
+        var arc = RingGeometry.ComputeFillArc(ring.RemainingPercent, 0, 0, 40);
+        Assert.False(arc.Visible);
+        Assert.False(arc.IsFullCircle);
+        Assert.Equal(Math.Clamp(used, 0, 100), ring.UsedPercent);
+    }
+
+    [Fact]
+    public void OnlyAValidFullyUsedLimitIsExhausted()
+    {
+        Assert.True(CodexRingPresentation.FromDetail(Available(100)).IsExhausted);
+        Assert.False(CodexRingPresentation.FromDetail(Available(99.6)).IsExhausted);
     }
 
     private static CodexQuotaSnapshot Available(double percent) => new(

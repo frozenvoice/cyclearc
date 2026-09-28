@@ -772,10 +772,10 @@ One credit will be consumed.",
         // The ring fills with what is left. Its color is still the usage band of the unrounded
         // value, and an exhausted limit names itself rather than relying on an empty ring.
         CodexRingValueText.Text = ring.RemainingValueText;
-        CodexRingSubLabel.Text = ring.IsDangerLevel ? UsageRingBands.Label(UsageRingBand.Exhausted) : ring.RemainingSubLabel;
+        CodexRingSubLabel.Text = ring.IsExhausted ? UsageRingBands.Label(UsageRingBand.Exhausted) : ring.RemainingSubLabel;
         CodexRingSubLabel.SetResourceReference(TextBlock.ForegroundProperty,
-            ring.IsDangerLevel ? "RingExhaustedBrush" : "MutedBrush");
-        CodexRingSubLabel.FontWeight = ring.IsDangerLevel ? FontWeights.SemiBold : FontWeights.Normal;
+            ring.IsExhausted ? "RingExhaustedBrush" : "MutedBrush");
+        CodexRingSubLabel.FontWeight = ring.IsExhausted ? FontWeights.SemiBold : FontWeights.Normal;
 
         CodexRingValueText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         var arcColor = (Brush)FindResource(UsageRingBands.ArcBrushKey(ring.Band));
