@@ -102,7 +102,8 @@
     </Style>
 
     <Style x:Key="AccountButton" TargetType="Button">
-        <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+        <!-- Popup account rows sit one step above the popup's BgBrush ground. -->
+        <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>

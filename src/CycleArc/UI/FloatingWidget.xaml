@@ -48,8 +48,9 @@
             </Setter>
         </Style>
     </Window.Resources>
+    <!-- Same dark ground as the popup, so both surfaces read as one app. -->
     <Border x:Name="WidgetPanel"
-            Background="{DynamicResource CardBrush}"
+            Background="{DynamicResource BgBrush}"
             RenderTransformOrigin="0,0"
             CornerRadius="12"
             Padding="10,9"
