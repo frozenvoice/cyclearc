@@ -75,8 +75,8 @@ public sealed class UsageRingBandTests
                 UsagePeriodPreference.Auto, Now);
             Assert.Equal(UsageRingBand.NearLimit, selected.Ring.Band);
             Assert.Equal(selected.Ring.Band, other.Ring.Band);
-            Assert.Equal(UsageRingBands.ArcBrushKey(selected.Ring.Band, selected.IsStale),
-                UsageRingBands.ArcBrushKey(other.Ring.Band, other.IsStale));
+            Assert.Equal(UsageRingBands.ArcBrushKey(selected.Ring.Band),
+                UsageRingBands.ArcBrushKey(other.Ring.Band));
         }
     }
 
@@ -123,37 +123,57 @@ public sealed class UsageRingBandTests
             var ring = CodexRingPresentation.From(snapshot);
             Assert.False(ring.IsAvailable);
             Assert.Equal(UsageRingBand.Normal, ring.Band);
-            Assert.Equal("text", UsageRingBands.WithLabel("text", ring, stale: false));
+            Assert.Equal("text", UsageRingBands.WithLabel("text", ring));
         }
     }
 
-    [Fact]
-    public void StaleColorKeepsPriorityOverEveryBand()
+    [Theory]
+    [InlineData(UsageProviderId.Claude, 0, UsageRingBand.Normal, "AccentBrush")]
+    [InlineData(UsageProviderId.Claude, 10, UsageRingBand.Normal, "AccentBrush")]
+    [InlineData(UsageProviderId.Claude, 70, UsageRingBand.Caution, "RingCautionBrush")]
+    [InlineData(UsageProviderId.Claude, 90, UsageRingBand.NearLimit, "RingNearLimitBrush")]
+    [InlineData(UsageProviderId.Claude, 100, UsageRingBand.Exhausted, "RingExhaustedBrush")]
+    [InlineData(UsageProviderId.Cursor, 0, UsageRingBand.Normal, "AccentBrush")]
+    [InlineData(UsageProviderId.Cursor, 10, UsageRingBand.Normal, "AccentBrush")]
+    [InlineData(UsageProviderId.Cursor, 70, UsageRingBand.Caution, "RingCautionBrush")]
+    [InlineData(UsageProviderId.Cursor, 90, UsageRingBand.NearLimit, "RingNearLimitBrush")]
+    [InlineData(UsageProviderId.Cursor, 100, UsageRingBand.Exhausted, "RingExhaustedBrush")]
+    public void StaleProviderSamplesKeepQuotaBandsAndPutWarningInStatus(
+        UsageProviderId provider, double used, UsageRingBand expectedBand, string expectedBrush)
     {
-        foreach (var band in Enum.GetValues<UsageRingBand>())
-            Assert.Equal("StaleBrush", UsageRingBands.ArcBrushKey(band, stale: true));
-
-        var snapshot = Snapshot(UsageProviderId.Claude, Window(UsageProviderId.Claude, 90))
-            .AsStale(Now, "claude-live-request-failed");
-        var model = WidgetAccountModel.From(Account(UsageProviderId.Claude, snapshot), selected: false,
+        var detail = provider == UsageProviderId.Claude
+            ? "claude-live-request-failed"
+            : "cursor-live-request-failed";
+        var snapshot = Snapshot(provider, Window(provider, used)).AsStale(Now, detail);
+        var model = WidgetAccountModel.From(Account(provider, snapshot), selected: false,
             UsagePeriodPreference.Auto, Now);
+
         Assert.True(model.IsStale);
-        Assert.Equal(90, model.Ring.UsedPercent);
-        Assert.Equal(UsageRingBand.NearLimit, model.Ring.Band);
-        Assert.Equal("StaleBrush", UsageRingBands.ArcBrushKey(model.Ring.Band, model.IsStale));
-        Assert.Equal("text", UsageRingBands.WithLabel("text", model.Ring, model.IsStale));
+        Assert.Equal(used, model.Ring.UsedPercent);
+        Assert.Equal(used, model.Ring.Window?.UsedPercent);
+        Assert.Equal(expectedBand, model.Ring.Band);
+        Assert.Equal(expectedBrush, UsageRingBands.ArcBrushKey(model.Ring.Band));
+        var expectedLabel = UsageRingBands.Label(expectedBand);
+        Assert.Equal(expectedLabel.Length == 0 ? "text" : "text · " + expectedLabel,
+            UsageRingBands.WithLabel("text", model.Ring));
+        Assert.True(model.ShowStatusRow);
+        var expectedWarning = provider == UsageProviderId.Claude
+            ? CycleArc.Providers.Claude.ClaudeUsagePresentation.FailureLabel(detail)
+            : CycleArc.Providers.Cursor.CursorUsagePresentation.FailureText(detail);
+        Assert.NotNull(expectedWarning);
+        Assert.Contains(expectedWarning!, model.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]
     public void ArcBrushKeysAndLabels()
     {
-        Assert.Equal("AccentBrush", UsageRingBands.ArcBrushKey(UsageRingBand.Normal, false));
-        Assert.Equal("RingCautionBrush", UsageRingBands.ArcBrushKey(UsageRingBand.Caution, false));
-        Assert.Equal("RingNearLimitBrush", UsageRingBands.ArcBrushKey(UsageRingBand.NearLimit, false));
-        Assert.Equal("RingExhaustedBrush", UsageRingBands.ArcBrushKey(UsageRingBand.Exhausted, false));
+        Assert.Equal("AccentBrush", UsageRingBands.ArcBrushKey(UsageRingBand.Normal));
+        Assert.Equal("RingCautionBrush", UsageRingBands.ArcBrushKey(UsageRingBand.Caution));
+        Assert.Equal("RingNearLimitBrush", UsageRingBands.ArcBrushKey(UsageRingBand.NearLimit));
+        Assert.Equal("RingExhaustedBrush", UsageRingBands.ArcBrushKey(UsageRingBand.Exhausted));
 
         var ring = CodexRingPresentation.From(Snapshot(UsageProviderId.Codex, Window(UsageProviderId.Codex, 72)));
-        Assert.Equal("Weekly used 72% · Caution", UsageRingBands.WithLabel("Weekly used 72%", ring, false));
+        Assert.Equal("Weekly used 72% · Caution", UsageRingBands.WithLabel("Weekly used 72%", ring));
         Assert.Equal("", UsageRingBands.Label(UsageRingBand.Normal));
         Assert.Equal("Near limit", UsageRingBands.Label(UsageRingBand.NearLimit));
         Assert.Equal("Limit reached", UsageRingBands.Label(UsageRingBand.Exhausted));

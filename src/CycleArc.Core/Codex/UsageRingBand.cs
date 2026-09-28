@@ -5,8 +5,7 @@ namespace CycleArc.Codex;
 /// <summary>
 /// Color band of one ring, taken from the unrounded used percentage of the limit that ring
 /// represents. It only chooses the arc color: exhaustion itself stays
-/// <see cref="CodexRingPresentation.IsDangerLevel"/>, and stale/unknown states keep their
-/// own presentation ahead of the band.
+/// <see cref="CodexRingPresentation.IsDangerLevel"/> and unknown values stay unlabelled.
 /// </summary>
 public enum UsageRingBand
 {
@@ -33,8 +32,8 @@ public static class UsageRingBands
         _ => UsageRingBand.Normal
     };
 
-    /// <summary>Theme resource for the arc; stale data keeps its existing color first.</summary>
-    public static string ArcBrushKey(UsageRingBand band, bool stale) => stale ? "StaleBrush" : band switch
+    /// <summary>Theme resource for the arc, selected only from the usage band.</summary>
+    public static string ArcBrushKey(UsageRingBand band) => band switch
     {
         UsageRingBand.Caution => "RingCautionBrush",
         UsageRingBand.NearLimit => "RingNearLimitBrush",
@@ -51,10 +50,10 @@ public static class UsageRingBands
         _ => ""
     };
 
-    /// <summary>Appends the band label only when the ring is actually colored by it.</summary>
-    public static string WithLabel(string text, CodexRingPresentation ring, bool stale)
+    /// <summary>Appends the usage band label only when the ring is available.</summary>
+    public static string WithLabel(string text, CodexRingPresentation ring)
     {
-        if (stale || !ring.IsAvailable) return text;
+        if (!ring.IsAvailable) return text;
         var label = Label(ring.Band);
         return label.Length == 0 ? text : $"{text} · {label}";
     }

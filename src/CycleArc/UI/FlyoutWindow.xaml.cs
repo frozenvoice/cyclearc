@@ -771,9 +771,8 @@ One credit will be consumed.",
         CodexRingValueText.Text = ring.CenterValueText;
         CodexRingSubLabel.Text = ring.CenterSubLabel;
 
-        var stale = ClaudeUsagePresentation.IsStale(snapshot);
-        CodexRingValueText.SetResourceReference(TextBlock.ForegroundProperty, stale ? "StaleBrush" : "TextBrush");
-        var arcColor = (Brush)FindResource(UsageRingBands.ArcBrushKey(ring.Band, stale));
+        CodexRingValueText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+        var arcColor = (Brush)FindResource(UsageRingBands.ArcBrushKey(ring.Band));
         CodexRingArcPath.Stroke = arcColor;
         CodexRingFullCircle.Stroke = arcColor;
         CodexRingTrack.Stroke = (Brush)FindResource(ring.IsAvailable ? "LineBrush" : "DisabledBrush");
@@ -829,8 +828,7 @@ One credit will be consumed.",
             ? UiText.T("Show weekly usage", "주간 사용량 표시") : UiText.T("Show 5-hour usage", "5시간 사용량 표시");
         CyclePeriodButton.ToolTip = switchText;
         System.Windows.Automation.AutomationProperties.SetName(CyclePeriodButton,
-            UsageRingBands.WithLabel($"{ring.CenterValueText} {ring.CenterSubLabel}", ring,
-                ClaudeUsagePresentation.IsStale(snapshot)) + $". {switchText}");
+            UsageRingBands.WithLabel($"{ring.CenterValueText} {ring.CenterSubLabel}", ring) + $". {switchText}");
     }
 
     private static bool HasKnownWindow(CodexQuotaSnapshot snapshot, CodexWindowKind kind) =>

@@ -159,7 +159,7 @@ public sealed class WidgetAccountModuleView : Border
         {
             model.DisplayName,
             model.Provider.Name(),
-            UsageRingBands.WithLabel(model.Ring.CenterSubLabel + " " + model.Ring.CenterValueText, model.Ring, model.IsStale)
+            UsageRingBands.WithLabel(model.Ring.CenterSubLabel + " " + model.Ring.CenterValueText, model.Ring)
         }.Concat(periods).Append(model.StatusText)
             .Where(part => !string.IsNullOrEmpty(part)))
             + (model.IsSelected ? UiText.T(" · Selected", " · 선택됨") : "");
@@ -181,9 +181,10 @@ public sealed class WidgetAccountModuleView : Border
         };
         RingTargetText.Visibility = string.IsNullOrEmpty(model.RingTargetLabel) ? Visibility.Collapsed : Visibility.Visible;
         RingTargetText.ToolTip = ring.CenterSubLabel;
-        _ringHost.ToolTip = UsageRingBands.WithLabel(ring.CenterSubLabel + " " + ring.CenterValueText, ring, model.IsStale);
-        RingValueText.SetResourceReference(TextBlock.ForegroundProperty, model.IsStale ? "StaleBrush" : "TextBrush");
-        var arcBrushKey = UsageRingBands.ArcBrushKey(ring.Band, model.IsStale);
+        _ringHost.ToolTip = UsageRingBands.WithLabel(ring.CenterSubLabel + " " + ring.CenterValueText, ring);
+        // Quota colors describe the last received values. Freshness has its own status row.
+        RingValueText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+        var arcBrushKey = UsageRingBands.ArcBrushKey(ring.Band);
         _ringArc.SetResourceReference(Shape.StrokeProperty, arcBrushKey);
         _ringFull.SetResourceReference(Shape.StrokeProperty, arcBrushKey);
         _ringTrack.SetResourceReference(Shape.StrokeProperty, ring.IsAvailable ? "LineBrush" : "DisabledBrush");
@@ -220,7 +221,7 @@ public sealed class WidgetAccountModuleView : Border
             var line = model.Periods[i];
             var startsGroup = isCursor && (i == 0 || line.CadenceLabel != model.Periods[i - 1].CadenceLabel);
             Periods[i].Margin = new Thickness(0, i == 0 ? 0 : isCursor ? startsGroup ? 4 : 0 : 4, 0, 0);
-            Periods[i].Bind(line, model.IsStale, isCursor, startsGroup);
+            Periods[i].Bind(line, isCursor, startsGroup);
         }
     }
 }
@@ -280,14 +281,14 @@ public sealed class WidgetPeriodLineView : StackPanel
         Children.Add(ResetText);
     }
 
-    public void Bind(WidgetPeriodLine line, bool stale, bool isCursor = false, bool startsGroup = false)
+    public void Bind(WidgetPeriodLine line, bool isCursor = false, bool startsGroup = false)
     {
         PeriodText.Text = line.PeriodLabel;
         // Match the named allowance to the ring visually as well as in its tooltip.
         // Other providers retain their existing period typography.
         PeriodText.FontWeight = isCursor && line.IsRepresentative ? FontWeights.SemiBold : FontWeights.Normal;
         PeriodText.SetResourceReference(TextBlock.ForegroundProperty,
-            isCursor && line.IsRepresentative ? stale ? "StaleBrush" : "AccentBrush" : "MutedBrush");
+            isCursor && line.IsRepresentative ? "AccentBrush" : "MutedBrush");
         PeriodText.TextWrapping = isCursor ? TextWrapping.Wrap : TextWrapping.NoWrap;
         PeriodText.TextTrimming = isCursor ? TextTrimming.None : TextTrimming.CharacterEllipsis;
         // Cursor's cadence is shared once above each group. Keep the actual allowance
@@ -299,7 +300,7 @@ public sealed class WidgetPeriodLineView : StackPanel
         CadenceText.Visibility = startsGroup ? Visibility.Visible : Visibility.Collapsed;
         ToolTip = line.Tooltip;
         RemainingText.Text = line.DisplayRemainingText;
-        RemainingText.SetResourceReference(TextBlock.ForegroundProperty, stale ? "StaleBrush" : "TextBrush");
+        RemainingText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         ResetText.Text = line.ResetText;
         ResetText.Visibility = string.IsNullOrEmpty(line.ResetText) ? Visibility.Collapsed : Visibility.Visible;
         // The countdown stays readable; the exact local reset time is one hover away.

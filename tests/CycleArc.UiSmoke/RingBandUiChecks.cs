@@ -5,6 +5,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using CycleArc.Providers.Claude;
 using CycleArc.Codex;
 using CycleArc.Models;
 using CycleArc.Providers.Usage;
@@ -52,6 +53,7 @@ internal static class RingBandUiChecks
                 UiText.SetLanguage(language);
                 applyTheme.Invoke(null, [theme]);
                 CheckPalette(theme);
+                count += CheckRateLimitRecovery(directory, language, theme);
                 var accounts = Cases.Select(Account).ToArray();
                 foreach (var selected in new[] { "near-limit", "caution" })
                 {
@@ -126,13 +128,16 @@ internal static class RingBandUiChecks
         var snapshot = new CodexQuotaSnapshot(sample.Unknown ? CodexQuotaStatus.Unavailable : CodexQuotaStatus.Available,
             "pro", Now, Now, null, null, null, [window],
             provider == UsageProviderId.Claude ? "claude-live" : null) { Provider = provider };
-        if (sample.Stale) snapshot = snapshot.AsStale(Now, "claude-live-request-failed");
+        if (sample.Stale)
+            snapshot = provider == UsageProviderId.Claude
+                ? snapshot.AsStale(Now, "claude-live-rate-limited")
+                : snapshot with { Status = CodexQuotaStatus.Stale, TechnicalDetail = "cursor-refresh-failed" };
         return new CodexAccountView(new CodexAccountProfile(sample.Id, "", sample.Name) { Provider = provider }, snapshot,
             $"{sample.Name.ToLowerInvariant()}@example.invalid") { IsConnected = true };
     }
 
     private static string ExpectedKey(Case sample) =>
-        UsageRingBands.ArcBrushKey(sample.Unknown ? UsageRingBand.Normal : UsageRingBands.From(sample.Used), sample.Stale);
+        UsageRingBands.ArcBrushKey(sample.Unknown ? UsageRingBand.Normal : UsageRingBands.From(sample.Used));
 
     private static void CheckWidgetModule(WidgetAccountModuleView module, Case sample, bool selected, string label)
     {
@@ -144,9 +149,25 @@ internal static class RingBandUiChecks
         Check(full.Any(ellipse => ReferenceEquals(ellipse.Stroke, expected)), label + ": widget full-circle color.");
         Check(arc.Visibility == (RingGeometry.ComputeUsedArc(sample.Unknown ? null : sample.Used, 32, 32, 29).Visible
                 ? Visibility.Visible : Visibility.Collapsed), label + ": widget arc visibility.");
-        // Only the ring changes: value text, selection border and status keep their resources.
-        Check(ReferenceEquals(module.RingValueText.Foreground, module.FindResource(sample.Stale ? "StaleBrush" : "TextBrush")),
-            label + ": widget value color changed.");
+        // Usage numbers follow the normal text color; only the status line carries stale warning color.
+        Check(ReferenceEquals(module.RingValueText.Foreground, module.FindResource("TextBrush")),
+            label + ": widget quota text inherited the stale warning color.");
+        Check(ReferenceEquals(module.StatusText.Foreground,
+                module.FindResource(sample.Stale ? "StaleBrush" : "MutedBrush")),
+            label + ": widget status color no longer reflects freshness.");
+        if (sample.Stale)
+            Check(module.StatusText.Visibility == Visibility.Visible,
+                label + ": stale widget status is hidden.");
+        foreach (var (line, index) in module.Periods.Select((line, index) => (line, index)))
+        {
+            Check(ReferenceEquals(line.RemainingText.Foreground, module.FindResource("TextBrush")),
+                label + ": widget remaining quota inherited the stale warning color.");
+            var isRepresentativeCursor = sample.Provider == UsageProviderId.Cursor
+                && module.Model!.Periods[index].IsRepresentative;
+            Check(ReferenceEquals(line.PeriodText.Foreground,
+                    module.FindResource(isRepresentativeCursor ? "AccentBrush" : "MutedBrush")),
+                label + ": widget period label color changed.");
+        }
         Check(selected
                 ? ReferenceEquals(module.BorderBrush, module.FindResource("AccentBrush"))
                 : module.BorderBrush == Brushes.Transparent,
@@ -156,11 +177,11 @@ internal static class RingBandUiChecks
         var name = AutomationProperties.GetName(module);
         Check(name.Contains(model.Ring.CenterValueText, StringComparison.Ordinal), label + ": accessible value lost.");
         var bandLabel = UsageRingBands.Label(model.Ring.Band);
-        if (!sample.Stale && !sample.Unknown && bandLabel.Length > 0)
+        if (!sample.Unknown && bandLabel.Length > 0)
             Check(name.Contains(" · " + bandLabel, StringComparison.Ordinal), label + ": accessible band missing.");
-        if (sample.Stale || sample.Unknown)
+        if (sample.Unknown)
             Check(!name.Contains(" · " + UsageRingBands.Label(UsageRingBand.NearLimit), StringComparison.Ordinal),
-                label + ": stale/unknown got a band label.");
+                label + ": unknown got a band label.");
     }
 
     private static void CheckFlyout(FlyoutWindow flyout, Case sample, string label)
@@ -170,8 +191,38 @@ internal static class RingBandUiChecks
         var value = (TextBlock)flyout.FindName("CodexRingValueText");
         var expected = flyout.FindResource(ExpectedKey(sample));
         Check(ReferenceEquals(arc.Stroke, expected) && ReferenceEquals(full.Stroke, expected), label + ": detail arc color.");
-        Check(ReferenceEquals(value.Foreground, flyout.FindResource(sample.Stale ? "StaleBrush" : "TextBrush")),
-            label + ": detail value color changed.");
+        Check(ReferenceEquals(value.Foreground, flyout.FindResource("TextBrush")),
+            label + ": detail quota text inherited the stale warning color.");
+        var rows = (ItemsControl)flyout.FindName("CodexRows");
+        foreach (var quotaValue in AccountUiChecks.Descendants<TextBlock>(rows).Where(text => text.Text.Contains('%')))
+            Check(ReferenceEquals(quotaValue.Foreground, flyout.FindResource("TextBrush")),
+                label + ": detail quota row inherited the stale warning color.");
+        if (sample.Stale)
+        {
+            var status = (TextBlock)flyout.FindName("CodexStatusText");
+            Check(status.Visibility == Visibility.Visible
+                && ReferenceEquals(status.Foreground, flyout.FindResource("StaleBrush")),
+                label + ": detail freshness status lost its warning color.");
+        }
+        var overview = (ItemsControl)flyout.FindName("AccountOverview");
+        if (!sample.Unknown && overview.Items.Count > 0)
+        {
+            var card = overview.Items.Cast<Button>().Single(button => (string)button.Tag == sample.Id);
+            var cardTexts = AccountUiChecks.Descendants<TextBlock>(card).ToArray();
+            foreach (var window in Account(sample).Snapshot.Windows)
+            {
+                var summary = CodexDisplayFormatting.QuotaSummaryText(window, sample.Provider);
+                var text = cardTexts.Single(candidate => candidate.Text == summary);
+                Check(ReferenceEquals(text.Foreground, flyout.FindResource("TextBrush")),
+                    label + ": account summary quota inherited the stale warning color.");
+            }
+            if (sample.Stale)
+            {
+                var status = cardTexts.Single(candidate => candidate.Text == CycleArcPresentation.StatusLabel(Account(sample).Snapshot));
+                Check(ReferenceEquals(status.Foreground, flyout.FindResource("StaleBrush")),
+                    label + ": account summary freshness status lost its warning color.");
+            }
+        }
         if (sample.Id == "rounded")
             Check(value.Text == "99.6%" && full.Visibility == Visibility.Collapsed, label + ": 99.6% drew as exhausted.");
         if (sample.Id == "exhausted")
@@ -179,7 +230,7 @@ internal static class RingBandUiChecks
         var button = (Button)flyout.FindName("CyclePeriodButton");
         var name = AutomationProperties.GetName(button);
         var band = sample.Unknown ? UsageRingBand.Normal : UsageRingBands.From(sample.Used);
-        if (!sample.Stale && !sample.Unknown && band != UsageRingBand.Normal)
+        if (!sample.Unknown && band != UsageRingBand.Normal)
             Check(name.Contains(" · " + UsageRingBands.Label(band), StringComparison.Ordinal), label + ": detail band label.");
         Check(name.Contains(value.Text, StringComparison.Ordinal), label + ": detail accessible value lost.");
     }
@@ -202,9 +253,115 @@ internal static class RingBandUiChecks
             if (string.CompareOrdinal(a, b) >= 0) continue;
             Check(Distance(Color(a), Color(b)) >= 40, $"{theme}: {a} and {b} are too close.");
         }
-        // Stale keeps its existing amber and takes priority; it also recolors the value text.
+        // The amber freshness warning remains visually separate from every quota band.
         Check(Distance(Color("StaleBrush"), Color("RingNearLimitBrush")) >= 40
             && Distance(Color("StaleBrush"), Color("RingExhaustedBrush")) >= 40, $"{theme}: stale looks like a band.");
+    }
+
+    private static int CheckRateLimitRecovery(string? directory, UiLanguage language, AppTheme theme)
+    {
+        var profile = new CodexAccountProfile("claude-rate-limit", "", "Rate limit sample")
+        {
+            Provider = UsageProviderId.Claude
+        };
+        var windows = new[]
+        {
+            new CodexQuotaWindow("five_hour", 0, 300, Now.AddHours(2), CodexWindowKind.FiveHour) { IsEnabled = true },
+            new CodexQuotaWindow("seven_day", 10, 10080, Now.AddDays(5), CodexWindowKind.Weekly) { IsEnabled = true }
+        };
+        var baseline = new CodexQuotaSnapshot(CodexQuotaStatus.Available, "pro", Now, Now,
+            null, null, null, windows, ClaudeUsagePresentation.LiveDetail) { Provider = UsageProviderId.Claude };
+        var account = new CodexAccountView(profile, baseline, "ratelimit@example.invalid") { IsConnected = true };
+        var failed = account with
+        {
+            Snapshot = baseline.AsStale(Now.AddMinutes(1), "claude-live-rate-limited")
+        };
+        var recovered = account with
+        {
+            Snapshot = baseline with
+            {
+                LastSuccessfulRefresh = Now.AddMinutes(2),
+                LastAttemptedRefresh = Now.AddMinutes(2)
+            }
+        };
+        var other = Account(Cases[0]);
+        var widget = new FloatingWidget { ShowActivated = false };
+        var flyout = new FlyoutWindow { ShowActivated = false };
+        try
+        {
+            foreach (var (sample, stale) in new[] { (failed, true), (recovered, false) })
+            {
+                Check(sample.Snapshot.Windows.Count == 2
+                    && sample.Snapshot.Windows[0].UsedPercent == 0
+                    && sample.Snapshot.Windows[1].UsedPercent == 10,
+                    "Claude rate-limit fixture lost the retained 0% / 10% quota windows.");
+                flyout.BindAccounts([other, sample], sample.Profile.Id, false);
+                AccountUiChecks.Render(flyout, 440, null, directory is null ? null
+                    : Path.Combine(directory, $"claude-rate-limit-{(stale ? "failed" : "recovered")}-detail-{(language == UiLanguage.Korean ? "ko" : "en")}-{theme.ToString().ToLowerInvariant()}.png"));
+                var notice = (TextBlock)flyout.FindName("CodexStatusText");
+                var globalStatus = (TextBlock)flyout.FindName("StatusText");
+                var value = (TextBlock)flyout.FindName("CodexRingValueText");
+                Check(value.Text == "0%"
+                    && ReferenceEquals(value.Foreground, flyout.FindResource("TextBrush")),
+                    "Claude rate-limit changed or warned the remaining 100% ring value.");
+                var detailRows = ((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>()
+                    .Select(border => (Grid)border.Child).ToArray();
+                var quotaValues = detailRows.Where(row => row.Children.Count > 1 && row.Children[1] is StackPanel)
+                    .Select(row => (StackPanel)row.Children[1]).Select(stack => stack.Children.OfType<TextBlock>().First())
+                    .Where(text => text.Text.Contains('%')).ToArray();
+                Check(quotaValues.Select(text => text.Text).SequenceEqual(["0% / 100%", "10% / 90%"]),
+                    "Claude detail did not retain the two failed quota values.");
+                Check(quotaValues.All(text => ReferenceEquals(text.Foreground, flyout.FindResource("TextBrush"))),
+                    "Claude detail quota values inherited the freshness warning color.");
+                Check(ReferenceEquals(notice.Foreground, flyout.FindResource(stale ? "StaleBrush" : "MutedBrush"))
+                    && (stale ? notice.Text.StartsWith(ClaudeUsagePresentation.FailureLabel("claude-live-rate-limited")!, StringComparison.Ordinal)
+                            && globalStatus.Text == UiText.T("1 need attention", "1개 확인 필요")
+                        : !notice.Text.Contains(ClaudeUsagePresentation.FailureLabel("claude-live-rate-limited")!, StringComparison.Ordinal)
+                            && globalStatus.Text != UiText.T("1 need attention", "1개 확인 필요")),
+                    "Claude freshness warning did not follow the 429 failure and successful recovery.");
+                var card = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>()
+                    .Single(button => (string)button.Tag == sample.Profile.Id);
+                var cardTexts = AccountUiChecks.Descendants<TextBlock>(card).ToArray();
+                foreach (var window in sample.Snapshot.Windows)
+                {
+                    var summary = CodexDisplayFormatting.QuotaSummaryText(window, UsageProviderId.Claude);
+                    var summaryText = cardTexts.Single(text => text.Text == summary);
+                    Check(ReferenceEquals(summaryText.Foreground, flyout.FindResource("TextBrush")),
+                        "Claude account summary quota inherited the freshness warning color.");
+                }
+                var cardStatus = cardTexts.Single(text => text.Text == CycleArcPresentation.StatusLabel(sample.Snapshot));
+                Check(ReferenceEquals(cardStatus.Foreground, flyout.FindResource(stale ? "StaleBrush" : "MutedBrush")),
+                    "Claude account summary status did not follow freshness.");
+
+                widget.BindAccounts([sample], sample.Profile.Id, UsagePeriodPreference.Auto, WidgetFixture.Desktop, Now);
+                WidgetFixture.RenderWidget(widget, directory is null ? null
+                    : Path.Combine(directory, $"claude-rate-limit-{(stale ? "failed" : "recovered")}-widget-{(language == UiLanguage.Korean ? "ko" : "en")}-{theme.ToString().ToLowerInvariant()}.png"));
+                var module = WidgetFixture.Module(widget);
+                Check(module.Periods.Count == 2
+                    && module.Periods[0].RemainingText.Text.Contains("100%", StringComparison.Ordinal)
+                    && module.Periods[1].RemainingText.Text.Contains("90%", StringComparison.Ordinal),
+                    "Claude widget did not retain the 100% / 90% remaining values.");
+                Check(module.Periods.All(line => ReferenceEquals(line.RemainingText.Foreground,
+                    widget.FindResource("TextBrush"))),
+                    "Claude widget remaining values inherited the freshness warning color.");
+                var expectedArc = widget.FindResource(UsageRingBands.ArcBrushKey(UsageRingBand.Normal));
+                var arc = ((Grid)VisualTreeHelper.GetParent(VisualTreeHelper.GetParent(module.RingValueText)))
+                    .Children.OfType<System.Windows.Shapes.Path>().Single();
+                Check(ReferenceEquals(arc.Stroke, expectedArc)
+                    && ReferenceEquals(module.RingValueText.Foreground, widget.FindResource("TextBrush")),
+                    "Claude widget ring did not retain usage-band and normal text colors.");
+                Check(module.StatusText.Visibility == (stale ? Visibility.Visible : Visibility.Collapsed)
+                    && ReferenceEquals(module.StatusText.Foreground,
+                        widget.FindResource(stale ? "StaleBrush" : "MutedBrush")),
+                    "Claude widget warning did not appear only while the server request was failing.");
+            }
+            var cursorStale = new Case("cursor-stale", "Cursor stale", UsageProviderId.Cursor, 12.5, Stale: true);
+            WidgetFixture.BindOne(widget, Account(cursorStale));
+            WidgetFixture.RenderWidget(widget, null);
+            CheckWidgetModule(WidgetFixture.Module(widget), cursorStale, true, $"{language}/{theme}/cursor-stale");
+        }
+        finally { flyout.Close(); widget.CloseWithoutActivation(); }
+        return 5;
     }
 
     private static double Contrast(Color a, Color b)

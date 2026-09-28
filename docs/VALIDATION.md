@@ -2499,3 +2499,38 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
 - No installation/restart, live-account access or destructive installed-app update check was
   performed on this working Windows profile. Screen captures use production views with
   in-memory settings under OfflineApp.
+
+## Separate quota colors from lookup failures, 2026-09-28
+
+- Widget, detail popup and account-summary quota numbers now keep their normal text color
+  when a lookup fails. Their usage rings use the last received percentage's band, while
+  the existing stale/failure status stays yellow and bold. Unknown values remain unknown;
+  the native tray's independent stale-ring policy is unchanged.
+- Removed the freshness argument from the shared WPF arc/accessible-band helpers so callers
+  cannot replace quota colors with request state. Status text remains part of the accessible
+  widget description. There are no changes to polling, authentication, provider projection,
+  caches, retry delays or saved settings.
+- The rate-limit explanation was checked against the current implementation: a live Claude
+  attempt verifies the profile before querying usage, HTTP 429 preserves last-good data,
+  and both manual and automatic checks observe the cached retry deadline. A missing
+  Retry-After falls back to one minute. This does not establish the server's unpublished
+  request limit or guarantee that any configured interval avoids throttling.
+- Focused verification passed: 42 `UsageRingBandTests` and 148 WPF ring-band cases. The
+  new fixture retains Claude 0% five-hour / 10% weekly usage (100% / 90% remaining) through
+  HTTP 429 and successful recovery, checking widget, detail and account-summary numbers
+  separately from status colors. It also covers stale Cursor period-label color, stale
+  90% usage, unknown values, accessible labels and unchanged selection colors.
+- Visually inspected the production views with synthetic accounts in EN/KO and Dark/Light.
+  Refreshed the four affected ring-band widget previews and their comparison sheet only.
+  New failed/recovered previews are under `artifacts/usage-state-colors`; widget reset
+  countdowns use the fixture's fixed clock. No account or credential data was read.
+- Final local gate passed in 5m50s: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+  -TestResultsDirectory artifacts/usage-state-colors/test-results` (1,850 unit tests,
+  complete WPF checks, test-flavour build, single-file publish, built/published receiver
+  checks, installer assets and isolated portable package apply/rollback verification).
+  Log: `artifacts/usage-state-colors/full-gate.log`. No installation/restart, live quota
+  request or destructive installed-app update test was performed on this working profile.
+- A read-only process audit during this change found the running desktop at
+  `0.6.3+79caf01a039ea3cd156f334f617e138b7bbc477e`, with SHA-256
+  `3B93C6B64D07FB3140B6683D48410EC8EA363F25E57B7F65848AA9E62C0C7102`.
+  That build contains the preceding settings redesign but not this color separation.

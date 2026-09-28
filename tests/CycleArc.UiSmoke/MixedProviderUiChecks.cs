@@ -64,9 +64,8 @@ internal static class MixedProviderUiChecks
                             CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), selected.Snapshot);
                             var ringColor = ((SolidColorBrush)((System.Windows.Shapes.Path)flyout.FindName("CodexRingArcPath")).Stroke).Color;
                             var expectedRing = (SolidColorBrush)Application.Current.FindResource(
-                                UsageRingBands.ArcBrushKey(CodexRingPresentation.From(selected.Snapshot).Band,
-                                    selected.Snapshot.Status == CodexQuotaStatus.Stale));
-                            Check(ringColor == expectedRing.Color, "Claude ring does not distinguish stale values.");
+                                UsageRingBands.ArcBrushKey(CodexRingPresentation.From(selected.Snapshot).Band));
+                            Check(ringColor == expectedRing.Color, "Claude ring does not reflect its usage band.");
                             string? opened = null;
                             var refreshed = false;
                             void Refreshed() => refreshed = true;
@@ -117,8 +116,8 @@ internal static class MixedProviderUiChecks
                         Check(module.StatusText.Visibility == Visibility.Visible
                             && module.Model!.IsStale
                             && ((SolidColorBrush)module.RingValueText.Foreground).Color
-                                == ((SolidColorBrush)Application.Current.FindResource("StaleBrush")).Color,
-                            "Claude widget hides stale state.");
+                                == ((SolidColorBrush)Application.Current.FindResource("TextBrush")).Color,
+                            "Claude widget quota text is colored by its stale warning.");
                     count++;
                 }
                 // An unchanged older receipt remains neutral; only a concrete failure raises attention.

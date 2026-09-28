@@ -64,7 +64,7 @@ internal static class AccountSummary
                     label.HorizontalAlignment = HorizontalAlignment.Left;
                 }
                 row.Children.Add(label);
-                var value = Text(CodexDisplayFormatting.QuotaSummaryText(window, account.Profile.Provider), 12, stale ? "StaleBrush" : "TextBrush");
+                var value = Text(CodexDisplayFormatting.QuotaSummaryText(window, account.Profile.Provider), 12, "TextBrush");
                 Grid.SetColumn(value, 1); row.Children.Add(value); content.Children.Add(row);
             }
         }
