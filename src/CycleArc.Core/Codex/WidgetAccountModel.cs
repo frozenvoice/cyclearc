@@ -121,7 +121,8 @@ public sealed record WidgetAccountModel(
         };
     }
 
-    private static bool HasHealthyServerSample(CodexQuotaSnapshot snapshot) =>
+    // Shared with the popup detail, which folds the same healthy status text.
+    public static bool HasHealthyServerSample(CodexQuotaSnapshot snapshot) =>
         snapshot.Status == CodexQuotaStatus.Available
         && snapshot.LastSuccessfulRefresh is not null
         && snapshot.Windows.Count > 0

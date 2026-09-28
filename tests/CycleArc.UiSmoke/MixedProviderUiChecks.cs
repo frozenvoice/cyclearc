@@ -50,7 +50,7 @@ internal static class MixedProviderUiChecks
                         Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text ==
                             CodexRingPresentation.From(selected.Snapshot).RemainingValueText, "Selected provider values differ from its snapshot.");
                         var isClaude = selected.Profile.Provider == UsageProviderId.Claude;
-                        Check(((StackPanel)flyout.FindName("ClaudeUsageHeader")).Visibility ==
+                        Check(((FrameworkElement)flyout.FindName("ClaudeUsageHeader")).Visibility ==
                             (isClaude ? Visibility.Visible : Visibility.Collapsed), "Shared subscription context crossed providers.");
                         var usagePage = (Button)flyout.FindName("ClaudeUsagePageButton");
                         Check(usagePage.Visibility == (isClaude ? Visibility.Visible : Visibility.Collapsed), "Usage page action crossed providers.");
@@ -186,9 +186,17 @@ internal static class MixedProviderUiChecks
                 flyout.BindAccounts([accounts[0], live], live.Profile.Id, false);
                 AccountUiChecks.Render(flyout, 440, null, directory is null ? null
                     : Path.Combine(directory, $"claude-live-{language}-{theme}.png"));
-                Check(((TextBlock)flyout.FindName("CodexStatusText")).Text.Contains(
+                var liveNotice = (TextBlock)flyout.FindName("CodexStatusText");
+                Check(liveNotice.Text.Contains(
                         UiText.T("Updated from the Claude server", "Claude 서버에서"), StringComparison.Ordinal),
                     "Live Claude receipt does not identify the server fetch.");
+                // A healthy server check folds its sentence; the scope line keeps it as a tooltip
+                // and the "Last checked" row below keeps the time.
+                var liveScope = (TextBlock)flyout.FindName("ClaudeUsageScope");
+                Check(liveNotice.Visibility == Visibility.Collapsed
+                    && liveScope.Visibility == Visibility.Visible
+                    && liveScope.ToolTip is System.Windows.Controls.ToolTip { Content: string scopeTip } && scopeTip == liveNotice.Text,
+                    "Healthy live Claude detail still repeats its update sentence or lost it entirely.");
                 Check(((ItemsControl)flyout.FindName("CodexRows")).Items.Cast<Border>()
                     .Select(border => (Grid)border.Child)
                     .Select(grid => ((TextBlock)grid.Children[0]).Text)

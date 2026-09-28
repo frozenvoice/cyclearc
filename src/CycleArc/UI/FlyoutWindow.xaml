@@ -118,8 +118,32 @@
                 </Track>
             </ControlTemplate></Setter.Value></Setter>
         </Style>
+        <!-- A secondary action inside the detail card: text only, underlined on hover and focus. -->
+        <Style x:Key="FlyoutLinkButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent" Padding="0,2">
+                            <TextBlock x:Name="LinkText" Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="LinkText" Property="TextDecorations" Value="Underline"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="LinkText" Property="TextDecorations" Value="Underline"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
-    <Border x:Name="FlyoutSurface" Width="440" Background="{DynamicResource CardBrush}"
+    <!-- Darkest ground for the popup; the detail card and account rows sit one step lighter. -->
+    <Border x:Name="FlyoutSurface" Width="440" Background="{DynamicResource BgBrush}"
             BorderBrush="{DynamicResource LineBrush}"
             BorderThickness="1"
             CornerRadius="14"
@@ -293,12 +317,17 @@
                             <ui:UsageProviderBadge x:Name="SelectedProviderBadge" Grid.Column="1"/>
                         </Grid>
                     </DockPanel>
-                    <Border x:Name="CodexCard" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12">
+                    <Border x:Name="CodexCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12">
                         <StackPanel>
-                            <StackPanel x:Name="ClaudeUsageHeader" Visibility="Collapsed" Margin="0,0,0,8">
-                                <TextBlock x:Name="ClaudeUsageTitle" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                <TextBlock x:Name="ClaudeUsageScope" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0"/>
-                            </StackPanel>
+                            <!-- One line: the shared scope, and the official usage page as a link. The title
+                                 stays as the header's accessible name; the provider badge already names Claude. -->
+                            <DockPanel x:Name="ClaudeUsageHeader" Visibility="Collapsed" Margin="0,0,0,8" LastChildFill="True">
+                                <TextBlock x:Name="ClaudeUsageTitle" Visibility="Collapsed"/>
+                                <Button x:Name="ClaudeUsagePageButton" DockPanel.Dock="Right" Style="{StaticResource FlyoutLinkButton}"
+                                        Click="OnClaudeUsagePage" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="ClaudeUsageScope" Foreground="{DynamicResource MutedBrush}" FontSize="11"
+                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            </DockPanel>
                             <TextBlock x:Name="CodexStatusText" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed"/>
                             <StackPanel Margin="0,0,0,12">
                                 <DockPanel LastChildFill="False">
@@ -338,11 +367,9 @@
                                     <ItemsControl x:Name="CodexRows" VerticalAlignment="Center"/>
                                 </Border>
                             </Grid>
-                            <Button x:Name="ClaudeUsagePageButton" Style="{StaticResource CreditUseButton}" Click="OnClaudeUsagePage"
-                                    HorizontalAlignment="Left" Margin="0,10,0,0" Visibility="Collapsed"/>
                         </StackPanel>
                     </Border>
-                    <Border x:Name="ResetCreditsCard" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,12,0,0">
+                    <Border x:Name="ResetCreditsCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,12,0,0">
                         <StackPanel>
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -357,7 +384,7 @@
                                 </Button>
                             </Grid>
                             <StackPanel x:Name="CreditDetails" Margin="0,8,0,0">
-                            <Border x:Name="CreditListBorder" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8" Padding="12,0">
+                            <Border x:Name="CreditListBorder" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8" Padding="12,0">
                                 <ScrollViewer x:Name="CreditExpiryScroll" Height="108" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
                                     <ItemsControl x:Name="CreditExpiryRows"/>
                                 </ScrollViewer>

@@ -465,15 +465,23 @@ public partial class FlyoutWindow : Window
             ? Visibility.Visible : Visibility.Collapsed;
         ClaudeUsageTitle.Text = ClaudeUsagePresentation.Title;
         ClaudeUsageScope.Text = ClaudeUsagePresentation.SharedScope;
+        System.Windows.Automation.AutomationProperties.SetName(ClaudeUsageHeader,
+            ClaudeUsagePresentation.Title + " · " + ClaudeUsagePresentation.SharedScope);
         ClaudeUsagePageButton.Content = ClaudeUsagePresentation.UsagePageLabel;
         ClaudeUsagePageButton.ToolTip = MakeTooltip(ClaudeUsagePresentation.UsagePageHint);
         CodexStatusText.Text = snapshot.Status == CodexQuotaStatus.Refreshing ? "" : CodexDisplayFormatting.StatusText(snapshot);
         CodexStatusText.SetResourceReference(TextBlock.ForegroundProperty, stale ? "StaleBrush" : "MutedBrush");
         CodexStatusText.FontWeight = stale ? FontWeights.SemiBold : FontWeights.Normal;
         CodexStatusText.FontSize = stale ? 12 : 11;
-        CodexStatusText.Visibility = string.IsNullOrWhiteSpace(CodexStatusText.Text)
+        // A healthy server check needs no sentence: its time is in the "Last checked" row and
+        // the sentence stays in the scope tooltip. Received samples, stale data and failures
+        // keep their notice, using the same rule as the widget status row.
+        var healthy = WidgetAccountModel.HasHealthyServerSample(snapshot);
+        CodexStatusText.Visibility = string.IsNullOrWhiteSpace(CodexStatusText.Text) || healthy
             ? Visibility.Collapsed
             : Visibility.Visible;
+        ClaudeUsageScope.ToolTip = healthy && !string.IsNullOrWhiteSpace(CodexStatusText.Text)
+            ? MakeTooltip(CodexStatusText.Text) : null;
         CodexRows.Items.Clear();
         var cursor = CursorUsagePresentation.IsCursor(snapshot.Provider);
         foreach (var item in CodexDisplayFormatting.Rows(snapshot, includeResetCredits: false))

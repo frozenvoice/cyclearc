@@ -30,7 +30,8 @@ public class WidgetInteractionTests
     {
         var document = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "FloatingWidget.xaml"));
         var xaml = document.ToString();
-        Assert.Contains("CardBrush", xaml, StringComparison.Ordinal);
+        // The widget shares the popup's darkest theme ground.
+        Assert.Contains("Background=\"{DynamicResource BgBrush}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("TextBrush", xaml, StringComparison.Ordinal);
         Assert.Contains("MutedBrush", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("ProStateValue", xaml, StringComparison.Ordinal);
