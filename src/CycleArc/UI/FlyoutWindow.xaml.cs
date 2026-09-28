@@ -293,6 +293,7 @@ public partial class FlyoutWindow : Window
             : UiText.T("Connect accounts in Manage accounts to show them here.", "계정 관리에서 연결한 계정이 여기에 표시됩니다.");
         AccountSelectionHint.Visibility = accounts.Count == 1 ? Visibility.Collapsed : Visibility.Visible;
         SelectedAccountText.Text = selected?.DisplayName ?? UiText.T("Add your first account", "첫 계정을 추가하세요");
+        SelectedAvatarHost.Content = selected is null ? null : AccountSummary.Avatar(selected, 30);
         SelectedAccountText.Visibility = Visibility.Visible;
         SelectedAccountText.ToolTip = selected?.Email ?? selected?.DisplayName;
         var failed = accounts.Count(a => a.Snapshot.Status != CodexQuotaStatus.Available && !a.IsAwaitingUsage);
@@ -768,8 +769,13 @@ One credit will be consumed.",
     {
         var ring = CodexRingPresentation.FromDetail(snapshot, UsagePeriod);
         UpdatePeriodControls(snapshot, ring);
-        CodexRingValueText.Text = ring.CenterValueText;
-        CodexRingSubLabel.Text = ring.CenterSubLabel;
+        // The ring fills with what is left. Its color is still the usage band of the unrounded
+        // value, and an exhausted limit names itself rather than relying on an empty ring.
+        CodexRingValueText.Text = ring.RemainingValueText;
+        CodexRingSubLabel.Text = ring.IsDangerLevel ? UsageRingBands.Label(UsageRingBand.Exhausted) : ring.RemainingSubLabel;
+        CodexRingSubLabel.SetResourceReference(TextBlock.ForegroundProperty,
+            ring.IsDangerLevel ? "RingExhaustedBrush" : "MutedBrush");
+        CodexRingSubLabel.FontWeight = ring.IsDangerLevel ? FontWeights.SemiBold : FontWeights.Normal;
 
         CodexRingValueText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         var arcColor = (Brush)FindResource(UsageRingBands.ArcBrushKey(ring.Band));
@@ -777,7 +783,7 @@ One credit will be consumed.",
         CodexRingFullCircle.Stroke = arcColor;
         CodexRingTrack.Stroke = (Brush)FindResource(ring.IsAvailable ? "LineBrush" : "DisabledBrush");
 
-        var arc = RingGeometry.ComputeUsedArc(ring.UsedPercent, CodexRingCenter, CodexRingCenter, CodexRingRadius);
+        var arc = RingGeometry.ComputeFillArc(ring.RemainingPercent, CodexRingCenter, CodexRingCenter, CodexRingRadius);
         CodexRingArcPath.Visibility = arc.Visible ? Visibility.Visible : Visibility.Collapsed;
         CodexRingFullCircle.Visibility = arc.IsFullCircle ? Visibility.Visible : Visibility.Collapsed;
         if (arc.Visible)
@@ -812,8 +818,8 @@ One credit will be consumed.",
             : UsagePeriod == UsagePeriodPreference.Weekly ? CodexWindowKind.Weekly : (CodexWindowKind?)null;
         UsagePeriodFallback.Text = requested is not null && ring.IsAvailable && ring.Window?.Kind != requested
             ? UiText.T(
-                $"{(requested == CodexWindowKind.FiveHour ? "5-hour" : "Weekly")} value unavailable. Showing {ring.CenterSubLabel.ToLowerInvariant()}.",
-                $"{(requested == CodexWindowKind.FiveHour ? "5시간" : "주간")} 값이 없어 {ring.CenterSubLabel}을 표시합니다.")
+                $"{(requested == CodexWindowKind.FiveHour ? "5-hour" : "Weekly")} value unavailable. Showing {ring.RemainingSubLabel.ToLowerInvariant()}.",
+                $"{(requested == CodexWindowKind.FiveHour ? "5시간" : "주간")} 값이 없어 {ring.RemainingSubLabel}을 표시합니다.")
             : "";
         UsagePeriodFallback.Visibility = UsagePeriodFallback.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         UsagePeriodLabel.Visibility = cursor ? Visibility.Collapsed : Visibility.Visible;
@@ -828,7 +834,8 @@ One credit will be consumed.",
             ? UiText.T("Show weekly usage", "주간 사용량 표시") : UiText.T("Show 5-hour usage", "5시간 사용량 표시");
         CyclePeriodButton.ToolTip = switchText;
         System.Windows.Automation.AutomationProperties.SetName(CyclePeriodButton,
-            UsageRingBands.WithLabel($"{ring.CenterValueText} {ring.CenterSubLabel}", ring) + $". {switchText}");
+            UsageRingBands.WithLabel($"{ring.RemainingValueText} {ring.RemainingSubLabel.Replace(Environment.NewLine, " ")}", ring)
+                + $". {switchText}");
     }
 
     private static bool HasKnownWindow(CodexQuotaSnapshot snapshot, CodexWindowKind kind) =>

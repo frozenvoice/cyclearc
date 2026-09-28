@@ -251,7 +251,7 @@ internal static class CursorUiChecks
                     var flyoutContent = (FrameworkElement)flyout.Content;
                     Arrange(flyoutContent, 440, 1000);
                     var ringText = (TextBlock)flyout.FindName("CodexRingSubLabel");
-                    Check(ringText.Text == ring.CenterSubLabel && ringText.Text.Contains(Environment.NewLine),
+                    Check(ringText.Text == ring.RemainingSubLabel && ringText.Text.Contains(Environment.NewLine),
                         $"Cursor {name} popup ring did not show its selected name and cadence at {zoom}%.");
                     Check(ringText.TextWrapping == TextWrapping.Wrap,
                         $"Cursor {name} popup ring does not wrap its selected name at {zoom}%.");
@@ -451,7 +451,9 @@ internal static class CursorUiChecks
                     UiText.T("Cursor account", "Cursor 계정"), snapshot));
                 WidgetFixture.RenderWidget(widget, null);
                 var module = WidgetFixture.Module(widget);
-                Check(module.RingValueText.Text == (used == 76.91 ? "77%" : ">99%"),
+                // The ring shows what is left, with the widget's complementary rounding.
+                Check(module.RingValueText.Text == (used == 76.91 ? "23%" : "<1%")
+                    && module.Model!.RingValueText == (used == 76.91 ? "77%" : ">99%"),
                     "Cursor widget ring did not round only its visible percent.");
                 Check(module.Periods.Select(line => line.RemainingText.Text)
                     .SequenceEqual(used == 76.91 ? new[] { "23%", "97%", "87%" } : new[] { "<1%", "97%", "87%" }),
@@ -466,7 +468,7 @@ internal static class CursorUiChecks
                     "Cursor widget tooltip lost the original decimal precision.");
                 var arc = ringHost.Children.OfType<System.Windows.Shapes.Path>().Single();
                 var segment = (ArcSegment)((PathGeometry)arc.Data).Figures[0].Segments[0];
-                var expectedArc = RingGeometry.ComputeUsedArc(used, 32, 32, 29);
+                var expectedArc = RingGeometry.ComputeFillArc(100 - used, 32, 32, 29);
                 Check(arc.Visibility == Visibility.Visible
                     && Math.Abs(segment.Point.X - expectedArc.End.X) < 0.0001
                     && Math.Abs(segment.Point.Y - expectedArc.End.Y) < 0.0001
@@ -477,7 +479,7 @@ internal static class CursorUiChecks
 
                 flyout.Bind(snapshot);
                 Arrange((FrameworkElement)flyout.Content, 440, 1000);
-                Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == exactUsed
+                Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == exactLeft
                     && Descendants<TextBlock>((FrameworkElement)flyout.Content)
                         .Any(text => text.Text.Contains(exactLeft, StringComparison.Ordinal)),
                     "Cursor detail popup lost its decimal used/remaining percentages.");

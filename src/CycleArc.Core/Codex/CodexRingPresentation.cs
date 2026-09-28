@@ -1,6 +1,7 @@
 using CycleArc.Services;
 using CycleArc.Models;
 using CycleArc.Providers.Cursor;
+using CycleArc.Providers.Usage;
 
 namespace CycleArc.Codex;
 
@@ -18,6 +19,13 @@ public sealed record CodexRingPresentation(
     public CodexQuotaWindow? Window { get; init; }
     // Color band of this ring's own limit, from the unrounded value; unknown stays Normal.
     public UsageRingBand Band { get; init; }
+
+    // The popup and widget rings fill with what is left of this limit. The color band above
+    // still comes from the unrounded usage, so an almost empty ring reads as a warning.
+    public double? RemainingPercent => UsedPercent is { } used ? 100 - used : null;
+    // Remaining text uses the shared validation: invalid or absent usage stays unknown.
+    public string RemainingValueText { get; init; } = "?";
+    public string RemainingSubLabel { get; init; } = UiText.CodexLegendRemaining;
 
     public static CodexRingPresentation FromDetail(CodexQuotaSnapshot snapshot,
         UsagePeriodPreference preference = UsagePeriodPreference.Auto)
@@ -49,7 +57,25 @@ public sealed record CodexRingPresentation(
                     $"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} 사용"))
         {
             Window = window,
-            Band = clamped is null ? UsageRingBand.Normal : UsageRingBands.From(used)
+            Band = clamped is null ? UsageRingBand.Normal : UsageRingBands.From(used),
+            RemainingValueText = clamped is not null && window is not null
+                ? UsagePercentFormatting.DetailRemaining(window) : "?",
+            RemainingSubLabel = RemainingLabel(window, snapshot.Provider)
         };
+    }
+
+    private static string RemainingLabel(CodexQuotaWindow? window, UsageProviderId provider)
+    {
+        if (window is null) return UiText.CodexLegendRemaining;
+        if (CursorUsagePresentation.IsCursor(provider))
+        {
+            var period = CursorUsagePresentation.QuotaPeriodLabel(window.LimitId);
+            return CursorUsagePresentation.QuotaLabel(window.LimitId) + Environment.NewLine
+                + (period is null ? UiText.CodexLegendRemaining : UiText.T($"{period} left", $"{period} 남음"));
+        }
+        return window.Kind == CodexWindowKind.Weekly
+            ? UiText.T("Weekly left", "주간 남음")
+            : UiText.T($"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} left",
+                $"{CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes)} 남음");
     }
 }

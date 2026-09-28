@@ -98,12 +98,15 @@ internal static class CodexWindowUiChecks
 
     private static void Check(FlyoutWindow flyout, FloatingWidget widget, Scenario scenario)
     {
-        var expectedValue = scenario.CompactFiveHour ? "42%" : "31%";
+        // The rings show what is left of the compact window (42% or 31% used).
+        var expectedValue = scenario.CompactFiveHour ? "58%" : "69%";
         var expectedCaption = scenario.CompactFiveHour ? UiText.T("5-hour used", "5시간 사용")
             : UiText.T("Weekly used", "주간 사용");
+        var expectedLeftCaption = scenario.CompactFiveHour ? UiText.T("5-hour left", "5시간 남음")
+            : UiText.T("Weekly left", "주간 남음");
         var module = WidgetFixture.Module(widget);
         if (((TextBlock)flyout.FindName("CodexRingValueText")).Text != expectedValue
-            || ((TextBlock)flyout.FindName("CodexRingSubLabel")).Text != expectedCaption
+            || ((TextBlock)flyout.FindName("CodexRingSubLabel")).Text != expectedLeftCaption
             || module.RingValueText.Text != expectedValue
             || module.Model!.Ring.CenterSubLabel != expectedCaption)
             throw new InvalidOperationException($"Codex compact window is incorrect: {scenario.Name}.");
@@ -122,12 +125,14 @@ internal static class CodexWindowUiChecks
         for (var i = 0; i < inputs.Length; i++)
         {
             var input = inputs[i];
-            var label = input.Minutes == 300 ? UiText.T("Codex 5-hour usage", "Codex 5시간 사용")
-                : UiText.T("Codex weekly usage", "Codex 주간 사용");
+            var label = input.Minutes == 300 ? UiText.T("5-hour", "5시간") : UiText.T("Weekly", "주간");
             var used = input.Used is { } value ? $"{value:0}%" : "?";
             var left = input.Used is { } known ? $"{100 - known:0}%" : "?";
+            // The account row leads with what is left; the full used/left pair stays in its tooltip.
             if (((TextBlock)summaryRows[i].Children[0]).Text != label
-                || ((TextBlock)summaryRows[i].Children[1]).Text != UiText.T($"Used {used} · Left {left}", $"사용 {used} · 잔여 {left}")
+                || ((TextBlock)summaryRows[i].Children[1]).Text != UiText.WidgetLeft(left)
+                || summaryRows[i].ToolTip as string != label + " · " + UiText.T($"Used {used} · Left {left}", $"사용 {used} · 잔여 {left}")
+                || ((FrameworkElement)summaryRows[i].Children[2]).Visibility != (input.Used is null ? Visibility.Hidden : Visibility.Visible)
                 || ((TextBlock)((StackPanel)details[i * 2].Children[1]).Children[0]).Text != (input.Used is null ? "?" : $"{used} / {left}")
                 || ((TextBlock)((StackPanel)details[i * 2 + 1].Children[1]).Children[0]).Text == "?")
                 throw new InvalidOperationException($"Codex window values or reset time are incorrect: {scenario.Name}.");

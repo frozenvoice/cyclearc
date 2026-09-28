@@ -66,7 +66,7 @@ internal static class UsagePeriodUiChecks
                         .GetPattern(PatternInterface.Invoke)!).Invoke();
                     flyout.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
                     Check(flyout.UsagePeriod == UsagePeriodPreference.Weekly && changes.Count == 2
-                        && Text(flyout, "CodexRingValueText") == "74%", "Ring did not switch to weekly usage.");
+                        && Text(flyout, "CodexRingValueText") == "26%", "Ring did not switch to the weekly remainder.");
                     Select(flyout, "WeeklyPeriodButton");
                     Check(changes.Count == 2, "Selecting the same period emitted an extra change.");
 
@@ -74,7 +74,7 @@ internal static class UsagePeriodUiChecks
                     var weeklyOnly = account with { Profile = account.Profile with { Id = "weekly-only" },
                         Snapshot = snapshot with { Windows = [snapshot.Windows[1]] } };
                     flyout.BindAccounts([weeklyOnly], "weekly-only", false, UsagePeriodPreference.FiveHour);
-                    Check(Text(flyout, "CodexRingValueText") == "74%"
+                    Check(Text(flyout, "CodexRingValueText") == "26%"
                         && ((TextBlock)flyout.FindName("UsagePeriodFallback")).Visibility == Visibility.Visible
                         && !((Button)flyout.FindName("CyclePeriodButton")).IsEnabled,
                         "Missing requested window did not explain its fallback.");
@@ -107,12 +107,15 @@ internal static class UsagePeriodUiChecks
 
     private static void CheckProjection(FlyoutWindow flyout, FloatingWidget widget, UsageAccountOverview overview, int expected)
     {
+        // `expected` is the used percentage; the popup and widget rings show what is left of it.
         var caption = expected == 12 ? UiText.T("5-hour used", "5시간 사용") : UiText.T("Weekly used", "주간 사용");
-        Check(Text(flyout, "CodexRingValueText") == $"{expected}%" && Text(flyout, "CodexRingSubLabel") == caption,
+        var leftCaption = expected == 12 ? UiText.T("5-hour left", "5시간 남음") : UiText.T("Weekly left", "주간 남음");
+        Check(Text(flyout, "CodexRingValueText") == $"{100 - expected}%" && Text(flyout, "CodexRingSubLabel") == leftCaption,
             "Detail uses the wrong period.");
         var module = WidgetFixture.Module(widget);
-        Check(module.RingValueText.Text.StartsWith($"{expected}%", StringComparison.Ordinal)
-            && module.Model!.Ring.CenterSubLabel == caption, "Widget uses the wrong period.");
+        Check(module.RingValueText.Text.StartsWith($"{100 - expected}%", StringComparison.Ordinal)
+            && module.Model!.Ring.CenterSubLabel == caption
+            && module.Model.Ring.RemainingSubLabel == leftCaption, "Widget uses the wrong period.");
         // Choosing the ring's period must never hide the other period the account still has.
         Check(module.Periods.Count == overview.Snapshot.Windows.Count && module.Model!.Periods[0].IsRepresentative,
             "Widget hid a period the account still reports.");
@@ -183,7 +186,7 @@ internal static class UsagePeriodUiChecks
             try
             {
                 reopened.Bind(Sample(UsageProviderId.Claude), preference: restored.UsagePeriod);
-                Check(Text(reopened, "CodexRingValueText") == "74%", "Reload did not retain the saved period.");
+                Check(Text(reopened, "CodexRingValueText") == "26%", "Reload did not retain the saved period.");
             }
             finally { reopened.Close(); }
 
@@ -196,7 +199,7 @@ internal static class UsagePeriodUiChecks
             catch (IOException) { saveFailed = true; }
             Check(saveFailed && ((AppSettings)settingsField.GetValue(app)!).UsagePeriod == UsagePeriodPreference.Weekly
                 && flyout.UsagePeriod == UsagePeriodPreference.Weekly
-                && Text(flyout, "CodexRingValueText") == "74%"
+                && Text(flyout, "CodexRingValueText") == "26%"
                 && store.Load().UsagePeriod == UsagePeriodPreference.Weekly,
                 "Failed period save did not restore the previous display and saved setting.");
         }

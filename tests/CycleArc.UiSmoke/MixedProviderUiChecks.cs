@@ -48,7 +48,7 @@ internal static class MixedProviderUiChecks
                             (selected.Profile.Provider == UsageProviderId.Codex ? Visibility.Visible : Visibility.Collapsed),
                             "Reset credit actions crossed providers.");
                         Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text ==
-                            CodexRingPresentation.From(selected.Snapshot).CenterValueText, "Selected provider values differ from its snapshot.");
+                            CodexRingPresentation.From(selected.Snapshot).RemainingValueText, "Selected provider values differ from its snapshot.");
                         var isClaude = selected.Profile.Provider == UsageProviderId.Claude;
                         Check(((StackPanel)flyout.FindName("ClaudeUsageHeader")).Visibility ==
                             (isClaude ? Visibility.Visible : Visibility.Collapsed), "Shared subscription context crossed providers.");
@@ -76,7 +76,7 @@ internal static class MixedProviderUiChecks
                             flyout.SyncRequested -= Refreshed;
                             Check(opened == "https://claude.ai/settings/usage" && !refreshed,
                                 "Usage page action must only open the official page, without refreshing the sample.");
-                            Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(selected.Snapshot).CenterValueText,
+                            Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(selected.Snapshot).RemainingValueText,
                                 "Opening the usage page altered the displayed quota.");
                         }
                         var overview = (ItemsControl)flyout.FindName("AccountOverview");
@@ -164,7 +164,7 @@ internal static class MixedProviderUiChecks
                     "Desktop quota values were omitted or changed.");
                 Check(ValueAt(1) == UiText.NotAvailable && ValueAt(3) == UiText.NotAvailable,
                     "Desktop reset times were invented.");
-                Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(desktop.Snapshot).CenterValueText,
+                Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(desktop.Snapshot).RemainingValueText,
                     "Desktop quota without a reset time has no ring value.");
                 WidgetFixture.BindOne(widget, desktop);
                 WidgetFixture.RenderWidget(widget, null);
@@ -224,7 +224,7 @@ internal static class MixedProviderUiChecks
                 var elapsedCard = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>().Last();
                 CheckStaleText(AccountUiChecks.Descendants<TextBlock>(elapsedCard).Single(text =>
                     text.Text == CycleArcPresentation.StatusLabel(elapsed.Snapshot)), elapsed.Snapshot);
-                Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(idle.Snapshot).CenterValueText,
+                Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(idle.Snapshot).RemainingValueText,
                     "Elapsed reset changed the last received percentage.");
                 WidgetFixture.BindOne(widget, elapsed);
                 WidgetFixture.RenderWidget(widget, directory is null ? null

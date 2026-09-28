@@ -17,14 +17,21 @@ public static class RingGeometry
 {
     private const double StartAngleDegrees = -90;
 
-    public static RingArc ComputeUsedArc(double? usedPercent, double centerX, double centerY, double radius)
+    public static RingArc ComputeUsedArc(double? usedPercent, double centerX, double centerY, double radius) =>
+        ComputeFillArc(usedPercent, centerX, centerY, radius);
+
+    /// <summary>
+    /// Arc for any filled share of the ring. The popup and widget fill with what is left;
+    /// callers pass that share, never a value derived from rounded display text.
+    /// </summary>
+    public static RingArc ComputeFillArc(double? fillPercent, double centerX, double centerY, double radius)
     {
-        if (usedPercent is null)
+        if (fillPercent is null || !double.IsFinite(fillPercent.Value))
         {
             return new RingArc(default, default, false, false, false);
         }
 
-        var clamped = Math.Clamp(usedPercent.Value, 0, 100);
+        var clamped = Math.Clamp(fillPercent.Value, 0, 100);
         if (clamped <= 0)
         {
             return new RingArc(default, default, false, false, false);

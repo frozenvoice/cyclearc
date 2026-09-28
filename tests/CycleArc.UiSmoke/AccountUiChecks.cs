@@ -263,6 +263,8 @@ internal static class AccountUiChecks
         {
             var first = (FrameworkElement)row.Children[0];
             var second = (FrameworkElement)row.Children[1];
+            // A healthy account folds its status away; a collapsed element has no position to compare.
+            if (second.Visibility == Visibility.Collapsed) continue;
             var right = first.TranslatePoint(new Point(first.ActualWidth, 0), row).X;
             var left = second.TranslatePoint(new Point(), row).X;
             if (right > left + 1 || left + second.ActualWidth > row.ActualWidth + 1)

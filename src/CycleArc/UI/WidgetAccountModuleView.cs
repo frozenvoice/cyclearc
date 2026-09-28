@@ -159,7 +159,8 @@ public sealed class WidgetAccountModuleView : Border
         {
             model.DisplayName,
             model.Provider.Name(),
-            UsageRingBands.WithLabel(model.Ring.CenterSubLabel + " " + model.Ring.CenterValueText, model.Ring)
+            UsageRingBands.WithLabel(model.Ring.RemainingSubLabel.Replace(Environment.NewLine, " ")
+                + " " + model.Ring.RemainingValueText, model.Ring)
         }.Concat(periods).Append(model.StatusText)
             .Where(part => !string.IsNullOrEmpty(part)))
             + (model.IsSelected ? UiText.T(" · Selected", " · 선택됨") : "");
@@ -168,9 +169,12 @@ public sealed class WidgetAccountModuleView : Border
     private void ApplyRing(WidgetAccountModel model)
     {
         var ring = model.Ring;
-        RingValueText.Text = model.RingValueText;
-        // The ring fills with usage, so the value inside it is usage; remaining is on the lines.
-        RingUsedLabel.Text = UiText.CodexLegendUsed;
+        // The ring fills with what is left of the represented limit, so its value is the
+        // widget-precision remainder. An exhausted limit names itself instead of an empty ring.
+        RingValueText.Text = model.RingRemainingValueText;
+        RingUsedLabel.Text = ring.IsDangerLevel ? UsageRingBands.Label(UsageRingBand.Exhausted) : UiText.CodexLegendRemaining;
+        RingUsedLabel.SetResourceReference(TextBlock.ForegroundProperty, ring.IsDangerLevel ? "RingExhaustedBrush" : "MutedBrush");
+        RingUsedLabel.FontWeight = ring.IsDangerLevel ? FontWeights.SemiBold : FontWeights.Normal;
         // Only the ring's repeated caption is shortened. The adjacent allowance rows,
         // cadence headings, tooltip and accessible name keep the complete quota name.
         RingTargetText.Text = model.RingTargetLabel switch
@@ -181,7 +185,10 @@ public sealed class WidgetAccountModuleView : Border
         };
         RingTargetText.Visibility = string.IsNullOrEmpty(model.RingTargetLabel) ? Visibility.Collapsed : Visibility.Visible;
         RingTargetText.ToolTip = ring.CenterSubLabel;
-        _ringHost.ToolTip = UsageRingBands.WithLabel(ring.CenterSubLabel + " " + ring.CenterValueText, ring);
+        // The tooltip keeps both precise values: what is left (the fill) and what was used.
+        _ringHost.ToolTip = UsageRingBands.WithLabel(
+            ring.RemainingSubLabel.Replace(Environment.NewLine, " ") + " " + ring.RemainingValueText
+                + " · " + UiText.CodexLegendUsed + " " + ring.CenterValueText, ring);
         // Quota colors describe the last received values. Freshness has its own status row.
         RingValueText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         var arcBrushKey = UsageRingBands.ArcBrushKey(ring.Band);
@@ -189,7 +196,7 @@ public sealed class WidgetAccountModuleView : Border
         _ringFull.SetResourceReference(Shape.StrokeProperty, arcBrushKey);
         _ringTrack.SetResourceReference(Shape.StrokeProperty, ring.IsAvailable ? "LineBrush" : "DisabledBrush");
 
-        var arc = RingGeometry.ComputeUsedArc(ring.UsedPercent, RingCenter, RingCenter, RingRadius);
+        var arc = RingGeometry.ComputeFillArc(ring.RemainingPercent, RingCenter, RingCenter, RingRadius);
         _ringArc.Visibility = arc.Visible ? Visibility.Visible : Visibility.Collapsed;
         _ringFull.Visibility = arc.IsFullCircle ? Visibility.Visible : Visibility.Collapsed;
         if (!arc.Visible) return;
@@ -257,6 +264,12 @@ public sealed class WidgetPeriodLineView : StackPanel
     };
     private readonly Grid _head = new();
     private readonly DockPanel _label = new() { LastChildFill = true };
+    // A limit that is not in the ring gets a small remaining bar in the otherwise empty
+    // space left of its reset countdown, so the line keeps its height.
+    private readonly Grid _foot = new();
+    private readonly Grid _bar = new() { Height = 4, VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(12, 0, 8, 0), Tag = "WidgetPeriodBar", Visibility = Visibility.Collapsed };
+    private readonly Border _barFill = new() { CornerRadius = new CornerRadius(2) };
 
     public WidgetPeriodLineView()
     {
@@ -276,9 +289,21 @@ public sealed class WidgetPeriodLineView : StackPanel
         _head.Children.Add(_label);
         Grid.SetColumn(RemainingText, 1);
         _head.Children.Add(RemainingText);
+        var track = new Border { CornerRadius = new CornerRadius(2) };
+        track.SetResourceReference(Border.BackgroundProperty, "LineBrush");
+        Grid.SetColumnSpan(track, 2);
+        _bar.ColumnDefinitions.Add(new ColumnDefinition());
+        _bar.ColumnDefinitions.Add(new ColumnDefinition());
+        _bar.Children.Add(track);
+        _bar.Children.Add(_barFill);
+        _foot.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _foot.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _foot.Children.Add(_bar);
+        Grid.SetColumn(ResetText, 1);
+        _foot.Children.Add(ResetText);
         Children.Add(CadenceText);
         Children.Add(_head);
-        Children.Add(ResetText);
+        Children.Add(_foot);
     }
 
     public void Bind(WidgetPeriodLine line, bool isCursor = false, bool startsGroup = false)
@@ -303,6 +328,17 @@ public sealed class WidgetPeriodLineView : StackPanel
         RemainingText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         ResetText.Text = line.ResetText;
         ResetText.Visibility = string.IsNullOrEmpty(line.ResetText) ? Visibility.Collapsed : Visibility.Visible;
+        // Only where a countdown row already exists, so no line grows for the bar.
+        var showBar = !line.IsRepresentative && !isCursor && line.RemainingPercent is not null
+            && ResetText.Visibility == Visibility.Visible;
+        _bar.Visibility = showBar ? Visibility.Visible : Visibility.Collapsed;
+        if (showBar)
+        {
+            var left = line.RemainingPercent!.Value;
+            _bar.ColumnDefinitions[0].Width = new GridLength(left, GridUnitType.Star);
+            _bar.ColumnDefinitions[1].Width = new GridLength(100 - left, GridUnitType.Star);
+            _barFill.SetResourceReference(Border.BackgroundProperty, line.BarBrushKey);
+        }
         // The countdown stays readable; the exact local reset time is one hover away.
         ResetText.ToolTip = line.ResetTooltip is null ? null : UiText.WidgetReset + " " + line.ResetTooltip;
         // Reserve the marker gutter so both period names start in the same column.
