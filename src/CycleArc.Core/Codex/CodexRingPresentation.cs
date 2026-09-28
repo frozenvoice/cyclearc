@@ -22,7 +22,11 @@ public sealed record CodexRingPresentation(
 
     // The popup and widget rings fill with what is left of this limit. The color band above
     // still comes from the unrounded usage, so an almost empty ring reads as a warning.
-    public double? RemainingPercent => UsedPercent is { } used ? 100 - used : null;
+    // Only a valid source value (0-100) has a remainder: an out-of-range value keeps its
+    // clamped usage for the tray, but draws no fill here, matching its "?" text.
+    public double? RemainingPercent { get; init; }
+    // True only for a valid, fully used limit; never for unknown or out-of-range values.
+    public bool IsExhausted => RemainingPercent is <= 0;
     // Remaining text uses the shared validation: invalid or absent usage stays unknown.
     public string RemainingValueText { get; init; } = "?";
     public string RemainingSubLabel { get; init; } = UiText.CodexLegendRemaining;
@@ -58,6 +62,7 @@ public sealed record CodexRingPresentation(
         {
             Window = window,
             Band = clamped is null ? UsageRingBand.Normal : UsageRingBands.From(used),
+            RemainingPercent = used is >= 0 and <= 100 ? 100 - used : null,
             RemainingValueText = clamped is not null && window is not null
                 ? UsagePercentFormatting.DetailRemaining(window) : "?",
             RemainingSubLabel = RemainingLabel(window, snapshot.Provider)

@@ -172,9 +172,9 @@ public sealed class WidgetAccountModuleView : Border
         // The ring fills with what is left of the represented limit, so its value is the
         // widget-precision remainder. An exhausted limit names itself instead of an empty ring.
         RingValueText.Text = model.RingRemainingValueText;
-        RingUsedLabel.Text = ring.IsDangerLevel ? UsageRingBands.Label(UsageRingBand.Exhausted) : UiText.CodexLegendRemaining;
-        RingUsedLabel.SetResourceReference(TextBlock.ForegroundProperty, ring.IsDangerLevel ? "RingExhaustedBrush" : "MutedBrush");
-        RingUsedLabel.FontWeight = ring.IsDangerLevel ? FontWeights.SemiBold : FontWeights.Normal;
+        RingUsedLabel.Text = ring.IsExhausted ? UsageRingBands.Label(UsageRingBand.Exhausted) : UiText.CodexLegendRemaining;
+        RingUsedLabel.SetResourceReference(TextBlock.ForegroundProperty, ring.IsExhausted ? "RingExhaustedBrush" : "MutedBrush");
+        RingUsedLabel.FontWeight = ring.IsExhausted ? FontWeights.SemiBold : FontWeights.Normal;
         // Only the ring's repeated caption is shortened. The adjacent allowance rows,
         // cadence headings, tooltip and accessible name keep the complete quota name.
         RingTargetText.Text = model.RingTargetLabel switch

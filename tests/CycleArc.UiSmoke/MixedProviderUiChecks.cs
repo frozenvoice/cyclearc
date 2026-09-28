@@ -43,7 +43,7 @@ internal static class MixedProviderUiChecks
                         AccountUiChecks.Render(flyout, 440 * zoom / 100d, null,
                             directory is not null && selected == accounts[2] && zoom == 100
                                 ? Path.Combine(directory, $"mixed-{language}-{theme}.png") : null);
-                        CheckBadges(flyout, accounts.Select(a => a.Profile.Provider).Append(selected.Profile.Provider).ToArray());
+                        CheckFlyoutBadges(flyout, accounts, selected);
                         Check(((Border)flyout.FindName("ResetCreditsCard")).Visibility ==
                             (selected.Profile.Provider == UsageProviderId.Codex ? Visibility.Visible : Visibility.Collapsed),
                             "Reset credit actions crossed providers.");
@@ -606,6 +606,35 @@ internal static class MixedProviderUiChecks
                     { Provider = UsageProviderId.Claude }, now));
         return [codex, Claude("11111111111111111111111111111111", UiText.T("Personal · Claude", "개인 계정 · Claude"), CodexQuotaStatus.Available, 23.5),
             Claude("22222222222222222222222222222222", UiText.T("Research · Claude", "연구용 계정 · Claude"), CodexQuotaStatus.Stale, 78.2)];
+    }
+
+    // Popup badges are matched to their owner, not to their order on screen: the selected
+    // detail's badge to the selected account, and each list row's badge to that row's account.
+    private static void CheckFlyoutBadges(FlyoutWindow flyout, IReadOnlyList<CodexAccountView> accounts,
+        CodexAccountView selected)
+    {
+        var detail = (UsageProviderBadge)flyout.FindName("SelectedProviderBadge");
+        CheckBadge(detail, selected.Profile.Provider, "Selected detail badge is bound to another account.");
+        var rows = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>().ToArray();
+        Check(rows.Length == accounts.Count, "Mixed provider account rows are missing.");
+        foreach (var row in rows)
+        {
+            var account = accounts.Single(candidate => candidate.Profile.Id == (string)row.Tag);
+            CheckBadge(AccountUiChecks.Descendants<UsageProviderBadge>(row).Single(), account.Profile.Provider,
+                "Account row badge is bound to another account.");
+        }
+        Check(AccountUiChecks.Descendants<UsageProviderBadge>((FrameworkElement)flyout.Content).Count() == rows.Length + 1,
+            "Mixed provider badge count is incorrect.");
+    }
+
+    private static void CheckBadge(UsageProviderBadge badge, UsageProviderId expected, string message)
+    {
+        var label = (TextBlock)badge.Child;
+        Check(badge.Provider == expected && label.Text == expected.Name(), message);
+        Check(label.ActualWidth >= label.DesiredSize.Width - 1, "Provider badge text is clipped.");
+        var parent = (FrameworkElement)VisualTreeHelper.GetParent(badge);
+        var left = badge.TranslatePoint(new Point(), parent).X;
+        Check(left >= -1 && left + badge.ActualWidth <= parent.ActualWidth + 1, "Provider badge overflows its account row.");
     }
 
     private static void CheckBadges(Window window, UsageProviderId[] expected)
