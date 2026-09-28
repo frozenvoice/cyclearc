@@ -48,13 +48,21 @@
             </Setter>
         </Style>
     </Window.Resources>
-    <!-- Same dark ground as the popup, so both surfaces read as one app. -->
-    <Border x:Name="WidgetPanel"
+    <!-- The opacity setting applies to this ground only; names, numbers and rings stay opaque. -->
+    <Grid x:Name="WidgetRoot">
+    <Border x:Name="WidgetBackdrop"
             Background="{DynamicResource BgBrush}"
+            CornerRadius="12"
+            BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="1"
+            IsHitTestVisible="False"/>
+    <!-- Transparent, not null, so empty parts of the widget still take clicks and drags. -->
+    <Border x:Name="WidgetPanel"
+            Background="Transparent"
             RenderTransformOrigin="0,0"
             CornerRadius="12"
             Padding="10,9"
-            BorderBrush="{DynamicResource LineBrush}"
+            BorderBrush="Transparent"
             BorderThickness="1"
             MinWidth="168">
         <Border.LayoutTransform>
@@ -121,4 +129,5 @@
                        MaxWidth="200" Margin="2,2,2,2" Foreground="{DynamicResource MutedBrush}"/>
         </StackPanel>
     </Border>
+    </Grid>
 </Window>

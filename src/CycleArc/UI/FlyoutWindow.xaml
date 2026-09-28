@@ -369,23 +369,26 @@
                             </Grid>
                         </StackPanel>
                     </Border>
-                    <Border x:Name="ResetCreditsCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,12,0,0">
+                    <!-- One line while folded: count and the nearest expiry. Expanding shows each credit and its action. -->
+                    <Border x:Name="ResetCreditsCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12,8" Margin="0,10,0,0">
                         <StackPanel>
                             <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock x:Name="ResetCreditsTitle" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
-                                <Border Grid.Column="1" Background="{DynamicResource LineBrush}" CornerRadius="14" Margin="10,0,0,0">
-                                    <Button x:Name="CreditHelpButton" Style="{StaticResource FlyoutHeaderIconButton}" Background="Transparent" Padding="10,2" Click="OnCreditHelpClick">
-                                        <TextBlock x:Name="ResetCreditsCount" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="ResetCreditsTitle" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+                                <Border Grid.Column="1" Background="{DynamicResource LineBrush}" CornerRadius="10" Margin="8,0,0,0" VerticalAlignment="Center">
+                                    <Button x:Name="CreditHelpButton" Style="{StaticResource FlyoutHeaderIconButton}" Background="Transparent" Padding="8,0" MinHeight="22" Click="OnCreditHelpClick">
+                                        <TextBlock x:Name="ResetCreditsCount" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
                                     </Button>
                                 </Border>
-                                <Button x:Name="CreditExpandButton" Grid.Column="2" HorizontalAlignment="Right" Style="{StaticResource FlyoutHeaderIconButton}" Background="Transparent" Click="OnCreditExpandClick">
+                                <TextBlock x:Name="CreditSummaryText" Grid.Column="2" Margin="10,0,8,0" FontSize="12" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource MutedBrush}"/>
+                                <Button x:Name="CreditExpandButton" Grid.Column="3" HorizontalAlignment="Right" Style="{StaticResource FlyoutHeaderIconButton}" Background="Transparent" Click="OnCreditExpandClick">
                                     <Path x:Name="CreditExpandChevron" Width="12" Height="7" Stretch="Uniform" Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M1,7 L7,1 L13,7"/>
                                 </Button>
                             </Grid>
                             <StackPanel x:Name="CreditDetails" Margin="0,8,0,0">
                             <Border x:Name="CreditListBorder" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8" Padding="12,0">
-                                <ScrollViewer x:Name="CreditExpiryScroll" Height="108" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
+                                <ScrollViewer x:Name="CreditExpiryScroll" MaxHeight="108" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
                                     <ItemsControl x:Name="CreditExpiryRows"/>
                                 </ScrollViewer>
                             </Border>
@@ -400,7 +403,7 @@
                                     Padding="10,5" Click="OnAccountsClick"/>
                             <TextBlock x:Name="AccountsHeading" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </DockPanel>
-                        <ItemsControl x:Name="AccountOverview"/>
+                        <ItemsControl x:Name="AccountOverview" Grid.IsSharedSizeScope="True"/>
                         <TextBlock x:Name="AccountSelectionHint" FontSize="11" Foreground="{DynamicResource MutedBrush}"
                                    TextWrapping="Wrap" Margin="0,2,0,8"/>
                     </StackPanel>

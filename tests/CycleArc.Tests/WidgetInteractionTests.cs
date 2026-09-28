@@ -180,7 +180,9 @@ public class WidgetInteractionTests
         var expand = doc.Descendants(ns + "Button").Single(e => (string?)e.Attribute(x + "Name") == "CreditExpandButton");
         Assert.Equal("OnCreditExpandClick", (string?)expand.Attribute("Click"));
         var list = doc.Descendants(ns + "ScrollViewer").Single(e => (string?)e.Attribute(x + "Name") == "CreditExpiryScroll");
-        Assert.Equal("108", (string?)list.Attribute("Height"));
+        // The list takes only the rows it has, up to three rows before scrolling.
+        Assert.Equal("108", (string?)list.Attribute("MaxHeight"));
+        Assert.Null(list.Attribute("Height"));
         Assert.Equal("Auto", (string?)list.Attribute("VerticalScrollBarVisibility"));
     }
 

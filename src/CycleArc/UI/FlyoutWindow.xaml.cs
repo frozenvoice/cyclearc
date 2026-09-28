@@ -36,7 +36,8 @@ public partial class FlyoutWindow : Window
     private readonly RefreshIndicatorController _refreshIndicator = new();
     private bool _refreshActive;
     private bool _bindingUsagePeriod;
-    private bool _creditsExpanded = true;
+    // Folded by default: the summary line names the count and the nearest expiry.
+    private bool _creditsExpanded;
     private System.Windows.Controls.ToolTip? _creditHelpTip;
     private WindowEdgeAnchors _edgeAnchors;
     private bool _snapWindowsToScreenEdges = true;
@@ -600,6 +601,9 @@ public partial class FlyoutWindow : Window
         CreditListBorder.Visibility = credits.Rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         CreditExpiryNotice.Text = credits.Notice;
         CreditExpiryNotice.Visibility = credits.Notice is null ? Visibility.Collapsed : Visibility.Visible;
+        // The first row is the nearest expiry; without rows the notice explains why.
+        CreditSummaryText.Text = credits.Rows.Count > 0 ? credits.Rows[0].Text : credits.Notice ?? "";
+        CreditSummaryText.ToolTip = string.IsNullOrEmpty(CreditSummaryText.Text) ? null : CreditSummaryText.Text;
     }
 
     private async Task UseCreditAsync(CodexCreditExpiryRow item)

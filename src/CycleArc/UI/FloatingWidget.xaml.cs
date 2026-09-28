@@ -436,6 +436,8 @@ public partial class FloatingWidget : Window
     public event Action<int>? ZoomChanged;
 
     public double ZoomScale => ZoomPercent / 100d;
+    // The saved widget opacity, applied to the background layer only.
+    public double BackgroundOpacity => WidgetBackdrop.Opacity;
 
     /// <summary>
     /// Applies a scale to the panel through a LayoutTransform, so measure, arrange, hit-testing
@@ -579,7 +581,9 @@ public partial class FloatingWidget : Window
             _savedPixels = settings.WidgetPixelLeft is int x && settings.WidgetPixelTop is int y ? (x, y) : null;
             Left = double.IsFinite(settings.WidgetLeft) ? settings.WidgetLeft : 40;
             Top = double.IsFinite(settings.WidgetTop) ? settings.WidgetTop : 40;
-            Opacity = settings.WidgetOpacity;
+            // Only the ground fades; text, rings and icons keep full contrast.
+            Opacity = 1;
+            WidgetBackdrop.Opacity = Math.Clamp(settings.WidgetOpacity, 0.3, 1);
             Topmost = settings.WidgetAlwaysOnTop;
             SetClickThrough(settings.WidgetClickThrough);
             Cursor = settings.WidgetClickThrough ? System.Windows.Input.Cursors.Arrow : System.Windows.Input.Cursors.SizeAll;
