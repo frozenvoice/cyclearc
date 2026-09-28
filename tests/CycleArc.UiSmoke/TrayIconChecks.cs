@@ -426,7 +426,10 @@ internal static class TrayIconChecks
                 var settings = new SettingsWindow(new AppSettings { UiLanguage = language, Theme = theme });
                 try
                 {
-                    AccountUiChecks.Render(settings, compact ? 470 : 610, compact ? 400 : 580,
+                    var previewWidth = compact ? settings.MinWidth : settings.Width;
+                    var previewHeight = compact ? settings.MinHeight : settings.Height;
+                    ((System.Windows.Controls.Expander)settings.FindName("TrayDetails")).IsExpanded = true;
+                    AccountUiChecks.Render(settings, previewWidth, previewHeight,
                         Path.Combine(directory, $"tray-settings-{language}-{theme}-{(compact ? "compact" : "normal")}.png"));
                     var scroll = (System.Windows.Controls.ScrollViewer)((System.Windows.Controls.TabItem)settings.FindName("GeneralTab")).Content;
                     scroll.ScrollToEnd();
@@ -435,7 +438,7 @@ internal static class TrayIconChecks
                     var hintBounds = hint.TransformToAncestor(scroll).TransformBounds(new System.Windows.Rect(hint.RenderSize));
                     if (hintBounds.Top < -1 || hintBounds.Bottom > scroll.ActualHeight + 1)
                         throw new InvalidOperationException($"Tray legend is clipped after scrolling: {language}/{theme}/{compact}.");
-                    AccountUiChecks.Render(settings, compact ? 470 : 610, compact ? 400 : 580,
+                    AccountUiChecks.Render(settings, previewWidth, previewHeight,
                         Path.Combine(directory, $"tray-settings-{language}-{theme}-{(compact ? "compact" : "normal")}-scrolled.png"));
                 }
                 finally { settings.Close(); }

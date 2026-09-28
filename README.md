@@ -271,7 +271,9 @@ The widget collapses the entire bottom **Updated** row and its spacing for succe
 <details>
 <summary><strong>Settings and compact widget</strong></summary>
 
-<p><img src="docs/images/settings.png" alt="English settings with theme, language, tray style, optional Windows startup, and screen-edge snapping" width="640"></p>
+Settings keeps **General**, **Widget** and **Connection** together in an icon sidebar. Choose System, Light or Dark from the visual theme picker; related preferences are grouped, and longer tray/connection instructions expand on demand. **Current version** shows the running app's version, with its full build identifier in the tooltip. Changes still apply only when you choose **Save**.
+
+<p><img src="docs/images/settings.png" alt="English settings with visual theme choices, grouped preferences and the current running version" width="780"></p>
 <p><img src="docs/images/widget.png" alt="Compact desktop widget comparing three sample accounts side by side" width="740"></p>
 
 </details>

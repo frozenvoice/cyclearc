@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Windows.Automation;
 using System.Windows.Input;
 
@@ -17,11 +18,19 @@ public partial class SettingsWindow : Window
         _settings = settings;
         Title = UiText.ProductName + " · " + UiText.Settings;
         WindowHeading.Text = Title;
+        var buildVersion = typeof(SettingsWindow).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? typeof(SettingsWindow).Assembly.GetName().Version?.ToString() ?? "?";
+        VersionCaption.Text = UiText.T("Current version", "현재 실행 버전");
+        VersionText.Text = "v" + buildVersion.Split('+')[0];
+        VersionText.ToolTip = buildVersion;
+        AutomationProperties.SetName(VersionText, VersionCaption.Text + " " + buildVersion);
         GeneralTab.Header = UiText.T("General", "일반");
         WidgetTab.Header = UiText.T("Widget", "위젯");
         ConnectionTab.Header = UiText.T("Connection", "연결");
         AppearanceTitle.Text = UiText.T("Make it yours", "표시와 동작");
         AppearanceHint.Text = UiText.T("Choose how CycleArc looks and starts.", "화면과 시작 방식을 설정하세요.");
+        BehaviorTitle.Text = UiText.T("Windows & placement", "Windows와 창 배치");
         ThemeLabel.Text = UiText.T("Theme", "테마");
         ThemeBox.ItemsSource = new[] { UiText.T("System", "시스템"), UiText.T("Light", "밝게"), UiText.T("Dark", "어둡게") };
         ThemeBox.SelectedIndex = (int)settings.Theme;
@@ -31,12 +40,15 @@ public partial class SettingsWindow : Window
         IconLabel.Text = UiText.T("Tray icon", "트레이 아이콘");
         IconBox.ItemsSource = new[] { UiText.T("Usage number", "사용률 숫자"), UiText.T("Usage ring", "사용률 링") };
         IconBox.SelectedIndex = (int)settings.TrayIconStyle;
+        TraySummary.Text = UiText.T("Usage at a glance in your taskbar.", "작업표시줄에서 사용률을 한눈에.");
+        TrayDetails.Header = UiText.T("How the tray icon works", "트레이 아이콘 표시 안내");
         StartupLabel.Text = UiText.StartWithWindows;
         StartupBox.IsChecked = settings.StartWithWindows;
         EdgeSnapLabel.Text = UiText.T("Snap windows to screen edges", "화면 가장자리에 자동 정렬");
         EdgeSnapBox.IsChecked = settings.SnapWindowsToScreenEdges;
         EdgeSnapBox.ToolTip = UiText.T("Applies to the widget and detail popup. Hold Shift when releasing a drag to skip snapping.",
             "위젯과 상세 팝업에 적용합니다. Shift를 누른 채 드래그를 끝내면 이번 정렬을 생략합니다.");
+        EdgeSnapHint.Text = UiText.T("Widget and detail popup. Hold Shift to skip a snap.", "위젯과 상세 팝업에 적용 · Shift를 누르면 이번 정렬 생략");
         TrayHint.Text = UiText.T(
             "The tray shows the used percentage as large digits without the % sign (67 means 67%); the background is transparent. Text follows your Windows taskbar theme. Unknown usage shows ?. Check the tooltip or detail card for status. The ring style shows usage as progress.",
             "트레이는 % 기호 없이 사용률 숫자를 크게 표시합니다(67은 67% 사용). 배경은 투명합니다. 글자색은 Windows 작업표시줄 테마에 맞춰 바뀌며, 알 수 없는 값은 ?로 표시합니다. 상태는 툴팁이나 상세 카드에서 확인하세요. 링은 같은 값을 진행률로 표시합니다.");
@@ -45,6 +57,9 @@ public partial class SettingsWindow : Window
         ResetWidgetPositionButton.ToolTip = UiText.T("Move the widget to the primary screen when you save.", "저장하면 위젯을 기본 화면으로 이동합니다.");
         WidgetHint.Text = UiText.T("Keep a small usage display on your desktop. Drag it to move.", "작은 사용률 표시를 바탕화면에 둡니다. 드래그해서 위치를 옮길 수 있습니다.");
         WidgetLabel.Text = UiText.T("Show widget", "위젯 표시");
+        WidgetEnabledHint.Text = UiText.T("Your accounts, together on the desktop.", "계정별 사용량을 바탕화면에서 나란히 확인하세요.");
+        WidgetBehaviorTitle.Text = UiText.T("Visibility & interaction", "표시와 마우스 동작");
+        ResetWidgetHint.Text = UiText.T("Bring it back to the primary display on save.", "저장하면 기본 화면으로 위치를 되돌립니다.");
         WidgetBox.IsChecked = settings.FloatingWidgetEnabled;
         WidgetOpacityLabel.Text = UiText.T("Opacity", "불투명도");
         WidgetOpacityBox.Value = settings.WidgetOpacity;
@@ -54,6 +69,12 @@ public partial class SettingsWindow : Window
         WidgetClickThroughLabel.Text = UiText.T("Click through", "클릭 통과");
         WidgetClickThroughBox.IsChecked = settings.WidgetClickThrough;
         WidgetClickThroughBox.ToolTip = UiText.T("Mouse clicks pass to the window behind the widget.", "마우스 클릭이 위젯 뒤의 창에 전달됩니다.");
+        WidgetClickThroughHint.Text = (string)WidgetClickThroughBox.ToolTip;
+        ConnectionTitle.Text = UiText.T("Accounts & refresh", "계정과 자동 확인");
+        ConnectionHint.Text = UiText.T("Connect your accounts and keep their limits up to date.", "계정을 연결하고 최신 사용량을 확인하세요.");
+        AccountSummary.Text = UiText.T("Connect, rename and arrange your accounts. Each keeps its own limits.", "계정을 연결하고 별명과 순서를 정하세요. 계정별 한도는 각각 유지됩니다.");
+        RefreshSectionTitle.Text = UiText.T("Keep up to date", "사용량 확인 주기");
+        ConnectionHelp.Header = UiText.T("Connection guide", "계정 연결 안내");
         CodexTitle.Text = UiText.T("Codex connection", "Codex 연결");
         CodexHint.Text = UiText.T("CycleArc uses the Codex CLI installed on this PC for sign-in and quota checks. Codex CLI must be installed separately.",
             "CycleArc는 이 PC에 설치된 Codex CLI로 로그인과 사용량 조회를 진행합니다. Codex CLI는 별도로 설치되어 있어야 합니다.");
@@ -95,6 +116,9 @@ public partial class SettingsWindow : Window
     private void FitWorkArea()
     {
         var work = SystemParameters.WorkArea;
+        MaxWidth = Math.Max(320, work.Width - 24);
+        MinWidth = Math.Min(MinWidth, MaxWidth);
+        Width = Math.Min(Width, MaxWidth);
         MaxHeight = Math.Max(320, work.Height - 24);
         MinHeight = Math.Min(MinHeight, MaxHeight);
         Height = Math.Min(Height, MaxHeight);

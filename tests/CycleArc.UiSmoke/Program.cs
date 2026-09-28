@@ -122,6 +122,15 @@ internal static class Program
             if (args is ["--settings-window"] or ["--settings-window", _])
             {
                 SettingsWindowChecks.Run(args.Length == 2 ? args[1] : null);
+                var applySettingsTheme = typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)!;
+                foreach (var language in Enum.GetValues<UiLanguage>())
+                foreach (var theme in Enum.GetValues<AppTheme>())
+                {
+                    UiText.SetLanguage(language);
+                    applySettingsTheme.Invoke(null, [theme]);
+                    CheckRefreshSettings(app, $"{language}-{theme}");
+                }
+                Console.WriteLine("PASS: settings refresh choices, Save/Cancel and timer application in EN/KO and System/Dark/Light.");
                 return 0;
             }
             if (args is ["--widget-zoom"] or ["--widget-zoom", _])
@@ -359,15 +368,21 @@ internal static class Program
                 var box = (System.Windows.Controls.ComboBox)window.FindName("RefreshIntervalBox");
                 box.SelectedIndex = AppSettings.CodexRefreshIntervals.ToList().IndexOf(minutes);
                 var content = (FrameworkElement)window.Content;
-                content.Measure(new Size(580, 480));
-                content.Arrange(new Rect(0, 0, 580, 480));
+                content.Measure(new Size(window.MinWidth, window.MinHeight));
+                content.Arrange(new Rect(0, 0, window.MinWidth, window.MinHeight));
                 content.UpdateLayout();
                 var scroller = (System.Windows.Controls.ScrollViewer)((System.Windows.Controls.TabItem)window.FindName("ConnectionTab")).Content;
                 scroller.ScrollToEnd();
                 content.UpdateLayout();
+                box.BringIntoView();
+                content.UpdateLayout();
                 var bounds = box.TransformToAncestor(scroller).TransformBounds(new Rect(box.RenderSize));
-                if (bounds.Top < 0 || bounds.Bottom > scroller.ActualHeight || box.ActualWidth < 170 || box.ActualHeight < 30)
-                    throw new InvalidOperationException("Refresh selector is hidden or clipped.");
+                // TransformToAncestor can report a tiny negative epsilon at the top after
+                // BringIntoView (for example -5.7e-14 DIP at 150% DPI).
+                if (bounds.Top < -0.5 || bounds.Bottom > scroller.ActualHeight + 0.5 || box.ActualWidth < 170 || box.ActualHeight < 30)
+                    throw new InvalidOperationException($"Refresh selector is hidden or clipped: {previewName}, "
+                        + $"bounds={bounds}, viewport={scroller.ActualWidth}x{scroller.ActualHeight}, "
+                        + $"control={box.ActualWidth}x{box.ActualHeight}.");
                 if (minutes == 5)
                 {
                     // The window's own declared size, so this preview follows it.

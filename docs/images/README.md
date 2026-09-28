@@ -9,6 +9,7 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | --- | --- |
 | `updates-{en,ko}-{dark,light}.png` | Production update window showing a sample 0.6.0 → 0.6.1 upgrade with the release's widget and installer highlights; download and restart require separate approval |
 | `overview-dark.png`, `overview-light.png`, `settings.png`, `widget.png` | English single-account popup, settings, and the multi-account widget (three synthetic accounts in one row) |
+| `settings-ko-dark.png` | Korean settings with visual theme selection, grouped preferences, expandable help and the running version; the English counterpart remains `settings.png` |
 | `edge-snap-{widget,flyout}-{100,150}.png` | Native synthetic widget/detail windows at 100% and 150% app zoom, attached right/bottom at the current 2-DIP inset on the 150%-DPI primary monitor; measured work-area surround is neutral and excludes other apps |
 | `edge-snap-margin-before-{widget,flyout}-100.png` | Historical 8-DIP baseline from `c08558d`, with the same fixed synthetic data and 100% app zoom as the current edge-snap images |
 | `accounts-overview-{en,ko}-{dark,light}.png` | Two ready Codex accounts, with Work / 업무용 selected; the unconnected Claude profile is absent from the cards and counts |
@@ -46,8 +47,10 @@ The settings preview uses the production window's declared size so the General t
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --settings-window artifacts/window-edge-snap/settings
 ```
 
-The four EN/KO, Dark/Light renders also check clipping and the saved option. `settings.png`
-is the English Dark render. Edge placement captures and gesture checks run separately with
+The exporter renders all three tabs in EN/KO and Dark/Light, at the declared and minimum
+window sizes (24 images). It also checks clipping, expandable help, dependent widget controls,
+Save/Cancel and the assembly-derived version. `settings.png` is the English Dark General
+render; `settings-ko-dark.png` is its Korean counterpart. Edge placement captures and gesture checks run separately with
 `--edge-snap artifacts/window-edge-snap/placement`; these use synthetic accounts in production
 WPF windows and report injected coordinates separately from host-monitor checks.
 

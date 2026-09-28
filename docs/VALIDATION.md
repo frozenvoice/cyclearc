@@ -2467,3 +2467,35 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   (Personal, Research, Design, Work, Writing, Prototype, Travel, Lab; `example.invalid` emails)
   and embedded in both README guides. The 18 version-bearing previews and the Cursor popups
   were re-exported after the version change; no user account store was read.
+
+## Settings layout and running version, 2026-09-28
+
+- Reworked only the production settings window: icon navigation, a keyboard-accessible
+  System/Light/Dark theme picker, grouped preferences, inline widget help and expandable
+  tray/connection instructions. Existing control names, enum ordering, save/cancel semantics,
+  account actions and stored preferences remain intact. The wider window is bounded by the
+  work area's width as well as height.
+- The sidebar version comes from the running desktop assembly's informational version;
+  the tooltip and accessibility name retain the complete build identifier. No release-version
+  constant or available-update version is used for this display.
+- Focused Release compile and 126 settings checks passed. The production views were rendered
+  and visually inspected across all three tabs, EN/KO, Dark/Light, and default/minimum sizes
+  (24 images). General fits at its declared size; compact tabs and expanded help remain
+  scrollable. Checks cover dependent widget controls, version provenance, saved edge options,
+  and Cancel preserving every editable preference and independent saved window positions.
+  The unshown WPF harness uses explicit ancestor visibility and excludes text margins from
+  DesiredSize when checking clipping. Refreshed only the EN/KO General documentation previews.
+- Version audit before editing: the running managed desktop was 0.6.2 at `e70a88d`, while
+  local and remote main were 0.6.3 at `f4e182e`. The root was resolved with
+  `Get-ManagedInstallRoot`; the process path and embedded ProductVersion agreed.
+- Local verification: 1,841 unit tests passed with no skips. The first full gate exposed a
+  pre-existing zero-tolerance refresh-selector assertion after BringIntoView (top was
+  -5.7e-14 DIP at 150% DPI). The check now locates the moved selector at the window's minimum
+  size and uses the same 0.5-DIP tolerance as the settings clipping checks. The focused
+  settings command also exercises all refresh choices and timer application in EN/KO and
+  System/Dark/Light. The final `dev-run.ps1 -NoLaunch -Fast` passed in 4m34s, reusing those
+  unchanged unit-test results and completing full WPF, test-flavour compile, single-file
+  publish, published receiver, installer assets and isolated package apply/rollback checks.
+- No installation/restart, live-account access or destructive installed-app update check was
+  performed on this working Windows profile. Screen captures use production views with
+  in-memory settings under OfflineApp.
