@@ -49,7 +49,12 @@
         </Style>
     </Window.Resources>
     <!-- The opacity setting applies to this ground only; names, numbers and rings stay opaque. -->
-    <Grid x:Name="WidgetRoot">
+    <!-- The zoom scales the whole root, so the ground and content grow together and the
+         root still reports its unscaled layout size, as the single panel did before. -->
+    <Grid x:Name="WidgetRoot" RenderTransformOrigin="0,0">
+    <Grid.LayoutTransform>
+        <ScaleTransform x:Name="WidgetScale" ScaleX="1" ScaleY="1"/>
+    </Grid.LayoutTransform>
     <Border x:Name="WidgetBackdrop"
             Background="{DynamicResource BgBrush}"
             CornerRadius="12"
@@ -65,9 +70,6 @@
             BorderBrush="Transparent"
             BorderThickness="1"
             MinWidth="168">
-        <Border.LayoutTransform>
-            <ScaleTransform x:Name="WidgetScale" ScaleX="1" ScaleY="1"/>
-        </Border.LayoutTransform>
         <StackPanel x:Name="WidgetStatusStack">
             <!-- One header for the whole widget; never repeated per account. -->
             <Grid x:Name="WidgetHeader" Margin="0,0,0,7">
