@@ -288,7 +288,7 @@ public partial class FlyoutWindow : Window
         if (accounts.Count > 1)
             foreach (var account in accounts)
                 AccountOverview.Items.Add(AccountSummary.Create(account, account.Profile.Id == selectedId,
-                    () => { if (!_redeemingCredit) AccountSelected?.Invoke(account.Profile.Id); }));
+                    () => { if (!_redeemingCredit) AccountSelected?.Invoke(account.Profile.Id); }, compactNotice: true));
         AccountSelectionHint.Text = accounts.Count > 1
             ? UiText.T("Select an account for details, tray and widget.", "계정을 선택하면 상세 카드·트레이·위젯에 표시됩니다.")
             : UiText.T("Connect accounts in Manage accounts to show them here.", "계정 관리에서 연결한 계정이 여기에 표시됩니다.");
@@ -299,10 +299,14 @@ public partial class FlyoutWindow : Window
         SelectedAccountText.ToolTip = selected?.Email ?? selected?.DisplayName;
         var failed = accounts.Count(a => a.Snapshot.Status != CodexQuotaStatus.Available && !a.IsAwaitingUsage);
         var waiting = accounts.Count(a => a.IsAwaitingUsage);
+        // Only a Claude statusLine or Desktop history sample is "received"; a live server check
+        // is as current as a Codex or Cursor check.
+        var received = accounts.Any(a => a.Profile.Provider == UsageProviderId.Claude
+            && !WidgetAccountModel.HasHealthyServerSample(a.Snapshot));
         if (accounts.Count > 1 && !refreshing)
             StatusText.Text = failed > 0 ? UiText.T($"{failed} need attention", $"{failed}개 확인 필요")
                 : waiting > 0 ? UiText.T($"{waiting} awaiting usage", $"{waiting}개 수신 대기")
-                : accounts.Any(a => a.Profile.Provider == UsageProviderId.Claude) ? UiText.T("Samples received", "수신값 표시")
+                : received ? UiText.T("Received", "수신값 포함")
                 : UiText.T("All updated", "전체 최신");
         StatusDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty,
             refreshing ? "AccentBrush" : accounts.Count > 0 && failed == 0 && waiting == 0 ? "OkBrush" : "MutedBrush");
@@ -392,11 +396,10 @@ public partial class FlyoutWindow : Window
     public void ApplyLocalizedTexts()
     {
         Title = UiText.ProductName;
-        VersionText.Text = UiText.VersionPrefix
-            + (Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0");
+        VersionText.Text = UiText.VersionPrefix + AppVersionDisplay.Short(Assembly.GetExecutingAssembly());
         ResetCreditsTitle.Text = UiText.ResetCredits;
         ApplyCreditExpansion();
-        var helpText = UiText.T("Reset credits can renew your Codex usage limits. Select Use reset beside a credit to redeem it after confirmation.", "리셋권으로 Codex 사용 한도를 갱신할 수 있습니다. 리셋권 옆의 초기화 사용을 누르고 확인하면 해당 리셋권을 사용합니다.");
+        var helpText = UiText.T("Reset credits can renew your Codex usage limits. Select Use reset beside a credit to redeem it after confirmation.", "리셋권으로 Codex 사용 한도를 갱신할 수 있습니다. 리셋권 옆의 리셋권 사용을 누르고 확인하면 해당 리셋권을 사용합니다.");
         _creditHelpTip ??= MakeTooltip(helpText);
         _creditHelpTip.Content = helpText;
         CreditHelpButton.ToolTip = _creditHelpTip;
@@ -490,6 +493,8 @@ public partial class FlyoutWindow : Window
         var (primary, secondary, primaryStart) = CodexDisplayFormatting.DetailSections(snapshot,
             CodexRingPresentation.FromDetail(snapshot, UsagePeriod).Window);
         var beside = primary.Select(item => AddDetailRow(CodexRows, item, stacked: cursor)).ToArray();
+        CodexRowsEmptyText.Text = UiText.T("No usage values yet", "아직 사용량 값이 없습니다");
+        CodexRowsEmptyText.Visibility = beside.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         var below = secondary.Select(item => AddDetailRow(CodexSecondaryRows, item, stacked: false)).ToArray();
         DetailRows = below.Take(primaryStart).Concat(beside).Concat(below.Skip(primaryStart)).ToArray();
         CodexSecondaryRowsHost.Visibility = secondary.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -598,7 +603,7 @@ public partial class FlyoutWindow : Window
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var use = new System.Windows.Controls.Button
             {
-                Content = _redeemingCredit ? UiText.T("Processing…", "처리 중…") : UiText.T("Use reset", "초기화 사용"),
+                Content = _redeemingCredit ? UiText.T("Processing…", "처리 중…") : UiText.T("Use reset", "리셋권 사용"),
                 Style = (Style)FindResource("CreditUseButton"), FontSize = 12,
                 Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(6, 2, 0, 2),
                 IsEnabled = !_redeemingCredit && !_refreshActive && snapshot.Status == CodexQuotaStatus.Available
@@ -640,7 +645,7 @@ One credit will be consumed.",
 리셋권 1개가 소모됩니다.");
             if (profileId is not null) prompt = accountName + Environment.NewLine + prompt;
             var confirmed = ConfirmCreditForTest?.Invoke(prompt)
-                ?? (System.Windows.MessageBox.Show(this, prompt, UiText.T("Use reset", "초기화 사용"),
+                ?? (System.Windows.MessageBox.Show(this, prompt, UiText.T("Use reset", "리셋권 사용"),
                     MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes);
             if (!confirmed) return;
             var outcome = profileId is not null && RedeemAccountCredit is not null

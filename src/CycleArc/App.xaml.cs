@@ -316,9 +316,34 @@ public partial class App : Application
         var accounts = _codex.Accounts;
         var overview = UsageAccountOverview.Create(accounts, _codex.SelectedId, _settings.UsagePeriod);
         _tray.Update(overview, _settings.TrayIconStyle);
+        NotifyUsageAlerts(accounts);
         _flyout?.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing, overview.Preference);
         _accountsWindow?.Bind(accounts, overview.SelectedId);
         _widgetController?.Update(_settings, overview, refreshing: _refresh.IsRefreshing);
+    }
+
+    // Near-limit and limit-reached notices. Marks are saved only when they change, so the frequent
+    // passive refresh never rewrites settings for nothing.
+    private void NotifyUsageAlerts(IReadOnlyList<CodexAccountView> accounts)
+    {
+        if (!_settings.UsageAlertsEnabled) return;
+        var (alerts, marks) = UsageAlerts.Evaluate(accounts, _settings.UsageAlertMarks);
+        if (marks.Count != _settings.UsageAlertMarks.Count
+            || marks.Any(pair => !_settings.UsageAlertMarks.TryGetValue(pair.Key, out var value) || value != pair.Value))
+        {
+            _settings.UsageAlertMarks = marks;
+            try { _settingsStore.Save(_settings); }
+            catch (Exception ex) { _log.Error("Usage alert marks could not be saved", ex); }
+        }
+        if (alerts.Count == 0 || IsExiting) return;
+        var alert = alerts.OrderByDescending(item => item.Level).First();
+        var title = alerts.Count == 1 ? alert.Title
+            : UiText.T($"{alerts.Count} limits need attention", $"한도 {alerts.Count}개 확인 필요");
+        _tray.Balloon(title, alert.Body, () =>
+        {
+            _codex?.Select(alert.ProfileId);
+            ShowMain();
+        });
     }
 
     private void ToggleFlyout()

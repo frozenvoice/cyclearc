@@ -261,7 +261,7 @@ public sealed class CursorWidgetAccountModelTests
 
         var row = Assert.Single(CodexDisplayFormatting.Rows(snapshot, Now),
             candidate => candidate.Label == CursorUsagePresentation.QuotaDisplayLabel(window.LimitId));
-        Assert.Equal("Remaining 23.09%", row.Value);
+        Assert.Equal("Left 23.09%", row.Value);
         Assert.Equal("76.91%", model.Ring.CenterValueText);
         Assert.Equal(76.91, snapshot.Windows[0].UsedPercent);
     }

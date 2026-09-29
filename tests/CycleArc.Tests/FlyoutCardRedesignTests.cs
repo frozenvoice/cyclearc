@@ -15,7 +15,7 @@ public class FlyoutCardRedesignTests
             Assert.Equal("History-based estimate", UiText.HistoryBasedEstimateBadge);
             Assert.Equal("Some history is being revalidated.", UiText.PartialRevalidationNotice);
             Assert.Equal("Used", UiText.CodexLegendUsed);
-            Assert.Equal("Remaining", UiText.CodexLegendRemaining);
+            Assert.Equal("Left", UiText.CodexLegendRemaining);
             UiText.SetLanguage(UiLanguage.Korean);
             Assert.Equal("기록 기반 추정", UiText.HistoryBasedEstimateBadge);
             Assert.Equal("일부 기록 재검증 중", UiText.PartialRevalidationNotice);

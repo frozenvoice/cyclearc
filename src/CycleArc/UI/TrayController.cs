@@ -19,6 +19,7 @@ public sealed class TrayController : IDisposable
     public event Action<bool>? StartupToggled;
     public event Action? AboutRequested;
     public event Action? UpdatesRequested;
+    private Action? _balloonClick;
     public event Action? ExitRequested;
     public event Action? CloseWidgetRequested;
     public event Action? ResetWidgetZoomRequested;
@@ -37,7 +38,12 @@ public sealed class TrayController : IDisposable
                 LeftClick?.Invoke();
             }
         };
-        _icon.BalloonTipClicked += (_, _) => UpdatesRequested?.Invoke();
+        // A usage alert opens its account; the update notice (no action of its own) opens updates.
+        _icon.BalloonTipClicked += (_, _) =>
+        {
+            if (_balloonClick is { } click) click();
+            else UpdatesRequested?.Invoke();
+        };
         RebuildMenu(startWithWindows: true);
     }
 
@@ -123,8 +129,9 @@ public sealed class TrayController : IDisposable
         menu.Show(System.Windows.Forms.Control.MousePosition);
     }
 
-    public void Balloon(string title, string body)
+    public void Balloon(string title, string body, Action? onClick = null)
     {
+        _balloonClick = onClick;
         _icon.BalloonTipTitle = title;
         _icon.BalloonTipText = body;
         _icon.ShowBalloonTip(4000);

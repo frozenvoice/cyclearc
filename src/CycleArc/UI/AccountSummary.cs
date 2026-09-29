@@ -10,7 +10,9 @@ namespace CycleArc.UI;
 
 internal static class AccountSummary
 {
-    public static Button Create(CodexAccountView account, bool selected, Action select)
+    /// <param name="compactNotice">One line with the full text in its tooltip, for the popup list
+    /// that already shows the selected account's notice in the detail card above it.</param>
+    public static Button Create(CodexAccountView account, bool selected, Action select, bool compactNotice = false)
     {
         var button = new Button { Style = (Style)Application.Current.FindResource("AccountButton"),
             Margin = new Thickness(0, 0, 0, 6), Padding = new Thickness(10, 8, 10, 8), Tag = account.Profile.Id };
@@ -41,7 +43,9 @@ internal static class AccountSummary
         header.Children.Add(identity);
         var stale = ClaudeUsagePresentation.IsStale(account.Snapshot)
             || (CursorUsagePresentation.IsCursor(account.Snapshot) && account.Snapshot.Status == CodexQuotaStatus.Stale);
+        var unconnected = ClaudeUsagePresentation.IsUnconnected(account);
         var status = Text(account.IsSigningIn ? UiText.T("Signing in…", "로그인 중…")
+            : unconnected ? ClaudeUsagePresentation.NotConnectedLabel
             : CycleArcPresentation.StatusLabel(account.Snapshot), 11, stale ? "StaleBrush" : "MutedBrush", bold: stale);
         status.Margin = new Thickness(12, 0, 0, 0);
         // Same rule as the widget status row: a healthy server sample needs no repeated
@@ -63,14 +67,24 @@ internal static class AccountSummary
         else
         {
             var notice = Text(account.IsSigningIn ? UiText.T("Complete sign-in in your browser.", "브라우저에서 로그인을 완료하세요.")
+                : unconnected ? ClaudeUsagePresentation.NotConnectedText
                 : CodexDisplayFormatting.StatusText(account.Snapshot), 11, "MutedBrush");
-            notice.TextWrapping = TextWrapping.Wrap;
+            if (compactNotice)
+            {
+                notice.TextWrapping = TextWrapping.NoWrap;
+                notice.TextTrimming = TextTrimming.CharacterEllipsis;
+                notice.ToolTip = notice.Text;
+            }
+            else notice.TextWrapping = TextWrapping.Wrap;
             notice.Margin = new Thickness(0, 5, 0, 0);
             content.Children.Add(notice);
         }
         if (needsStatus && account.Profile.Provider == UsageProviderId.Claude && account.Snapshot.LastSuccessfulRefresh is not null)
         {
-            var receipt = Text(ClaudeUsagePresentation.LastReceivedText(account.Snapshot), 11, "MutedBrush");
+            // The card uses the popup's short stamp; its tooltip keeps the full receipt date.
+            var receipt = Text(ClaudeUsagePresentation.ReceiptLabel(account.Snapshot) + " "
+                + CodexDisplayFormatting.ResetStamp(account.Snapshot.LastSuccessfulRefresh), 11, "MutedBrush");
+            receipt.ToolTip = ClaudeUsagePresentation.LastReceivedText(account.Snapshot);
             receipt.Margin = new Thickness(0, 5, 0, 0);
             content.Children.Add(receipt);
         }
@@ -83,7 +97,7 @@ internal static class AccountSummary
         }
         if (account.HasMatchingIdentity && !CodexIdentityPresentation.NeedsReconnection(account.Snapshot))
         {
-            var duplicate = Text(UiText.T("Same reported login email as another profile", "다른 프로필과 같은 로그인 이메일으로 조회됨"), 11, "MutedBrush");
+            var duplicate = Text(UiText.T("Same reported login email as another profile", "다른 프로필과 같은 로그인 이메일로 조회됨"), 11, "MutedBrush");
             duplicate.TextWrapping = TextWrapping.Wrap;
             duplicate.Margin = new Thickness(0, 5, 0, 0);
             content.Children.Add(duplicate);

@@ -89,8 +89,10 @@ internal static class MixedProviderUiChecks
                                     "Claude account rows contain a Codex label.");
                                 var texts = AccountUiChecks.Descendants<TextBlock>(button).ToArray();
                                 CheckStaleText(texts.Single(text => text.Text == CycleArcPresentation.StatusLabel(account.Snapshot)), account.Snapshot);
-                                Check(texts.Any(text => text.Text == ClaudeUsagePresentation.LastReceivedText(account.Snapshot)),
-                                    "Claude account card hides the last receipt date/time.");
+                                Check(texts.Any(text => text.Text == ClaudeUsagePresentation.ReceiptLabel(account.Snapshot) + " "
+                                        + CodexDisplayFormatting.ResetStamp(account.Snapshot.LastSuccessfulRefresh)
+                                        && text.ToolTip as string == ClaudeUsagePresentation.LastReceivedText(account.Snapshot)),
+                                    "Claude account card hides the last receipt time or its full date.");
                             }
                         }
                         count++;
@@ -129,7 +131,7 @@ internal static class MixedProviderUiChecks
                 flyout.BindAccounts([accounts[0], idle], idle.Profile.Id, false);
                 AccountUiChecks.Render(flyout, 440, null, directory is null ? null
                     : Path.Combine(directory, $"claude-idle-{language}-{theme}.png"));
-                Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("Samples received", "수신값 표시"),
+                Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("Received", "수신값 포함"),
                     "Idle Claude receipt unnecessarily raises attention.");
                 CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), idle.Snapshot);
                 var idleCard = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>().Last();
@@ -158,12 +160,15 @@ internal static class MixedProviderUiChecks
                 Check(desktopNotice.Text.Contains("Desktop", StringComparison.Ordinal), "Desktop receipt hides its source.");
                 var desktopRows = flyout.DetailRows
                     .Select(border => (Grid)border.Child).ToArray();
-                Check(desktopRows.Length == 5, "Desktop quota, reset and receipt rows were omitted.");
+                // Desktop history never reports resets: its notice says so once instead of a
+                // "Not available" reset row per limit, and no reset time is invented.
+                Check(desktopRows.Length == 3, "Desktop quota and receipt rows were omitted, or empty reset rows returned.");
                 string ValueAt(int index) => ((TextBlock)((StackPanel)desktopRows[index].Children[1]).Children[0]).Text;
-                Check(ValueAt(0) == "15% / 85%" && ValueAt(2) == "7% / 93%",
+                Check(ValueAt(0) == "15% / 85%" && ValueAt(1) == "7% / 93%",
                     "Desktop quota values were omitted or changed.");
-                Check(ValueAt(1) == UiText.NotAvailable && ValueAt(3) == UiText.NotAvailable,
-                    "Desktop reset times were invented.");
+                Check(!flyout.DetailRows.Any(border => ((TextBlock)((Grid)border.Child).Children[0]).Text == UiText.Reset)
+                    && desktopNotice.Text.Contains(UiText.T("no reset times", "리셋 시각이 없습니다"), StringComparison.Ordinal),
+                    "Desktop reset times were invented or their absence is not explained.");
                 Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text == CodexRingPresentation.From(desktop.Snapshot).RemainingValueText,
                     "Desktop quota without a reset time has no ring value.");
                 WidgetFixture.BindOne(widget, desktop);
@@ -187,6 +192,8 @@ internal static class MixedProviderUiChecks
                 AccountUiChecks.Render(flyout, 440, null, directory is null ? null
                     : Path.Combine(directory, $"claude-live-{language}-{theme}.png"));
                 var liveNotice = (TextBlock)flyout.FindName("CodexStatusText");
+                Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("All updated", "전체 최신"),
+                    "A live Claude server check is summarized as a received sample in the popup header.");
                 Check(liveNotice.Text.Contains(
                         UiText.T("Updated from the Claude server", "Claude 서버에서"), StringComparison.Ordinal),
                     "Live Claude receipt does not identify the server fetch.");
@@ -227,7 +234,7 @@ internal static class MixedProviderUiChecks
                 CheckStaleText(resetNotice, elapsed.Snapshot);
                 Check(elapsed.Snapshot.Status == CodexQuotaStatus.Available
                     && !resetNotice.Text.Contains(UiText.T("Stale data", "오래된 데이터"))
-                    && ((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("Samples received", "수신값 표시"),
+                    && ((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("Received", "수신값 포함"),
                     "Elapsed reset unnecessarily raises attention for the last received Claude sample.");
                 var elapsedCard = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>().Last();
                 CheckStaleText(AccountUiChecks.Descendants<TextBlock>(elapsedCard).Single(text =>
@@ -487,7 +494,7 @@ internal static class MixedProviderUiChecks
         AccountUiChecks.Render(flyout, 440, null, null);
         Check(rows.Items.Count == 3 && flyout.SelectedProfileId == pending.Profile.Id
             && ((Border)flyout.FindName("CodexCard")).Visibility == Visibility.Visible, "First valid usage did not restore the account and detail card.");
-        Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("Samples received", "수신값 표시"),
+        Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("Received", "수신값 포함"),
             "A recently received Claude sample was presented as a current account query.");
     }
 

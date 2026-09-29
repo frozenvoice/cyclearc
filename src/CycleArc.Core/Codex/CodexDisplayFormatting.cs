@@ -101,7 +101,7 @@ public static class CodexDisplayFormatting
                     CursorUsagePresentation.QuotaDisplayLabel(window.LimitId),
                     CursorUsagePresentation.DetailRemainingSummary(window),
                     window.RemainingAmount is 0,
-                    window.ResetsAt is { } cursorReset ? ResetStamp(cursorReset) : null,
+                    window.ResetsAt is { } cursorReset ? CursorResetDetail(cursorReset, at) : null,
                     window.ResetsAt is { } cursorResetTooltip ? CodexDeadlineFormatting.ResetStampTooltip(cursorResetTooltip) : null));
                 continue;
             }
@@ -113,8 +113,9 @@ public static class CodexDisplayFormatting
                 : UsagePercentFormatting.Detail(window.UsedPercent);
             rows.Add(new CodexDisplayRow(label, value, window.UsedPercent >= 100));
 
-            rows.Add(new CodexDisplayRow(UiText.Reset, ResetStamp(window.ResetsAt), false,
-                CodexDeadlineFormatting.Remaining(window.ResetsAt, at)));
+            if (WindowRowCount(snapshot, window) == 2)
+                rows.Add(new CodexDisplayRow(UiText.Reset, ResetStamp(window.ResetsAt), false,
+                    CodexDeadlineFormatting.Remaining(window.ResetsAt, at)));
         }
 
         if (includeResetCredits && snapshot.ResetCreditsAvailable is int credits)
@@ -125,14 +126,14 @@ public static class CodexDisplayFormatting
 
         if (snapshot.LastSuccessfulRefresh is { } checkedAt)
         {
+            // One shape for every provider: the stamp (a date only when it is not today) and its age.
+            // Claude keeps "Last received" for a statusLine or Desktop history sample.
             var elapsed = CodexDeadlineFormatting.Elapsed(checkedAt, at);
-            var value = elapsed is null ? TimeOfDay(checkedAt) : $"{TimeOfDay(checkedAt)} · {elapsed}";
+            var stamp = ResetStamp(checkedAt, at);
+            var value = elapsed is null ? stamp : $"{stamp} · {elapsed}";
             rows.Add(snapshot.Provider == UsageProviderId.Claude
-                ? new CodexDisplayRow(ClaudeUsagePresentation.ReceiptLabel(snapshot),
-                    checkedAt.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), false, value,
-                    ClaudeUsagePresentation.LastReceivedText(snapshot))
-                : CursorUsagePresentation.IsCursor(snapshot)
-                ? new CodexDisplayRow(UiText.T("Updated", "업데이트"), value, false)
+                ? new CodexDisplayRow(ClaudeUsagePresentation.ReceiptLabel(snapshot), value, false,
+                    Tooltip: ClaudeUsagePresentation.LastReceivedText(snapshot))
                 : new CodexDisplayRow(UiText.LastChecked, value, false));
         }
 
@@ -152,14 +153,22 @@ public static class CodexDisplayFormatting
         var rows = Rows(snapshot, now, includeResetCredits: false);
         var index = ringWindow is null ? -1 : IndexOfWindow(snapshot, ringWindow);
         if (index < 0 || !ShowsQuotaWindows(snapshot)) return (rows, [], 0);
-        // Cursor has one row per limit; the others have a usage row and a reset row each.
-        var perWindow = CursorUsagePresentation.IsCursor(snapshot.Provider) ? 1 : 2;
-        var start = index * perWindow;
+        var perWindow = WindowRowCount(snapshot, ringWindow!);
+        var start = snapshot.Windows.Take(index).Sum(window => WindowRowCount(snapshot, window));
         if (start + perWindow > rows.Count) return (rows, [], 0);
         var primary = rows.Skip(start).Take(perWindow).ToArray();
         var secondary = rows.Take(start).Concat(rows.Skip(start + perWindow)).ToArray();
         return (primary, secondary, start);
     }
+
+    // Cursor has one row per limit, carrying its reset. The others have a usage row and a reset
+    // row each, except a Claude Desktop history sample: that source never reports a reset, so a
+    // "Not available" row per limit would say nothing the source notice does not.
+    private static int WindowRowCount(CodexQuotaSnapshot snapshot, CodexQuotaWindow window) =>
+        CursorUsagePresentation.IsCursor(snapshot.Provider)
+        || (snapshot.Provider == UsageProviderId.Claude && snapshot.TechnicalDetail == "claude-desktop-history"
+            && window.ResetsAt is null)
+            ? 1 : 2;
 
     private static int IndexOfWindow(CodexQuotaSnapshot snapshot, CodexQuotaWindow window)
     {
@@ -228,7 +237,17 @@ public static class CodexDisplayFormatting
         return UiText.T($"{minutes} min", $"{minutes}분");
     }
 
-    public static string ResetStamp(DateTimeOffset? resetsAt)
+    // Cursor's allowance rows carry their reset under the value, so it is named and counted down
+    // there like the other providers' separate Reset rows.
+    private static string CursorResetDetail(DateTimeOffset resetsAt, DateTimeOffset now) =>
+        CodexDeadlineFormatting.Remaining(resetsAt, now) is { } left
+            ? $"{UiText.Reset} {ResetStamp(resetsAt, now)} · {left}"
+            : $"{UiText.Reset} {ResetStamp(resetsAt, now)}";
+
+    public static string ResetStamp(DateTimeOffset? resetsAt) => ResetStamp(resetsAt, DateTimeOffset.Now);
+
+    /// <summary>Time only on the day of <paramref name="now"/>; otherwise the short date too.</summary>
+    public static string ResetStamp(DateTimeOffset? resetsAt, DateTimeOffset now)
     {
         if (resetsAt is null)
         {
@@ -236,8 +255,7 @@ public static class CodexDisplayFormatting
         }
 
         var local = resetsAt.Value.ToLocalTime();
-        var now = DateTimeOffset.Now.ToLocalTime();
-        if (local.Date == now.Date)
+        if (local.Date == now.ToLocalTime().Date)
         {
             return local.ToString("HH:mm", CultureInfo.InvariantCulture);
         }
@@ -294,7 +312,7 @@ public static class CodexDisplayFormatting
         CursorUsagePresentation.IsCursor(provider)
             ? CursorUsagePresentation.DetailRemainingSummary(window)
             : UiText.T($"Used {UsagePercentFormatting.Detail(window.UsedPercent)} · Left {UsagePercentFormatting.DetailRemaining(window)}",
-                $"사용 {UsagePercentFormatting.Detail(window.UsedPercent)} · 잔여 {UsagePercentFormatting.DetailRemaining(window)}");
+                $"사용 {UsagePercentFormatting.Detail(window.UsedPercent)} · 남음 {UsagePercentFormatting.DetailRemaining(window)}");
 
     private static string SignInLabel(CodexQuotaSnapshot snapshot) => snapshot.Status switch
     {

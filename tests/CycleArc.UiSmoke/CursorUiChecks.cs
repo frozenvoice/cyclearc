@@ -34,7 +34,12 @@ internal static class CursorUiChecks
             var widget = new FloatingWidget { ShowActivated = false };
             try
             {
-                flyout.Bind(snapshot);
+                // Bound as the app binds it, so the preview carries the account name row.
+                var popupAccount = new CodexAccountView(new CodexAccountProfile("cursor-ui", "", UiText.T("Cursor account", "Cursor 계정"))
+                    { Provider = UsageProviderId.Cursor }, snapshot, "cursor@example.invalid") { IsConnected = true };
+                flyout.BindAccounts([popupAccount], popupAccount.Profile.Id, false);
+                Check(((TextBlock)flyout.FindName("SelectedAccountText")).Text == popupAccount.DisplayName,
+                    "Cursor popup omits the account name.");
                 var flyoutContent = (FrameworkElement)flyout.Content;
                 flyoutContent.Measure(new Size(440, 1000));
                 flyoutContent.Arrange(new Rect(0, 0, 440, 1000));
@@ -45,8 +50,8 @@ internal static class CursorUiChecks
                     && ((RadioButton)flyout.FindName("FiveHourPeriodButton")).Visibility == Visibility.Collapsed
                     && ((RadioButton)flyout.FindName("WeeklyPeriodButton")).Visibility == Visibility.Collapsed,
                     "Cursor exposes the Codex 5-hour/weekly selector.");
-                Check(Descendants<TextBlock>(flyoutContent).Any(text => text.Text == UiText.T("Updated", "업데이트")),
-                    "Cursor popup omits its update timestamp.");
+                Check(Descendants<TextBlock>(flyoutContent).Any(text => text.Text == UiText.LastChecked),
+                    "Cursor popup omits its check timestamp.");
 
                 var profile = new CodexAccountProfile("cursor-ui", "", UiText.T("Cursor account", "Cursor 계정"))
                 {
@@ -574,8 +579,9 @@ internal static class CursorUiChecks
             "Cursor unknown allowance was hidden or shown as zero.");
         Check(budgetRows.Any(row => row.Value.Contains("$15.5", StringComparison.Ordinal)),
             "Cursor separate spending budget lost its remaining amount.");
-        Check(rows.Any(row => row.Label == UiText.T("Updated", "업데이트")),
-            "Cursor popup has no Updated row.");
+        // The check time row has the same name for every provider.
+        Check(rows.Any(row => row.Label == UiText.LastChecked),
+            "Cursor popup has no Last checked row.");
     }
 
     private static void CheckTooltip(CodexQuotaSnapshot snapshot, DateTimeOffset now)

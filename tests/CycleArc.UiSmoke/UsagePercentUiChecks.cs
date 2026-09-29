@@ -144,7 +144,7 @@ internal static class UsagePercentUiChecks
         var row = flyout.DetailRows.Select(border => (Grid)border.Child)
             .Single(grid => ((TextBlock)grid.Children[0]).Text == expectedLabel);
         var value = (TextBlock)row.Children.OfType<StackPanel>().Single().Children[0];
-        var remaining = UiText.T($"Remaining {sample.DetailLeft}", $"잔여 {sample.DetailLeft}");
+        var remaining = UiText.T($"Left {sample.DetailLeft}", $"남음 {sample.DetailLeft}");
         Check(value.Text == (cursor ? remaining : $"{sample.DetailUsed} / {sample.DetailLeft}"), label + ": detail row.");
         Check(value.ActualWidth + 1 >= value.DesiredSize.Width, label + ": detail row clipped.");
         var card = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>()

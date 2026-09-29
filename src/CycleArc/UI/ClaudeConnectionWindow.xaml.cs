@@ -28,14 +28,14 @@ public partial class ClaudeConnectionWindow : Window
         Title = UiText.ProductName + " · Claude";
         Heading.Text = UiText.T("Connect Claude usage", "Claude 사용량 연결");
         ProfileName.Text = new CodexAccountView(profile, CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable)).DisplayName;
-        SetupSteps.Text = UiText.T("Connect your Claude Pro or Max account through the official Claude Code sign-in. Keep Claude Desktop signed in to the same account for current shared Web, Desktop and Code usage.",
-            "공식 Claude Code 로그인으로 Pro 또는 Max 계정을 연결하세요. 같은 계정으로 Claude Desktop에 로그인하면 Web·Desktop·Code가 공유하는 최신 한도를 확인할 수 있습니다.");
+        SetupSteps.Text = UiText.T("Connect your Claude Pro or Max account through the official Claude Code sign-in.",
+            "공식 Claude Code 로그인으로 Pro 또는 Max 계정을 연결하세요.");
         ConnectExistingButton.Content = UiText.T("Connect current login", "현재 로그인 연결");
         LoginButton.Content = UiText.T("Sign in to Claude", "Claude 로그인");
         ReauthenticateButton.Content = UiText.T("Sign in again", "다시 로그인");
         OpenClaudeButton.Content = UiText.T("Open Claude Code terminal…", "Claude Code 터미널 열기…");
-        FreshnessHint.Text = UiText.T("Manual and automatic refresh check Claude's server using the same account in Claude Desktop. Choose the automatic interval in Settings. Code statusLine and Desktop history remain local fallback sources.",
-            "같은 계정의 Claude Desktop 로그인으로 수동·자동 새로고침 때 서버 한도를 조회합니다. 자동 확인 주기는 설정에서 정하며, statusLine과 Desktop 기록도 보조로 확인합니다.");
+        FreshnessHint.Text = UiText.T("Keep Claude Desktop signed in to the same account. Manual and automatic refresh check the shared Web, Desktop and Code quota on Claude's server through it. Set the automatic interval in Settings; Code statusLine and Desktop history are local fallbacks.",
+            "Claude Desktop에 같은 계정으로 로그인해 두세요. 수동·자동 새로고침이 그 로그인으로 Web·Desktop·Code 공유 한도를 서버에서 확인합니다. 자동 확인 주기는 설정에서 정하며, statusLine과 Desktop 기록은 보조 수신원입니다.");
         UsagePageButton.Content = ClaudeUsagePresentation.UsagePageLabel;
         UsagePageHint.Text = ClaudeUsagePresentation.UsagePageHint;
         AdvancedDetails.Header = UiText.T("Connection details", "연결 상세 설정");
@@ -92,7 +92,7 @@ public partial class ClaudeConnectionWindow : Window
             ? UiText.T("Sign in to another account", "다른 계정으로 로그인") : UiText.T("Sign in to Claude", "Claude 로그인");
         OperationStatus.Text = failure != ClaudeFailureKind.None
             ? FailureText(failure)
-            : linked ? UiText.T("Connected. With the same account signed in to Claude Desktop, refresh to check usage.", "연결됨. Claude Desktop에 같은 계정으로 로그인되어 있으면 새로고침으로 사용량을 확인합니다.") : "";
+            : linked ? UiText.T("Connected. Refresh to check usage.", "연결됨. 새로고침하면 사용량을 확인합니다.") : "";
         UpdateButtons();
     }
     private void Begin(Func<CancellationToken, Task> action, string progress)
@@ -141,8 +141,8 @@ public partial class ClaudeConnectionWindow : Window
         }
         await InspectAsync(token).ConfigureAwait(false);
         await Dispatcher.InvokeAsync(() =>
-            OperationStatus.Text = UiText.T("Claude Code authentication renewed. With the same account signed in to Claude Desktop, refresh to check usage.",
-                "Claude Code 인증을 갱신했습니다. Claude Desktop에 같은 계정으로 로그인되어 있으면 새로고침으로 사용량을 확인합니다."));
+            OperationStatus.Text = UiText.T("Claude Code authentication renewed. Refresh to check usage.",
+                "Claude Code 인증을 갱신했습니다. 새로고침하면 사용량을 확인합니다."));
     }
     private async Task ConnectAsync(bool login, CancellationToken token)
     {
@@ -158,8 +158,7 @@ public partial class ClaudeConnectionWindow : Window
             await Dispatcher.InvokeAsync(() =>
             {
                 if (_overview?.Installed == true && _overview.Authentication.Fingerprint == result.Binding?.IdentityFingerprint)
-                    OperationStatus.Text = UiText.T("Connected. With the same account signed in to Claude Desktop, refresh to check usage.",
-                        "연결됨. Claude Desktop에 같은 계정으로 로그인되어 있으면 새로고침으로 사용량을 확인합니다.");
+                    OperationStatus.Text = UiText.T("Connected. Refresh to check usage.", "연결됨. 새로고침하면 사용량을 확인합니다.");
             });
         }
         else await Dispatcher.InvokeAsync(() => OperationStatus.Text = result.Failure is { } failure ? FailureText(failure) : AuthText(result.Authentication.Status));

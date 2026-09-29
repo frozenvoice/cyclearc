@@ -171,9 +171,11 @@ internal static class DesktopInstanceProcessChecks
             try
             {
                 var versionLabel = (TextBlock)flyout.FindName("VersionText")!;
-                var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
-                Check(versionLabel.Text == UiText.VersionPrefix + assemblyVersion,
-                    "Flyout does not expose the current assembly version label.");
+                // The popup names the release as Settings and the update window do, without the build part.
+                var release = (typeof(FlyoutWindow).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                    ?? "?").Split('+')[0];
+                Check(versionLabel.Text == UiText.VersionPrefix + release,
+                    "Flyout does not expose the current release version label.");
             }
             finally { flyout.Close(); }
 

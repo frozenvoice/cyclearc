@@ -46,9 +46,9 @@ public class CreditCardAndWidgetDragTests
         var date = CodexDeadlineFormatting.DateStamp(early, Now);
         var earlyTime = early.ToLocalTime().ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
         var lateTime = late.ToLocalTime().ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
-        Assert.Equal(UiText.T($"{date} {earlyTime} expires", $"{date} {earlyTime} 만료"), card.Rows[0].Text);
+        Assert.Equal(UiText.T($"Expires {date} {earlyTime}", $"{date} {earlyTime} 만료"), card.Rows[0].Text);
         Assert.Equal(card.Rows[0], card.Rows[1]);
-        Assert.Equal(UiText.T($"{date} {lateTime} expires", $"{date} {lateTime} 만료"), card.Rows[2].Text);
+        Assert.Equal(UiText.T($"Expires {date} {lateTime}", $"{date} {lateTime} 만료"), card.Rows[2].Text);
         Assert.All(card.Rows, row => Assert.DoesNotContain("·", row.Text));
         Assert.Null(card.Notice);
     }

@@ -368,8 +368,9 @@ public class ClaudeStatusLineTests
             var stamp = Now.ToLocalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
             var receipt = Assert.Single(CodexDisplayFormatting.Rows(snapshot, data.Clock.UtcNow),
                 row => row.Label == ClaudeUsagePresentation.LastReceivedLabel);
-            Assert.Equal(stamp[..10], receipt.Value);
-            Assert.StartsWith(stamp[11..], receipt.Detail);
+            // The row uses the popup's shared stamp and age; its tooltip keeps the full date.
+            Assert.StartsWith(CodexDisplayFormatting.ResetStamp(Now, data.Clock.UtcNow) + " · ", receipt.Value);
+            Assert.Null(receipt.Detail);
             Assert.Contains(stamp, receipt.Tooltip);
             Assert.Contains(stamp, CycleArcPresentation.Tooltip(snapshot));
             var account = new CodexAccountView(data.Profile with { Label = new string('x', 200) + "😀" }, snapshot);
