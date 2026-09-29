@@ -24,7 +24,7 @@ CycleArc reads the [official Claude Code statusLine JSON](https://code.claude.co
 | Desktop history `samples[].t` | Observation time in Unix milliseconds, used to select the newer source sample |
 | Desktop history `samples[].org` | Organization identity used during binding verification; not displayed |
 | Desktop history `samples[].u.fh` / `samples[].u.sd` | Five-hour / weekly usage percentages; Desktop history has no reset timestamps |
-| Desktop OAuth live profile/usage | The Desktop OAuth access token is used in memory for GET https://api.anthropic.com/api/oauth/profile, identity verification, and GET https://api.anthropic.com/api/oauth/usage; the profile email is checked against the binding | Private/internal compatibility path, not a stable public API; the separate Desktop Electron organization usage route is not used |
+| Desktop OAuth live profile/usage | The Desktop OAuth access token is used in memory for GET https://api.anthropic.com/api/oauth/profile, identity verification, and GET https://api.anthropic.com/api/oauth/usage; the profile email is checked against the binding. This is a private/internal compatibility path, not a stable public API; the separate Desktop Electron organization usage route is not used |
 
 Claude Code may omit each window independently, including before a first response or for an unsupported plan. Missing data stays unknown; a malformed present window is a schema failure rather than a successful partial reading. The model/context-token fields are not used as account quota.
 
