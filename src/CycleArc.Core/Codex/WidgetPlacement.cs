@@ -46,16 +46,27 @@ public static class WidgetPlacement
     /// The monitor that contains this origin. Used when relaying out after a move so a wide
     /// widget dropped onto a narrow display is measured against that display, not against the
     /// overlap of its previous large rectangle with the virtual desktop.
+    /// An origin outside every work area (a widget pushed partly past the outer edge of a
+    /// side monitor, or above the top) belongs to the nearest monitor, never to the primary
+    /// by default: falling back to the primary made such a drop reappear on another display.
     /// </summary>
     public static ScreenRect AreaContaining(double left, double top, IReadOnlyList<ScreenRect> workAreas)
     {
         if (workAreas.Count == 0) return new ScreenRect(0, 0, 1920, 1040);
+        if (!double.IsFinite(left) || !double.IsFinite(top)) return workAreas[0];
+        var best = workAreas[0];
+        var bestDistance = double.PositiveInfinity;
         foreach (var area in workAreas)
         {
             if (left >= area.X && left < area.Right && top >= area.Y && top < area.Bottom)
                 return area;
+            var dx = left < area.X ? area.X - left : left >= area.Right ? left - area.Right : 0;
+            var dy = top < area.Y ? area.Y - top : top >= area.Bottom ? top - area.Bottom : 0;
+            var distance = (dx * dx) + (dy * dy);
+            // Strictly closer only, so a tie keeps the earlier (primary-first) monitor.
+            if (distance < bestDistance) { bestDistance = distance; best = area; }
         }
-        return workAreas[0];
+        return best;
     }
 
     /// <summary>

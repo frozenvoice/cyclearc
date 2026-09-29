@@ -420,15 +420,27 @@ public static class FlyoutPlacement
             (int)Math.Round(top),
             Math.Max(1, (int)Math.Round(width)),
             Math.Max(1, (int)Math.Round(height)));
+        // The monitor holding most of the window, like Windows' own MonitorFromRect. Taking
+        // the first intersecting area let a sliver over the primary pull the window across.
+        ScreenRect? best = null;
+        long bestOverlap = 0;
         foreach (var area in workAreas)
         {
-            if (area.Intersects(placed))
+            if (!area.Intersects(placed))
             {
-                return area;
+                continue;
+            }
+
+            var overlap = (long)(Math.Min(area.Right, placed.Right) - Math.Max(area.X, placed.X))
+                * (Math.Min(area.Bottom, placed.Bottom) - Math.Max(area.Y, placed.Y));
+            if (overlap > bestOverlap)
+            {
+                bestOverlap = overlap;
+                best = area;
             }
         }
 
-        return workAreas[0];
+        return best ?? workAreas[0];
     }
 
     public static (double Left, double Top) ClampToWorkArea(

@@ -30,21 +30,38 @@ public class WindowEdgeSnapTests
     [InlineData(11.999, true)]
     [InlineData(12, true)]
     [InlineData(12.001, false)]
-    public void ThresholdIsInclusiveAndOutsideThresholdIsFree(double distance, bool attaches)
+    public void ThresholdIsInclusiveAndInsideThresholdIsFree(double distance, bool attaches)
     {
         // Independent policy expectations: 2-DIP targets and a 12-DIP threshold.
         Assert.Equal(12, WindowEdgeSnap.ThresholdDip);
-        foreach (var direction in new[] { -1, 1 })
-        {
-            Assert.Equal(attaches ? HorizontalEdgeAnchor.Left : HorizontalEdgeAnchor.None,
-                WindowEdgeSnap.Detect(Work.X + 2 + direction * distance, 400, 320, 180, Work).Horizontal);
-            Assert.Equal(attaches ? HorizontalEdgeAnchor.Right : HorizontalEdgeAnchor.None,
-                WindowEdgeSnap.Detect(Work.Right - 2 - 320 + direction * distance, 400, 320, 180, Work).Horizontal);
-            Assert.Equal(attaches ? VerticalEdgeAnchor.Top : VerticalEdgeAnchor.None,
-                WindowEdgeSnap.Detect(0, Work.Y + 2 + direction * distance, 320, 180, Work).Vertical);
-            Assert.Equal(attaches ? VerticalEdgeAnchor.Bottom : VerticalEdgeAnchor.None,
-                WindowEdgeSnap.Detect(0, Work.Bottom - 2 - 180 + direction * distance, 320, 180, Work).Vertical);
-        }
+        Assert.Equal(attaches ? HorizontalEdgeAnchor.Left : HorizontalEdgeAnchor.None,
+            WindowEdgeSnap.Detect(Work.X + 2 + distance, 400, 320, 180, Work).Horizontal);
+        Assert.Equal(attaches ? HorizontalEdgeAnchor.Right : HorizontalEdgeAnchor.None,
+            WindowEdgeSnap.Detect(Work.Right - 2 - 320 - distance, 400, 320, 180, Work).Horizontal);
+        Assert.Equal(attaches ? VerticalEdgeAnchor.Top : VerticalEdgeAnchor.None,
+            WindowEdgeSnap.Detect(0, Work.Y + 2 + distance, 320, 180, Work).Vertical);
+        Assert.Equal(attaches ? VerticalEdgeAnchor.Bottom : VerticalEdgeAnchor.None,
+            WindowEdgeSnap.Detect(0, Work.Bottom - 2 - 180 - distance, 320, 180, Work).Vertical);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(12.001)]
+    [InlineData(150)]
+    public void DropPushedPastAnEdgeAttachesToThatEdge(double overshoot)
+    {
+        // Dragging a window partly off the monitor is pressing it against that edge.
+        Assert.Equal(HorizontalEdgeAnchor.Left,
+            WindowEdgeSnap.Detect(Work.X + 2 - overshoot, 400, 320, 180, Work).Horizontal);
+        Assert.Equal(HorizontalEdgeAnchor.Right,
+            WindowEdgeSnap.Detect(Work.Right - 2 - 320 + overshoot, 400, 320, 180, Work).Horizontal);
+        Assert.Equal(VerticalEdgeAnchor.Top,
+            WindowEdgeSnap.Detect(0, Work.Y + 2 - overshoot, 320, 180, Work).Vertical);
+        Assert.Equal(VerticalEdgeAnchor.Bottom,
+            WindowEdgeSnap.Detect(0, Work.Bottom - 2 - 180 + overshoot, 320, 180, Work).Vertical);
+        var anchors = WindowEdgeSnap.Detect(Work.X - overshoot, Work.Y - overshoot, 320, 180, Work);
+        Assert.Equal((Work.X + WindowEdgeSnap.MarginDip, Work.Y + WindowEdgeSnap.MarginDip),
+            WindowEdgeSnap.Place(Work.X - overshoot, Work.Y - overshoot, 320, 180, Work, anchors));
     }
 
     [Fact]

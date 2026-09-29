@@ -160,7 +160,8 @@ internal static class WidgetEdgeSnapChecks
             BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(widget,
             [new System.Windows.Point(left + 24, top + 24)]);
         typeof(FloatingWidget).GetMethod("FinishDragCore",
-            BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(widget, [true, bypass]);
+            BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(widget,
+            [true, bypass, (System.Windows.Point?)new System.Windows.Point(left + 24, top + 24)]);
     }
 
     private static void SimulatedClick(FloatingWidget widget)

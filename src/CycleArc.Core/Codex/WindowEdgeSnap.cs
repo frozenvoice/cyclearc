@@ -140,8 +140,10 @@ public static class WindowEdgeSnap
 
         var leftTarget = work.X + MarginDip;
         var rightTarget = work.X + work.Width - MarginDip - width;
-        var leftDistance = Math.Abs(left - leftTarget);
-        var rightDistance = Math.Abs(left - rightTarget);
+        // A drop pushed past an edge is as close to that edge as it can get: it attaches
+        // however far it overshoots, instead of being clamped back to a detached inset.
+        var leftDistance = left < leftTarget ? 0 : left - leftTarget;
+        var rightDistance = left > rightTarget ? 0 : rightTarget - left;
         var leftWithin = leftDistance <= ThresholdDip;
         var rightWithin = rightDistance <= ThresholdDip;
 
@@ -166,8 +168,8 @@ public static class WindowEdgeSnap
 
         var topTarget = work.Y + MarginDip;
         var bottomTarget = work.Y + work.Height - MarginDip - height;
-        var topDistance = Math.Abs(top - topTarget);
-        var bottomDistance = Math.Abs(top - bottomTarget);
+        var topDistance = top < topTarget ? 0 : top - topTarget;
+        var bottomDistance = top > bottomTarget ? 0 : bottomTarget - top;
         var topWithin = topDistance <= ThresholdDip;
         var bottomWithin = bottomDistance <= ThresholdDip;
 

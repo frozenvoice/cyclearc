@@ -110,6 +110,14 @@ public class FlyoutUxAndFailureSummaryTests
             400,
             [work, new ScreenRect(1920, 0, 1280, 1024)]);
         Assert.Equal(1920, onSecond.X);
+        // A sliver over the primary must not pull a window that sits mostly on the secondary.
+        var straddling = FlyoutPlacement.SelectWorkArea(
+            1900,
+            40,
+            320,
+            400,
+            [work, new ScreenRect(1920, 0, 1280, 1024)]);
+        Assert.Equal(1920, straddling.X);
     }
 
     [Fact]
