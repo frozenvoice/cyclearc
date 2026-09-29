@@ -48,7 +48,7 @@ Claude Desktop 한도 조회에서 인증이 실패하면 **Claude Desktop 로�
 
 **Claude 서버 요청 제한**은 사용량 조회 요청이 제한됐다는 뜻이며, 표시된 구독 한도가 소진됐다는 뜻이 아닙니다. 1분 주기도 지원하지만 자주 확인하면 서버의 요청 제한에 걸릴 수 있습니다. 반복되면 **설정 → 연결**에서 기본값인 5분부터 주기를 늘려보세요. 수동·자동 확인 모두 서버가 알려준 재시도 대기 시간을 지키며, 대기 시간이 없으면 1분을 기다립니다. 어떤 주기도 서버 제한을 피한다고 보장할 수는 없습니다.
 
-Claude의 이메일과 조직이 같으면 요금제를 바꿔도 같은 계정으로 유지합니다. 재로그인 뒤 이전 연결 세대에서 도착한 콜백은 최신 사용량이나 수신 시각을 바꾸지 않습니다. 이전 형식의 저장된 연결은 신원을 확인한 뒤 전환합니다. 자세한 내용은 [연결 호환성](CLAUDE.md#account-identity-compatibility)을 참고하세요.
+Claude의 이메일과 조직이 같으면 요금제를 바꿔도 같은 계정으로 유지합니다. 재로그인 뒤 이전 연결 세대에서 도착한 콜백은 최신 사용량이나 수신 시각을 바꾸지 않습니다. 이전 형식의 저장된 연결은 신원을 확인한 뒤 전환합니다. 자세한 내용은 [연결 호환성](CLAUDE-INTEGRATION.md#account-identity-compatibility)을 참고하세요.
 
 **CycleArc는 연결된 Claude Desktop 로그인으로 공유 한도를 적극 확인합니다.** Claude Code statusLine과 Claude Desktop 기록은 로컬 기록입니다. 서버 조회 또는 로컬 기록의 첫 유효 샘플 전에는 **수신 대기**로 표시할 수 있습니다. 서버 조회 성공은 **업데이트됨**과 서버 확인 시각, 로컬 기록은 **수신됨**과 원본 시각을 표시합니다. 여러 로컬 기록이 있으면 더 최근 관측값을 사용합니다. **현재 로그인 연결**을 반복해도 같은 바인딩과 사용량 이력을 유지합니다. 새 연결을 취소하면 빈 임시 프로필만 정리합니다.
 
@@ -98,7 +98,7 @@ statusLine JSON에는 **계정 이메일·계정 ID가 없고**, Desktop 기록�
 
 연결 중 statusLine 명령이 너무 길다는 안내가 나오면 기존 인라인 statusLine을 스크립트 파일로 옮기고 짧은 호출 명령을 사용한 뒤 다시 연결하세요. 제한은 경로와 인코딩된 옵션을 포함한 전체 생성 명령에 적용하며, 설정 실패 시 기존 파일은 보존합니다.
 
-사용량은 연결된 Desktop의 읽기 전용 한도 확인을 먼저 사용하고, 공식 statusLine과 Claude Desktop 사용량 기록을 로컬 기록으로 사용합니다. 서버 조회는 config.json과 Local State의 보호 OAuth 토큰을 메모리에서만 DPAPI/AES-GCM으로 복호화하고 프로필 응답의 이메일과 조직 ID을 바인딩된 신원과 확인한 뒤 사용량을 요청하고 토큰을 버립니다. Desktop 자격 증명을 쓰거나 갱신하지 않고 쿠키·대화·트랜스크립트를 읽지 않으며 모델 요청을 실행하지 않습니다. 이 조회 경로는 공개 API가 아닌 내부 호환성 의존성입니다. 원본 기록 대신 한도 수치·소스·상태·연결 경로·신원 구분용 해시만 저장합니다. [연동 상세](CLAUDE.md) · [Desktop 조사 근거](CLAUDE-USAGE-RESEARCH.md) · [Claude Code 공식 문서](https://code.claude.com/docs/en/statusline)
+사용량은 연결된 Desktop의 읽기 전용 한도 확인을 먼저 사용하고, 공식 statusLine과 Claude Desktop 사용량 기록을 로컬 기록으로 사용합니다. 서버 조회는 config.json과 Local State의 보호 OAuth 토큰을 메모리에서만 DPAPI/AES-GCM으로 복호화하고 프로필 응답의 이메일과 조직 ID을 바인딩된 신원과 확인한 뒤 사용량을 요청하고 토큰을 버립니다. Desktop 자격 증명을 쓰거나 갱신하지 않고 쿠키·대화·트랜스크립트를 읽지 않으며 모델 요청을 실행하지 않습니다. 이 조회 경로는 공개 API가 아닌 내부 호환성 의존성입니다. 원본 기록 대신 한도 수치·소스·상태·연결 경로·신원 구분용 해시만 저장합니다. [연동 상세](CLAUDE-INTEGRATION.md) · [Desktop 조사 근거](CLAUDE-USAGE-RESEARCH.md) · [Claude Code 공식 문서](https://code.claude.com/docs/en/statusline)
 
 ChatGPT Pro/Sol 기록 추정 기능은 종료했습니다. Edge/Chrome 확장, 별도의 ChatGPT 기록 접근,
 대화 기록 동기화, SQLite 기록 집계, WebView2는 현재 앱에서 사용하지 않습니다.

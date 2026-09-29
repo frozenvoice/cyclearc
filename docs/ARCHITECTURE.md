@@ -155,7 +155,7 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
   authenticated the matching saved profile binding. The old executable need not still exist. User
   replacements, unrelated hooks, disconnected profiles and mismatched bindings are left untouched;
   previous statusLine data, account generation and nicknames stay in place.
-- StatusLine has no identity fields, and Desktop history carries an organization ID rather than an email. Each live profile response is checked against the bound identity before quota is accepted. A changed or unavailable identity cannot replace the last-good sample; a mismatch hides live quota. The old manual receiver cannot bypass an automatic binding check. Details are in CLAUDE.md.
+- StatusLine has no identity fields, and Desktop history carries an organization ID rather than an email. Each live profile response is checked against the bound identity before quota is accepted. A changed or unavailable identity cannot replace the last-good sample; a mismatch hides live quota. The old manual receiver cannot bypass an automatic binding check. Details are in [Claude integration](CLAUDE-INTEGRATION.md).
 - Official StopFailure events carry request-error classifications through a separate bounded headless
   receiver in the same executable. Only projected failure kind, binding generation and observation
   time are persisted in `claude-failure.json`; no raw hook metadata is stored. Local signed-in
