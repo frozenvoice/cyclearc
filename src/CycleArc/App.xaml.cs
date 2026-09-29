@@ -336,12 +336,10 @@ public partial class App : Application
             catch (Exception ex) { _log.Error("Usage alert marks could not be saved", ex); }
         }
         if (alerts.Count == 0 || IsExiting) return;
-        var alert = alerts.OrderByDescending(item => item.Level).First();
-        var title = alerts.Count == 1 ? alert.Title
-            : UiText.T($"{alerts.Count} limits need attention", $"한도 {alerts.Count}개 확인 필요");
-        _tray.Balloon(title, alert.Body, () =>
+        var (title, body, profileId) = UsageAlerts.Summary(alerts);
+        _tray.Balloon(title, body, () =>
         {
-            _codex?.Select(alert.ProfileId);
+            _codex?.Select(profileId);
             ShowMain();
         });
     }

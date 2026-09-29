@@ -1,5 +1,6 @@
 using CycleArc.Codex;
 using CycleArc.Providers.Usage;
+using CycleArc.Services;
 
 namespace CycleArc.Tests;
 
@@ -71,6 +72,62 @@ public class UsageAlertsTests
         Assert.Equal(["a", "b"], alerts.Select(alert => alert.ProfileId).Order());
         var (_, remaining) = UsageAlerts.Evaluate([Account("a", 90, Reset)], marks);
         Assert.All(remaining.Keys, key => Assert.StartsWith("a|", key));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UsageWaveringAroundAThresholdAlertsOncePerPeriod(bool resetKnown)
+    {
+        DateTimeOffset? reset = resetKnown ? Reset : null;
+        var (first, marks) = UsageAlerts.Evaluate([Account("work", 86, reset)], null);
+        Assert.Single(first);
+        var (dip, dipped) = UsageAlerts.Evaluate([Account("work", 84, reset)], marks);
+        Assert.Empty(dip);
+        var (again, _) = UsageAlerts.Evaluate([Account("work", 86, reset)], dipped);
+        Assert.Empty(again);
+    }
+
+    [Theory]
+    [InlineData(-1d)]
+    [InlineData(140d)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void OutOfRangeUsageNeverAlertsAndKeepsTheMark(double used)
+    {
+        var (_, marks) = UsageAlerts.Evaluate([Account("work", 90, Reset)], null);
+        var (alerts, kept) = UsageAlerts.Evaluate([Account("work", used, Reset)], marks);
+        Assert.Empty(alerts);
+        Assert.Equal(marks, kept);
+        var (fresh, _) = UsageAlerts.Evaluate([Account("other", used, Reset)], null);
+        Assert.Empty(fresh);
+    }
+
+    [Fact]
+    public void OneNotificationNamesEveryLimitItMarksAnnounced()
+    {
+        var (alerts, _) = UsageAlerts.Evaluate([Account("Alpha", 90, Reset), Account("Beta", 100, Reset)], null);
+        var (title, body, profileId) = UsageAlerts.Summary(alerts);
+        Assert.Contains("2", title);
+        Assert.Contains("Alpha", body);
+        Assert.Contains("Beta", body);
+        Assert.Equal("Beta", profileId);
+        Assert.True(body.IndexOf("Beta", StringComparison.Ordinal) < body.IndexOf("Alpha", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ManyAlertsStayWithinTheWindowsNotificationLimits()
+    {
+        var accounts = Enumerable.Range(0, 12).Select(i => Account($"Account number {i} with a long name", 90 + i % 3, Reset)).ToArray();
+        var (alerts, _) = UsageAlerts.Evaluate(accounts, null);
+        var (title, body, _) = UsageAlerts.Summary(alerts);
+        Assert.True(title.Length <= 63);
+        Assert.True(body.Length <= 255);
+        Assert.Contains(UiText.T("more in the popup", "팝업에서 확인"), body);
+
+        var single = UsageAlerts.Summary([alerts[0] with { AccountName = new string('x', 120) }]);
+        Assert.True(single.Title.Length <= 63 && single.Body.Length <= 255);
     }
 
     [Fact]

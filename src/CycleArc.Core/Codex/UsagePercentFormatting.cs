@@ -47,5 +47,5 @@ public static class UsagePercentFormatting
         return Widget(remainingPercent);
     }
 
-    private static bool IsValid(double? value) => value is >= 0 and <= 100 && double.IsFinite(value.Value);
+    public static bool IsValid(double? value) => value is >= 0 and <= 100 && double.IsFinite(value.Value);
 }

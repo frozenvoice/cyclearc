@@ -60,9 +60,12 @@ public static class UsageAlerts
                 continue;
             foreach (var window in snapshot.Windows)
             {
-                if (window.UsedPercent is not { } used || !double.IsFinite(used)
+                // The same validity rule as the rings: a value outside 0-100 is unknown, so it
+                // neither alerts nor moves the mark.
+                if (!UsagePercentFormatting.IsValid(window.UsedPercent)
                     || window.IsEnabled == false || window.IsUnlimited)
                     continue;
+                var used = window.UsedPercent!.Value;
                 var key = account.Profile.Id + "|" + WindowKey(window);
                 var level = LevelFor(used);
                 var (period, marked) = previous.TryGetValue(key, out var value) ? Parse(value) : (null, UsageAlertLevel.None);
@@ -70,9 +73,11 @@ public static class UsageAlerts
                 if (level > marked)
                     alerts.Add(new UsageAlert(account.Profile.Id, account.DisplayName, account.ProviderName,
                         LimitName(window, snapshot.Provider), level, used));
-                // Usage that falls (a reset without a reported time, or a redeemed credit) lowers
-                // the mark so the next rise alerts again.
-                next[key] = Format(window.ResetsAt, level);
+                // Within one period the mark keeps the highest level announced, so usage wavering
+                // around a threshold never repeats an alert. Only a clear fall below the caution
+                // band (a reset without a reported time, or a redeemed credit) re-arms it.
+                var kept = level >= marked || used < UsageRingBands.CautionPercent ? level : marked;
+                next[key] = Format(window.ResetsAt ?? period, kept);
             }
         }
         // A listed account whose values were skipped this time (stale, failed, a limit briefly
@@ -82,6 +87,44 @@ public static class UsageAlerts
                 next[key] = value;
         return (alerts, next);
     }
+
+    /// <summary>
+    /// One notification for everything found in one check: the most urgent limit decides the
+    /// title and where a click goes, and the body names every account and limit, so nothing
+    /// marked as announced is left out of what was shown.
+    /// </summary>
+    public static (string Title, string Body, string ProfileId) Summary(IReadOnlyList<UsageAlert> alerts)
+    {
+        var ordered = alerts.OrderByDescending(alert => alert.Level).ThenByDescending(alert => alert.UsedPercent).ToArray();
+        var first = ordered[0];
+        if (ordered.Length == 1) return (Clip(first.Title, MaxTitle), Clip(first.Body, MaxBody), first.ProfileId);
+        var footer = UiText.T($"Click to open {first.AccountName}.", $"클릭하면 {first.AccountName} 계정을 엽니다.");
+        var lines = new List<string>();
+        for (var i = 0; i < ordered.Length; i++)
+        {
+            var alert = ordered[i];
+            var line = Clip(alert.Level == UsageAlertLevel.LimitReached
+                ? UiText.T($"{alert.AccountName} · {alert.LimitName}: used up", $"{alert.AccountName} · {alert.LimitName}: 모두 사용")
+                : $"{alert.AccountName} · {alert.LimitName}: {UsagePercentFormatting.Detail(alert.UsedPercent)}", 60);
+            var more = UiText.T($"+{ordered.Length - i} more in the popup", $"외 {ordered.Length - i}개는 팝업에서 확인");
+            // Windows shows at most 255 characters; name as many limits as fit and count the rest.
+            if (string.Join("\n", lines.Append(line).Append(more).Append(footer)).Length > MaxBody)
+            {
+                lines.Add(more);
+                break;
+            }
+            lines.Add(line);
+        }
+        lines.Add(footer);
+        return (UiText.T($"{ordered.Length} limits need attention", $"한도 {ordered.Length}개 확인 필요"),
+            Clip(string.Join("\n", lines), MaxBody), first.ProfileId);
+    }
+
+    // Windows notification limits: 63 characters of title, 255 of body.
+    private const int MaxTitle = 63;
+    private const int MaxBody = 255;
+
+    private static string Clip(string text, int max) => text.Length <= max ? text : text[..(max - 1)] + "…";
 
     // Codex reports its five-hour and weekly windows under one limit ID, so the duration and kind
     // are part of the key; otherwise the two periods would overwrite each other's marks.
