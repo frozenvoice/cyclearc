@@ -230,9 +230,11 @@ public partial class FloatingWidget : Window
             ApplyArrangedLayout();
             if (detectDroppedSnap && droppedPosition is { } dropped)
             {
-                // Detection deliberately sees the raw drop before safety recovery. A distant
-                // drop can be clamped to an edge by RecoverInto, but that must not invent an
-                // edge attachment. The same target and final arranged size then feed placement.
+                // Detection deliberately sees the raw drop before safety recovery, measured
+                // against the monitor the pointer was released on: a drop inside that area but
+                // away from its edges stays free even if RecoverInto later nudges it inward,
+                // while a drop pushed past an edge attaches to it. The same target and final
+                // arranged size then feed placement.
                 var (width, height) = ArrangedSize();
                 EdgeAnchors = WindowEdgeSnap.Detect(dropped.Left, dropped.Top, width, height,
                     target, _snapWindowsToScreenEdges, bypassDroppedSnap).Normalize();
@@ -373,6 +375,27 @@ public partial class FloatingWidget : Window
         var width = ActualWidth > 0 ? ActualWidth : WidgetGridLayout.ModuleWidth;
         var height = ActualHeight > 0 ? ActualHeight : WidgetGridLayout.ModuleWidth;
         return WidgetPlacement.AreaFor(Left, Top, width, height, areas);
+    }
+
+    /// <summary>
+    /// The monitor a drop belongs to is the one the pointer was released on. The widget's
+    /// origin is not enough: pushing the widget partly past the outer edge of a side monitor
+    /// leaves the origin on no monitor at all, and a widget straddling two displays should
+    /// land where the person let go rather than where its left edge happens to be.
+    /// </summary>
+    private ScreenRect DropWorkArea(IReadOnlyList<ScreenRect>? areas, System.Windows.Point? pointer)
+    {
+        if (pointer is not { } released) return CurrentWorkArea(areas);
+        if (_workAreas is null && IsLoaded)
+        {
+            // Live monitors: ask Windows for the pointer's monitor in physical pixels, so a
+            // mixed-DPI drag cannot pick a neighbour through a stale DIP transform.
+            var live = DesktopWorkAreas.AtCursor(this);
+            if (areas is null || areas.Contains(live)) return live;
+        }
+        return areas is { Count: > 0 }
+            ? WidgetPlacement.AreaContaining(released.X, released.Y, areas)
+            : CurrentWorkArea(areas);
     }
 
     private void BuildGrid(int count, int columns)
@@ -813,7 +836,7 @@ public partial class FloatingWidget : Window
         var pointer = PointerOnScreen(e);
         var bypassEdgeSnap = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         UpdateDragPosition(pointer);
-        FinishDragCore(true, bypassEdgeSnap);
+        FinishDragCore(true, bypassEdgeSnap, pointer);
         e.Handled = true;
     }
 
@@ -843,9 +866,9 @@ public partial class FloatingWidget : Window
         }
     }
 
-    private void FinishDrag(bool allowClick) => FinishDragCore(allowClick, false);
+    private void FinishDrag(bool allowClick) => FinishDragCore(allowClick, false, null);
 
-    private void FinishDragCore(bool allowClick, bool bypassEdgeSnap)
+    private void FinishDragCore(bool allowClick, bool bypassEdgeSnap, System.Windows.Point? pointer)
     {
         var gesture = _drag;
         var pressed = _pressedProfileId;
@@ -860,7 +883,7 @@ public partial class FloatingWidget : Window
             _dragAnchorsCleared = false;
             if (allowClick) {
                 var areas = _workAreas ?? (IsLoaded ? DesktopWorkAreas.For(this) : null);
-                var target = CurrentWorkArea(areas);
+                var target = DropWorkArea(areas, pointer);
                 RelayoutCore(areas, target, dropped, detectDroppedSnap: true,
                     bypassDroppedSnap: bypassEdgeSnap);
             }

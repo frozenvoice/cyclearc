@@ -198,6 +198,23 @@ public class WidgetGridLayoutTests
     }
 
     [Fact]
+    public void AnOriginPastTheOuterEdgeOfASideMonitorStaysOnThatMonitor()
+    {
+        // Left monitor A is secondary, right monitor B is primary. A widget pushed partly past
+        // A's left edge (or above its top) has an origin on no monitor; it must stay on A
+        // rather than fall back to the primary and reappear on B.
+        var left = new ScreenRect(-1920, 0, 1920, 1040);
+        IReadOnlyList<ScreenRect> areas = [Wide, left];
+        Assert.Equal(left, WidgetPlacement.AreaContaining(-1960, 300, areas));
+        Assert.Equal(left, WidgetPlacement.AreaContaining(-900, -30, areas));
+        Assert.Equal(Wide, WidgetPlacement.AreaContaining(1960, 300, areas));
+        var placed = WindowEdgeSnap.Place(-1960, 300, 900, 200,
+            WidgetPlacement.AreaContaining(-1960, 300, areas),
+            WindowEdgeSnap.Detect(-1960, 300, 900, 200, left));
+        Assert.Equal((left.X + WindowEdgeSnap.MarginDip, 300d), placed);
+    }
+
+    [Fact]
     public void AnUnplacedWidgetFallsBackToThePrimaryWorkArea() =>
         Assert.Equal(Wide, WidgetPlacement.AreaFor(9000, 9000, 240, 120, [Wide]));
 
