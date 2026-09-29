@@ -24,7 +24,7 @@ Read only the sections relevant to the change:
 
 - Product/setup/wording: [README](README.md) and [Korean guide](docs/README.ko.md); update both for behavior changes.
 - Provider boundaries, caches and startup: active-product sections of [Architecture](docs/ARCHITECTURE.md).
-- Claude authentication/receipts: [Claude integration](docs/CLAUDE.md). Before changing its data source,
+- Claude authentication/receipts: [Claude integration](docs/CLAUDE-INTEGRATION.md). Before changing its data source,
   check [official-interface research](docs/CLAUDE-USAGE-RESEARCH.md) and current official sources.
 - Regression evidence: matching entries in [Validation](docs/VALIDATION.md).
 - UI images: [image guide](docs/images/README.md); use production views with synthetic accounts and update affected previews only.
