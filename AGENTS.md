@@ -173,8 +173,8 @@ CI is not where a change is first verified. Before every push:
   Verify all CI executable/installer assets, their versions, commit/tag and uploaded SHA-256 before publication.
   Versions are centralized in `Directory.Build.props`.
 - Install/restart only when requested. Use the Velopack installer/update path, verify the target
-  checkout, running path and artifact hash, and keep the stable per-PC installation at
-  `%LOCALAPPDATA%\CycleArc` across releases. The external recovery supervisor restores failed
+  checkout, running path and artifact hash, and keep the per-user managed installation at the
+  root `Get-ManagedInstallRoot` resolves across releases. The external recovery supervisor restores failed
   replacement or initial desktop readiness; it does not monitor later session failures. Preserve the
   `%LOCALAPPDATA%\ProMeter` data path and legacy mutex. Ordinary launches preserve/activate the
   first desktop; `--autorun` stays quiet.
