@@ -148,8 +148,10 @@ public sealed class CursorNamingPresentationTests
             var rows = CodexDisplayFormatting.Rows(CursorSnapshot(window), Now);
             var row = Assert.Single(rows, item => item.Label == CursorUsagePresentation.QuotaDisplayLabel("cursor-auto"));
 
-            Assert.Equal("Remaining $27.5", row.Value);
-            Assert.Equal(CodexDisplayFormatting.ResetStamp(reset), row.Detail);
+            Assert.Equal("Left $27.5", row.Value);
+            // The reset under the value is named and counted down like the other providers' Reset rows.
+            Assert.Equal($"{UiText.Reset} {CodexDisplayFormatting.ResetStamp(reset, Now)} · {CodexDeadlineFormatting.Remaining(reset, Now)}",
+                row.Detail);
             Assert.Equal(CodexDeadlineFormatting.ResetStampTooltip(reset), row.Tooltip);
             Assert.Equal("cursor-auto", window.LimitId);
             Assert.Equal(CodexWindowKind.Other, window.Kind);

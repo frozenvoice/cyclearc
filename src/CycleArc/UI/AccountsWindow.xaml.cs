@@ -164,7 +164,8 @@ public partial class AccountsWindow : Window
             DockPanel.SetDock(remove, Dock.Right); actions.Children.Add(remove);
             if (account.Profile.Provider == UsageProviderId.Claude)
             {
-                var connection = ActionButton(UiText.T("Connect", "연결"), () => ConfigureClaude?.Invoke(id));
+                var connection = ActionButton(account.IsConnected ? UiText.T("Connection", "연결 관리") : UiText.T("Connect", "연결"),
+                    () => ConfigureClaude?.Invoke(id));
                 connection.Tag = "ConfigureClaude";
                 DockPanel.SetDock(connection, Dock.Right); actions.Children.Add(connection);
             }
@@ -212,6 +213,8 @@ public partial class AccountsWindow : Window
     private static string ClaudeSource(CodexAccountView account)
     {
         var snapshot = account.Snapshot;
+        if (ClaudeUsagePresentation.IsUnconnected(account))
+            return UiText.T("No Claude login linked yet", "Claude 로그인 연결 전");
         if (ClaudeUsagePresentation.IsLive(snapshot))
             return UiText.T("Via Claude server refresh", "Claude 서버 새로고침");
         if (ClaudeUsagePresentation.IsLiveFailure(snapshot.TechnicalDetail))

@@ -168,9 +168,9 @@ public sealed class SurfacePercentPresentationTests
         var amountModel = WidgetAccountModel.From(Account(UsageProviderId.Cursor, amountSnapshot), false, now: Now);
         Assert.Equal("$23.09", Assert.Single(amountModel.Periods).RemainingText);
         Assert.Equal("$23.09", Assert.Single(amountModel.Periods).DisplayRemainingText);
-        Assert.Equal("Remaining $23.09",
+        Assert.Equal("Left $23.09",
             Assert.Single(CodexDisplayFormatting.Rows(amountSnapshot)).Value);
-        Assert.Equal("Remaining $23.09",
+        Assert.Equal("Left $23.09",
             CodexDisplayFormatting.QuotaSummaryText(amountWindow, UsageProviderId.Cursor));
 
         var disabled = Window(UsageProviderId.Cursor, null, "cursor-auto") with { IsEnabled = false };
@@ -230,13 +230,13 @@ public sealed class SurfacePercentPresentationTests
 
     private static string RowValue(UsageProviderId provider, string used, string remaining) =>
         provider == UsageProviderId.Cursor
-            ? "Remaining " + remaining
+            ? "Left " + remaining
             : used + " / " + remaining;
 
     private static string SummaryValue(UsageProviderId provider, string used, string remaining) =>
         provider == UsageProviderId.Cursor
-            ? "Remaining " + remaining
-            : UiText.T($"Used {used} · Left {remaining}", $"사용 {used} · 잔여 {remaining}");
+            ? "Left " + remaining
+            : UiText.T($"Used {used} · Left {remaining}", $"사용 {used} · 남음 {remaining}");
 
     private static CodexAccountView Account(UsageProviderId provider, CodexQuotaSnapshot snapshot,
         string id = "surface")

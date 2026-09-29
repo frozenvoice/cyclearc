@@ -18,11 +18,9 @@ public partial class SettingsWindow : Window
         _settings = settings;
         Title = UiText.ProductName + " · " + UiText.Settings;
         WindowHeading.Text = Title;
-        var buildVersion = typeof(SettingsWindow).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? typeof(SettingsWindow).Assembly.GetName().Version?.ToString() ?? "?";
+        var buildVersion = AppVersionDisplay.Full(typeof(SettingsWindow).Assembly);
         VersionCaption.Text = UiText.T("Current version", "현재 실행 버전");
-        VersionText.Text = "v" + buildVersion.Split('+')[0];
+        VersionText.Text = "v" + AppVersionDisplay.Short(typeof(SettingsWindow).Assembly);
         VersionText.ToolTip = buildVersion;
         AutomationProperties.SetName(VersionText, VersionCaption.Text + " " + buildVersion);
         GeneralTab.Header = UiText.T("General", "일반");
@@ -38,7 +36,7 @@ public partial class SettingsWindow : Window
         LanguageBox.ItemsSource = new[] { "한국어", "English" };
         LanguageBox.SelectedIndex = settings.UiLanguage == UiLanguage.Korean ? 0 : 1;
         IconLabel.Text = UiText.T("Tray icon", "트레이 아이콘");
-        IconBox.ItemsSource = new[] { UiText.T("Usage number", "사용률 숫자"), UiText.T("Usage ring", "사용률 링") };
+        IconBox.ItemsSource = new[] { UiText.T("Usage number", "사용률 숫자"), UiText.T("Usage ring", "사용률 링"), UiText.T("Left number", "남은 양 숫자") };
         IconBox.SelectedIndex = (int)settings.TrayIconStyle;
         TraySummary.Text = UiText.T("Usage at a glance in your taskbar.", "작업표시줄에서 사용률을 한눈에.");
         TrayDetails.Header = UiText.T("How the tray icon works", "트레이 아이콘 표시 안내");
@@ -46,12 +44,16 @@ public partial class SettingsWindow : Window
         StartupBox.IsChecked = settings.StartWithWindows;
         EdgeSnapLabel.Text = UiText.T("Snap windows to screen edges", "화면 가장자리에 자동 정렬");
         EdgeSnapBox.IsChecked = settings.SnapWindowsToScreenEdges;
+        UsageAlertsLabel.Text = UiText.T("Usage alerts", "사용량 알림");
+        UsageAlertsHint.Text = UiText.T("Notify once when a limit reaches 85% and again at 100%, per account and period.",
+            "계정·기간마다 한도가 85%에 닿을 때와 100%일 때 한 번씩 알립니다.");
+        UsageAlertsBox.IsChecked = settings.UsageAlertsEnabled;
         EdgeSnapBox.ToolTip = UiText.T("Applies to the widget and detail popup. Hold Shift when releasing a drag to skip snapping.",
             "위젯과 상세 팝업에 적용합니다. Shift를 누른 채 드래그를 끝내면 이번 정렬을 생략합니다.");
         EdgeSnapHint.Text = UiText.T("Widget and detail popup. Hold Shift to skip a snap.", "위젯과 상세 팝업에 적용 · Shift를 누르면 이번 정렬 생략");
         TrayHint.Text = UiText.T(
-            "The tray shows the used percentage as large digits without the % sign (67 means 67%); the background is transparent. Text follows your Windows taskbar theme. Unknown usage shows ?. Check the tooltip or detail card for status. The ring style shows usage as progress.",
-            "트레이는 % 기호 없이 사용률 숫자를 크게 표시합니다(67은 67% 사용). 배경은 투명합니다. 글자색은 Windows 작업표시줄 테마에 맞춰 바뀌며, 알 수 없는 값은 ?로 표시합니다. 상태는 툴팁이나 상세 카드에서 확인하세요. 링은 같은 값을 진행률로 표시합니다.");
+            "The tray shows the used percentage as large digits without the % sign (67 means 67%); the background is transparent. Text follows your Windows taskbar theme. Unknown usage shows ?. Check the tooltip or detail card for status. The ring style shows usage as progress. The left number shows what is left instead (33 means 33% left), like the popup and widget rings.",
+            "트레이는 % 기호 없이 사용률 숫자를 크게 표시합니다(67은 67% 사용). 배경은 투명합니다. 글자색은 Windows 작업표시줄 테마에 맞춰 바뀌며, 알 수 없는 값은 ?로 표시합니다. 상태는 툴팁이나 상세 카드에서 확인하세요. 링은 같은 값을 진행률로 표시합니다. 남은 양 숫자는 팝업·위젯 링처럼 남은 양을 표시합니다(33은 33% 남음).");
         WidgetTitle.Text = UiText.T("Desktop widget", "바탕화면 위젯");
         ResetWidgetPositionButton.Content = UiText.T("Reset widget position", "위젯 위치 초기화");
         ResetWidgetPositionButton.ToolTip = UiText.T("Move the widget to the primary screen when you save.", "저장하면 위젯을 기본 화면으로 이동합니다.");
@@ -105,6 +107,7 @@ public partial class SettingsWindow : Window
         SetName(ThemeBox, ThemeLabel.Text); SetName(LanguageBox, LanguageLabel.Text);
         SetName(IconBox, IconLabel.Text); SetName(StartupBox, StartupLabel.Text);
         SetName(EdgeSnapBox, EdgeSnapLabel.Text);
+        SetName(UsageAlertsBox, UsageAlertsLabel.Text);
         SetName(WidgetBox, WidgetLabel.Text); SetName(WidgetTopBox, WidgetTopLabel.Text);
         SetName(WidgetClickThroughBox, WidgetClickThroughLabel.Text);
         SetName(WidgetOpacityBox, WidgetOpacityLabel.Text); SetName(CodexExeBox, CodexExeLabel.Text);
@@ -131,7 +134,7 @@ public partial class SettingsWindow : Window
             Math.Clamp(RefreshIntervalBox.SelectedIndex, 0, AppSettings.CodexRefreshIntervals.Count - 1)];
         _settings.Theme = (AppTheme)Math.Clamp(ThemeBox.SelectedIndex, 0, 2);
         _settings.UiLanguage = LanguageBox.SelectedIndex == 0 ? UiLanguage.Korean : UiLanguage.English;
-        _settings.TrayIconStyle = (TrayIconStyle)Math.Clamp(IconBox.SelectedIndex, 0, 1);
+        _settings.TrayIconStyle = (TrayIconStyle)Math.Clamp(IconBox.SelectedIndex, 0, 2);
         _settings.StartWithWindows = StartupBox.IsChecked == true;
         _settings.TaskbarStatusEnabled = false;
         _settings.FloatingWidgetEnabled = WidgetBox.IsChecked == true;
@@ -139,6 +142,7 @@ public partial class SettingsWindow : Window
         _settings.WidgetAlwaysOnTop = WidgetTopBox.IsChecked == true;
         _settings.WidgetClickThrough = WidgetClickThroughBox.IsChecked == true;
         _settings.SnapWindowsToScreenEdges = EdgeSnapBox.IsChecked == true;
+        _settings.UsageAlertsEnabled = UsageAlertsBox.IsChecked == true;
         if (!_settings.SnapWindowsToScreenEdges) _settings.ClearWindowEdgeAnchors();
         Saved?.Invoke(_settings);
         Close();

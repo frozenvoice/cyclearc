@@ -41,14 +41,14 @@ internal static class TrayIconChecks
             foreach (var style in Enum.GetValues<TrayIconStyle>())
             {
                 foreach (var (name, snapshot, expected, awaiting) in cases)
-                foreach (var lightTaskbar in style == TrayIconStyle.RemainingNumber ? new[] { false, true } : new[] { false })
+                foreach (var lightTaskbar in style != TrayIconStyle.ProgressRing ? new[] { false, true } : new[] { false })
                 {
                     using var icon = TrayIconRenderer.Render(
                         snapshot, style, size, awaiting, lightTaskbar: lightTaskbar);
                     using var bitmap = icon.ToBitmap();
                     var themeLabel = lightTaskbar ? "light" : "dark";
                     CheckBitmap(bitmap, size, style, $"{name}/{themeLabel}");
-                    if (style == TrayIconStyle.RemainingNumber)
+                    if (style != TrayIconStyle.ProgressRing)
                     {
                         var foreground = lightTaskbar ? Color.FromArgb(24, 24, 24) : Color.White;
                         CheckMonochromeNumber(bitmap, foreground, name, size);
@@ -61,14 +61,14 @@ internal static class TrayIconChecks
                 }
 
                 foreach (var value in values)
-                foreach (var lightTaskbar in style == TrayIconStyle.RemainingNumber ? new[] { false, true } : new[] { false })
+                foreach (var lightTaskbar in style != TrayIconStyle.ProgressRing ? new[] { false, true } : new[] { false })
                 {
                     using var icon = TrayIconRenderer.Render(
                         Snapshot(CodexQuotaStatus.Available, value), style, size, lightTaskbar: lightTaskbar);
                     using var bitmap = icon.ToBitmap();
                     var themeLabel = lightTaskbar ? "light" : "dark";
                     CheckBitmap(bitmap, size, style, $"{value:0}/{themeLabel}");
-                    if (style == TrayIconStyle.RemainingNumber)
+                    if (style != TrayIconStyle.ProgressRing)
                     {
                         var foreground = lightTaskbar ? Color.FromArgb(24, 24, 24) : Color.White;
                         CheckMonochromeNumber(bitmap, foreground, value.ToString("0"), size);
@@ -128,14 +128,14 @@ internal static class TrayIconChecks
         if (visible == 0 || maxX < minX || maxY < minY)
             throw new InvalidOperationException($"Tray icon is fully transparent: {style}/{label}/{requestedSize}.");
         // Three natural-width digits use less height than one or two digits.
-        var minimumHeight = style == TrayIconStyle.RemainingNumber
+        var minimumHeight = style != TrayIconStyle.ProgressRing
             ? Math.Max(5, (int)Math.Ceiling(bitmap.Height * 0.40)) : bitmap.Height / 2;
-        var minimumWidth = style == TrayIconStyle.RemainingNumber ? bitmap.Width / 3 : bitmap.Width / 2;
+        var minimumWidth = style != TrayIconStyle.ProgressRing ? bitmap.Width / 3 : bitmap.Width / 2;
         if (maxX - minX + 1 < minimumWidth || maxY - minY + 1 < minimumHeight)
             throw new InvalidOperationException($"Tray icon bounds are too small: {style}/{label}/{requestedSize}.");
-        if (bitmap.GetPixel(0, 0).A != 0 && style == TrayIconStyle.RemainingNumber)
+        if (bitmap.GetPixel(0, 0).A != 0 && style != TrayIconStyle.ProgressRing)
             throw new InvalidOperationException($"Number icon lost transparent corner: {label}/{requestedSize}.");
-        if (style == TrayIconStyle.RemainingNumber)
+        if (style != TrayIconStyle.ProgressRing)
         {
             // A half-pixel inset allows the antialiased edge, but not a solid clipped stroke.
             for (var i = 0; i < requestedSize; i++)
@@ -259,6 +259,21 @@ internal static class TrayIconChecks
             if (Distance(unknownBitmap.GetPixel(x, y), zeroBitmap.GetPixel(x, y)) > 20) difference++;
         if (difference < 8)
             throw new InvalidOperationException("Unknown tray value rendered like zero.");
+
+        // The left number draws what is left: 9% used reads 91, the same glyph as 91% used.
+        using var left = TrayIconRenderer.Render(Snapshot(CodexQuotaStatus.Available, 9), TrayIconStyle.LeftNumber, 32);
+        using var usedMirror = TrayIconRenderer.Render(Snapshot(CodexQuotaStatus.Available, 91), TrayIconStyle.RemainingNumber, 32);
+        using var usedSame = TrayIconRenderer.Render(Snapshot(CodexQuotaStatus.Available, 9), TrayIconStyle.RemainingNumber, 32);
+        using var leftBitmap = left.ToBitmap();
+        using var mirrorBitmap = usedMirror.ToBitmap();
+        using var sameBitmap = usedSame.ToBitmap();
+        CheckEquivalent(leftBitmap, mirrorBitmap, "Left number does not draw what is left");
+        var changed = 0;
+        for (var y = 0; y < leftBitmap.Height; y++)
+        for (var x = 0; x < leftBitmap.Width; x++)
+            if (Distance(leftBitmap.GetPixel(x, y), sameBitmap.GetPixel(x, y)) > 20) changed++;
+        if (changed < 8)
+            throw new InvalidOperationException("Left number renders the used percentage.");
     }
 
     private static int CheckCursorPixelRegression()
@@ -280,7 +295,7 @@ internal static class TrayIconChecks
             using var codexFractionalBitmap = codexFractional.ToBitmap();
             CheckEquivalent(cursorBitmap, codexFractionalBitmap,
                 $"Cursor {value.ToString("0.0", CultureInfo.InvariantCulture)} changed the shared tray rendering");
-            if (style == TrayIconStyle.RemainingNumber)
+            if (style != TrayIconStyle.ProgressRing)
             {
                 var foreground = lightTaskbar ? Color.FromArgb(24, 24, 24) : Color.White;
                 CheckMonochromeNumber(cursorBitmap, foreground, $"cursor/{value:0.0}", size);

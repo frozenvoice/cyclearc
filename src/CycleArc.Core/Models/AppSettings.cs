@@ -73,6 +73,10 @@ public sealed class AppSettings
     public int? FlyoutPixelLeft { get; set; }
     public int? FlyoutPixelTop { get; set; }
     public bool FlyoutPositionConfigured { get; set; }
+    // Near-limit and limit-reached notifications for the active usage providers. The marks
+    // remember which level each account's limit already announced in its current period.
+    public bool UsageAlertsEnabled { get; set; } = true;
+    public Dictionary<string, string> UsageAlertMarks { get; set; } = new(StringComparer.Ordinal);
     public bool NotifyAt20 { get; set; } = true;
     public bool NotifyAt10 { get; set; } = true;
     public bool NotifyExhausted { get; set; } = true;

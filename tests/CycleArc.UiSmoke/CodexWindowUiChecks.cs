@@ -131,7 +131,7 @@ internal static class CodexWindowUiChecks
             // The account row leads with what is left; the full used/left pair stays in its tooltip.
             if (((TextBlock)summaryRows[i].Children[0]).Text != label
                 || ((TextBlock)summaryRows[i].Children[1]).Text != UiText.WidgetLeft(left)
-                || summaryRows[i].ToolTip as string != label + " · " + UiText.T($"Used {used} · Left {left}", $"사용 {used} · 잔여 {left}")
+                || summaryRows[i].ToolTip as string != label + " · " + UiText.T($"Used {used} · Left {left}", $"사용 {used} · 남음 {left}")
                 || ((FrameworkElement)summaryRows[i].Children[2]).Visibility != (input.Used is null ? Visibility.Hidden : Visibility.Visible)
                 || ((TextBlock)((StackPanel)details[i * 2].Children[1]).Children[0]).Text != (input.Used is null ? "?" : $"{used} / {left}")
                 || ((TextBlock)((StackPanel)details[i * 2 + 1].Children[1]).Children[0]).Text == "?")

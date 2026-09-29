@@ -18,7 +18,7 @@ reset times and credits illustrate the layout; they do not promise specific plan
 | `claude-live-{en,ko}-{dark,light}.png` | Research selected with a synthetic server response: 46% five-hour / 11% weekly, known resets, Updated and Last checked |
 | `claude-overview-{en,ko}-{dark,light}.png` | Research selected with a Desktop history fallback: 91% five-hour / 47% weekly, unknown resets, Received and original observation time |
 | `claude-connection-{en,ko}-{dark,light}.png` | Official CLI connection choices, existing Desktop login for server checks and manual usage-page access; advanced settings collapsed |
-| `cursor-popup-{en,ko}-{dark,light}.png` | Cursor Models and Other Models monthly allowances, Grok Bot weekly allowance, named usage ring, disabled on-demand and successful update time |
+| `cursor-popup-{en,ko}-{dark,light}.png` | Cursor Models and Other Models monthly allowances, Grok Bot weekly allowance, named usage ring, each reset named and counted down under its value, disabled on-demand and the shared Last checked row |
 | `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary with integer used/remaining percentages and a named ring; healthy server status has no footer, with exact values/times and omitted budgets in tooltips/detail |
 | `widget-status-{before,after}-{en,ko}-{dark,light}.png` | Actual WPF Codex / Claude / Cursor accounts before and after collapsing healthy server status rows, at unchanged 100% width and typography |
 | `cursor-widget-summary-{before,after}-{en,ko}-{dark,light}.png` | Fixed synthetic Codex / Cursor / Claude accounts in the actual WPF widget, before and after the Cursor summary change at 100% zoom |

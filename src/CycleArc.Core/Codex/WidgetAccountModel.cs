@@ -265,8 +265,8 @@ public sealed record WidgetAccountModel(
     {
         var reset = CodexDeadlineFormatting.ResetStampTooltip(window.ResetsAt) ?? UiText.ResetNotProvided;
         return UiText.T(
-            $"{CursorUsagePresentation.QuotaDisplayLabel(window.LimitId)} · Remaining {CursorUsagePresentation.RemainingText(window)} · Reset {reset}",
-            $"{CursorUsagePresentation.QuotaDisplayLabel(window.LimitId)} · 잔여 {CursorUsagePresentation.RemainingText(window)} · 리셋 {reset}");
+            $"{CursorUsagePresentation.QuotaDisplayLabel(window.LimitId)} · Left {CursorUsagePresentation.RemainingText(window)} · Reset {reset}",
+            $"{CursorUsagePresentation.QuotaDisplayLabel(window.LimitId)} · 남음 {CursorUsagePresentation.RemainingText(window)} · 리셋 {reset}");
     }
 
     private static bool CursorIdentityRequiresReconnection(CodexQuotaSnapshot snapshot) =>

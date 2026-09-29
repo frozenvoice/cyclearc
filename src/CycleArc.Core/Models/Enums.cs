@@ -155,8 +155,11 @@ public enum ServerResetConfidence
 
 public enum TrayIconStyle
 {
+    // Saved by value: RemainingNumber is the historical name of the usage-number style.
     RemainingNumber,
-    ProgressRing
+    ProgressRing,
+    // What is left of the shown limit, matching the popup and widget rings.
+    LeftNumber
 }
 
 public enum UsagePeriodPreference

@@ -37,6 +37,9 @@ public static class TrayIconRenderer
         // detailed views retain their precision. Match Codex's whole-percent rounding.
         if (snapshot.Provider == UsageProviderId.Cursor && ring.UsedPercent is { } cursorUsed)
             text = Math.Round(cursorUsed, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
+        // The left number complements the whole-percent usage digits, so 67 used reads 33 left.
+        if (style == TrayIconStyle.LeftNumber && exact && ring.UsedPercent is { } used)
+            text = (100 - Math.Round(Math.Clamp(used, 0, 100), MidpointRounding.AwayFromZero)).ToString(CultureInfo.InvariantCulture);
 
         if (style == TrayIconStyle.ProgressRing)
         {

@@ -175,6 +175,9 @@ public sealed class WidgetAccountModuleView : Border
         RingUsedLabel.Text = ring.IsExhausted ? UsageRingBands.Label(UsageRingBand.Exhausted) : UiText.CodexLegendRemaining;
         RingUsedLabel.SetResourceReference(TextBlock.ForegroundProperty, ring.IsExhausted ? "RingExhaustedBrush" : "MutedBrush");
         RingUsedLabel.FontWeight = ring.IsExhausted ? FontWeights.SemiBold : FontWeights.Normal;
+        // The short "Left" caption can be read at 10; the longer limit-reached label keeps the
+        // smaller size that fits inside the ring.
+        RingUsedLabel.FontSize = ring.IsExhausted ? 8.5 : 10;
         // Only the ring's repeated caption is shortened. The adjacent allowance rows,
         // cadence headings, tooltip and accessible name keep the complete quota name.
         RingTargetText.Text = model.RingTargetLabel switch

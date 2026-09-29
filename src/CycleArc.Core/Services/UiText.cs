@@ -280,7 +280,7 @@ public static class UiText
         "Some history is being revalidated.",
         "일부 기록 재검증 중");
     public static string CodexLegendUsed => T("Used", "사용");
-    public static string CodexLegendRemaining => T("Remaining", "남음");
+    public static string CodexLegendRemaining => T("Left", "남음");
 
     public static string ResetServer(string stamp) => T($"{stamp} (server)", $"{stamp} (서버)");
     public static string ResetUserConfigured(string stamp) => T($"{stamp} (user configured)", $"{stamp} (사용자 설정)");
@@ -299,8 +299,6 @@ public static class UiText
     public static string ThemeSystem => T("System", "시스템");
     public static string ThemeLight => T("Light", "밝게");
     public static string ThemeDark => T("Dark", "어둡게");
-    public static string TrayRemainingNumber => T("Remaining number", "남은 횟수 숫자");
-    public static string TrayProgressRing => T("Progress ring", "진행 링");
     public static string TransportCompanion => T("Browser companion", "브라우저 도우미");
     public static string TransportWebView => T("WebView2 fallback", "WebView2 대체 경로");
     public static string TransportExport => T("Data Export only", "데이터 내보내기만");

@@ -144,9 +144,9 @@ public static class CursorUsagePresentation
 
     public static string RemainingSummary(CodexQuotaWindow window) => window.IsEnabled == false
         ? RemainingText(window)
-        : UiText.T($"Remaining {RemainingText(window)}", $"잔여 {RemainingText(window)}");
+        : UiText.T($"Left {RemainingText(window)}", $"남음 {RemainingText(window)}");
 
     public static string DetailRemainingSummary(CodexQuotaWindow window) => window.IsEnabled == false
         ? DetailRemainingText(window)
-        : UiText.T($"Remaining {DetailRemainingText(window)}", $"잔여 {DetailRemainingText(window)}");
+        : UiText.T($"Left {DetailRemainingText(window)}", $"남음 {DetailRemainingText(window)}");
 }

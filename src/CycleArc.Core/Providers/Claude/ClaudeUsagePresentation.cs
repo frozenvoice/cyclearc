@@ -13,6 +13,13 @@ public static class ClaudeUsagePresentation
     public static string SharedScope => UiText.T("Shared across Web, Desktop and Code", "Web·Desktop·Code 공유 한도");
     public static string LastReceivedLabel => UiText.T("Last received", "마지막 수신");
     public static string LastCheckedLabel => UiText.T("Last checked", "마지막 확인");
+    public static string NotConnectedLabel => UiText.T("Not connected", "연결 안 됨");
+    public static string NotConnectedText => UiText.T("Choose Connect to link this profile to a Claude login; refresh cannot check it until then.",
+        "연결을 눌러 이 프로필을 Claude 로그인과 연결하세요. 연결 전에는 새로고침해도 사용량을 확인하지 않습니다.");
+    /// <summary>A Claude profile with no bound connection and nothing received: only Connect can help.</summary>
+    public static bool IsUnconnected(CodexAccountView account) => account.Profile.Provider == UsageProviderId.Claude
+        && !account.IsConnected && !account.Snapshot.HasUsablePercentages
+        && account.Snapshot.Status == CodexQuotaStatus.Unavailable;
     public static bool IsStale(CodexQuotaSnapshot snapshot) => snapshot.Provider == UsageProviderId.Claude
         && snapshot.Status == CodexQuotaStatus.Stale;
     public static bool IsLive(CodexQuotaSnapshot snapshot) => snapshot.Provider == UsageProviderId.Claude
@@ -20,6 +27,7 @@ public static class ClaudeUsagePresentation
     public static bool IsLiveFailure(string? detail) => detail is
         "claude-live-auth-required" or "claude-live-request-failed" or "claude-live-rate-limited"
         or "claude-live-identity-mismatch" or "claude-live-unavailable";
+    // Tooltips and sentences keep the full date: a fallback receipt can be days or years old.
     public static string ReceiptStamp(CodexQuotaSnapshot snapshot) => snapshot.LastSuccessfulRefresh is { } received
         ? received.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : UiText.Never;
     public static string ReceiptLabel(CodexQuotaSnapshot snapshot) => IsLive(snapshot) || IsLiveFailure(snapshot.TechnicalDetail)
@@ -40,8 +48,8 @@ public static class ClaudeUsagePresentation
         _ => UiText.T("Via Code", "Code에서 수신")
     };
     public static string UsagePageLabel => UiText.T("Open usage page", "사용량 페이지 열기");
-    public static string UsagePageHint => UiText.T("Check current limits in your browser under the intended Claude account. Opening the page does not update CycleArc; manual and automatic refresh check the shared quota through the connected Desktop account.",
-        "브라우저에서 확인할 Claude 계정으로 로그인한 뒤 현재 한도를 보세요. 페이지를 열어도 CycleArc 수치는 갱신되지 않으며, 수동·자동 새로고침이 연결된 Desktop 계정으로 공유 한도를 확인합니다.");
+    public static string UsagePageHint => UiText.T("Check current limits in your browser under the intended Claude account. Opening the page does not update CycleArc.",
+        "브라우저에서 확인할 Claude 계정으로 로그인한 뒤 현재 한도를 보세요. 페이지를 열어도 CycleArc 수치는 갱신되지 않습니다.");
 
     public static string? FailureLabel(string? detail) => detail switch
     {
@@ -94,8 +102,8 @@ public static class ClaudeUsagePresentation
                 return UiText.T($"Updated from the Claude server at {ReceiptStamp(snapshot)}. Manual and automatic refresh check the shared subscription quota.",
                     $"Claude 서버에서 {ReceiptStamp(snapshot)}에 업데이트했습니다. 수동·자동 새로고침으로 공유 구독 한도를 확인합니다.");
             return snapshot.TechnicalDetail == "claude-desktop-history"
-                ? UiText.T("Last values read from Claude Desktop subscription usage history. Account usage may have changed since then.",
-                    "Claude Desktop 구독 사용량 기록에서 마지막으로 읽은 값입니다. 이후 계정 사용량은 달라졌을 수 있습니다.")
+                ? UiText.T("Last values read from Claude Desktop subscription usage history, which has no reset times. Account usage may have changed since then.",
+                    "Claude Desktop 구독 사용량 기록에서 마지막으로 읽은 값이며, 이 기록에는 리셋 시각이 없습니다. 이후 계정 사용량은 달라졌을 수 있습니다.")
                 : UiText.T("Last values received via Claude Code. Account usage may have changed since then.",
                     "Claude Code에서 마지막으로 받은 값입니다. 이후 계정 사용량은 달라졌을 수 있습니다.");
         }
