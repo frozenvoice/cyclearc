@@ -1,6 +1,6 @@
 # CycleArc — Claude / agent notes
 
-This repository is **CycleArc**, a Windows tray app for Codex limits and Claude's shared subscription quota. Claude Code statusLine delivers the last received Claude sample. ChatGPT history collection is retired.
+This repository is **CycleArc**, a Windows tray app for Codex, Claude and Cursor subscription limits. Claude's shared quota is checked live through the connected Claude Desktop login; Claude Code statusLine and Desktop history are fallback receipts. ChatGPT history collection is retired.
 
 Follow [AGENTS.md](AGENTS.md) for current product contracts, scoped document reading, verification and delivery. Read only the documents relevant to the actual change; ordinary Codex/Claude presentation work does not require legacy reconstruction documents.
 
