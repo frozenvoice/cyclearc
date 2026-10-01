@@ -29,6 +29,12 @@ ring-band widget/detail images were refreshed; historical before/after images an
 previews were preserved. Every copied PNG was visually inspected. Full local captures remain
 in the ignored artifact directories; no real-account pixels or amounts are included.
 
+For 0.6.7 the same current-layout set was re-exported after the version bump: widget images now
+show the selected account as a lifted surface with a short accent marker instead of the former
+full-height left line, `settings.png` / `settings-ko-dark.png` show the **Apply** button between
+Cancel and Save, and popup headers read 0.6.7. Other differences are export-time reset countdowns.
+Historical before/after comparisons were not regenerated.
+
 | Files | Contents |
 | --- | --- |
 | `updates-{en,ko}-{dark,light}.png` | Production update window showing a sample 0.6.0 → 0.6.1 upgrade with the release's widget and installer highlights; download and restart require separate approval |
