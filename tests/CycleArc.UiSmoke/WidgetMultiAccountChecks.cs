@@ -82,9 +82,45 @@ internal static class WidgetMultiAccountChecks
 
             WidgetFixture.RenderWidget(widget, directory is null ? null : Path.Combine(directory, name + ".png"));
             CheckReadable(widget, name);
+            CheckSelection(widget, name, selectedId);
             return 1;
         }
         finally { widget.Close(); }
+    }
+
+    // The selected account is a lifted surface with a neutral border and one short accent pill;
+    // the accent never outlines the module, and the others keep the bare ground and full contrast.
+    private static void CheckSelection(FloatingWidget widget, string name, string selectedId)
+    {
+        Check(widget.Modules.Count(module => module.IsSelected) == 1
+            && widget.Modules.Single(module => module.IsSelected).ProfileId == selectedId,
+            $"{name}: exactly the selected account must be marked.");
+        var accent = widget.FindResource("AccentBrush");
+        foreach (var module in widget.Modules)
+        {
+            var pill = module.SelectionPill;
+            Check(module.BorderBrush != accent, $"{name}: the accent outlines a module.");
+            if (module.IsSelected)
+            {
+                Check(module.Background == widget.FindResource("WidgetModuleSelectedBrush")
+                    && module.BorderBrush == widget.FindResource("LineBrush"),
+                    $"{name}: the selected surface is not the lifted neutral surface.");
+                Check(pill.Visibility == Visibility.Visible && ((Border)pill).Background == accent
+                    && Math.Abs(pill.ActualWidth - WidgetAccountModuleView.SelectionPillWidth) < .5
+                    && Math.Abs(pill.ActualHeight - WidgetAccountModuleView.SelectionPillHeight) < .5,
+                    $"{name}: the selection pill is missing or resized ({pill.ActualWidth}x{pill.ActualHeight}).");
+                var bounds = pill.TransformToAncestor(module).TransformBounds(new Rect(pill.RenderSize));
+                Check(bounds.Left >= module.BorderThickness.Left - .01 && bounds.Right <= module.Padding.Left + module.BorderThickness.Left
+                    && bounds.Top >= 0 && bounds.Bottom <= module.ActualHeight,
+                    $"{name}: the selection pill leaves the module's left padding ({bounds}).");
+            }
+            else
+            {
+                Check(module.Background == Brushes.Transparent && module.BorderBrush == Brushes.Transparent
+                    && pill.Visibility != Visibility.Visible, $"{name}: an unselected account is marked.");
+                Check(module.NameText.Opacity == 1 && module.Opacity == 1, $"{name}: an unselected account is dimmed.");
+            }
+        }
     }
 
     private static void CheckReadable(FloatingWidget widget, string name)

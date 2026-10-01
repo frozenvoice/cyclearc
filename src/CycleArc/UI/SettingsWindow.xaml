@@ -285,7 +285,7 @@
                                                 <TextBlock x:Name="WidgetOpacityLabel" Style="{StaticResource SettingsLabel}"/>
                                                 <TextBlock x:Name="WidgetOpacityValue" HorizontalAlignment="Right" FontWeight="SemiBold"/>
                                             </Grid>
-                                            <Slider x:Name="WidgetOpacityBox" Minimum="0.25" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                            <Slider x:Name="WidgetOpacityBox" Minimum="0.3" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True"
                                                     ValueChanged="OnOpacityChanged" Margin="0,10,0,0"/>
                                         </StackPanel>
                                     </StackPanel>
@@ -366,6 +366,7 @@
                     <Button x:Name="LogsButton" Style="{StaticResource SettingsAction}" Background="Transparent" HorizontalAlignment="Left" VerticalAlignment="Center" Click="OnOpenLogs"/>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button x:Name="CancelButton" Style="{StaticResource SettingsAction}" Click="OnCancel" MinWidth="88" Margin="0,0,10,0"/>
+                        <Button x:Name="ApplyButton" Style="{StaticResource SettingsAction}" Click="OnApply" MinWidth="88" Margin="0,0,10,0" IsEnabled="False"/>
                         <Button x:Name="SaveButton" Style="{StaticResource SettingsAction}" Background="{DynamicResource AccentSoftBrush}" Foreground="{DynamicResource OnAccentBrush}" Click="OnSave" MinWidth="104"/>
                     </StackPanel>
                 </Grid>

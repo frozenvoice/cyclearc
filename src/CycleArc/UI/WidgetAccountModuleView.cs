@@ -29,6 +29,21 @@ public sealed class WidgetAccountModuleView : Border
     private readonly StackPanel _periodPanel = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid _ringHost = new() { Width = RingDiameter, Height = RingDiameter, VerticalAlignment = VerticalAlignment.Top };
 
+    // Selection is a short accent pill on a slightly lifted surface. The surface and its neutral
+    // border mark the area; the accent stays this small so it never reads as a divider or as
+    // one of the blue usage bars. It sits in the left padding, 1 DIP inside the border.
+    internal const double SelectionPillWidth = 3;
+    internal const double SelectionPillHeight = 22;
+    private const double SurfaceBorder = 1;
+    private static readonly Thickness SurfacePadding = new(10, 7, 9, 7);
+    private readonly Border _selectionPill = new()
+    {
+        Width = SelectionPillWidth, Height = SelectionPillHeight, CornerRadius = new CornerRadius(1.5),
+        HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(-SurfacePadding.Left + SurfaceBorder, 0, 0, 0),
+        IsHitTestVisible = false, Visibility = Visibility.Collapsed
+    };
+
     public TextBlock NameText { get; } = new()
     {
         FontSize = 12, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis,
@@ -85,11 +100,14 @@ public sealed class WidgetAccountModuleView : Border
     {
         Tag = "WidgetAccountModule";
         Width = WidgetGridLayout.ModuleWidth;
-        Padding = new Thickness(9, 8, 10, 8);
-        Background = System.Windows.Media.Brushes.Transparent;
-        BorderThickness = new Thickness(2, 0, 0, 0);
-        BorderBrush = System.Windows.Media.Brushes.Transparent;
+        // Border plus padding keeps the earlier 11/10 horizontal and 8 vertical insets, so
+        // selecting an account never moves its content or changes the module size.
+        Padding = SurfacePadding;
+        CornerRadius = new CornerRadius(8);
+        BorderThickness = new Thickness(SurfaceBorder);
         Focusable = false;
+        _selectionPill.SetResourceReference(Border.BackgroundProperty, "AccentBrush");
+        ApplySurface();
 
         NameText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         RingValueText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
@@ -137,7 +155,41 @@ public sealed class WidgetAccountModuleView : Border
         StatusArea.Children.Add(statusHeader);
         StatusArea.Children.Add(StatusAgeText);
         content.Children.Add(StatusArea);
-        Child = content;
+        var surface = new Grid();
+        surface.Children.Add(content);
+        surface.Children.Add(_selectionPill);
+        Child = surface;
+    }
+
+    public bool IsSelected { get; private set; }
+    internal FrameworkElement SelectionPill => _selectionPill;
+
+    protected override void OnMouseEnter(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseEnter(e);
+        ApplySurface();
+    }
+
+    protected override void OnMouseLeave(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        ApplySurface();
+    }
+
+    // Rest is the widget ground; hover and selected each lift it one small step. The neutral
+    // border belongs to the selected surface only, and the pill never changes size on hover.
+    private void ApplySurface()
+    {
+        var hover = IsMouseOver;
+        if (IsSelected || hover)
+            SetResourceReference(BackgroundProperty, IsSelected
+                ? hover ? "WidgetModuleSelectedHoverBrush" : "WidgetModuleSelectedBrush"
+                : "WidgetModuleHoverBrush");
+        // Transparent, not null, so the whole module still takes clicks and drags.
+        else Background = System.Windows.Media.Brushes.Transparent;
+        if (IsSelected) SetResourceReference(BorderBrushProperty, "LineBrush");
+        else BorderBrush = System.Windows.Media.Brushes.Transparent;
+        _selectionPill.Visibility = IsSelected ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void Bind(CodexAccountView account, WidgetAccountModel model)
@@ -169,8 +221,8 @@ public sealed class WidgetAccountModuleView : Border
         StatusText.FontWeight = warning ? FontWeights.SemiBold : FontWeights.Normal;
         System.Windows.Automation.AutomationProperties.SetHelpText(StatusArea, status?.DetailText ?? model.Tooltip);
 
-        if (model.IsSelected) SetResourceReference(BorderBrushProperty, "AccentBrush");
-        else BorderBrush = System.Windows.Media.Brushes.Transparent;
+        IsSelected = model.IsSelected;
+        ApplySurface();
 
         ToolTip = model.Tooltip;
         System.Windows.Automation.AutomationProperties.SetName(this, AutomationText(model));
