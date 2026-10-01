@@ -42,6 +42,7 @@ public sealed record WidgetAccountModel(
     string Tooltip)
 {
     public string? RingTargetLabel { get; init; }
+    public WidgetStatusPresentation? StatusPresentation { get; init; }
     // Keep the full status for tooltips/accessibility even when the healthy footer is folded.
     public bool ShowStatusRow { get; init; } = !string.IsNullOrEmpty(StatusText);
     // Widget glyphs only: keep the shared ring's precise text, percentage and danger state.
@@ -56,9 +57,12 @@ public sealed record WidgetAccountModel(
     {
         var at = now ?? DateTimeOffset.Now;
         var snapshot = account.Snapshot;
+        var statusPresentation = WidgetStatusPresentation.From(snapshot, at, account.IsSigningIn);
+        var protectedIdentity = WidgetStatusPresentation.HidesQuota(snapshot);
         var cursorProtected = CursorUsagePresentation.IsCursor(snapshot)
             && CursorIdentityRequiresReconnection(snapshot);
         var ringSnapshot = snapshot;
+        if (protectedIdentity) ringSnapshot = snapshot with { Windows = [] };
         if (CursorUsagePresentation.IsCursor(snapshot))
         {
             var visibleWindows = cursorProtected ? [] : CursorPeriodWindows(snapshot);
@@ -80,22 +84,11 @@ public sealed record WidgetAccountModel(
         var periods = CodexDisplayFormatting.ShowsQuotaWindows(snapshot)
             && !CodexIdentityPresentation.NeedsReconnection(snapshot)
             && !cursorProtected
+            && !protectedIdentity
             ? Lines(snapshot, ring, at)
             : [];
 
-        // Retain Claude's receipt state as metadata. Codex names any state that is not plain
-        // success, including identity mismatch while Status stays Available, so a
-        // quota-hidden account still says why instead of relying on color or tooltip.
-        var showStatus = account.Profile.Provider == UsageProviderId.Claude
-            || CursorUsagePresentation.IsCursor(account.Profile.Provider)
-            || snapshot.Status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing)
-            || CodexIdentityPresentation.NeedsReconnection(snapshot);
-        var status = account.IsSigningIn ? UiText.T("Signing in…", "로그인 중…")
-            : showStatus ? CycleArcPresentation.StatusLabel(snapshot) : "";
-        if (CursorUsagePresentation.IsCursor(snapshot) && !account.IsSigningIn)
-        {
-            status = CursorStatusText(snapshot, at);
-        }
+        var status = statusPresentation.Summary;
 
         var model = new WidgetAccountModel(
             account.Profile.Id,
@@ -104,17 +97,17 @@ public sealed record WidgetAccountModel(
             ring,
             periods,
             status,
-            ClaudeUsagePresentation.IsStale(snapshot)
-                || (CursorUsagePresentation.IsCursor(snapshot) && snapshot.Status == CodexQuotaStatus.Stale),
+            snapshot.Status == CodexQuotaStatus.Stale,
             selected,
             CursorUsagePresentation.IsCursor(snapshot)
                 ? account.DisplayName + Environment.NewLine + CursorTooltip(snapshot, ring, at, cursorProtected)
-                : account.DisplayName + Environment.NewLine + CycleArcPresentation.Tooltip(snapshot, preference));
+                : account.DisplayName + Environment.NewLine + CycleArcPresentation.Tooltip(ringSnapshot, preference));
 
         return model with
         {
-            ShowStatusRow = !string.IsNullOrEmpty(status)
-                && (account.IsSigningIn || !HasHealthyServerSample(snapshot)),
+            StatusPresentation = statusPresentation,
+            ShowStatusRow = statusPresentation.ShowRow,
+            Tooltip = model.Tooltip + Environment.NewLine + statusPresentation.DetailText,
             RingTargetLabel = CursorUsagePresentation.IsCursor(snapshot) && !cursorProtected && ring.Window is not null
                 ? CursorUsagePresentation.QuotaLabel(ring.Window.LimitId)
                 : null
@@ -123,14 +116,7 @@ public sealed record WidgetAccountModel(
 
     // Shared with the popup detail, which folds the same healthy status text.
     public static bool HasHealthyServerSample(CodexQuotaSnapshot snapshot) =>
-        snapshot.Status == CodexQuotaStatus.Available
-        && snapshot.LastSuccessfulRefresh is not null
-        && snapshot.Windows.Count > 0
-        && (ClaudeUsagePresentation.IsLive(snapshot)
-            // Cursor's production projection uses null for a successful check; the explicit
-            // live marker is also used by presentation fixtures. Any failure detail stays visible.
-            || (CursorUsagePresentation.IsCursor(snapshot)
-                && snapshot.TechnicalDetail is null or CursorUsagePresentation.LiveDetail));
+        WidgetStatusPresentation.HasHealthyServerSample(snapshot);
 
     public static IReadOnlyList<WidgetAccountModel> All(IReadOnlyList<CodexAccountView> accounts, string selectedId,
         UsagePeriodPreference preference = UsagePeriodPreference.Auto, DateTimeOffset? now = null) =>

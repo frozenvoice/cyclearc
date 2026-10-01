@@ -282,14 +282,18 @@ internal static class Program
                 {
                     WidgetFixture.BindSnapshot(widget, snapshot with { Status = status });
                     var notice = WidgetFixture.Module(widget).StatusText;
-                    var attention = status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing);
+                    var attention = WidgetStatusPresentation.From(snapshot with { Status = status }, now).ShowRow;
                     if (notice.Visibility != (attention ? Visibility.Visible : Visibility.Collapsed)
-                        || string.IsNullOrEmpty(notice.Text) == attention)
+                        || (attention && string.IsNullOrEmpty(notice.Text)))
                         throw new InvalidOperationException($"Incorrect widget notice for {status}.");
                 }
                 WidgetFixture.BindSnapshot(widget, snapshot); // Recovery must remove the old failure text and its space.
-                var recovered = WidgetFixture.Module(widget).StatusText;
-                if (recovered.Visibility != Visibility.Collapsed || recovered.Text.Length != 0)
+                var recoveredModule = WidgetFixture.Module(widget);
+                var recovered = recoveredModule.StatusText;
+                if (recovered.Visibility != Visibility.Collapsed
+                    || recoveredModule.StatusArea.Visibility != Visibility.Collapsed
+                    || recoveredModule.Model!.StatusPresentation is not { ShowRow: false, IsWarning: false }
+                    || recoveredModule.StatusArea.ToolTip is not string { Length: > 0 })
                     throw new InvalidOperationException("Widget notice remains after recovery.");
                 CheckWidgetAccountBinding(widget, now);
                 Window[] windows = [flyout, widget,

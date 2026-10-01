@@ -213,14 +213,15 @@ public sealed class WidgetStatusRowTests
     }
 
     [Fact]
-    public void CodexDefaultAvailableStatusRemainsEmptyAndHidden()
+    public void CodexDefaultAvailableStatusRemainsHiddenWithSuccessInTooltip()
     {
         var snapshot = Snapshot(UsageProviderId.Codex, CodexQuotaStatus.Available, null, Now,
             [Window(UsageProviderId.Codex, "five", 42, CodexWindowKind.FiveHour)]);
         var model = WidgetAccountModel.From(Account(UsageProviderId.Codex, snapshot), selected: false, now: Now);
 
         Assert.False(model.ShowStatusRow);
-        Assert.Empty(model.StatusText);
+        Assert.Equal(UiText.T("Updated", "업데이트됨"), model.StatusText);
+        Assert.Contains("Last checked", model.Tooltip, StringComparison.Ordinal);
     }
 
     private static CodexAccountView Account(UsageProviderId provider, CodexQuotaSnapshot snapshot,

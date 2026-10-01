@@ -116,7 +116,7 @@ public class WidgetAccountModelTests
         var stale = Both(UsageProviderId.Claude) with { Status = CodexQuotaStatus.Stale };
         var model = WidgetAccountModel.From(Account("c", "Work", UsageProviderId.Claude, stale), false, UsagePeriodPreference.Auto, Now);
         Assert.True(model.IsStale);
-        Assert.Equal("Stale data", model.StatusText);
+        Assert.Equal("Previous data", model.StatusText);
         Assert.Equal(2, model.Periods.Count);
     }
 
@@ -143,7 +143,8 @@ public class WidgetAccountModelTests
         var mismatch = Both() with { TechnicalDetail = "codex-identity-mismatch" };
         var model = WidgetAccountModel.From(Account("a", "Main", UsageProviderId.Codex, mismatch), false, UsagePeriodPreference.Auto, Now);
         Assert.Empty(model.Periods);
-        Assert.Equal(CodexIdentityPresentation.Label(mismatch), model.StatusText);
+        Assert.Equal("Check account", model.StatusText);
+        Assert.False(model.Ring.IsAvailable);
     }
 
     [Fact]

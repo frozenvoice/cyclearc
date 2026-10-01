@@ -34,6 +34,8 @@ internal static class WidgetStatusRowChecks
             UiText.SetLanguage(language);
             applyTheme.Invoke(null, [theme]);
             var suffix = $"{LanguageSuffix(language)}-{ThemeSuffix(theme)}";
+            CheckStandalone("codex", CodexAccount("codex-status", "Codex account", CodexSnapshot()), language, theme,
+                expectHealthyCollapsed, directory, suffix);
             CheckStandalone("cursor", CursorAccount(CursorSnapshot()), language, theme,
                 expectHealthyCollapsed, directory, suffix);
             CheckStandalone("claude", ClaudeAccount(ClaudeSnapshot(ClaudeUsagePresentation.LiveDetail)), language, theme,
@@ -43,6 +45,7 @@ internal static class WidgetStatusRowChecks
             {
                 CheckTransitions(language, theme, expectHealthyCollapsed, directory);
                 CheckClaudeSources(language, theme, directory);
+                CheckCommonWarnings(language, theme, directory);
             }
         }
 
@@ -121,6 +124,7 @@ internal static class WidgetStatusRowChecks
 
     private static void CheckTransitions(UiLanguage language, AppTheme theme, bool expectHealthyCollapsed, string? directory)
     {
+        CheckProviderTransitions(UsageProviderId.Codex, language, theme, expectHealthyCollapsed, directory);
         CheckProviderTransitions(UsageProviderId.Cursor, language, theme, expectHealthyCollapsed, directory);
         CheckProviderTransitions(UsageProviderId.Claude, language, theme, expectHealthyCollapsed, directory);
     }
@@ -130,7 +134,8 @@ internal static class WidgetStatusRowChecks
     {
         var healthy = provider == UsageProviderId.Cursor
             ? CursorAccount(CursorSnapshot())
-            : ClaudeAccount(ClaudeSnapshot(ClaudeUsagePresentation.LiveDetail));
+            : provider == UsageProviderId.Claude ? ClaudeAccount(ClaudeSnapshot(ClaudeUsagePresentation.LiveDetail))
+                : CodexAccount("codex-status", "Codex account", CodexSnapshot());
         var widget = CreateWidget();
         try
         {
@@ -154,9 +159,9 @@ internal static class WidgetStatusRowChecks
                     && !string.IsNullOrWhiteSpace(module.StatusText.Text),
                     provider + " " + label + " hid its recovery/status footer.");
                 var withFooter = LayoutHeight(widget, module);
-                module.StatusText.Visibility = Visibility.Collapsed;
+                module.StatusArea.Visibility = Visibility.Collapsed;
                 var withoutFooter = LayoutHeight(widget, module);
-                module.StatusText.Visibility = Visibility.Visible;
+                module.StatusArea.Visibility = Visibility.Visible;
                 Check(withFooter - withoutFooter >= 5 - 0.01,
                     provider + " " + label + " did not restore footer layout height.");
                 LayoutHeight(widget, module);
@@ -187,6 +192,16 @@ internal static class WidgetStatusRowChecks
 
     private static IEnumerable<(string Label, CodexAccountView Account)> FailureStates(UsageProviderId provider)
     {
+        if (provider == UsageProviderId.Codex)
+        {
+            var stale = CodexSnapshot() with { Status = CodexQuotaStatus.Stale,
+                LastSuccessfulRefresh = Now.AddMinutes(-12), TechnicalDetail = null };
+            yield return ("stale", CodexAccount("codex-status", "Codex account", stale));
+            yield return ("retry", CodexAccount("codex-status", "Codex account", stale.AsRefreshing()));
+            yield return ("request-failed", CodexAccount("codex-status", "Codex account", stale with { TechnicalDetail = "timed-out" }));
+            yield return ("identity", CodexAccount("codex-status", "Codex account", stale with { TechnicalDetail = "codex-identity-mismatch" }));
+            yield break;
+        }
         if (provider == UsageProviderId.Cursor)
         {
             yield return ("stale", CursorAccount(CursorSnapshot(CodexQuotaStatus.Stale, "cursor-live-request-failed",
@@ -270,6 +285,69 @@ internal static class WidgetStatusRowChecks
         }
     }
 
+    private static void CheckCommonWarnings(UiLanguage language, AppTheme theme, string? directory)
+    {
+        var baseAccounts = new[]
+        {
+            CodexAccount("warning-codex", "Synthetic Codex with a long account nickname", CodexSnapshot()),
+            ClaudeAccount(ClaudeSnapshot(ClaudeUsagePresentation.LiveDetail), "warning-claude", "Synthetic Claude"),
+            CursorAccount(CursorSnapshot(), "warning-cursor", "Synthetic Cursor")
+        };
+        foreach (var zoom in new[] { 80, 100, 150 })
+        foreach (var count in new[] { 1, 3, 5 })
+        {
+            var accounts = Enumerable.Range(0, count).Select(index =>
+            {
+                var account = baseAccounts[index % baseAccounts.Length];
+                return account with
+                {
+                    Profile = account.Profile with { Id = account.Profile.Id + "-" + index },
+                    Snapshot = account.Snapshot with { Status = CodexQuotaStatus.Stale,
+                        TechnicalDetail = null, LastSuccessfulRefresh = Now.AddMinutes(-12) }
+                };
+            }).ToArray();
+            var widget = CreateWidget();
+            try
+            {
+                widget.SetZoom(zoom, notify: false);
+                widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto,
+                    WidgetFixture.Desktop, Now);
+                WidgetFixture.RenderWidget(widget, directory is null ? null : Path.Combine(directory,
+                    $"widget-common-warning-synthetic-{count}-{LanguageSuffix(language)}-{ThemeSuffix(theme)}-{zoom}.png"));
+                foreach (var module in widget.Modules)
+                {
+                    Check(module.StatusText.Text == UiText.T("Previous data", "이전 데이터"),
+                        "Equivalent stale states did not use the same concise summary.");
+                    Check(module.StatusText.FontWeight == FontWeights.SemiBold
+                        && module.StatusText.Foreground == (Brush)Application.Current.FindResource("StaleBrush"),
+                        "Equivalent stale states did not use the shared warning color and emphasis.");
+                    Check(module.StatusWarningIcon.Visibility == Visibility.Visible
+                        && module.StatusWarningIcon.Data is not null,
+                        "The status warning lost its font-independent vector icon.");
+                    Check(module.StatusAgeText.Visibility == Visibility.Visible
+                        && module.StatusAgeText.Text.Contains(UiText.T("12m ago", "12분 전"), StringComparison.Ordinal),
+                        "The second status line lost the original valid observation age.");
+                    Check(module.StatusText.TextWrapping == TextWrapping.NoWrap
+                        && module.StatusAgeText.TextWrapping == TextWrapping.NoWrap,
+                        "The status region can grow beyond two lines.");
+                    Check(module.RingValueText.Foreground == (Brush)Application.Current.FindResource("TextBrush"),
+                        "A status warning recolored the quota number.");
+                    Check(!string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetHelpText(module))
+                        && module.StatusArea.ToolTip is string { Length: > 0 },
+                        "The status region lost its detailed tooltip/accessibility explanation.");
+                    var area = module.StatusArea;
+                    var summary = module.StatusText.TransformToAncestor(area).TransformBounds(new Rect(module.StatusText.RenderSize));
+                    var age = module.StatusAgeText.TransformToAncestor(area).TransformBounds(new Rect(module.StatusAgeText.RenderSize));
+                    Check(summary.Right <= area.ActualWidth + 0.5 && age.Right <= area.ActualWidth + 0.5
+                        && age.Bottom <= area.ActualHeight + 0.5,
+                        "The two-line status text escapes its measured region.");
+                }
+                WidgetMultiAccountChecks.CheckAlignment(widget, "common warning " + count);
+            }
+            finally { widget.CloseWithoutActivation(); }
+        }
+    }
+
     private static void CheckHealthyModule(WidgetAccountModuleView module,
         CodexQuotaSnapshot snapshot, bool expectHealthyCollapsed, string label)
     {
@@ -282,7 +360,8 @@ internal static class WidgetStatusRowChecks
         Check((module.ToolTip as string ?? "").Contains(
             snapshot.Provider == UsageProviderId.Claude
                 ? ClaudeUsagePresentation.LastReceivedText(snapshot)
-                : CursorUsagePresentation.UpdatedText(snapshot), StringComparison.Ordinal),
+                : snapshot.Provider == UsageProviderId.Cursor ? CursorUsagePresentation.UpdatedText(snapshot)
+                    : WidgetStatusPresentation.From(snapshot, Now).DetailText, StringComparison.Ordinal),
             label + " tooltip lost its exact successful refresh timestamp.");
     }
 
@@ -293,8 +372,7 @@ internal static class WidgetStatusRowChecks
         // widget's 80/100/150% LayoutTransform, so it is intentionally different at zoom.
         Check(Math.Abs(module.Width - WidgetGridLayout.ModuleWidth) <= 0.51,
             label + " changed the fixed module width.");
-        var protectedIdentity = CodexIdentityPresentation.NeedsReconnection(snapshot)
-            || snapshot.TechnicalDetail is "cursor-live-identity-mismatch" or "cursor-identity-mismatch";
+        var protectedIdentity = WidgetStatusPresentation.HidesQuota(snapshot);
         var expectedPeriods = CodexDisplayFormatting.ShowsQuotaWindows(snapshot) && !protectedIdentity
             ? snapshot.Windows.Count : 0;
         Check(module.Periods.Count == expectedPeriods,
@@ -320,8 +398,10 @@ internal static class WidgetStatusRowChecks
 
     private static double MeasureWithStatusVisible(FloatingWidget widget, WidgetAccountModuleView module)
     {
+        module.StatusArea.Visibility = Visibility.Visible;
         module.StatusText.Visibility = Visibility.Visible;
         var height = LayoutHeight(widget, module);
+        module.StatusArea.Visibility = Visibility.Collapsed;
         module.StatusText.Visibility = Visibility.Collapsed;
         LayoutHeight(widget, module);
         return height;

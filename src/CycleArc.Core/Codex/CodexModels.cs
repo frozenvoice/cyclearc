@@ -61,6 +61,10 @@ public sealed record CodexQuotaSnapshot(
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyList<CodexResetCredit> RedeemableCredits { get; init; } = [];
     public string? IdentityFingerprint { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public CodexQuotaStatus? RefreshOriginStatus { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool? LastSuccessfulObservationWasServer { get; init; }
     public UsageProviderId Provider { get; init; } = UsageProviderId.Codex;
 
     public static CodexQuotaSnapshot Empty(CodexQuotaStatus status, string? detail = null) =>
@@ -135,6 +139,7 @@ public sealed record CodexQuotaSnapshot(
 
     public CodexQuotaSnapshot AsRefreshing() => this with
     {
+        RefreshOriginStatus = Status == CodexQuotaStatus.Refreshing ? RefreshOriginStatus : Status,
         Status = CodexQuotaStatus.Refreshing,
         // A retry must not make a disconnected account's cached values visible again.
         // The persisted cache remains available for a successfully reconnected account.

@@ -30,8 +30,12 @@ public static class ClaudeUsagePresentation
     // Tooltips and sentences keep the full date: a fallback receipt can be days or years old.
     public static string ReceiptStamp(CodexQuotaSnapshot snapshot) => snapshot.LastSuccessfulRefresh is { } received
         ? received.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : UiText.Never;
-    public static string ReceiptLabel(CodexQuotaSnapshot snapshot) => IsLive(snapshot) || IsLiveFailure(snapshot.TechnicalDetail)
-        ? LastCheckedLabel : LastReceivedLabel;
+    public static string ReceiptLabel(CodexQuotaSnapshot snapshot) => snapshot.LastSuccessfulObservationWasServer switch
+    {
+        true => LastCheckedLabel,
+        false => LastReceivedLabel,
+        _ => IsLive(snapshot) || IsLiveFailure(snapshot.TechnicalDetail) ? LastCheckedLabel : LastReceivedLabel
+    };
     public static string LastReceivedText(CodexQuotaSnapshot snapshot) => ReceiptLabel(snapshot) + " " + ReceiptStamp(snapshot);
     public static string SourceText(CodexQuotaSnapshot snapshot) => snapshot.TechnicalDetail switch
     {

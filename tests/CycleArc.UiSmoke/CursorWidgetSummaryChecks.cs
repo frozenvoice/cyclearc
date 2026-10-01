@@ -251,11 +251,11 @@ internal static class CursorWidgetSummaryChecks
             Check(module.ActualHeight <= 150, $"{name}: Cursor summary expanded beyond its compact module height.");
         if (model.IsStale)
             Check(module.StatusText.Visibility == Visibility.Visible
-                && (module.StatusText.Text.Contains("Stale", StringComparison.Ordinal)
-                    || module.StatusText.Text.Contains("오래된", StringComparison.Ordinal)),
+                && model.StatusPresentation is { IsWarning: true }
+                && module.StatusText.Text == model.StatusPresentation.Summary,
                 $"{name}: stale Cursor state is not visible.");
         if (model.IsStale && source.TechnicalDetail is "cursor-auth-required" or "cursor-live-auth-required")
-            Check(module.StatusText.Text.Contains(UiText.T("Cursor sign-in required", "Cursor 로그인 필요"),
+            Check(module.StatusText.Text.Contains(UiText.T("Sign in required", "로그인 필요"),
                     StringComparison.Ordinal),
                 $"{name}: stale Cursor authentication failure is not visible.");
 

@@ -156,15 +156,19 @@ internal static class RingBandUiChecks
         Check(module.RingUsedLabel.Text == (sample.Used is >= 100 && !sample.Unknown
                 ? UsageRingBands.Label(UsageRingBand.Exhausted) : UiText.CodexLegendRemaining),
             label + ": widget ring caption does not say what the fill means.");
-        // Usage numbers follow the normal text color; only the status line carries stale warning color.
+        // Usage numbers follow the normal text color. Freshness and failed-check warnings
+        // belong to the status line; the unavailable fixture records an actual attempt.
         Check(ReferenceEquals(module.RingValueText.Foreground, module.FindResource("TextBrush")),
             label + ": widget quota text inherited the stale warning color.");
+        var expectedStatusWarning = sample.Stale || sample.Unknown;
+        Check(module.Model!.StatusPresentation!.IsWarning == expectedStatusWarning,
+            label + ": widget status severity does not reflect stale values or a failed check.");
         Check(ReferenceEquals(module.StatusText.Foreground,
-                module.FindResource(sample.Stale ? "StaleBrush" : "MutedBrush")),
-            label + ": widget status color no longer reflects freshness.");
-        if (sample.Stale)
+                module.FindResource(expectedStatusWarning ? "StaleBrush" : "MutedBrush")),
+            label + ": widget status color does not reflect its observation state.");
+        if (expectedStatusWarning)
             Check(module.StatusText.Visibility == Visibility.Visible,
-                label + ": stale widget status is hidden.");
+                label + ": widget observation warning is hidden.");
         foreach (var (line, index) in module.Periods.Select((line, index) => (line, index)))
         {
             Check(ReferenceEquals(line.RemainingText.Foreground, module.FindResource("TextBrush")),
