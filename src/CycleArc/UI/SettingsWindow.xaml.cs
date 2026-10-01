@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Windows.Automation;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 
 namespace CycleArc.UI;
@@ -8,9 +9,13 @@ public partial class SettingsWindow : Window
 {
     private readonly AppSettings _settings;
     public event Action<AppSettings>? Saved;
+    /// The slider position while dragging, and the applied value again when the window closes
+    /// without applying it. Only the widget ground is previewed; nothing is saved.
+    public event Action<double>? WidgetOpacityPreviewed;
     public event Action? OpenLogsRequested;
     public event Action? AccountsRequested;
     public bool ResetWidgetPositionOnSave { get; private set; }
+    private bool _ready;
 
     public SettingsWindow(AppSettings settings)
     {
@@ -56,12 +61,12 @@ public partial class SettingsWindow : Window
             "트레이는 % 기호 없이 사용률 숫자를 크게 표시합니다(67은 67% 사용). 배경은 투명합니다. 글자색은 Windows 작업표시줄 테마에 맞춰 바뀌며, 알 수 없는 값은 ?로 표시합니다. 상태는 툴팁이나 상세 카드에서 확인하세요. 링은 같은 값을 진행률로 표시합니다. 남은 양 숫자는 팝업·위젯 링처럼 남은 양을 표시합니다(33은 33% 남음).");
         WidgetTitle.Text = UiText.T("Desktop widget", "바탕화면 위젯");
         ResetWidgetPositionButton.Content = UiText.T("Reset widget position", "위젯 위치 초기화");
-        ResetWidgetPositionButton.ToolTip = UiText.T("Move the widget to the primary screen when you save.", "저장하면 위젯을 기본 화면으로 이동합니다.");
+        ResetWidgetPositionButton.ToolTip = UiText.T("Move the widget to the primary screen when you apply or save.", "적용하거나 저장하면 위젯을 기본 화면으로 이동합니다.");
         WidgetHint.Text = UiText.T("Keep a small usage display on your desktop. Drag it to move.", "작은 사용률 표시를 바탕화면에 둡니다. 드래그해서 위치를 옮길 수 있습니다.");
         WidgetLabel.Text = UiText.T("Show widget", "위젯 표시");
         WidgetEnabledHint.Text = UiText.T("Your accounts, together on the desktop.", "계정별 사용량을 바탕화면에서 나란히 확인하세요.");
         WidgetBehaviorTitle.Text = UiText.T("Visibility & interaction", "표시와 마우스 동작");
-        ResetWidgetHint.Text = UiText.T("Bring it back to the primary display on save.", "저장하면 기본 화면으로 위치를 되돌립니다.");
+        ResetWidgetHint.Text = UiText.T("Bring it back to the primary display on apply or save.", "적용하거나 저장하면 기본 화면으로 위치를 되돌립니다.");
         WidgetBox.IsChecked = settings.FloatingWidgetEnabled;
         WidgetOpacityLabel.Text = UiText.T("Opacity", "불투명도");
         WidgetOpacityBox.Value = settings.WidgetOpacity;
@@ -102,6 +107,8 @@ public partial class SettingsWindow : Window
             Text = UiText.Save, Foreground = (Brush)FindResource("OnAccentBrush")
         };
         CancelButton.Content = UiText.T("Cancel", "취소");
+        ApplyButton.Content = UiText.T("Apply", "적용");
+        ApplyButton.ToolTip = UiText.T("Apply the changes and keep this window open.", "변경 사항을 적용하고 이 창을 열어 둡니다.");
         CloseSettingsButton.ToolTip = UiText.Close;
         SetName(CloseSettingsButton, UiText.Close);
         SetName(ThemeBox, ThemeLabel.Text); SetName(LanguageBox, LanguageLabel.Text);
@@ -112,6 +119,45 @@ public partial class SettingsWindow : Window
         SetName(WidgetClickThroughBox, WidgetClickThroughLabel.Text);
         SetName(WidgetOpacityBox, WidgetOpacityLabel.Text); SetName(CodexExeBox, CodexExeLabel.Text);
         SourceInitialized += (_, _) => FitWorkArea();
+        // Any edit re-evaluates Apply, so it is enabled exactly while something differs.
+        RoutedEventHandler changed = (_, _) => UpdateApplyState();
+        AddHandler(ToggleButton.CheckedEvent, changed);
+        AddHandler(ToggleButton.UncheckedEvent, changed);
+        AddHandler(Selector.SelectionChangedEvent, new System.Windows.Controls.SelectionChangedEventHandler((_, _) => UpdateApplyState()));
+        AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new System.Windows.Controls.TextChangedEventHandler((_, _) => UpdateApplyState()));
+        AddHandler(RangeBase.ValueChangedEvent, new RoutedPropertyChangedEventHandler<double>((_, _) => UpdateApplyState()));
+        // Closing without applying takes the widget back to the opacity it actually has.
+        Closed += (_, _) => WidgetOpacityPreviewed?.Invoke(_settings.WidgetOpacity);
+        _ready = true;
+        UpdateApplyState();
+    }
+
+    private string? EditedCodexExePath => string.IsNullOrWhiteSpace(CodexExeBox.Text) ? null : CodexExeBox.Text.Trim();
+    private int EditedRefreshInterval => AppSettings.CodexRefreshIntervals[
+        Math.Clamp(RefreshIntervalBox.SelectedIndex, 0, AppSettings.CodexRefreshIntervals.Count - 1)];
+    private AppTheme EditedTheme => (AppTheme)Math.Clamp(ThemeBox.SelectedIndex, 0, 2);
+    private UiLanguage EditedLanguage => LanguageBox.SelectedIndex == 0 ? UiLanguage.Korean : UiLanguage.English;
+    private TrayIconStyle EditedTrayIconStyle => (TrayIconStyle)Math.Clamp(IconBox.SelectedIndex, 0, 2);
+
+    internal bool HasPendingChanges =>
+        ResetWidgetPositionOnSave
+        || EditedCodexExePath != _settings.CodexExePath
+        || EditedRefreshInterval != _settings.CodexRefreshIntervalMinutes
+        || EditedTheme != _settings.Theme
+        || EditedLanguage != _settings.UiLanguage
+        || EditedTrayIconStyle != _settings.TrayIconStyle
+        || (StartupBox.IsChecked == true) != _settings.StartWithWindows
+        || (WidgetBox.IsChecked == true) != _settings.FloatingWidgetEnabled
+        // The slider cannot go below the applied floor, so an older lower value is not an edit.
+        || Math.Abs(WidgetOpacityBox.Value - Math.Clamp(_settings.WidgetOpacity, WidgetOpacityBox.Minimum, 1)) > 0.001
+        || (WidgetTopBox.IsChecked == true) != _settings.WidgetAlwaysOnTop
+        || (WidgetClickThroughBox.IsChecked == true) != _settings.WidgetClickThrough
+        || (EdgeSnapBox.IsChecked == true) != _settings.SnapWindowsToScreenEdges
+        || (UsageAlertsBox.IsChecked == true) != _settings.UsageAlertsEnabled;
+
+    private void UpdateApplyState()
+    {
+        if (_ready) ApplyButton.IsEnabled = HasPendingChanges;
     }
 
     private static void SetName(DependencyObject control, string text) => AutomationProperties.SetName(control, text);
@@ -129,12 +175,27 @@ public partial class SettingsWindow : Window
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
-        _settings.CodexExePath = string.IsNullOrWhiteSpace(CodexExeBox.Text) ? null : CodexExeBox.Text.Trim();
-        _settings.CodexRefreshIntervalMinutes = AppSettings.CodexRefreshIntervals[
-            Math.Clamp(RefreshIntervalBox.SelectedIndex, 0, AppSettings.CodexRefreshIntervals.Count - 1)];
-        _settings.Theme = (AppTheme)Math.Clamp(ThemeBox.SelectedIndex, 0, 2);
-        _settings.UiLanguage = LanguageBox.SelectedIndex == 0 ? UiLanguage.Korean : UiLanguage.English;
-        _settings.TrayIconStyle = (TrayIconStyle)Math.Clamp(IconBox.SelectedIndex, 0, 2);
+        Commit();
+        Close();
+    }
+
+    // Apply runs the same save path as Save and keeps the window open, so the widget, tray and
+    // popup can be checked before closing. Cancel afterwards keeps what was applied.
+    private void OnApply(object sender, RoutedEventArgs e)
+    {
+        Commit();
+        ResetWidgetPositionOnSave = false;
+        ResetWidgetPositionButton.Content = UiText.T("Reset widget position", "위젯 위치 초기화");
+        UpdateApplyState();
+    }
+
+    private void Commit()
+    {
+        _settings.CodexExePath = EditedCodexExePath;
+        _settings.CodexRefreshIntervalMinutes = EditedRefreshInterval;
+        _settings.Theme = EditedTheme;
+        _settings.UiLanguage = EditedLanguage;
+        _settings.TrayIconStyle = EditedTrayIconStyle;
         _settings.StartWithWindows = StartupBox.IsChecked == true;
         _settings.TaskbarStatusEnabled = false;
         _settings.FloatingWidgetEnabled = WidgetBox.IsChecked == true;
@@ -145,10 +206,13 @@ public partial class SettingsWindow : Window
         _settings.UsageAlertsEnabled = UsageAlertsBox.IsChecked == true;
         if (!_settings.SnapWindowsToScreenEdges) _settings.ClearWindowEdgeAnchors();
         Saved?.Invoke(_settings);
-        Close();
     }
 
-    private void OnOpacityChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => UpdateOpacityText();
+    private void OnOpacityChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        UpdateOpacityText();
+        if (_ready) WidgetOpacityPreviewed?.Invoke(WidgetOpacityBox.Value);
+    }
     private void UpdateOpacityText()
     {
         if (WidgetOpacityValue is not null && WidgetOpacityBox is not null)
@@ -158,7 +222,8 @@ public partial class SettingsWindow : Window
     private void OnResetWidgetPosition(object sender, RoutedEventArgs e)
     {
         ResetWidgetPositionOnSave = true;
-        ResetWidgetPositionButton.Content = UiText.T("Position will reset on save", "저장 시 위치가 초기화됩니다");
+        ResetWidgetPositionButton.Content = UiText.T("Position will reset on apply or save", "적용·저장 시 위치가 초기화됩니다");
+        UpdateApplyState();
     }
     private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {

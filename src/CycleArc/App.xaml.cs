@@ -431,6 +431,10 @@ public partial class App : Application
         var window = new SettingsWindow(_settings);
         window.AccountsRequested += () => ShowAccounts(window);
         if (_flyout?.IsVisible == true) window.Owner = _flyout;
+        // A preview only fades the live widget's ground; Save, Apply or the next settings
+        // application decides what is kept.
+        window.WidgetOpacityPreviewed += opacity => _widgetController?.CurrentWindow?.PreviewBackgroundOpacity(opacity);
+        // Save and Apply share this path; Apply keeps the window open afterwards.
         window.Saved += settings =>
         {
             if (window.ResetWidgetPositionOnSave)
@@ -640,6 +644,11 @@ public partial class App : Application
         app.Resources["ProviderBadgeBackgroundBrush"] = new SolidColorBrush(dark ? MediaColor(36, 53, 77) : MediaColor(229, 238, 255));
         app.Resources["ProviderBadgeBorderBrush"] = new SolidColorBrush(dark ? MediaColor(54, 84, 123) : MediaColor(172, 195, 228));
         app.Resources["ProviderBadgeTextBrush"] = new SolidColorBrush(dark ? MediaColor(217, 231, 255) : MediaColor(36, 74, 128));
+        // Widget account surfaces lift the dark ground and shade the light one, one small step
+        // each from rest to hover to selected; translucent so the widget opacity still applies.
+        app.Resources["WidgetModuleHoverBrush"] = new SolidColorBrush(dark ? Color.FromArgb(11, 130, 158, 196) : Color.FromArgb(8, 15, 30, 60));
+        app.Resources["WidgetModuleSelectedBrush"] = new SolidColorBrush(dark ? Color.FromArgb(20, 130, 158, 196) : Color.FromArgb(15, 15, 30, 60));
+        app.Resources["WidgetModuleSelectedHoverBrush"] = new SolidColorBrush(dark ? Color.FromArgb(28, 130, 158, 196) : Color.FromArgb(21, 15, 30, 60));
     }
 
     private void OnSystemThemeChanged()

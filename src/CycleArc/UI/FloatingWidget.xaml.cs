@@ -593,6 +593,9 @@ public partial class FloatingWidget : Window
             : default;
     }
 
+    /// Shows an opacity on the ground without saving or relayout, for the settings slider.
+    public void PreviewBackgroundOpacity(double opacity) => WidgetBackdrop.Opacity = Math.Clamp(opacity, 0.3, 1);
+
     public void Apply(AppSettings settings)
     {
         ApplyEdgeSnapSettings(settings);

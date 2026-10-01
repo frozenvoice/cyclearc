@@ -179,10 +179,13 @@ internal static class RingBandUiChecks
                     module.FindResource(isRepresentativeCursor ? "AccentBrush" : "MutedBrush")),
                 label + ": widget period label color changed.");
         }
-        Check(selected
-                ? ReferenceEquals(module.BorderBrush, module.FindResource("AccentBrush"))
-                : module.BorderBrush == Brushes.Transparent,
-            label + ": selection border changed.");
+        // The accent marks selection through the short pill only; the surface border stays neutral.
+        Check(module.IsSelected == selected
+                && (selected
+                    ? ReferenceEquals(module.BorderBrush, module.FindResource("LineBrush"))
+                    : module.BorderBrush == Brushes.Transparent)
+                && module.SelectionPill.Visibility == (selected ? Visibility.Visible : Visibility.Collapsed),
+            label + ": selection surface changed.");
         var model = module.Model!;
         Check(model.Ring.IsDangerLevel == (sample.Used is >= 100 && !sample.Unknown), label + ": exhaustion changed.");
         var name = AutomationProperties.GetName(module);

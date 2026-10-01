@@ -143,6 +143,8 @@ internal static class SettingsWindowChecks
             checks += 9;
             CheckCancelPreservesSettings();
             checks++;
+            CheckApplyKeepsWindowOpen();
+            checks++;
         }
         finally
         {
@@ -300,6 +302,59 @@ internal static class SettingsWindowChecks
                     && settings.FlyoutVerticalAnchor == VerticalEdgeAnchor.None, "Disabled anchors reattached on Save.");
             Check(settings.WidgetLeft == 600 && settings.FlyoutLeft == 200, "Changing the option moved a saved window.");
         }
+    }
+
+    // Apply commits through the Save path without closing; it is enabled only while an edit
+    // differs. The opacity slider previews live and a close without applying reverts the preview.
+    private static void CheckApplyKeepsWindowOpen()
+    {
+        var settings = new AppSettings { WidgetOpacity = 0.7, UsageAlertsEnabled = true };
+        var window = new SettingsWindow(settings);
+        var closed = false;
+        var saves = 0;
+        var previews = new List<double>();
+        window.Closed += (_, _) => closed = true;
+        window.Saved += value => { Check(ReferenceEquals(value, settings), "Apply saved a different settings object."); saves++; };
+        window.WidgetOpacityPreviewed += previews.Add;
+        var apply = (Button)window.FindName("ApplyButton");
+        var opacity = (Slider)window.FindName("WidgetOpacityBox");
+        var alerts = (CheckBox)window.FindName("UsageAlertsBox");
+        try
+        {
+            Check(!apply.IsEnabled && previews.Count == 0, "Apply is enabled, or a preview ran, before any edit.");
+            opacity.Value = 0.5;
+            Check(apply.IsEnabled && previews is [var shown] && Math.Abs(shown - 0.5) < 0.001
+                && Math.Abs(settings.WidgetOpacity - 0.7) < 0.001,
+                "Moving the opacity slider did not preview it without saving.");
+            alerts.IsChecked = false;
+            alerts.IsChecked = true;
+            Check(apply.IsEnabled, "Undoing an unrelated edit hid the pending opacity change.");
+
+            apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(!closed && saves == 1 && Math.Abs(settings.WidgetOpacity - 0.5) < 0.001 && !apply.IsEnabled,
+                "Apply closed the window, skipped the save path or stayed enabled.");
+
+            ((Button)window.FindName("ResetWidgetPositionButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(apply.IsEnabled, "A pending position reset does not enable Apply.");
+            apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(saves == 2 && !window.ResetWidgetPositionOnSave && !apply.IsEnabled,
+                "Apply repeated a position reset after it ran.");
+
+            opacity.Value = 0.9;
+            ((Button)window.FindName("CancelButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(closed && saves == 2 && Math.Abs(settings.WidgetOpacity - 0.5) < 0.001
+                && Math.Abs(previews[^1] - 0.5) < 0.001,
+                "Cancel after Apply lost the applied value or left the unapplied preview on the widget.");
+
+            var floor = new SettingsWindow(new AppSettings { WidgetOpacity = 0.25 });
+            try
+            {
+                Check(!((Button)floor.FindName("ApplyButton")).IsEnabled,
+                    "An opacity below the slider floor counts as an edit on open.");
+            }
+            finally { floor.Close(); }
+        }
+        finally { if (!closed) window.Close(); }
     }
 
     private static void CheckCancelPreservesSettings()

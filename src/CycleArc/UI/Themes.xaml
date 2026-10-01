@@ -28,6 +28,10 @@
     <SolidColorBrush x:Key="ProviderBadgeBackgroundBrush" Color="#24354D"/>
     <SolidColorBrush x:Key="ProviderBadgeBorderBrush" Color="#36547B"/>
     <SolidColorBrush x:Key="ProviderBadgeTextBrush" Color="#D9E7FF"/>
+    <!-- Widget account surfaces: translucent, so they follow the widget opacity setting. -->
+    <SolidColorBrush x:Key="WidgetModuleHoverBrush" Color="#0B829EC4"/>
+    <SolidColorBrush x:Key="WidgetModuleSelectedBrush" Color="#14829EC4"/>
+    <SolidColorBrush x:Key="WidgetModuleSelectedHoverBrush" Color="#1C829EC4"/>
 
     <Style x:Key="ControlFocusVisual">
         <Setter Property="Control.Template">
