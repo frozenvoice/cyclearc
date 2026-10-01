@@ -105,6 +105,7 @@ public partial class FlyoutWindow : Window
 
     public void ApplyWindowSettings(AppSettings settings)
     {
+        ApplyUsageCardSettings(settings);
         ApplyEdgeSnapSettings(settings);
         if (!_positionInitialized && !_pixelRestorePending
             && settings.FlyoutPixelLeft is { } pixelLeft && settings.FlyoutPixelTop is { } pixelTop)
@@ -257,6 +258,13 @@ public partial class FlyoutWindow : Window
 
     public void Bind(CodexQuotaSnapshot snapshot, bool refreshing = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
+        // Keep action/status metadata while defending every selected-detail projection,
+        // including legacy reset credits, against accidentally retained account values.
+        if (UsageCreditPresentation.Hidden(snapshot)) snapshot = snapshot with
+        {
+            Windows = [], UsageCredits = null, ExtraUsage = null,
+            ResetCreditsAvailable = null, ResetCreditExpirations = null, RedeemableCredits = []
+        };
         SelectedAccountHeader.Visibility = SelectedProviderBadge.Visibility = CodexCard.Visibility = Visibility.Visible;
         _creditSnapshot = snapshot;
         UsagePeriod = preference;
@@ -269,6 +277,7 @@ public partial class FlyoutWindow : Window
         StatusDot.Fill = (Brush)FindResource(refreshing ? "AccentBrush" : snapshot.Status == CodexQuotaStatus.Available ? "OkBrush" : "MutedBrush");
         BindCodex(snapshot);
         BindCreditCard(snapshot);
+        BindUsageCard(snapshot);
         SetRefreshPresentation(new FlyoutRefreshPresentation(!refreshing, refreshing,
             refreshing ? UiText.CodexRefreshing : ""));
     }
@@ -312,7 +321,7 @@ public partial class FlyoutWindow : Window
             refreshing ? "AccentBrush" : accounts.Count > 0 && failed == 0 && waiting == 0 ? "OkBrush" : "MutedBrush");
         if (selected is null)
         {
-            SelectedAccountHeader.Visibility = SelectedProviderBadge.Visibility = CodexCard.Visibility = ResetCreditsCard.Visibility = Visibility.Collapsed;
+            SelectedAccountHeader.Visibility = SelectedProviderBadge.Visibility = CodexCard.Visibility = ResetCreditsCard.Visibility = UsageCreditsCard.Visibility = Visibility.Collapsed;
             StatusText.Text = UiText.T("No usage yet", "사용량 대기");
         }
     }
@@ -490,7 +499,11 @@ public partial class FlyoutWindow : Window
         CodexSecondaryRows.Items.Clear();
         var cursor = CursorUsagePresentation.IsCursor(snapshot.Provider);
         // The ring's limit sits beside the ring; other limits and the check time go full width below.
-        var (primary, secondary, primaryStart) = CodexDisplayFormatting.DetailSections(snapshot,
+        var detailSnapshot = cursor ? snapshot with
+        {
+            Windows = snapshot.Windows.Where(window => window.LimitId != "cursor-on-demand").ToArray()
+        } : snapshot;
+        var (primary, secondary, primaryStart) = CodexDisplayFormatting.DetailSections(detailSnapshot,
             CodexRingPresentation.FromDetail(snapshot, UsagePeriod).Window);
         var beside = primary.Select(item => AddDetailRow(CodexRows, item, stacked: cursor)).ToArray();
         CodexRowsEmptyText.Text = UiText.T("No usage values yet", "아직 사용량 값이 없습니다");

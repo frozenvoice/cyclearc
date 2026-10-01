@@ -1,6 +1,6 @@
 # CycleArc architecture
 
-## Active product — Codex, Claude and Cursor (2026-09-20)
+## Active product — Codex, Claude and Cursor (2026-10-01)
 
 ### Desktop startup and installation (0.6.0)
 
@@ -115,14 +115,17 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
   revalidation stays in refresh/probe operations; conflict markers are persisted outside the
   shared projection lock so rendering does not wait on disk locks.
 - IUsageProvider creates isolated IUsageAccountService instances for the shared account manager. CodexUsageProvider keeps the existing Codex protocol and identity behavior. ClaudeUsageProvider combines the Desktop live quota collector with the official statusLine inbox and the Desktop plan-usage-history fallback.
-- Claude stale presentation uses explicit localized warning text and a theme-aware amber
-  resource on details, account cards and widget, with an amber detail ring. These surfaces
-  retain the receipt date/time. A separate bounded tray formatter places freshness,
+- Stale and failed-check presentation uses explicit localized warning text and the shared
+  theme-aware warning resource. `WidgetStatusPresentation` classifies the actual state for
+  all three providers, keeps a prior warning during retry, and distinguishes awaiting data
+  and local receipt from a successful server check. Rings and bars retain their existing
+  usage bands; amounts and remaining values retain the normal text color. These surfaces
+  retain the original success/receipt date/time. A separate bounded tray formatter places freshness,
   receipt and shared scope ahead of a potentially long nickname; full tooltips also retain
   the Code delivery context. Presentation changes never refresh provider metadata.
 - Public `CodexAccount*` / `CodexQuota*` type names remain as shared presentation records for
   caller/cache compatibility; their default provider is Codex. Claude accounts carry
-  `Provider = Claude`, an empty shared home path and no Codex authentication/credit capabilities.
+  `Provider = Claude`, an empty shared home path and no Codex authentication/reset-credit capabilities.
   `ClaudeConnectionService` separately owns official Claude CLI login and connection settings.
   The account registry advances to version 2 only when a Claude profile is added, so older
   Codex-only builds fail closed. Existing homes, aliases, order, selection and Codex caches remain.
@@ -239,7 +242,7 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
   has a new local ID required by the managed-home path contract; the same logical selection and
   current nickname are preserved, and the old home is ignored by discovery. Cancellation, duplicate
   login, failed quota and registry-write failure preserve the old registered profile and its data.
-- Generated protocol 0.147.0 `Account` exposes email/plan, not a stable workspace ID. Matching
+- Generated protocol 0.154.0 `Account` exposes email/plan, not a stable workspace ID. Matching
   reported identities are indicated without merging profiles or claiming distinct workspaces.
   Reset actions capture the selected local profile before confirmation and re-check reported identity
   inside the consuming App Server process. Credit IDs remain memory-only.
@@ -271,7 +274,7 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
   waiting caller does not cancel the active owner's work. File/process work runs off the UI thread.
   Successful-check timestamps use completion time, while attempt timestamps retain start time.
   Automatic checks use the newest attempt/completion and the saved interval, with a minimum two-minute cooldown after failures; manual checks remain available.
-- Both providers show actual provided periods, used/remaining percentages and reset times. Codex additionally shows reset-credit metadata. Claude labels a successful Desktop live response **Updated** with its fetched time, labels statusLine/history fallback data **Received**, preserves previous values as stale on failure, and hides live quota on identity mismatch. Signed-out or unavailable states remain distinct.
+- All three providers show actual provided periods, used/remaining percentages and reset times. Codex additionally shows reset-credit metadata. Claude labels a successful Desktop live response **Updated** with its fetched time, labels statusLine/history fallback data **Received**, preserves previous values as stale on failure, and hides live quota on identity mismatch. Signed-out or unavailable states remain distinct.
 - The desktop never constructs ChatGPT transports, collectors, SQLite stores, pairing servers
   or Pro reset services. Retired WPF views and WebView2 are excluded from its build.
 - The development publish check bundles the .NET runtime and produces one self-contained Windows
@@ -331,8 +334,9 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
   are deduplicated by ID. IDs for explicit redemption live only in memory; the cache contains nullable expiry timestamps only.
   The additive cache field preserves older snapshots; missing/partial expiries stay explicit.
   The separate reset-credit card shows each credit in a bounded scrolling list, with local expiry date and HH:mm always visible.
-- Flyout follows the supplied two-card layout: large usage ring, separated quota rows, and a
-  reset-credit list below. Its 440 DIP width and scrollable body fit the current work area.
+- Flyout keeps the large usage ring and separated quota rows, followed by the selected
+  account's optional usage card and, for Codex, the separate reset-credit list. Its 440 DIP
+  width and scrollable body fit the current work area.
   Fresh/refreshing/stale/identity-failure states stay distinct; credit unknown is never zero.
 - The widget context menu includes Close widget, which saves its disabled preference and hides
   only the widget. Settings can re-enable it; the tray and app remain running.
@@ -353,6 +357,53 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
   Core logic, SQLite package, compatibility settings fields and regression tests remain.
   Removing that shared legacy layer requires a separate source/project split; none runs as
   a CycleArc history collector.
+
+### Selected-account usage credits and additional spending
+
+`CodexQuotaSnapshot.UsageCredits` and `.ExtraUsage` are optional provider data, separate from
+quota windows and earned reset credits. Cursor reuses the personal `cursor-on-demand` window's
+existing normalized amounts. `UsageCreditPresentation` projects only the selected account's
+detail card: **Usage credits**, **Extra usage**, or **On-demand**. The card starts collapsed;
+`AppSettings.UsageCardExpandedAccounts` retains expansion by profile ID through account changes,
+refresh and window recreation. Account lists, widget summaries and tray output keep their existing
+policies. Card binding/expansion does not request data or alter usage-alert state.
+
+Optional data has its own observation time and failure classification. A successful quota refresh
+does not renew the timestamp of omitted or malformed credit data. Collectors keep prior valid
+optional values and their original times through transient failure, local fallback and restart;
+identity mismatch/disconnection hides them. The Codex cache adds optional normalized values to
+version 1, validates credit flags/decimal/time types, and preserves atomic writes and valid-backup
+recovery. Claude's server sample and Cursor's personal amount cache carry the analogous optional
+data without persisting authentication material. Provider-specific contracts are documented in
+[Claude integration](CLAUDE-INTEGRATION.md) and [Cursor](CURSOR.md).
+
+#### Codex credit contract and evidence (2026-10-01)
+
+| Field/source | Type and meaning | Scope and handling |
+| --- | --- | --- |
+| `account/rateLimits/read` → `rateLimitsByLimitId.codex` → `credits` | Nullable `CreditsSnapshot`; absent/null means not provided. | Use the same selected metered bucket as quota parsing, falling back to legacy `rateLimits`; never borrow root/another bucket's credits or sum repeated balances. |
+| `credits.hasCredits` | Boolean availability flag. | Retain the reported flag; it does not create a numeric zero when balance is unknown. |
+| `credits.unlimited` | Boolean; `true` explicitly reports unlimited credits. | Keep unlimited separate from missing data and numeric balance. |
+| `credits.balance` | Nullable decimal string; normalize to `decimal`, including fractional, zero and negative balances. | Unit is credits; no USD label or currency conversion. Null/missing balance stays unknown, and malformed optional fields do not invalidate healthy quota windows. |
+| Selected bucket `limitId` and verified `account/read` identity | Metered bucket ID plus the existing account binding derived from reported identity. | Cache reuse requires the verified account and same selected bucket. The protocol exposes no stable workspace ID. |
+| `UsageCredits.ObservedAt` | Completion time when a valid optional credit snapshot is accepted. | Point-in-time remaining balance, independent of quota success time; no consumption-period/history inference. |
+
+[Official App Server field notes](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt)
+describe credits as remaining workspace credit details. The official
+[CreditsSnapshot schema](https://raw.githubusercontent.com/openai/codex/main/codex-rs/app-server-protocol/schema/typescript/v2/CreditsSnapshot.ts)
+and [RateLimitSnapshot schema](https://raw.githubusercontent.com/openai/codex/main/codex-rs/app-server-protocol/schema/typescript/v2/RateLimitSnapshot.ts)
+match the locally generated Codex CLI 0.154.0 types. `Account` exposes email and plan only:
+CycleArc verifies the saved account binding and selected bucket, but cannot independently verify
+workspace identity or detect an unreported workspace switch. It does not merge accounts or claim
+distinct workspaces from matching account metadata.
+
+`CodexUsageCreditsTests` covers parsing, selected-bucket separation, missing/malformed optional
+data, original timestamps, identity mismatch, restart and cache recovery with synthetic fixtures.
+The opt-in UiSmoke `--codex-credits-live-read` check reads only existing registry/binding metadata
+and the existing App Server query, rechecks the binding, and prints validation/presence/type
+summaries without balances, emails or raw responses. Source/protocol confirmation and synthetic
+regression coverage do not establish that a live account currently returns a numeric balance;
+the live outcome is recorded separately in [Validation](VALIDATION.md).
 
 ## Historical ProMeter architecture (retired)
 

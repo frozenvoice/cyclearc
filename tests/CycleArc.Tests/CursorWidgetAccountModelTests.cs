@@ -92,11 +92,11 @@ public sealed class CursorWidgetAccountModelTests
         var model = WidgetAccountModel.From(Account(snapshot), selected: true,
             UsagePeriodPreference.Auto, Now);
 
-        Assert.Contains(UiText.T("Stale data", "오래된 데이터"), model.StatusText, StringComparison.Ordinal);
-        Assert.Contains(CursorUsagePresentation.FailureText(snapshot.TechnicalDetail), model.StatusText,
+        Assert.Equal(UiText.T("Check failed", "조회 실패"), model.StatusText);
+        Assert.Contains(CursorUsagePresentation.FailureText(snapshot.TechnicalDetail), model.StatusPresentation!.DetailText,
             StringComparison.Ordinal);
         Assert.Contains(CodexDeadlineFormatting.Elapsed(snapshot.LastSuccessfulRefresh, Now)!,
-            model.StatusText, StringComparison.Ordinal);
+            model.StatusPresentation!.AgeText!, StringComparison.Ordinal);
         Assert.Contains(UiText.T("Stale data", "오래된 데이터"), model.Tooltip, StringComparison.Ordinal);
         Assert.Contains(CursorUsagePresentation.UpdatedText(snapshot), model.Tooltip,
             StringComparison.Ordinal);

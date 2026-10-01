@@ -25,8 +25,27 @@ CycleArc reads the [official Claude Code statusLine JSON](https://code.claude.co
 | Desktop history `samples[].org` | Organization identity used during binding verification; not displayed |
 | Desktop history `samples[].u.fh` / `samples[].u.sd` | Five-hour / weekly usage percentages; Desktop history has no reset timestamps |
 | Desktop OAuth live profile/usage | The Desktop OAuth access token is used in memory for GET https://api.anthropic.com/api/oauth/profile, identity verification, and GET https://api.anthropic.com/api/oauth/usage; the profile email is checked against the binding. This is a private/internal compatibility path, not a stable public API; the separate Desktop Electron organization usage route is not used |
+| OAuth usage `extra_usage` | Optional enabled state, normalized month-to-date spend, monthly spending cap and utilization for the same verified account/organization; retained separately from subscription windows and passive receipts |
 
 Claude Code may omit each window independently, including before a first response or for an unsupported plan. Missing data stays unknown; a malformed present window is a schema failure rather than a successful partial reading. The model/context-token fields are not used as account quota.
+
+The selected Claude account has a collapsed **Extra usage** card below its
+subscription details. When the live response provides the optional extra-usage
+object, expansion shows enabled/disabled state, known month-to-date spend, the
+monthly cap, calculated amount to that cap, and this data's own last-check time.
+This is spending information rather than a prepaid wallet balance. Card expansion
+and selection do not initiate network requests.
+
+The [2026-10-01 field review](CLAUDE-USAGE-RESEARCH.md#extra-usage-field-review--2026-10-01)
+checks the exact wire schema and conversions against the installed official
+Claude Code 2.1.270 client: `is_enabled` is boolean; `used_credits`,
+`monthly_limit` and `utilization` are required nullable numbers; `currency` is
+optional nullable text. Amounts are normalized once by dividing by 100, except
+the client's JPY/KRW/VND zero-decimal currencies, and omitted/null currency uses
+its USD default. An enabled explicit null cap means unlimited; an omitted cap is
+unavailable. Disabled does not establish a zero spend, and unknown spend remains
+unknown. The returned verified account/organization scope is kept separate from
+other accounts and from any organization/seat-level caps not supplied here.
 
 ## Connect a profile
 
@@ -86,6 +105,7 @@ The previous manual `--claude-statusline <profile-id>` receiver remains for exis
 - When live data is unavailable, the provider compares statusLine and Desktop history observation times and displays the newer fallback sample. Desktop history can lag behind a Code action and has no reset timestamps; unknown windows and reset fields remain unknown.
 - A reset passing or elapsed idle time never rolls percentages back to zero. New valid live data clears stale state; a local fallback does not clear a failed live check. Receipt and projected quota data survive restarts, while the Desktop access token is never persisted.
 - Each profile stores projected statusLine, Desktop history and live-usage metadata under the existing ProMeter directory. Only projected windows, source/receipt timestamps, bounded status data and binding hashes are serialized; no raw history, prompt, response, transcript, email or token is retained.
+- Extra usage stores only its normalized currency amounts, enabled/unlimited state, optional utilization and original server-check time in the existing bound live cache. Its own optional failure state is separate from subscription quota: malformed or missing extra-usage fields do not discard valid windows, and earlier money/time remain visible with a warning when available. StatusLine/Desktop receipts and cache reads never renew the extra-usage time. New valid extra usage clears its warning; identity mismatch hides it, and the same connection-generation/commit checks prevent cross-account or late-response reuse. Existing cache files without extra-usage fields remain readable and backups retain the optional projection.
 - The input limits and atomic previous-good cache rules apply to local receivers and projections. Unknown or malformed fields cannot create a successful sample or overwrite a previous-good value.
 
 ## Validation
@@ -93,3 +113,18 @@ The previous manual `--claude-statusline <profile-id>` receiver remains for exis
 Unit checks exercise synthetic official shapes, missing windows, malformed fields, fractional usage, stale/recovery/reset boundaries, cache backup and concurrent receipt ordering, provider separation, Desktop history version-2 samples and legacy registry compatibility. Production WPF checks cover mixed accounts in both languages and all themes, provider labels and aliases, stale values, compact connection guidance and Codex-only credit controls.
 
 Both dev-run.ps1 and Windows CI validate the receiver in the built application and again in the single-file published executable. Synthetic checks cover the Desktop live projection and fallback ordering without touching real account settings or Desktop credentials. A real Desktop check was validated against a bound profile and shared quota response; this proves the implemented compatibility path, not public API stability. Direct stdin, generated PowerShell, malformed input and missing-input deadlines remain covered. No Desktop token is persisted and no model request is used for measurement.
+
+Extra-usage synthetic checks cover currency normalization, disabled/null/missing
+states, an explicit unlimited cap, malformed optional fields with valid quota,
+zero/overspent caps, independent successful timestamps, legacy cache reads,
+backup recovery, local receipts and binding changes. On **2026-10-01**, the
+opt-in `--claude-extra-live-read` check verified a connected Desktop identity,
+accepted subscription quota, and found a provided extra-usage object with
+**enabled=false** and unknown spend, cap and utilization. It reported no unlimited
+state or calculated remaining amount; normalized currency was USD, which can
+come from the verified official-client default. This establishes real-account
+disabled-state compatibility only. Enabled monetary and unlimited states are
+verified through official-client source inspection and synthetic cases, not a
+real-account response. The probe used only the existing identity and usage GETs,
+with no credential, settings or cache writes and no amount, email or raw-response
+logging; no extra usage was enabled or charged for verification.

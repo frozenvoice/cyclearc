@@ -10,6 +10,66 @@ public sealed class CursorLifecycleTests
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2030-01-01T10:00:00Z");
 
     [Fact]
+    public async Task OptionalAmountFailureKeepsOriginalAmountTimeAcrossRestartWhileQuotaAdvances()
+    {
+        using var data = new Data();
+        var demand = new CodexQuotaWindow("cursor-on-demand", null, null, Now.AddDays(29), CodexWindowKind.Other)
+            { UsedAmount = 4.50m, LimitAmount = 20m, RemainingAmount = 15.50m, Unit = "USD", IsEnabled = true, AmountObservedAt = Now };
+        data.Client.Next = data.Client.Next with { Sample = data.Sample with { Windows = data.Sample.Windows.Append(demand).ToArray() } };
+        await data.Collector().RefreshAsync(data.Binding, default);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = data.Client.Next with
+        {
+            Sample = data.Sample with { ObservedAt = data.Clock.UtcNow,
+                Windows = data.Sample.Windows.Append(new CodexQuotaWindow("cursor-on-demand", null, null, null, CodexWindowKind.Other)
+                    { AmountFailure = "cursor-on-demand-unavailable" }).ToArray() },
+            AttemptedAt = data.Clock.UtcNow
+        };
+        var result = await data.Collector().RefreshAsync(data.Binding, default);
+        Assert.Null(result.Failure);
+        Assert.Equal(data.Clock.UtcNow, result.Sample!.ObservedAt);
+        var restarted = data.Collector().ReadCached(data.Binding).Sample!;
+        var kept = restarted.Windows.Single(window => window.LimitId == "cursor-on-demand");
+        Assert.Equal(4.50m, kept.UsedAmount);
+        Assert.Equal(Now, kept.AmountObservedAt);
+        Assert.Equal("cursor-on-demand-unavailable", kept.AmountFailure);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MissingOrMalformedSpendKeepsMoneyWithoutRevivingOldPercentage(bool missing)
+    {
+        using var data = new Data();
+        var demand = new CodexQuotaWindow("cursor-on-demand", 90, null, Now.AddDays(29), CodexWindowKind.Other)
+            { UsedAmount = 4.50m, Unit = "USD", IsEnabled = true, AmountObservedAt = Now };
+        data.Client.Next = data.Client.Next with { Sample = data.Sample with { Windows = data.Sample.Windows.Append(demand).ToArray() } };
+        var service = new CursorQuotaService(data.Accounts, data.Profile, data.Client, data.Collector(), data.Clock);
+        await service.RefreshLiveAsync(default);
+        var account = new CodexAccountView(data.Profile, service.Snapshot, null);
+        var (_, marks) = UsageAlerts.Evaluate([account], null);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        var fresh = data.Sample.Windows.Select(window => window with { UsedPercent = null }).ToArray();
+        data.Client.Next = data.Client.Next with
+        {
+            Sample = data.Sample with { ObservedAt = data.Clock.UtcNow, Windows = missing ? fresh
+                : fresh.Append(new CodexQuotaWindow("cursor-on-demand", null, null, null, CodexWindowKind.Other)
+                    { AmountFailure = "cursor-on-demand-unavailable" }).ToArray() }, AttemptedAt = data.Clock.UtcNow
+        };
+        await service.RefreshLiveAsync(default);
+        var kept = service.Snapshot.Windows.Single(window => window.LimitId == "cursor-on-demand");
+        Assert.Equal(4.50m, kept.UsedAmount);
+        Assert.Equal(Now, kept.AmountObservedAt);
+        Assert.Null(kept.UsedPercent);
+        Assert.NotEqual("cursor-on-demand", service.Snapshot.DisplayWindow()?.LimitId);
+        Assert.Empty(UsageAlerts.Evaluate([account with { Snapshot = service.Snapshot }], null).Alerts);
+        var (alerts, retainedMarks) = UsageAlerts.Evaluate([account with { Snapshot = service.Snapshot }], marks);
+        Assert.Empty(alerts);
+        Assert.Equal(marks.OrderBy(pair => pair.Key), retainedMarks.OrderBy(pair => pair.Key));
+        Assert.Equal(Now, data.Collector().ReadCached(data.Binding).Sample!.Windows.Single(window => window.LimitId == "cursor-on-demand").AmountObservedAt);
+    }
+
+    [Fact]
     public async Task RestartRetainsTheLastGoodQuotaAndStaleReceipt()
     {
         using var data = new Data();

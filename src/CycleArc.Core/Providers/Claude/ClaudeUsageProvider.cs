@@ -155,6 +155,9 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
                 if (live.Sample is null && _lastLive?.Sample is { } previous
                     && live.Failure is not "claude-live-identity-mismatch")
                     live = live with { Sample = previous };
+                else if (live.Sample is { ExtraUsage: null } sample && _lastLive?.Sample?.ExtraUsage is { } previousExtra)
+                    live = live with { Sample = sample with { ExtraUsage = previousExtra,
+                        ExtraUsageFailure = sample.ExtraUsageFailure ?? "claude-extra-usage-unavailable" } };
                 _lastLive = live;
             }
 
@@ -259,6 +262,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             && (good is null || desktop.ObservedAt > good.ReceivedAt);
         var received = useLive ? live!.ObservedAt : useDesktop ? desktop!.ObservedAt : good?.ReceivedAt;
         var liveSupersedesFailure = useLive && failureRead is { Unavailable: false, State: { } oldFailure }
+            && oldFailure.Kind != ClaudeFailureKind.IdentityMismatch
             && oldFailure.ObservedAt < live!.ObservedAt;
         var activeFailure = binding is { } activeBinding && failureRead is { Unavailable: false, State: { } failure }
             && !liveSupersedesFailure
@@ -282,6 +286,26 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
         if (activeFailure && failureRead!.State!.ObservedAt > (attempted ?? DateTimeOffset.MinValue))
             attempted = failureRead.State.ObservedAt;
 
+        // Identity failures latch to this binding generation. Neither a cached
+        // quota nor a later local receipt establishes sign-in recovery. Hide at
+        // the provider boundary so every consumer receives the same safe view;
+        // keep the legitimate caches for explicit matching-identity recovery.
+        if (activeFailure && failureRead!.State!.Kind == ClaudeFailureKind.IdentityMismatch)
+        {
+            var failedAt = failureRead.State.ObservedAt;
+            var keepPreviousTime = _snapshot.LastSuccessfulRefresh is { } previousTime && previousTime <= failedAt;
+            _snapshot = Empty("claude-identity-mismatch") with
+            {
+                LastAttemptedRefresh = attempted,
+                LastSuccessfulRefresh = keepPreviousTime ? _snapshot.LastSuccessfulRefresh
+                    : received <= failedAt ? received : null,
+                LastSuccessfulObservationWasServer = keepPreviousTime ? _snapshot.LastSuccessfulObservationWasServer
+                    : received <= failedAt ? useLive : null
+            };
+            PublishIfChanged(Snapshot);
+            return;
+        }
+
         if (useLive)
         {
             var windows = new List<CodexQuotaWindow>();
@@ -291,7 +315,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
                 windows.Add(new("seven_day", week.UsedPercentage, 10080, week.ResetsAt, CodexWindowKind.Weekly));
             _snapshot = new(detail is null ? CodexQuotaStatus.Available : CodexQuotaStatus.Stale,
                 null, live.ObservedAt, attempted, null, null, null, windows, detail ?? "claude-live")
-                { Provider = UsageProviderId.Claude };
+                { Provider = UsageProviderId.Claude, LastSuccessfulObservationWasServer = true };
         }
         else if (useDesktop)
         {
@@ -300,7 +324,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             if (desktop.SevenDay is { } week) windows.Add(new("seven_day", week, 10080, null, CodexWindowKind.Weekly));
             _snapshot = new(detail is null ? CodexQuotaStatus.Available : CodexQuotaStatus.Stale,
                 null, desktop.ObservedAt, attempted, null, null, null, windows, detail ?? "claude-desktop-history")
-                { Provider = UsageProviderId.Claude };
+                { Provider = UsageProviderId.Claude, LastSuccessfulObservationWasServer = false };
         }
         else if (good is not null)
         {
@@ -309,7 +333,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             if (good.SevenDay is { } week) windows.Add(Window(week, CodexWindowKind.Weekly, 10080, "seven_day"));
             _snapshot = new(detail is null ? CodexQuotaStatus.Available : CodexQuotaStatus.Stale,
                 null, good.ReceivedAt, attempted, null, null, null, windows, detail)
-                { Provider = UsageProviderId.Claude };
+                { Provider = UsageProviderId.Claude, LastSuccessfulObservationWasServer = false };
         }
         else if (_snapshot.HasUsablePercentages && (_connection?.Binding is not { } previousBinding
             || _snapshot.LastSuccessfulRefresh >= previousBinding.ConnectedAt))
@@ -318,6 +342,10 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             _snapshot = Empty(detail) with { Status = state?.LastInputStatus == ClaudeInputStatus.Malformed
                 ? CodexQuotaStatus.ProtocolMismatch : CodexQuotaStatus.Unavailable,
                 LastAttemptedRefresh = attempted };
+        // Local fallback receipts never renew the server-owned extra-usage clock.
+        // Early disconnected/identity failures above intentionally publish no money.
+        _snapshot = _snapshot with { ExtraUsage = live?.ExtraUsage,
+            ExtraUsageFailure = _lastLive?.Failure ?? live?.ExtraUsageFailure };
         PublishIfChanged(Snapshot);
     }
 
@@ -325,7 +353,11 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
         sample.ObservedAt > DateTimeOffset.UnixEpoch && sample.ObservedAt <= now
         && sample.ObservedAt >= binding.ConnectedAt
         && (sample.FiveHour is not null || sample.SevenDay is not null)
-        && Valid(sample.FiveHour) && Valid(sample.SevenDay);
+        && Valid(sample.FiveHour) && Valid(sample.SevenDay)
+        && ClaudeExtraUsage.Valid(sample.ExtraUsage, now)
+        && (sample.ExtraUsage is null || (sample.ExtraUsage.ObservedAt >= binding.ConnectedAt
+            && sample.ExtraUsage.ObservedAt <= sample.ObservedAt))
+        && sample.ExtraUsageFailure is null or "claude-extra-usage-unavailable";
 
     private static bool Valid(ClaudeLiveUsageWindow? window) => window is null
         || (double.IsFinite(window.UsedPercentage) && window.UsedPercentage is >= 0 and <= 100

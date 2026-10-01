@@ -374,6 +374,23 @@
                             </Grid>
                         </StackPanel>
                     </Border>
+                    <Border x:Name="UsageCreditsCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12,8" Margin="0,10,0,0" Visibility="Collapsed">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="UsageCreditsTitle" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+                                <Path x:Name="UsageCreditsWarning" Grid.Column="1" Width="12" Height="12" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" Stretch="Uniform" Stroke="{DynamicResource StaleBrush}" StrokeThickness="1.2" StrokeLineJoin="Round" Data="M6,1 L11,11 L1,11 Z M6,4 L6,7 M6,8.5 L6,9"/>
+                                <TextBlock x:Name="UsageCreditsSummary" Grid.Column="2" Margin="10,0,8,0" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextBrush}"/>
+                                <Button x:Name="UsageCreditsExpandButton" Grid.Column="3" Style="{StaticResource FlyoutHeaderIconButton}" Background="Transparent" Click="OnUsageCardExpandClick">
+                                    <Path x:Name="UsageCreditsChevron" Width="12" Height="7" Stretch="Uniform" Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M1,1 L7,7 L13,1"/>
+                                </Button>
+                            </Grid>
+                            <StackPanel x:Name="UsageCreditsDetails" Margin="0,6,0,0" Visibility="Collapsed">
+                                <TextBlock x:Name="UsageCreditsNotice" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,6" Visibility="Collapsed" Foreground="{DynamicResource StaleBrush}"/>
+                                <ItemsControl x:Name="UsageCreditsRows"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                     <!-- One line while folded: count and the nearest expiry. Expanding shows each credit and its action. -->
                     <Border x:Name="ResetCreditsCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12,8" Margin="0,10,0,0">
                         <StackPanel>

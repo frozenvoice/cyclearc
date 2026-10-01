@@ -161,7 +161,7 @@ public sealed class UsageRingBandTests
             ? CycleArc.Providers.Claude.ClaudeUsagePresentation.FailureLabel(detail)
             : CycleArc.Providers.Cursor.CursorUsagePresentation.FailureText(detail);
         Assert.NotNull(expectedWarning);
-        Assert.Contains(expectedWarning!, model.StatusText, StringComparison.Ordinal);
+        Assert.Contains(expectedWarning!, model.StatusPresentation!.DetailText, StringComparison.Ordinal);
     }
 
     [Fact]

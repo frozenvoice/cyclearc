@@ -109,7 +109,10 @@ internal static class MixedProviderUiChecks
                             && module.ToolTip!.ToString()!.Contains(ClaudeUsagePresentation.SharedScope), "Claude widget hides the shared subscription scope.");
                         Check(module.StatusText.Visibility == Visibility.Visible,
                             "Claude widget hides receipt status.");
-                        CheckStaleText(module.StatusText, selected.Snapshot);
+                        CheckWidgetStatus(module, selected.Snapshot,
+                            warning: selected.Snapshot.Status == CodexQuotaStatus.Stale,
+                            expectedSummary: selected.Snapshot.Status == CodexQuotaStatus.Stale
+                                ? UiText.T("Data unreadable", "데이터 확인 불가") : UiText.T("Received", "수신됨"));
                         // The compact widget keeps the exact receipt stamp in the module tooltip.
                         Check(module.ToolTip!.ToString()!.Contains(ClaudeUsagePresentation.LastReceivedText(selected.Snapshot)),
                             "Claude widget hides the last receipt date/time.");
@@ -140,7 +143,8 @@ internal static class MixedProviderUiChecks
                 WidgetFixture.BindOne(widget, idle);
                 WidgetFixture.RenderWidget(widget, directory is null ? null
                     : Path.Combine(directory, $"claude-idle-widget-{language}-{theme}.png"));
-                CheckStaleText(WidgetFixture.Module(widget).StatusText, idle.Snapshot);
+                CheckWidgetStatus(WidgetFixture.Module(widget), idle.Snapshot, warning: false,
+                    expectedSummary: UiText.T("Received", "수신됨"));
                 Check(!WidgetFixture.Module(widget).Model!.IsStale
                     && WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.LastReceivedText(idle.Snapshot)),
                     "Idle Claude values look stale or hide their original receipt.");
@@ -244,7 +248,8 @@ internal static class MixedProviderUiChecks
                 WidgetFixture.BindOne(widget, elapsed);
                 WidgetFixture.RenderWidget(widget, directory is null ? null
                     : Path.Combine(directory, $"claude-reset-elapsed-widget-{language}-{theme}.png"));
-                CheckStaleText(WidgetFixture.Module(widget).StatusText, elapsed.Snapshot);
+                CheckWidgetStatus(WidgetFixture.Module(widget), elapsed.Snapshot, warning: false,
+                    expectedSummary: UiText.T("Received", "수신됨"));
                 // A reset time that has passed waits for the server instead of restarting locally.
                 Check(WidgetFixture.Module(widget).Periods.All(line =>
                         line.ResetText.Text != UiText.ResetNotProvided && !line.ResetText.Text.Contains('-'))
@@ -263,7 +268,8 @@ internal static class MixedProviderUiChecks
                     "A real Claude input failure no longer raises attention.");
                 WidgetFixture.BindOne(widget, failed);
                 WidgetFixture.RenderWidget(widget, null);
-                CheckStaleText(WidgetFixture.Module(widget).StatusText, failed.Snapshot);
+                CheckWidgetStatus(WidgetFixture.Module(widget), failed.Snapshot, warning: true,
+                    expectedSummary: UiText.T("Data unreadable", "데이터 확인 불가"));
                 count += 2;
 
                 var renewed = accounts[1] with { Snapshot = accounts[1].Snapshot with { LastSuccessfulRefresh = DateTimeOffset.Now } };
@@ -272,7 +278,8 @@ internal static class MixedProviderUiChecks
                 CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), renewed.Snapshot);
                 WidgetFixture.BindOne(widget, renewed);
                 WidgetFixture.RenderWidget(widget, null);
-                CheckStaleText(WidgetFixture.Module(widget).StatusText, renewed.Snapshot);
+                CheckWidgetStatus(WidgetFixture.Module(widget), renewed.Snapshot, warning: false,
+                    expectedSummary: UiText.T("Received", "수신됨"));
                 Check(WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.LastReceivedText(renewed.Snapshot)),
                     "New sample did not update the receipt timestamp.");
                 count += 2;
@@ -434,8 +441,17 @@ internal static class MixedProviderUiChecks
             Check(snapshot.HasUsablePercentages == cached, "Unknown failed usage was converted into zero.");
             WidgetFixture.BindOne(widget, account);
             WidgetFixture.RenderWidget(widget, null);
-            Check(WidgetFixture.Status(widget) == label,
-                "Widget authentication status disagrees with the account/details.");
+            var module = WidgetFixture.Module(widget);
+            Check(WidgetFixture.Status(widget) == UiText.T("Sign in required", "로그인 필요")
+                && module.StatusText.Visibility == Visibility.Visible
+                && module.StatusWarningIcon.Visibility == Visibility.Visible
+                && module.Model!.StatusPresentation is { IsWarning: true },
+                "Widget authentication warning lost its concise sign-in action.");
+            Check(WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.StatusText(snapshot), StringComparison.Ordinal),
+                "Widget authentication tooltip lost the full account recovery guidance.");
+            Check(module.Model!.StatusPresentation!.ObservationTime == snapshot.LastSuccessfulRefresh
+                && module.StatusAgeText.Visibility == (cached ? Visibility.Visible : Visibility.Collapsed),
+                "Widget authentication failure changed the valid receipt time or invented one.");
             if (cached)
                 Check(WidgetFixture.Tooltip(widget).Contains(ClaudeUsagePresentation.LastReceivedText(fixture.Snapshot)),
                     "Authentication failure changed the displayed last receipt.");
@@ -665,6 +681,42 @@ internal static class MixedProviderUiChecks
             var parent = (FrameworkElement)VisualTreeHelper.GetParent(badge);
             var left = badge.TranslatePoint(new Point(), parent).X;
             Check(left >= -1 && left + badge.ActualWidth <= parent.ActualWidth + 1, "Provider badge overflows its account row.");
+        }
+    }
+
+    private static void CheckWidgetStatus(WidgetAccountModuleView module, CodexQuotaSnapshot snapshot,
+        bool warning, string expectedSummary)
+    {
+        var text = module.StatusText;
+        var expectedBrush = (SolidColorBrush)Application.Current.FindResource(warning ? "StaleBrush" : "MutedBrush");
+        var foreground = ((SolidColorBrush)text.Foreground).Color;
+        Check(text.Visibility == Visibility.Visible && text.Text == expectedSummary,
+            "Claude widget lost its concise receipt or concrete failure summary.");
+        Check(foreground == expectedBrush.Color
+            && text.FontWeight == (warning ? FontWeights.SemiBold : FontWeights.Normal)
+            && module.StatusWarningIcon.Visibility == (warning ? Visibility.Visible : Visibility.Collapsed),
+            "Claude widget warning emphasis is missing or remains after a valid sample.");
+        Check(module.Model!.StatusPresentation is { } presentation
+            && presentation.IsWarning == warning
+            && presentation.ObservationTime == snapshot.LastSuccessfulRefresh,
+            "Claude widget changed the original valid observation time or its semantic state.");
+        Check(module.StatusAgeText.Visibility == Visibility.Visible
+            && module.StatusAgeText.Text.StartsWith(ClaudeUsagePresentation.ReceiptLabel(snapshot) + " ", StringComparison.Ordinal)
+            && !module.StatusAgeText.Text.Contains(Environment.NewLine, StringComparison.Ordinal)
+            && (module.StatusArea.ToolTip as string ?? "").Contains(ClaudeUsagePresentation.LastReceivedText(snapshot), StringComparison.Ordinal),
+            "Claude widget lost its original receipt label, age or exact receipt timestamp.");
+        if (!warning) return;
+        static double Luminance(Color color)
+        {
+            static double Linear(byte value) { var channel = value / 255d; return channel <= .04045 ? channel / 12.92 : Math.Pow((channel + .055) / 1.055, 2.4); }
+            return .2126 * Linear(color.R) + .7152 * Linear(color.G) + .0722 * Linear(color.B);
+        }
+        foreach (var background in new[] { "CardBrush", "PanelBrush", "GhostBrush", "ControlBrush" })
+        {
+            var a = Luminance(foreground);
+            var b = Luminance(((SolidColorBrush)Application.Current.FindResource(background)).Color);
+            Check((Math.Max(a, b) + .05) / (Math.Min(a, b) + .05) >= 4.5,
+                "Widget observation warning contrast is insufficient in the active theme.");
         }
     }
 

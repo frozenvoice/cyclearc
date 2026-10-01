@@ -8,6 +8,22 @@ public class SettingsRecoveryTests : IDisposable
     private string PathName => Path.Combine(_directory, "settings.json");
 
     [Fact]
+    public void UsageCardExpansionSurvivesSaveEditRestartAndBackup()
+    {
+        var id = Guid.NewGuid().ToString("N");
+        var store = new SettingsStore(PathName);
+        var settings = new AppSettings { UsageCardExpandedAccounts = new() { [id] = true } };
+        store.Save(settings);
+        SettingsApplication.Apply(settings, new SettingsEdit());
+        store.Save(settings);
+        Assert.True(new SettingsStore(PathName).Load().UsageCardExpandedAccounts[id]);
+        File.WriteAllText(PathName, "broken");
+        Assert.True(store.Load().UsageCardExpandedAccounts[id]);
+        Assert.Empty(SettingsMigration.FromJson("{}").UsageCardExpandedAccounts);
+        Assert.Empty(SettingsMigration.FromJson("{\"UsageCardExpandedAccounts\":null}").UsageCardExpandedAccounts);
+    }
+
+    [Fact]
     public void SaveKeepsPreviousNormalVersionAndPreservesPreferences()
     {
         var store = new SettingsStore(PathName);

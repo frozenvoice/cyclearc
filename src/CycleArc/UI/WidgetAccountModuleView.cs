@@ -56,7 +56,22 @@ public sealed class WidgetAccountModuleView : Border
     public TextBlock StatusText { get; } = new()
     {
         FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
-        Margin = new Thickness(0, 5, 0, 0), Visibility = Visibility.Collapsed
+        Visibility = Visibility.Collapsed
+    };
+
+    public TextBlock StatusAgeText { get; } = new()
+    {
+        FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
+        Margin = new Thickness(0, 2, 0, 0), Visibility = Visibility.Collapsed
+    };
+    public StackPanel StatusArea { get; } = new() { Margin = new Thickness(0, 5, 0, 0), Visibility = Visibility.Collapsed };
+    public Path StatusWarningIcon { get; } = new()
+    {
+        Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 1.35,
+        StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+        Data = Geometry.Parse("M6,1 L11,10 L1,10 Z M6,4 L6,6.5 M6,8 L6,8.3"),
+        Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center,
+        Visibility = Visibility.Collapsed
     };
 
     public UsageProviderBadge Badge => _badge;
@@ -81,6 +96,8 @@ public sealed class WidgetAccountModuleView : Border
         RingUsedLabel.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         RingTargetText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         StatusText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        StatusAgeText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        StatusWarningIcon.SetResourceReference(Shape.StrokeProperty, "StaleBrush");
         _ringTrack.SetResourceReference(Shape.StrokeProperty, "LineBrush");
 
         _ringArc.Data = new PathGeometry { Figures = { _ringFigure } };
@@ -113,7 +130,13 @@ public sealed class WidgetAccountModuleView : Border
         var content = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
         content.Children.Add(identity);
         content.Children.Add(body);
-        content.Children.Add(StatusText);
+        var statusHeader = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(StatusWarningIcon, Dock.Left);
+        statusHeader.Children.Add(StatusWarningIcon);
+        statusHeader.Children.Add(StatusText);
+        StatusArea.Children.Add(statusHeader);
+        StatusArea.Children.Add(StatusAgeText);
+        content.Children.Add(StatusArea);
         Child = content;
     }
 
@@ -132,18 +155,26 @@ public sealed class WidgetAccountModuleView : Border
 
         StatusText.Text = model.StatusText;
         StatusText.Visibility = model.ShowStatusRow ? Visibility.Visible : Visibility.Collapsed;
-        StatusText.ToolTip = CursorUsagePresentation.IsCursor(model.Provider) ? model.Tooltip
-            : string.IsNullOrEmpty(model.StatusText) ? null : model.StatusText;
-        StatusText.TextWrapping = CursorUsagePresentation.IsCursor(model.Provider)
-            ? TextWrapping.Wrap : TextWrapping.NoWrap;
-        StatusText.SetResourceReference(TextBlock.ForegroundProperty, model.IsStale ? "StaleBrush" : "MutedBrush");
-        StatusText.FontWeight = model.IsStale ? FontWeights.SemiBold : FontWeights.Normal;
+        StatusArea.Visibility = StatusText.Visibility;
+        var status = model.StatusPresentation;
+        var warning = status?.IsWarning ?? model.IsStale;
+        StatusAgeText.Text = status?.AgeText ?? "";
+        StatusAgeText.Visibility = model.ShowStatusRow && !string.IsNullOrEmpty(StatusAgeText.Text)
+            ? Visibility.Visible : Visibility.Collapsed;
+        StatusWarningIcon.Visibility = model.ShowStatusRow && warning ? Visibility.Visible : Visibility.Collapsed;
+        StatusArea.ToolTip = status?.DetailText ?? model.Tooltip;
+        StatusText.ToolTip = StatusArea.ToolTip;
+        StatusAgeText.ToolTip = StatusArea.ToolTip;
+        StatusText.SetResourceReference(TextBlock.ForegroundProperty, status?.BrushKey ?? (warning ? "StaleBrush" : "MutedBrush"));
+        StatusText.FontWeight = warning ? FontWeights.SemiBold : FontWeights.Normal;
+        System.Windows.Automation.AutomationProperties.SetHelpText(StatusArea, status?.DetailText ?? model.Tooltip);
 
         if (model.IsSelected) SetResourceReference(BorderBrushProperty, "AccentBrush");
         else BorderBrush = System.Windows.Media.Brushes.Transparent;
 
         ToolTip = model.Tooltip;
         System.Windows.Automation.AutomationProperties.SetName(this, AutomationText(model));
+        System.Windows.Automation.AutomationProperties.SetHelpText(this, status?.DetailText ?? model.Tooltip);
 
         // BindAccounts measures immediately, before WPF propagates a status-line size change.
         ((FrameworkElement)Child).InvalidateMeasure();
@@ -161,7 +192,7 @@ public sealed class WidgetAccountModuleView : Border
             model.Provider.Name(),
             UsageRingBands.WithLabel(model.Ring.RemainingSubLabel.Replace(Environment.NewLine, " ")
                 + " " + model.Ring.RemainingValueText, model.Ring)
-        }.Concat(periods).Append(model.StatusText)
+        }.Concat(periods).Append(model.StatusText).Append(model.StatusPresentation?.AgeText)
             .Where(part => !string.IsNullOrEmpty(part)))
             + (model.IsSelected ? UiText.T(" · Selected", " · 선택됨") : "");
     }

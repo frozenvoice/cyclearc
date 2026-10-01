@@ -73,6 +73,10 @@ internal static class Program
             return LiveAccountChecks.RunAsync(args[1]).GetAwaiter().GetResult();
         if (args is ["--cursor-live-read"])
             return CursorLiveChecks.RunAsync().GetAwaiter().GetResult();
+        if (args is ["--codex-credits-live-read"])
+            return CodexCreditsLiveChecks.RunAsync().GetAwaiter().GetResult();
+        if (args is ["--claude-extra-live-read"])
+            return ClaudeExtraUsageLiveChecks.RunAsync().GetAwaiter().GetResult();
         // Process/IPC checks run from --desktop-instance immediately after compile.
         // Empty-args UiSmoke keeps WPF/version UI checks and does not repeat that wait.
         // Load production WPF views/resources with startup overridden: no account access,
@@ -193,6 +197,11 @@ internal static class Program
                 CursorUiChecks.Run(cursorDirectory);
                 return 0;
             }
+            if (args is ["--usage-credits"] or ["--usage-credits", _])
+            {
+                UsageCreditUiChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--cursor-widget-summary-previews", var cursorWidgetDirectory])
             {
                 CursorWidgetSummaryChecks.Run(cursorWidgetDirectory);
@@ -239,6 +248,7 @@ internal static class Program
             AccountUiChecks.Run();
             CodexWindowUiChecks.Run();
             CursorUiChecks.Run();
+            UsageCreditUiChecks.Run();
             CursorWidgetSummaryChecks.Run();
             WidgetStatusRowChecks.Run();
             UsagePercentUiChecks.Run();
@@ -282,14 +292,18 @@ internal static class Program
                 {
                     WidgetFixture.BindSnapshot(widget, snapshot with { Status = status });
                     var notice = WidgetFixture.Module(widget).StatusText;
-                    var attention = status is not (CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing);
+                    var attention = WidgetStatusPresentation.From(snapshot with { Status = status }, now).ShowRow;
                     if (notice.Visibility != (attention ? Visibility.Visible : Visibility.Collapsed)
-                        || string.IsNullOrEmpty(notice.Text) == attention)
+                        || (attention && string.IsNullOrEmpty(notice.Text)))
                         throw new InvalidOperationException($"Incorrect widget notice for {status}.");
                 }
                 WidgetFixture.BindSnapshot(widget, snapshot); // Recovery must remove the old failure text and its space.
-                var recovered = WidgetFixture.Module(widget).StatusText;
-                if (recovered.Visibility != Visibility.Collapsed || recovered.Text.Length != 0)
+                var recoveredModule = WidgetFixture.Module(widget);
+                var recovered = recoveredModule.StatusText;
+                if (recovered.Visibility != Visibility.Collapsed
+                    || recoveredModule.StatusArea.Visibility != Visibility.Collapsed
+                    || recoveredModule.Model!.StatusPresentation is not { ShowRow: false, IsWarning: false }
+                    || recoveredModule.StatusArea.ToolTip is not string { Length: > 0 })
                     throw new InvalidOperationException("Widget notice remains after recovery.");
                 CheckWidgetAccountBinding(widget, now);
                 Window[] windows = [flyout, widget,

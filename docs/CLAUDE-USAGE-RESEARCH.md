@@ -52,3 +52,78 @@ Keep the official statusLine receiver and Desktop history reader as fallback sou
 - The private endpoint is documented here as an observed implementation dependency only. It must not be described as an official public API or expanded into general web scraping, arbitrary endpoint access or terminal screen parsing.
 
 The investigation used public documentation, local CLI help, installed Desktop code inspection and real Desktop observations. The local history schema was observed with Desktop 1.52386.3.0; the live OAuth compatibility path was validated with Desktop 2.110.0.0 against the bound 50%/12% shared quota response. This evidence establishes the 0.5.9 implementation behavior, not public endpoint stability. The app does not persist the Desktop token, modify Desktop credentials, read cookies or create a model request to measure usage.
+
+## Extra usage field review — 2026-10-01
+
+The selected account's detail popup now projects optional `extra_usage` from the same
+identity-verified `GET /api/oauth/usage` response. It adds no request to card expansion,
+account selection or the passive two-second loop. This remains an observed internal
+compatibility interface, rather than a supported public subscription billing API.
+
+The [official paid-plan usage-credit guide](https://support.claude.com/en/articles/12429409-manage-usage-credits-for-paid-claude-plans)
+describes month-to-date extra-usage spending, a monthly spending cap, and an explicit
+unlimited option. It separately describes prepaid funds; an extra-usage spending cap
+or its unused portion is not a prepaid wallet balance. The
+[organization guide](https://support.claude.com/en/articles/12005970-manage-usage-credits-for-team-and-seat-based-enterprise-plans)
+describes distinct organization, seat and member limits. An unlimited returned limit
+does not establish that every organization-level restriction is absent.
+
+The exact wire types and amount conversion were checked in installed official
+Claude Code **2.1.270** program code; `claude.exe --version` confirmed that version.
+Its extra-usage schema requires a boolean `is_enabled` and nullable numbers
+`monthly_limit`, `used_credits` and `utilization`, plus optional nullable `currency`.
+The currency-aware amount formatter divides the raw amount by 100, except for its
+explicit **JPY, KRW and VND** zero-decimal currency set, where the raw amount is
+already in major units. The extra-usage renderer uses `currency ?? "USD"` and shows
+an enabled explicit `monthly_limit === null` as **Unlimited**. An older installed
+official npm client, **2.1.105**, independently showed the `/100` conversion and
+the enabled null-limit branch. CycleArc follows the current 2.1.270 conversion,
+retains amount precision, and does not apply a second conversion in the UI.
+
+| Source field | Type and meaning | CycleArc projection |
+| --- | --- | --- |
+| `extra_usage` | Optional nullable object from the bound OAuth account/organization's shared usage response | Missing/null means not provided, not disabled or zero. No individual/team amounts are combined. |
+| `extra_usage.is_enabled` | Boolean | An explicit true/false establishes enabled/disabled; missing or malformed is unavailable. |
+| `extra_usage.used_credits` | Required nullable number in the currency units described above; month-to-date extra-usage spend | Normalized decimal `UsedAmount`; null remains unknown. The name does not establish a credit count or prepaid balance. |
+| `extra_usage.monthly_limit` | Required nullable number in the same currency and monthly aggregate | Normalized decimal `MonthlyLimitAmount`; explicit null is unlimited only when enabled. Missing is malformed rather than an unlimited declaration; disabled/null remains disabled with unknown amounts. |
+| `extra_usage.utilization` | Required nullable numeric percentage | Nonnegative finite `UsedPercentage`, preserving values above 100; null stays unknown. No amount is reconstructed from this percentage. |
+| `extra_usage.currency` | Optional nullable currency string | Uppercase three-letter code; omitted/null follows the official client USD default. Invalid currency fields make only the optional extra-usage projection unavailable. |
+| Response acceptance time | Server fetch completion after identity verification | Independent `ObservedAt` for the accepted extra-usage fields, not an invented monthly reset, payment date or expiry. |
+
+`RemainingAmount` is an explicitly calculated **amount to the monthly cap**, using
+the limit and spend from this single response, scope, currency and period. It is
+available only for enabled finite limits with both amounts known. A zero limit
+requires no percentage division, and overspending preserves the actual spend and
+negative amount to the cap. It never represents available prepaid funds.
+
+Optional extra-usage errors do not discard valid five-hour or weekly subscription
+quota. A malformed optional object, or a later quota-only response after previous
+extra usage, preserves the last-good amount and its original `ObservedAt` with a
+separate extra-usage warning. Whole-request failure also keeps those values and
+their time. A successful newer subscription response, statusLine receipt, Desktop
+history receipt or cache reread cannot renew that extra-usage timestamp. A valid
+new extra-usage object clears its optional failure, including an explicit disabled
+state. Existing caches without these optional fields remain readable; normalized
+amounts and metadata round-trip through atomic cache writes and previous-good
+backup recovery. The cache's existing profile/binding key, connection-generation
+checks and commit lease protect extra usage too; identity mismatch hides both
+quota and money, and disconnected/removed/reconnected generations cannot inherit
+the old projection.
+
+Source inspection and synthetic parser/cache/provider regressions establish this
+implementation contract. On **2026-10-01**, the opt-in
+`--claude-extra-live-read` probe verified an already connected account's Desktop
+identity and accepted subscription quota. Its `extra_usage` object was provided
+with **enabled=false**; spend, monthly cap and utilization were explicit null,
+unlimited was false, the normalized currency was USD, and no remaining amount
+was calculated. This verifies the real-account disabled state only. Enabled
+monetary amounts, their conversion and unlimited states remain covered by
+official-client source inspection and synthetic fixtures, rather than by this
+real account. The USD result follows the verified official-client fallback and
+does not establish that the response explicitly supplied a currency field.
+
+The probe used the existing Desktop credential reader and verified profile
+identity before usage. It printed only field presence, enablement and normalized
+currency metadata, with no amounts, account email, credentials or raw response,
+and wrote no settings, bindings or quota caches. No disabled account was enabled
+or charged to fabricate coverage.

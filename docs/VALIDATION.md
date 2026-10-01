@@ -2,6 +2,100 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Common widget status and selected-account usage cards (unreleased, 2026-10-01):
+  - Based on clean `786a32c8022c764e27d8c883f19d7f85c66e1eea`, branch
+    `codex/widget-status-usage-credits`. Same semantic status drives all providers' warning
+    color/icon and original checked/received time. Usage rings, numeric precision, account
+    order, selected account, existing list/tray/widget monetary policies and alerts remain intact.
+  - Codex usage credits are a separate optional decimal balance; Claude extra usage is
+    normalized monthly spend/cap, with a calculated remainder; Cursor reuses the personal
+    on-demand amounts and authoritative server remainder. Each source retains its own
+    successful observation through failure/restart. Account mismatch hides money as well as quota.
+    Cards start collapsed and save expansion per account with settings backup compatibility.
+  - Focused Core run exercised 439 cases: 434 initially passed and five new Codex fixtures
+    failed because the same JsonNode was attached twice. Cloning the fixture input fixed
+    the cause; the focused Codex credit rerun passed 18/18. No timeout was raised, test removed
+    or remote run started. The later review-fix run passed 52/52 relevant presentation,
+    Cursor lifecycle and Claude live-integration cases.
+  - Production WPF checks: `--usage-credits artifacts/usage-credits` passed 180 state cases
+    in EN/KO, Dark/Light, 80/100/150% with 1/3/5 accounts, large values, selection/refresh/window
+    recreation, accessible button invocation, small-work-area scroll and actual native window
+    expansion/collapse at the 2-DIP snap margin. `--widget-status artifacts/widget-common-status`
+    passed stale/failure/identity/retry/recovery and original local/server time checks, including
+    synthetic 1/3/5-account warnings. `--cursor-ui artifacts/usage-credits-cursor` passed the
+    affected Cursor production views. Captures contain only synthetic data; relevant PNGs were
+    visually checked for missing glyphs, line breaking, overlaps and amount clipping.
+  - Read-only real-account compatibility checks used existing bindings and production clients;
+    they wrote no account/settings/quota cache and emitted only permitted field metadata:
+
+    | Provider | Source verified | Implemented / synthetic checks | Real-account observation |
+    | --- | --- | --- | --- |
+    | Codex | Official App Server documentation, generated installed 0.154.0 protocol | Decimal/zero/negative/null/flags, selected bucket, cache and identity | Two existing accounts matched saved identities; credits objects and numeric string balances accepted. Workspace identifier is not exposed, so no independent workspace verification is claimed |
+    | Claude | Official Help Center and shipped Claude Code 2.1.270 currency/null semantics | Optional parser, monthly cap remainder, cache/receipt/generation cases | Identity matched; extra usage explicitly Off, spend/cap/utilization explicitly null, normalized USD. Enabled spending and unlimited remain source/synthetic verification only |
+    | Cursor | Existing observed first-party contract and current official usage guide | Normalize once, missing/zero/unlimited/excess, separate team scope and server remaining | Identity matched; personal object, used amount, USD and period end present; cap and remaining absent. Boundary states remain synthetic only |
+
+  - Opt-in reproduction commands after Release build: UiSmoke `--codex-credits-live-read`,
+    `--claude-extra-live-read`, `--cursor-live-read`. No provider model request, payment,
+    additional-spend enablement or credential renewal was used for verification.
+  - Separate CLI `codex review --uncommitted` was attempted but could not inspect files:
+    `windows sandbox failed: helper_unknown_error: apply deny-read ACLs`. This is **not** a
+    successful Code Review verdict. An independent agent review is recorded separately.
+    Its first pass found four issues: active Claude identity mismatch retaining quota, missing
+    Cursor optional money losing its original observation, stale on-demand percentage becoming
+    current quota, and failed/no-money cards retaining a missing-data label. All received targeted
+    fixes and regression coverage before the final pass. Unsupported on-demand percentage values
+    were also isolated from valid monetary counters.
+    The second pass found no remaining P0/P1/P2 issues. The third and final pass reviewed the
+    three existing test corrections described below and found no weakened protection or other
+    findings. These are independent agent reviews, not a successful CLI Code Review run.
+  - The full `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` gate was invoked once with
+    `-TestResultsDirectory artifacts/usage-credits-final-tests`. Preflight/toolchain/workflow/release
+    guards, restore, Release build (zero warnings/errors), desktop-instance checks, and isolated
+    local-install/build-local regressions passed. The unit suite ran all **1,987** cases with
+    **1,984 passed, three failed, zero skipped**. The failures were diagnosed as outdated test
+    assertions: one expected old quota to remain visible after Claude identity mismatch, and two
+    source guards expected the old `snapshot` argument name instead of `detailSnapshot`.
+    The identity test now also proves original cache preservation, hidden values through passive
+    refresh/restart, rejection of old callbacks and recovery through explicit reconnection and
+    the current callback. No production code changed after this gate run. All three affected
+    test classes then passed **55/55**, using the filter
+    `FullyQualifiedName~ClaudeConnectionTests|FullyQualifiedName~GptProEstimatedPeriodPresentationTests|FullyQualifiedName~QuotaCountAuthorityTests`.
+    Only the two existing xUnit1031 analyzer warnings were emitted on that test rebuild.
+    Logs/TRX are in `artifacts/usage-credits-final-gate.log`,
+    `artifacts/usage-credits-final-tests` and `artifacts/usage-credits-final-repair-tests`.
+    The unchanged remaining gate blocks were then continued in order, without repeating the
+    already-passed early stages or full unit suite. The first WPF continuation exposed an old
+    ring-band assertion that treated attempted-but-unavailable quota as neutral solely because
+    it was not `Stale`. That test now independently expects a warning for the failed attempt;
+    its ring colors and numeric checks remain intact. Other widget-only legacy assertions were
+    updated for the concise status/receipt lines and collapsed healthy metadata, while popup
+    and account-list expectations remain unchanged. The next continuation passed the ring-band
+    and period-selection checks, then found a remaining mixed-provider assertion equating the
+    widget's concise sign-in action with the popup's full explanation. The corrected check
+    requires the concise action plus full recovery guidance in the tooltip. A focused
+    `--claude-ui artifacts/usage-credits-mixed-repair` run then passed **246** production WPF
+    renders after a zero-warning/error UiSmoke build. Only the affected WPF stage was restarted
+    after these diagnosed assertion failures; no application/runtime code changed and no timeout
+    was raised. The initial WPF continuations are retained as
+    `artifacts/usage-credits-final-gate-continuation.log` and
+    `artifacts/usage-credits-final-gate-continuation-2.log`.
+    Final continuation completed successfully (exit 0): full WPF smoke, test-flavour build,
+    single-file `CycleArc.exe` publish, published Claude receiver checks, Velopack packaging,
+    feed/cache/tamper/retry verification and isolated portable-root apply/rollback all passed.
+    Evidence: `artifacts/usage-credits-final-gate-completion.log`. The complete required stage
+    set is covered by the original gate, focused corrections and this continuation; this is
+    not represented as a single uninterrupted green gate command. Passing stages were reused,
+    and the gate script/toolchain/timeouts were not modified. The isolated build-local suite's
+    direct-script-launch branch reported unavailable on this host; its other command/process
+    checks passed. No CI CMD/end-to-end run was substituted without authorization.
+    The final WPF run includes the 180 new card cases, 148 ring-band cases, 246 mixed-provider
+    renders, 531 window-zoom checks, 151 widget layout checks and native snap/recovery checks.
+    Current ring-band previews were subsequently exported with `--ring-bands
+    artifacts/usage-credits-ring-bands` solely to refresh affected documentation images.
+  - No push, CI dispatch/rerun, merge, version/tag/release, install or installed-app restart is
+    authorized or performed. Disposable installed-update/removal testing is outside this UI/data
+    change and was not run on the working Windows profile.
+
 - Codex process-test failure reporting follow-up (unreleased, 2026-09-23):
   - The hang/cancellation test retains the original assertion and stack if cleanup also fails.
     Each failed cleanup step is recorded in xUnit output with its stage and exception; later

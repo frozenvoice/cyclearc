@@ -42,7 +42,7 @@ public sealed class CodexQuotaService
         _snapshot = store.Load() ?? _snapshot;
         if (profile is not null)
         {
-            _boundCache = _snapshot.HasUsablePercentages ? _snapshot : null;
+            _boundCache = HasCachedData(_snapshot) ? _snapshot : null;
             _identityBindings = new CodexIdentityBindingStore(store, profile.Id);
             CodexIdentityBindingRead binding;
             try { binding = _identityBindings.ReadOrSeedLegacy(_snapshot.IdentityFingerprint); }
@@ -136,10 +136,16 @@ public sealed class CodexQuotaService
                 var parsed = CodexRateLimitParser.Parse(session.AccountResult, session.RateLimitsResult);
                 if (parsed.Status == CodexQuotaStatus.Available)
                 {
+                    var observedAt = _clock.UtcNow;
+                    var previous = _profile is null ? _snapshot :
+                        _boundCache is { } bound && CacheMatchesVerifiedIdentity(bound) ? bound : null;
+                    var previousCredits = previous?.UsageCredits;
+                    if (!string.Equals(previousCredits?.LimitId, parsed.SelectedLimitId, StringComparison.Ordinal))
+                        previousCredits = null;
                     var success = new CodexQuotaSnapshot(
                         CodexQuotaStatus.Available,
                         parsed.PlanType,
-                        _clock.UtcNow,
+                        observedAt,
                         attempted,
                         parsed.OrdinaryUsageAllowed,
                         parsed.RateLimitReachedType,
@@ -148,7 +154,10 @@ public sealed class CodexQuotaService
                         SafeDetail(session, parsed.Detail),
                         parsed.ResetCreditExpirations) {
                             RedeemableCredits = CodexRateLimitParser.ReadRedeemableCredits(session.RateLimitsResult),
-                            IdentityFingerprint = _identity?.StableAccountFingerprint };
+                            IdentityFingerprint = _identity?.StableAccountFingerprint,
+                            UsageCredits = parsed.UsageCredits is { } current
+                                ? current with { ObservedAt = observedAt } : previousCredits,
+                            UsageCreditsFailure = parsed.UsageCreditsFailure };
                     _store.Save(success);
                     _boundCache = success;
                     _discardCachedIdentity = false;
@@ -229,7 +238,7 @@ public sealed class CodexQuotaService
         if (result is CodexIdentityBindingMatch.Matched or CodexIdentityBindingMatch.FirstSeen)
         {
             _identityVerified = true;
-            if (_boundCache is null && _snapshot.HasUsablePercentages) _boundCache = _snapshot;
+            if (_boundCache is null && HasCachedData(_snapshot)) _boundCache = _snapshot;
         }
         return result;
     }
@@ -274,7 +283,7 @@ public sealed class CodexQuotaService
             _identityMismatch = true;
             return PersistBoundFailure(status, attempted, stage, "codex-identity-mismatch");
         }
-        var preserve = cached.HasUsablePercentages
+        var preserve = HasCachedData(cached)
             && status is not CodexQuotaStatus.SignedOut and not CodexQuotaStatus.CodexNotFound;
         var next = preserve
             ? cached.AsStale(attempted, detail)
@@ -287,7 +296,7 @@ public sealed class CodexQuotaService
             IdentityFingerprint = cached.IdentityFingerprint,
         };
 
-        if (_discardCachedIdentity || next.HasUsablePercentages || next.LastSuccessfulRefresh is not null)
+        if (_discardCachedIdentity || HasCachedData(next) || next.LastSuccessfulRefresh is not null)
             _store.Save(next);
         LogFailure(status, stage, detail);
         Publish(next);
@@ -301,6 +310,8 @@ public sealed class CodexQuotaService
         return string.Equals(fingerprint, _identity.StableAccountFingerprint, StringComparison.Ordinal)
             || string.Equals(fingerprint, _identity.Fingerprint, StringComparison.Ordinal);
     }
+    private static bool HasCachedData(CodexQuotaSnapshot snapshot) =>
+        snapshot.HasUsablePercentages || snapshot.UsageCredits is not null;
     private bool RequiresBoundIdentity()
     {
         if (_profile is null)

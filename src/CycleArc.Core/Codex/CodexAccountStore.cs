@@ -22,6 +22,13 @@ public sealed class CodexAccountStore
 
     public CodexAccountStore(string? root = null) => _root = Path.GetFullPath(root ?? Services.AppPaths.Root);
 
+    // Inspect only an existing registry; unlike LoadOrMigrate this never creates accounts.
+    public CodexAccountConfiguration? ReadExisting()
+    {
+        lock (_gate)
+            return TryRead(RegistryPath, out var state) || TryRead(RegistryPath + ".bak", out state) ? state : null;
+    }
+
     public CodexAccountConfiguration LoadOrMigrate(string defaultHome)
     {
         lock (_gate)

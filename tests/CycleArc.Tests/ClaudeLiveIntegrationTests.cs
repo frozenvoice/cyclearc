@@ -149,6 +149,134 @@ public sealed class ClaudeLiveIntegrationTests
         Assert.Equal(2, live.RefreshCalls);
     }
 
+    [Fact]
+    public async Task NewLocalReceiptDoesNotRenewExtraUsageOrHideItsFailedServerCheck()
+    {
+        using var data = new Data();
+        var observed = data.Clock.UtcNow;
+        var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, observed);
+        var live = new FakeLiveSource { Next = new(new(observed, new(46, observed.AddHours(5)), null)
+            { ExtraUsage = extra }) };
+        var service = data.Service(live);
+        await service.RefreshLiveAsync(default);
+        Assert.Equal(extra, service.Snapshot.ExtraUsage);
+
+        data.Clock.UtcNow = observed.AddMinutes(5);
+        live.Next = new(null, "claude-live-request-failed", data.Clock.UtcNow);
+        await service.RefreshLiveAsync(default);
+        await data.Inbox.RecordAsync(new(ClaudeInputStatus.Available, new(51, observed.AddHours(5).ToUnixTimeSeconds()), null),
+            data.Clock.UtcNow, default);
+        await service.RefreshAsync(default);
+        Assert.Equal(51, service.Snapshot.Windows[0].UsedPercent);
+        Assert.Equal(data.Clock.UtcNow, service.Snapshot.LastSuccessfulRefresh);
+        Assert.Equal(extra, service.Snapshot.ExtraUsage);
+        Assert.Equal(observed, service.Snapshot.ExtraUsage!.ObservedAt);
+        Assert.Equal("claude-live-request-failed", service.Snapshot.ExtraUsageFailure);
+        Assert.Equal(CodexQuotaStatus.Stale, service.Snapshot.Status);
+
+        data.Connections.Save(data.Binding with { BindingGeneration = Guid.NewGuid().ToString("N") });
+        await service.RefreshAsync(default);
+        Assert.Null(service.Snapshot.ExtraUsage);
+    }
+
+    [Fact]
+    public async Task OptionalExtraFailureDoesNotChangeValidQuotaStatusAndSuccessClearsOnlyItsOwnFailure()
+    {
+        using var data = new Data();
+        var observed = data.Clock.UtcNow;
+        var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, observed);
+        var live = new FakeLiveSource { Next = new(new(observed, new(46, observed.AddHours(5)), null)
+            { ExtraUsage = extra }) };
+        var service = data.Service(live);
+        await service.RefreshLiveAsync(default);
+        data.Clock.UtcNow = observed.AddMinutes(5);
+        live.Next = new(new(data.Clock.UtcNow, new(51, observed.AddHours(5)), null)
+            { ExtraUsageFailure = "claude-extra-usage-unavailable" });
+        await service.RefreshLiveAsync(default);
+        Assert.Equal(CodexQuotaStatus.Available, service.Snapshot.Status);
+        Assert.Equal(extra, service.Snapshot.ExtraUsage);
+        Assert.Equal("claude-extra-usage-unavailable", service.Snapshot.ExtraUsageFailure);
+        Assert.Equal(data.Clock.UtcNow, service.Snapshot.LastSuccessfulRefresh);
+
+        var freshExtra = extra with { UsedAmount = 4m, ObservedAt = data.Clock.UtcNow };
+        live.Next = new(live.Next.Sample! with { ExtraUsage = freshExtra, ExtraUsageFailure = null });
+        await service.RefreshLiveAsync(default);
+        Assert.Equal(freshExtra, service.Snapshot.ExtraUsage);
+        Assert.Null(service.Snapshot.ExtraUsageFailure);
+        live.Next = new(null, "claude-live-identity-mismatch", data.Clock.UtcNow);
+        await service.RefreshLiveAsync(default);
+        Assert.Null(service.Snapshot.ExtraUsage);
+        Assert.Empty(service.Snapshot.Windows);
+    }
+
+    [Fact]
+    public async Task ActiveIdentityFailureHidesAllQuotaAndMoneyAcrossLocalReceiptsRestartAndNewLiveQuota()
+    {
+        using var data = new Data();
+        var observed = data.Clock.UtcNow;
+        var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, observed);
+        var live = new FakeLiveSource { Next = new(new(observed, new(46, observed.AddHours(5)), null)
+            { ExtraUsage = extra }) };
+        var service = data.Service(live);
+        await service.RefreshLiveAsync(default);
+        Assert.NotEmpty(service.Snapshot.Windows);
+        Assert.Equal(extra, service.Snapshot.ExtraUsage);
+
+        data.Clock.UtcNow = observed.AddMinutes(1);
+        var failures = new ClaudeFailureStore(data.Accounts);
+        await failures.RecordAsync(data.Profile.Id, data.Binding.BindingGeneration!, ClaudeFailureKind.IdentityMismatch,
+            data.Clock.UtcNow);
+        await service.RefreshAsync(default);
+        Hidden(service.Snapshot);
+        Assert.Equal(data.Clock.UtcNow, service.Snapshot.LastAttemptedRefresh);
+        Assert.Equal(observed, service.Snapshot.LastSuccessfulRefresh);
+
+        data.Clock.UtcNow = observed.AddMinutes(2);
+        await data.Inbox.RecordAsync(new(ClaudeInputStatus.Available, new(51, observed.AddHours(5).ToUnixTimeSeconds()), null),
+            data.Clock.UtcNow, default);
+        var legitimateCache = File.ReadAllText(data.Accounts.ClaudeStatusLinePath(data.Profile.Id));
+        await service.RefreshAsync(default);
+        Hidden(service.Snapshot);
+        Assert.Equal(observed, service.Snapshot.LastSuccessfulRefresh);
+        Assert.Equal(ClaudeFailureKind.IdentityMismatch, failures.Read(data.Profile.Id).State!.Kind);
+        Assert.False(service.ShouldRefresh(data.Clock.UtcNow, TimeSpan.FromMinutes(5)));
+
+        // Constructor reconstruction must not expose the now-newer local cache.
+        var restarted = data.Service(live);
+        Hidden(restarted.Snapshot);
+        Assert.Equal(legitimateCache, File.ReadAllText(data.Accounts.ClaudeStatusLinePath(data.Profile.Id)));
+        Assert.NotNull(data.Inbox.Read().State!.LastGood);
+
+        data.Clock.UtcNow = observed.AddMinutes(3);
+        live.Next = new(new(data.Clock.UtcNow, new(53, observed.AddHours(5)), null)
+            { ExtraUsage = extra with { ObservedAt = data.Clock.UtcNow } });
+        await restarted.RefreshLiveAsync(default);
+        Hidden(restarted.Snapshot);
+        Assert.False(restarted.ShouldRefresh(data.Clock.UtcNow, TimeSpan.FromMinutes(5)));
+
+        // Only the explicit recovery generation changes the persistent failure's
+        // attribution. It does not erase saved receipts to implement hiding.
+        data.Connections.Save(data.Binding with { BindingGeneration = Guid.NewGuid().ToString("N") });
+        await restarted.RefreshAsync(default);
+        Assert.Equal(ClaudeFailureKind.IdentityMismatch, failures.Read(data.Profile.Id).State!.Kind);
+        Assert.Equal(legitimateCache, File.ReadAllText(data.Accounts.ClaudeStatusLinePath(data.Profile.Id)));
+        Assert.Null(restarted.Snapshot.ExtraUsage);
+        Assert.NotEqual("claude-identity-mismatch", restarted.Snapshot.TechnicalDetail);
+
+        static void Hidden(CodexQuotaSnapshot snapshot)
+        {
+            Assert.Equal(CodexQuotaStatus.Unavailable, snapshot.Status);
+            Assert.Equal("claude-identity-mismatch", snapshot.TechnicalDetail);
+            Assert.Empty(snapshot.Windows);
+            Assert.False(snapshot.HasUsablePercentages);
+            Assert.Null(snapshot.UsageCredits);
+            Assert.Null(snapshot.ExtraUsage);
+            Assert.Null(snapshot.ResetCreditsAvailable);
+            Assert.Null(snapshot.ResetCreditExpirations);
+            Assert.Empty(snapshot.RedeemableCredits);
+        }
+    }
+
     private sealed class FakeLiveSource : IClaudeLiveUsageSource
     {
         public ClaudeLiveUsageUpdate Next { get; set; } = new(null, "claude-live-unavailable");

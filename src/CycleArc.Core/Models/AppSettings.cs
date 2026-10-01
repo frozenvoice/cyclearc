@@ -64,6 +64,8 @@ public sealed class AppSettings
     // Deprecated: retained only for settings JSON compatibility. Detail Flyout no longer auto-hides on focus loss.
     public bool FlyoutCloseOnDeactivate { get; set; } = true;
     public bool FlyoutPinned { get; set; }
+    // Only expanded accounts are stored. This never changes selection or starts a query.
+    public Dictionary<string, bool> UsageCardExpandedAccounts { get; set; } = new(StringComparer.Ordinal);
     public int FlyoutZoomPercent { get; set; } = 100;
     // The widget scales independently of the detail flyout. Settings written before this
     // existed simply get the default, which is what an unscaled widget already was.

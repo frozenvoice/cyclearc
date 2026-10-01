@@ -391,6 +391,12 @@ public partial class App : Application
         };
         _flyout.SettingsRequested += ShowSettings;
         _flyout.PinChanged += pinned => { _settings.FlyoutPinned = pinned; _settingsStore.Save(_settings); };
+        _flyout.UsageCardExpansionChanged += (id, expanded) =>
+        {
+            if (expanded) _settings.UsageCardExpandedAccounts[id] = true;
+            else _settings.UsageCardExpandedAccounts.Remove(id);
+            _settingsStore.Save(_settings);
+        };
         _flyout.ZoomChanged += percent => { _settings.FlyoutZoomPercent = percent; _settingsStore.Save(_settings); };
         _flyout.PositionChanged += (left, top) =>
         {

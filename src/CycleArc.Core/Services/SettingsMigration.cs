@@ -35,6 +35,10 @@ public static class SettingsMigration
         // Each window's own value, normalised separately: one must never overwrite the other.
         settings.FlyoutZoomPercent = Codex.FlyoutZoom.Normalize(settings.FlyoutZoomPercent);
         settings.WidgetZoomPercent = Codex.FlyoutZoom.Normalize(settings.WidgetZoomPercent);
+        settings.UsageCardExpandedAccounts = (settings.UsageCardExpandedAccounts ?? [])
+            .Where(pair => pair.Value && (pair.Key == Codex.CodexAccountStore.LegacyProfileId
+                || Guid.TryParseExact(pair.Key, "N", out _)))
+            .ToDictionary(pair => pair.Key, pair => true, StringComparer.Ordinal);
         var widgetAnchors = new Codex.WindowEdgeAnchors(settings.WidgetHorizontalAnchor, settings.WidgetVerticalAnchor).Normalize();
         var flyoutAnchors = new Codex.WindowEdgeAnchors(settings.FlyoutHorizontalAnchor, settings.FlyoutVerticalAnchor).Normalize();
         settings.WidgetHorizontalAnchor = widgetAnchors.Horizontal;

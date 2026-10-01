@@ -4,6 +4,32 @@ This file records the read-only interface research and contract used by the Wind
 Cursor provider. Local implementation checks and remaining gaps are recorded in
 [Validation](VALIDATION.md).
 
+## Selected-account on-demand card (2026-10-01)
+
+| Contract | Evidence and handling |
+| --- | --- |
+| Source | Existing verified `GET /api/usage-summary`, `individualUsage.onDemand` only; `teamUsage` is never added to it |
+| Types and units | `enabled` is optional boolean; `used`, `limit`, `remaining` are optional numeric minor amounts. Existing parser normalizes `/100` once into `UsedAmount`, `LimitAmount`, `RemainingAmount` with USD default; the card never converts them again |
+| Scope and period | Personal allowance under the verified Cursor identity, current billing cycle; `billingCycleEnd` is a period end, not a card payment date |
+| Missing / zero / unlimited | Null/missing amount is unknown; explicit zero remains zero. Only an explicit allowance `isUnlimited` flag means unlimited. `enabled=false` means Off |
+| Remaining | Server `remaining` wins even when it differs from `limit-used`; no inferred fallback or conversion from model percentages |
+| Excess / optional failure | Spend above cap is preserved. No division by a zero cap. Missing/malformed personal on-demand data preserves subscription percentages; the same binding's previous money and `AmountObservedAt` survive independently with a warning. Its stale percentage is not carried into current rings or alerts; an unsupported optional percentage does not discard valid amounts |
+| Cache | Optional window metadata reads old caches. Failure/restart retain original observation; identity mismatch, disconnect and superseded binding checks retain their existing protection |
+
+The card replaces the duplicate personal on-demand row only in the selected detail. Other
+windows and account-list/widget/tray policies remain intact. It uses the existing requests,
+backoff and authentication path, without requests on selection or expansion.
+
+The official [usage guide](https://prod.cursor.com/help/models-and-usage/usage-limits) was
+rechecked: on-demand charges are separate from model pools and usage follows the billing
+cycle. The observed JSON format is still an app-owned interface, not a public API contract.
+The 2026-10-01 read-only production-client probe verified the current identity and found a
+valid personal on-demand object with a known enabled flag, a used amount, USD normalization
+and a reported period end; limit and remaining were not provided. No amounts, identifiers,
+credentials or raw response were recorded. Enabled/disabled transitions, explicit unlimited,
+zero-cap, excess and inconsistent server remaining are covered by synthetic fixtures, not
+created against the real account.
+
 ## Windows verification
 
 On 2026-09-20, with Cursor 3.21.13 signed in on Windows, the local session
