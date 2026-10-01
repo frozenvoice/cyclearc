@@ -302,24 +302,52 @@ public class ClaudeConnectionTests
             return await ClaudeStatusLineBridge.RunAsync(options!, input, new StringWriter(), data.Accounts, cli, data.Clock);
         }
         Assert.Equal(0, await Receive(23.5));
+        var originalReceipt = data.Store().Read().State!.LastGood!;
+        var originalCache = File.ReadAllText(data.Accounts.ClaudeStatusLinePath(data.Profile.Id));
         cli.Response = Auth with { Fingerprint = new string('B', 64), Email = "changed@example.invalid" };
         data.Clock.UtcNow = data.Clock.UtcNow.AddSeconds(1);
         Assert.Equal(1, await Receive(92));
         Assert.Equal(23.5, data.Store().Read().State!.LastGood!.FiveHour!.UsedPercentage);
-        Assert.Equal(CodexQuotaStatus.Stale, new ClaudeUsageProvider(data.Accounts, data.Clock, connection)
-            .Create(data.Profile).Snapshot.Status);
+        // A preserved cache is not permission to display another identity's quota.
+        var protectedProvider = new ClaudeUsageProvider(data.Accounts, data.Clock, connection).Create(data.Profile);
+        AssertIdentityProtected(protectedProvider.Snapshot);
+        Assert.Equal(originalReceipt.ReceivedAt, protectedProvider.Snapshot.LastSuccessfulRefresh);
+        Assert.Equal(data.Clock.UtcNow, protectedProvider.Snapshot.LastAttemptedRefresh);
+        Assert.Equal(originalCache, File.ReadAllText(data.Accounts.ClaudeStatusLinePath(data.Profile.Id)));
         Assert.Equal(0, (await data.Receive(Payload(99))).Code); // Legacy command is inert once bound.
         Assert.Equal(23.5, data.Store().Read().State!.LastGood!.FiveHour!.UsedPercentage);
+        await protectedProvider.RefreshAsync(default);
+        AssertIdentityProtected(protectedProvider.Snapshot);
+        AssertIdentityProtected(new ClaudeUsageProvider(data.Accounts, data.Clock, connection).Create(data.Profile).Snapshot);
+        Assert.Equal(originalReceipt, data.Store().Read().State!.LastGood);
+        Assert.Equal(originalCache, File.ReadAllText(data.Accounts.ClaudeStatusLinePath(data.Profile.Id)));
         Assert.True((await connection.ConnectAsync(data.Profile.Id, AppFor(data), false, DirectoryFor(data), default)).Success);
         var provider = new ClaudeUsageProvider(data.Accounts, data.Clock, connection).Create(data.Profile);
         Assert.False(provider.Snapshot.HasUsablePercentages);
+        Assert.Null(provider.Snapshot.ExtraUsage);
+        Assert.NotEqual("claude-identity-mismatch", provider.Snapshot.TechnicalDetail);
+        Assert.Equal(originalReceipt, data.Store().Read().State!.LastGood);
         Assert.Equal(1, await Receive(92)); // A callback from the previous binding cannot populate this account.
         command = JsonNode.Parse(File.ReadAllText(Settings(data)))!["statusLine"]!["command"]!.GetValue<string>();
         Assert.True(ClaudeStatusLineInstaller.TryRead(command, out options));
         Assert.Equal(0, await Receive(92));
         await provider.RefreshAsync(default);
         Assert.Equal(92, provider.Snapshot.Windows[0].UsedPercent);
+        Assert.Equal(CodexQuotaStatus.Available, provider.Snapshot.Status);
         Assert.Equal("changed@example.invalid", provider.Email);
+
+        static void AssertIdentityProtected(CodexQuotaSnapshot snapshot)
+        {
+            Assert.Equal(CodexQuotaStatus.Unavailable, snapshot.Status);
+            Assert.Equal("claude-identity-mismatch", snapshot.TechnicalDetail);
+            Assert.Empty(snapshot.Windows);
+            Assert.False(snapshot.HasUsablePercentages);
+            Assert.Null(snapshot.UsageCredits);
+            Assert.Null(snapshot.ExtraUsage);
+            Assert.Null(snapshot.ResetCreditsAvailable);
+            Assert.Null(snapshot.ResetCreditExpirations);
+            Assert.Empty(snapshot.RedeemableCredits);
+        }
     }
 
     [Fact]

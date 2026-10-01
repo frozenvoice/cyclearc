@@ -54,6 +54,8 @@ public static class CodexRateLimitParser
         var creditContainer = ResetCreditContainer(root) ?? ResetCreditContainer(bucket);
         var credits = ReadResetCredits(creditContainer);
         var plan = SafePlanType(accountResult) ?? SafePlanTypeFromNode(bucket);
+        var limitId = SelectedLimitId(rateLimitsResult, bucket);
+        var usageCredits = ReadUsageCredits(bucket, limitId, out var creditsFailure);
         return new CodexParseResult(
             CodexQuotaStatus.Available,
             plan,
@@ -62,7 +64,46 @@ public static class CodexRateLimitParser
             credits,
             windows,
             null,
-            ReadCreditExpirations(creditContainer));
+            ReadCreditExpirations(creditContainer))
+        {
+            UsageCredits = usageCredits,
+            UsageCreditsFailure = creditsFailure,
+            SelectedLimitId = limitId
+        };
+    }
+
+    private static string? SelectedLimitId(JsonNode result, JsonNode bucket)
+    {
+        var id = ReadString(bucket, "limitId", "limit_id");
+        if (id is not null) return id.Length <= 256 ? id : null;
+        var root = UnwrapResult(result);
+        if (root is JsonObject obj
+            && TryGet(obj, out var byId, "rateLimitsByLimitId", "rate_limits_by_limit_id")
+            && byId is JsonObject map
+            && TryGet(map, out var codex, "codex", "Codex") && ReferenceEquals(codex, bucket)) return "codex";
+        return null;
+    }
+
+    private static CodexUsageCredits? ReadUsageCredits(JsonNode bucket, string? limitId, out string? failure)
+    {
+        failure = "credits-not-provided";
+        if (bucket is not JsonObject obj || !obj.TryGetPropertyValue("credits", out var node) || IsNull(node)) return null;
+        failure = "credits-malformed";
+        if (node is not JsonObject credits
+            || credits["hasCredits"] is not JsonValue hasValue || !hasValue.TryGetValue<bool>(out var hasCredits)
+            || credits["unlimited"] is not JsonValue unlimitedValue || !unlimitedValue.TryGetValue<bool>(out var unlimited)) return null;
+        decimal? balance = null;
+        if (credits.TryGetPropertyValue("balance", out var raw) && !IsNull(raw))
+        {
+            // The protocol supplies a decimal string, not money or a percentage.
+            if (raw is not JsonValue value || !value.TryGetValue<string>(out var text)
+                || text.Length > 128 || !decimal.TryParse(text,
+                    NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                    CultureInfo.InvariantCulture, out var number)) return null;
+            balance = number;
+        }
+        failure = null;
+        return new(hasCredits, unlimited, balance, limitId, null);
     }
 
     public static JsonNode? SelectBucket(JsonNode? result)
@@ -532,4 +573,9 @@ public sealed record CodexParseResult(
     int? ResetCreditsAvailable,
     IReadOnlyList<CodexQuotaWindow> Windows,
     string? Detail,
-    IReadOnlyList<DateTimeOffset?>? ResetCreditExpirations = null);
+    IReadOnlyList<DateTimeOffset?>? ResetCreditExpirations = null)
+{
+    public CodexUsageCredits? UsageCredits { get; init; }
+    public string? UsageCreditsFailure { get; init; }
+    public string? SelectedLimitId { get; init; }
+}

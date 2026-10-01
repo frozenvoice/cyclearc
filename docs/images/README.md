@@ -5,6 +5,30 @@ They show the CycleArc product name, Codex/Claude/Cursor provider labels and cur
 They are not captures of a user's account or fabricated UI mockups. The sample percentages,
 reset times and credits illustrate the layout; they do not promise specific plan entitlements.
 
+The 2026-10-01 common-status and monetary-card evidence uses the fixed synthetic time
+2035-06-07 and account names prefixed **Synthetic**. Only selected details gain monetary
+cards; the account list, widget and tray retain their existing content policy.
+
+| New evidence | Meaning |
+| --- | --- |
+| `widget-common-warning-synthetic-3-{en,ko}-{dark,light}-100.png` | Same stale warning on Codex, Claude and Cursor; local Claude receipt keeps Last received while the others show Last checked; ring colors still follow usage |
+| `usage-card-codex-ko-dark-expanded.png` | Decimal usage credits and original check time, separate from reset credits |
+| `usage-card-claude-en-light-expanded.png` | Synthetic monthly spend/cap and calculated remainder |
+| `usage-card-cursor-ko-light-collapsed.png` | One-line personal on-demand summary |
+| `usage-card-claude-ko-dark-off.png` | Explicitly disabled extra usage |
+| `usage-card-cursor-en-dark-missing.png` | Optional information not provided |
+| `usage-card-codex-en-light-failed.png` | Last valid balance/time with separate status warning; amount retains normal text color |
+
+After a Release build, reproduce with UiSmoke `--usage-credits artifacts/usage-credits` and
+`--widget-status artifacts/widget-common-status`. The first checks 180 production WPF state
+cases in EN/KO, Dark/Light, 80/100/150%, 1/3/5 accounts, long names/large amounts, per-account
+expansion through refresh/recreation, accessibility, small work area and native 2-DIP snap
+retention. The second includes first receipt, retries, recovery and identity protection.
+The current overview, account overview, Claude detail/waiting, Cursor popup, widget and
+ring-band widget/detail images were refreshed; historical before/after images and unrelated settings/management/update
+previews were preserved. Every copied PNG was visually inspected. Full local captures remain
+in the ignored artifact directories; no real-account pixels or amounts are included.
+
 | Files | Contents |
 | --- | --- |
 | `updates-{en,ko}-{dark,light}.png` | Production update window showing a sample 0.6.0 → 0.6.1 upgrade with the release's widget and installer highlights; download and restart require separate approval |

@@ -104,8 +104,53 @@ public sealed class ClaudeOAuthUsageClient : IClaudeLiveUsageClient
     {
         Object(root);
         var sample = new ClaudeLiveUsageSample(observedAt, Window(root, "five_hour"), Window(root, "seven_day"));
+        try { sample = sample with { ExtraUsage = ExtraUsage(root, observedAt) }; }
+        catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or FormatException
+            or KeyNotFoundException or ArgumentException)
+        { sample = sample with { ExtraUsageFailure = "claude-extra-usage-unavailable" }; }
         if (!ClaudeLiveUsageCollector.ValidSample(sample, observedAt)) throw new InvalidDataException("Invalid Claude usage.");
         return sample;
+    }
+
+    private static ClaudeExtraUsage? ExtraUsage(JsonElement root, DateTimeOffset observedAt)
+    {
+        if (!root.TryGetProperty("extra_usage", out var value) || value.ValueKind == JsonValueKind.Null) return null;
+        Object(value);
+        if (!value.TryGetProperty("is_enabled", out var enabled)
+            || enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            throw new InvalidDataException("Invalid Claude extra usage.");
+        // The installed official client schema requires nullable amounts and
+        // utilization. Its display treats an explicit null monthly_limit as
+        // unlimited only when enabled; missing fields do not establish that state.
+        var rawLimit = NullableAmount(value, "monthly_limit");
+        var rawUsed = NullableAmount(value, "used_credits");
+        if (!value.TryGetProperty("utilization", out var utilization))
+            throw new InvalidDataException("Missing Claude extra usage utilization.");
+        double? usedPercentage = null;
+        if (utilization.ValueKind != JsonValueKind.Null)
+        {
+            if (utilization.ValueKind != JsonValueKind.Number || !utilization.TryGetDouble(out var percent)
+                || !double.IsFinite(percent) || percent < 0)
+                throw new InvalidDataException("Invalid Claude extra usage utilization.");
+            usedPercentage = percent;
+        }
+        // Official Claude Code's currency formatter uses minor units, except
+        // JPY/KRW/VND, and its extra-usage display defaults omitted/null currency to USD.
+        var currency = (Text(value, "currency", 3) ?? "USD").ToUpperInvariant();
+        if (currency.Length != 3 || currency.Any(c => c is < 'A' or > 'Z'))
+            throw new InvalidDataException("Invalid Claude extra usage currency.");
+        var divisor = currency is "JPY" or "KRW" or "VND" ? 1m : 100m;
+        return new(enabled.GetBoolean(), rawUsed / divisor, rawLimit / divisor,
+            enabled.GetBoolean() && rawLimit is null, currency, usedPercentage, observedAt);
+    }
+
+    private static decimal? NullableAmount(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out var value)) throw new InvalidDataException("Missing Claude extra usage amount.");
+        if (value.ValueKind == JsonValueKind.Null) return null;
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetDecimal(out var amount) || amount < 0)
+            throw new InvalidDataException("Invalid Claude extra usage amount.");
+        return amount;
     }
 
     private static ClaudeLiveUsageWindow? Window(JsonElement root, string name)

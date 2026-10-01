@@ -4,6 +4,20 @@
 
 A native Windows tray app for checking Codex, Claude and Cursor profiles, remaining percentages and reset times. Codex accounts also show reset credits when available.
 
+The selected account's detail popup adds a folded **Usage credits** (Codex), **Extra usage**
+(Claude), or **On-demand** (Cursor) card. Expand it for the reported balance or spend/cap,
+remaining allowance and original check time; Cursor also shows the reported billing-period end.
+Each account remembers its expansion across refreshes and restarts. Codex credits keep their own
+unit and remain separate from reset credits. Claude's remaining amount is the monthly cap minus
+spend, not a prepaid balance; Cursor keeps the server's remaining value. Off, zero, unlimited
+and missing values stay distinct. No monetary rows are added to the account list, widget or tray.
+
+Widget status uses the same warning color and vector icon for all providers. **Previous data**,
+a known failure or the needed account action appears above the original **Last checked** time;
+local Claude receipts use **Last received**. Initial waiting/checking stays gray, a retry retains
+its warning until success, and healthy server status takes no extra row. Quota rings keep their
+usage colors and amounts keep their normal text color.
+
 The **Codex**, **Claude** or **Cursor** label on account cards, selected details, tray tooltips and the widget identifies the usage provider. Connect the current Claude login or sign in through the official browser flow; CycleArc can actively check the shared Claude quota through the connected Desktop login and keeps **statusLine** and Desktop history as fallback sources. See [Claude Code connection](#claude-code-connection) and [Cursor connection](#cursor-connection). Gemini is not supported.
 
 > **Codex:** five-hour and weekly limits appear when the official App Server reports them, including on Plus; display is not restricted by plan name. Missing windows are omitted and unknown percentages stay unknown. **Claude:** manual and scheduled refreshes first try a read-only quota check through the connected Desktop login; statusLine and Claude Desktop subscription history remain fallback sources. Missing windows stay unknown, and history samples have no reset timestamps.

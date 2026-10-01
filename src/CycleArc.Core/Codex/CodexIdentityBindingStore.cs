@@ -52,6 +52,10 @@ public sealed class CodexIdentityBindingStore
         return ReadUnlocked();
     }
 
+    // Atomic primary/backup reads without creating the cross-process lock file.
+    // Read-only compatibility probes must recheck this state after their request.
+    public CodexIdentityBindingRead ReadExisting() => ReadUnlocked();
+
     public CodexIdentityBindingRead ReadOrSeedLegacy(string? legacyFingerprint)
     {
         using var lease = Acquire();

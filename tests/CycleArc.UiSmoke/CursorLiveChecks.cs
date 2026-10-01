@@ -32,6 +32,11 @@ internal static class CursorLiveChecks
                 + $"{sample.Windows.Count(window => window.UsedPercent is not null)} known percentages; "
                 + $"{sample.Windows.Count(window => window.ResetsAt is not null)} reported resets; "
                 + $"observed {sample.ObservedAt:O}; optional source complete: {response.Failure is null}.");
+            var demand = sample.Windows.FirstOrDefault(window => window.LimitId == "cursor-on-demand");
+            Console.WriteLine($"Cursor personal on-demand shape: present={demand is not null}; enabled-known={demand?.IsEnabled is not null}; "
+                + $"used-present={demand?.UsedAmount is not null}; limit-present={demand?.LimitAmount is not null}; "
+                + $"remaining-present={demand?.RemainingAmount is not null}; USD={demand?.Unit == "USD"}; "
+                + $"billing-end-present={demand?.ResetsAt is not null}; optional-valid={demand?.AmountFailure is null}.");
             return response.Failure is null ? 0 : 2;
         }
         catch (OperationCanceledException)

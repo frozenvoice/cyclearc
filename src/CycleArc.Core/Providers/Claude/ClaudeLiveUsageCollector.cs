@@ -7,7 +7,11 @@ using CycleArc.Services;
 namespace CycleArc.Providers.Claude;
 
 public sealed record ClaudeLiveUsageWindow(double UsedPercentage, DateTimeOffset? ResetsAt);
-public sealed record ClaudeLiveUsageSample(DateTimeOffset ObservedAt, ClaudeLiveUsageWindow? FiveHour, ClaudeLiveUsageWindow? SevenDay);
+public sealed record ClaudeLiveUsageSample(DateTimeOffset ObservedAt, ClaudeLiveUsageWindow? FiveHour, ClaudeLiveUsageWindow? SevenDay)
+{
+    public ClaudeExtraUsage? ExtraUsage { get; init; }
+    public string? ExtraUsageFailure { get; init; }
+}
 public sealed record ClaudeLiveUsageUpdate(ClaudeLiveUsageSample? Sample, string? Failure = null, DateTimeOffset? AttemptedAt = null);
 
 public interface IClaudeLiveUsageSource
@@ -95,9 +99,15 @@ public sealed class ClaudeLiveUsageCollector : IClaudeLiveUsageSource
             var sample = response.Sample;
             var failure = response.Failure;
             if (!ValidFailure(failure) || (sample is not null && (!ValidSample(sample, _clock.UtcNow)
-                || sample.ObservedAt < binding!.ConnectedAt)) || (sample is null && failure is null))
+                || sample.ObservedAt < binding!.ConnectedAt
+                || sample.ExtraUsage?.ObservedAt < binding.ConnectedAt)) || (sample is null && failure is null))
             { sample = null; failure = "claude-live-unavailable"; }
             if (failure is not null) sample = null;
+            // Subscription quota and extra usage have independent success clocks. A
+            // quota-only/malformed optional response cannot renew the older money data.
+            if (sample is { ExtraUsage: null } && previous?.LastGood?.ExtraUsage is { } previousExtra)
+                sample = sample with { ExtraUsage = previousExtra,
+                    ExtraUsageFailure = sample.ExtraUsageFailure ?? "claude-extra-usage-unavailable" };
             var good = sample ?? previous?.LastGood;
             var retry = failure == "claude-live-rate-limited" ? response.RetryAfter : null;
             if (retry is not null) retry = ClampRetry(retry.Value, _clock.UtcNow);
@@ -135,7 +145,8 @@ public sealed class ClaudeLiveUsageCollector : IClaudeLiveUsageSource
             var now = _clock.UtcNow;
             if (value is not { Version: 1 } || value.ProfileId != _profileId || value.BindingKey != BindingKey(binding)
                 || !ValidFailure(value.Failure) || value.LastAttempted <= DateTimeOffset.UnixEpoch || value.LastAttempted > now
-                || (value.LastGood is { } sample && (!ValidSample(sample, now) || sample.ObservedAt < binding.ConnectedAt))
+                || (value.LastGood is { } sample && (!ValidSample(sample, now) || sample.ObservedAt < binding.ConnectedAt
+                    || sample.ExtraUsage?.ObservedAt < binding.ConnectedAt))
                 || (value.RetryAfter is { } retry && (value.Failure != "claude-live-rate-limited"
                     || retry <= DateTimeOffset.UnixEpoch || retry > value.LastAttempted.AddDays(1)))) return false;
             state = value;
@@ -170,7 +181,10 @@ public sealed class ClaudeLiveUsageCollector : IClaudeLiveUsageSource
     public static bool ValidSample(ClaudeLiveUsageSample sample, DateTimeOffset now) =>
         sample.ObservedAt > DateTimeOffset.UnixEpoch && sample.ObservedAt <= now
         && (sample.FiveHour is not null || sample.SevenDay is not null)
-        && ValidWindow(sample.FiveHour) && ValidWindow(sample.SevenDay);
+        && ValidWindow(sample.FiveHour) && ValidWindow(sample.SevenDay)
+        && ClaudeExtraUsage.Valid(sample.ExtraUsage, now)
+        && (sample.ExtraUsage is null || sample.ExtraUsage.ObservedAt <= sample.ObservedAt)
+        && sample.ExtraUsageFailure is null or "claude-extra-usage-unavailable";
     private static bool ValidWindow(ClaudeLiveUsageWindow? window) => window is null
         || (double.IsFinite(window.UsedPercentage) && window.UsedPercentage is >= 0 and <= 100
             && (window.ResetsAt is null || window.ResetsAt > DateTimeOffset.UnixEpoch));

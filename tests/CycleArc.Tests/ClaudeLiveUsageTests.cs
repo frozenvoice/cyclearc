@@ -246,6 +246,96 @@ public class ClaudeLiveUsageTests
         Assert.Null(data.Collector().ReadCached(changed).Sample);
     }
 
+    [Fact]
+    public async Task ExtraUsageRoundtripsAndQuotaOnlyResponsePreservesItsIndependentSuccessfulTime()
+    {
+        using var data = new Data();
+        var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, Now);
+        data.Client.Next = new(data.Client.Next.Sample! with { ExtraUsage = extra });
+        var collector = data.Collector();
+        await collector.RefreshAsync(data.Binding, default);
+        Assert.Equal(extra, data.Collector().ReadCached(data.Binding).Sample!.ExtraUsage);
+
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = new(new(data.Clock.UtcNow, new(51, Now.AddHours(5)), null));
+        var quotaOnly = await collector.RefreshAsync(data.Binding, default);
+        Assert.Equal(data.Clock.UtcNow, quotaOnly.Sample!.ObservedAt);
+        Assert.Equal(extra, quotaOnly.Sample.ExtraUsage);
+        Assert.Equal(Now, quotaOnly.Sample.ExtraUsage!.ObservedAt);
+        Assert.Equal("claude-extra-usage-unavailable", quotaOnly.Sample.ExtraUsageFailure);
+        Assert.Equal(quotaOnly, data.Collector().ReadCached(data.Binding));
+
+        data.Clock.UtcNow = Now.AddMinutes(10);
+        data.Client.Next = new(null, "claude-live-request-failed");
+        var failure = await collector.RefreshAsync(data.Binding, default);
+        Assert.Equal(extra, failure.Sample!.ExtraUsage);
+        Assert.Equal(Now, failure.Sample.ExtraUsage!.ObservedAt);
+        Assert.Equal(failure, data.Collector().ReadCached(data.Binding));
+    }
+
+    [Fact]
+    public async Task MalformedExtraUsagePreservesThePreviousMoneyWhileNewQuotaSucceeds()
+    {
+        using var data = new Data();
+        var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, Now);
+        data.Client.Next = new(data.Client.Next.Sample! with { ExtraUsage = extra });
+        var collector = data.Collector();
+        await collector.RefreshAsync(data.Binding, default);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        using var json = JsonDocument.Parse("""{"five_hour":{"utilization":51},"extra_usage":{"is_enabled":true,"monthly_limit":"broken"}}""");
+        data.Client.Next = new(ClaudeOAuthUsageClient.ParseUsage(json.RootElement, data.Clock.UtcNow));
+        var result = await collector.RefreshAsync(data.Binding, default);
+        Assert.Null(result.Failure);
+        Assert.Equal(51, result.Sample!.FiveHour!.UsedPercentage);
+        Assert.Equal(extra, result.Sample.ExtraUsage);
+        Assert.Equal("claude-extra-usage-unavailable", result.Sample.ExtraUsageFailure);
+        Assert.Equal(result, data.Collector().ReadCached(data.Binding));
+    }
+
+    [Fact]
+    public async Task OldCacheWithoutExtraUsageStillLoadsAndBackupRecoversMoney()
+    {
+        using var data = new Data();
+        var collector = data.Collector();
+        await collector.RefreshAsync(data.Binding, default);
+        var old = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(data.CachePath))!;
+        old["lastGood"]!.AsObject().Remove("extraUsage");
+        old["lastGood"]!.AsObject().Remove("extraUsageFailure");
+        File.WriteAllText(data.CachePath, old.ToJsonString());
+        var legacy = data.Collector().ReadCached(data.Binding);
+        Assert.NotNull(legacy.Sample);
+        Assert.Null(legacy.Sample!.ExtraUsage);
+
+        var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, Now);
+        data.Client.Next = new(data.Client.Next.Sample! with { ExtraUsage = extra });
+        await collector.RefreshAsync(data.Binding, default);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = new(null, "claude-live-request-failed");
+        await collector.RefreshAsync(data.Binding, default);
+        File.WriteAllText(data.CachePath, "not-json");
+        var restored = data.Collector().ReadCached(data.Binding);
+        Assert.Equal(extra, restored.Sample!.ExtraUsage);
+        Assert.Equal("claude-live-unavailable", restored.Failure);
+    }
+
+    [Fact]
+    public async Task ExtraUsageCannotCrossGenerationRemovalOrAnInflightDisconnect()
+    {
+        using var data = new Data();
+        var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, Now);
+        data.Client.Next = new(data.Client.Next.Sample! with { ExtraUsage = extra });
+        var collector = data.Collector();
+        await collector.RefreshAsync(data.Binding, default);
+        var rotated = data.Binding with { BindingGeneration = Guid.NewGuid().ToString("N") };
+        data.Connections.Save(rotated);
+        Assert.Null(data.Collector().ReadCached(rotated).Sample);
+        data.Client.BeforeReturn = () => data.Connections.Save(rotated with { Disconnected = true });
+        Assert.Null((await collector.RefreshAsync(rotated, default)).Sample);
+        Assert.Null(data.Collector().ReadCached(rotated).Sample);
+        data.Accounts.Save(new(2, "", []));
+        Assert.Null(data.Collector().ReadCached(rotated).Sample);
+    }
+
     private static HttpResponseMessage Json(string json) => new(HttpStatusCode.OK)
         { Content = new StringContent(json, Encoding.UTF8, "application/json") };
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler

@@ -217,6 +217,7 @@ public sealed class CodexSnapshotStore
                 return false;
             }
 
+            if (!ValidOptionalCredits(document.RootElement)) return false;
             var dto = JsonSerializer.Deserialize<PersistedSnapshot>(json, Options);
             if (dto is null || !dto.IsValid(out _))
             {
@@ -248,6 +249,8 @@ public sealed class CodexSnapshotStore
         public List<PersistedWindow>? Windows { get; set; } = [];
         public string? TechnicalDetail { get; set; }
         public string? IdentityFingerprint { get; set; }
+        public CodexUsageCredits? UsageCredits { get; set; }
+        public string? UsageCreditsFailure { get; set; }
 
         public static PersistedSnapshot From(CodexQuotaSnapshot snapshot) => new()
         {
@@ -261,7 +264,9 @@ public sealed class CodexSnapshotStore
             ResetCreditExpirations = snapshot.ResetCreditExpirations?.ToList(),
             Windows = snapshot.Windows?.Select(PersistedWindow.From).ToList(),
             TechnicalDetail = snapshot.TechnicalDetail,
-            IdentityFingerprint = snapshot.IdentityFingerprint
+            IdentityFingerprint = snapshot.IdentityFingerprint,
+            UsageCredits = snapshot.UsageCredits,
+            UsageCreditsFailure = snapshot.UsageCreditsFailure
         };
 
         public bool IsValid(out CodexQuotaStatus status)
@@ -281,6 +286,9 @@ public sealed class CodexSnapshotStore
             {
                 return false;
             }
+            if (UsageCredits is { } credits && (credits.ObservedAt is null || credits.ObservedAt == default(DateTimeOffset)
+                || credits.LimitId is { Length: > 256 })
+                || UsageCreditsFailure is not (null or "credits-not-provided" or "credits-malformed")) return false;
 
             if (Windows.Any(window => window is null || !window.IsValid()))
             {
@@ -303,10 +311,29 @@ public sealed class CodexSnapshotStore
                 ResetCreditsAvailable,
                 Windows!.Select(window => window.ToWindow()).ToList(),
                 TechnicalDetail,
-                ResetCreditExpirations) { IdentityFingerprint = IdentityFingerprint };
+                ResetCreditExpirations) { IdentityFingerprint = IdentityFingerprint,
+                    UsageCredits = UsageCredits, UsageCreditsFailure = UsageCreditsFailure };
         }
 
         private static bool ValidFingerprint(string value) => value.Length == 64 && value.All(Uri.IsHexDigit);
+    }
+
+    private static bool ValidOptionalCredits(JsonElement root)
+    {
+        if (!root.TryGetProperty("usageCredits", out var credits) || credits.ValueKind == JsonValueKind.Null) return true;
+        if (credits.ValueKind != JsonValueKind.Object
+            || !credits.TryGetProperty("hasCredits", out var hasCredits)
+            || hasCredits.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+            || !credits.TryGetProperty("unlimited", out var unlimited)
+            || unlimited.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+            || !credits.TryGetProperty("observedAt", out var observedAt)
+            || observedAt.ValueKind != JsonValueKind.String || !observedAt.TryGetDateTimeOffset(out var time)
+            || time == default) return false;
+        if (credits.TryGetProperty("balance", out var balance)
+            && balance.ValueKind != JsonValueKind.Null
+            && (balance.ValueKind != JsonValueKind.Number || !balance.TryGetDecimal(out _))) return false;
+        return !credits.TryGetProperty("limitId", out var limitId) || limitId.ValueKind == JsonValueKind.Null
+            || limitId.ValueKind == JsonValueKind.String && limitId.GetString()!.Length <= 256;
     }
 
     private sealed class PersistedWindow

@@ -162,9 +162,18 @@ public sealed class CursorUsageClient : ICursorUsageClient, IDisposable
                 }
             }
 
-            if (TryObject(individual, "onDemand", out var onDemand))
-                windows.Add(Window("cursor-on-demand", PercentProperty(onDemand, "percentUsed")
-                    ?? PercentProperty(onDemand, "usagePercent"), end, onDemand, null));
+            // Optional spend data must not invalidate independently reported plan percentages.
+            try
+            {
+                if (TryObject(individual, "onDemand", out var onDemand))
+                    windows.Add(Window("cursor-on-demand", SpendPercent(onDemand), end, onDemand, null)
+                        with { AmountObservedAt = observedAt });
+            }
+            catch (InvalidDataException)
+            {
+                windows.Add(new CodexQuotaWindow("cursor-on-demand", null, null, null, CodexWindowKind.Other)
+                    { AmountFailure = "cursor-on-demand-unavailable" });
+            }
         }
 
         if (TryObject(root, "teamUsage", out var team))
@@ -336,6 +345,14 @@ public sealed class CursorUsageClient : ICursorUsageClient, IDisposable
         if (parent.ValueKind != JsonValueKind.Object || !parent.TryGetProperty(name, out var value)
             || value.ValueKind == JsonValueKind.Null) return null;
         return ReadPercent(value);
+    }
+
+    private static double? SpendPercent(JsonElement source)
+    {
+        // Optional percentage and monetary counters are independent metrics. A percentage
+        // outside the supported quota range must not discard a valid over-cap spend amount.
+        try { return PercentProperty(source, "percentUsed") ?? PercentProperty(source, "usagePercent"); }
+        catch (InvalidDataException) { return null; }
     }
 
     private static double ReadPercent(JsonElement value)

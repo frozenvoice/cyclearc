@@ -155,7 +155,7 @@ public sealed class CursorUsageCollector : ICursorUsageSource
             }
             if (sample is null && failure is null) failure = "cursor-live-unavailable";
             if (failure == "cursor-live-identity-mismatch") previous = null;
-            var good = sample ?? previous?.LastGood;
+            var good = sample is null ? previous?.LastGood : PreserveOnDemand(sample, previous?.LastGood);
             DateTimeOffset? retry = IsRetryableFailure(failure) && response.RetryAfter is { } retryAt
                 ? ClampRetry(retryAt, _clock.UtcNow) : null;
             var verifiedSuccess = verifiedIdentity && sample is not null;
@@ -216,10 +216,35 @@ public sealed class CursorUsageCollector : ICursorUsageSource
                 || window.LimitAmount is { } limit && limit < 0
                 || window.RemainingAmount is { } remaining && remaining < 0) return false;
             if (window.ResetsAt is { } reset && reset <= DateTimeOffset.UnixEpoch) return false;
+            if (window.AmountObservedAt is { } amountAt
+                && (amountAt <= DateTimeOffset.UnixEpoch || amountAt > sample.ObservedAt)) return false;
+            if (window.AmountFailure is not (null or "cursor-on-demand-unavailable" or "cursor-on-demand-not-provided")) return false;
         }
         if (sample.BillingCycleStart is { } start && start <= DateTimeOffset.UnixEpoch) return false;
         if (sample.BillingCycleEnd is { } end && end <= DateTimeOffset.UnixEpoch) return false;
         return true;
+    }
+
+    private static CursorUsageSample PreserveOnDemand(CursorUsageSample sample, CursorUsageSample? previous)
+    {
+        var lastGood = previous?.Windows.FirstOrDefault(window => window.LimitId == "cursor-on-demand"
+            && (window.AmountObservedAt is not null || window.AmountFailure is null));
+        if (lastGood is null) return sample;
+        var current = sample.Windows.FirstOrDefault(window => window.LimitId == "cursor-on-demand");
+        if (current is { AmountFailure: null }) return sample;
+        var retained = lastGood with
+        {
+            // Carry only the financial observation. An old percentage must not become a
+            // fresh representative window or trigger/reset current usage notifications.
+            UsedPercent = null,
+            AmountObservedAt = lastGood.AmountObservedAt ?? previous!.ObservedAt,
+            AmountFailure = current?.AmountFailure ?? "cursor-on-demand-not-provided"
+        };
+        return sample with
+        {
+            Windows = current is null ? sample.Windows.Append(retained).ToArray()
+                : sample.Windows.Select(window => window.LimitId == "cursor-on-demand" ? retained : window).ToArray()
+        };
     }
 
     private bool Eligible(CursorConnectionBinding? binding) => binding is { Disconnected: false }

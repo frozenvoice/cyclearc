@@ -38,6 +38,8 @@ public sealed record CodexQuotaWindow(
     public string? Unit { get; init; }
     public bool IsUnlimited { get; init; }
     public bool? IsEnabled { get; init; }
+    public DateTimeOffset? AmountObservedAt { get; init; }
+    public string? AmountFailure { get; init; }
 
     public double? RemainingPercent =>
         UsedPercent is { } used
@@ -61,6 +63,10 @@ public sealed record CodexQuotaSnapshot(
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyList<CodexResetCredit> RedeemableCredits { get; init; } = [];
     public string? IdentityFingerprint { get; init; }
+    public CodexUsageCredits? UsageCredits { get; init; }
+    public string? UsageCreditsFailure { get; init; }
+    public CycleArc.Providers.Claude.ClaudeExtraUsage? ExtraUsage { get; init; }
+    public string? ExtraUsageFailure { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
     public CodexQuotaStatus? RefreshOriginStatus { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
@@ -143,9 +149,16 @@ public sealed record CodexQuotaSnapshot(
         Status = CodexQuotaStatus.Refreshing,
         // A retry must not make a disconnected account's cached values visible again.
         // The persisted cache remains available for a successfully reconnected account.
-        Windows = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? [] : Windows
+        Windows = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? [] : Windows,
+        UsageCredits = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : UsageCredits,
+        ExtraUsage = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : ExtraUsage
     };
 }
+
+// Remaining workspace usage credits from the selected app-server bucket. These are
+// neither currency nor earned rate-limit resets; negative balances are valid.
+public sealed record CodexUsageCredits(bool HasCredits, bool Unlimited, decimal? Balance,
+    string? LimitId, DateTimeOffset? ObservedAt);
 
 public sealed record CodexRefreshResult(
     CodexQuotaSnapshot Snapshot,
