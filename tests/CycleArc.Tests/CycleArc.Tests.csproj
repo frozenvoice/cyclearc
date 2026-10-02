@@ -3,6 +3,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>CycleArc.Tests</RootNamespace>
   </PropertyGroup>
@@ -22,6 +23,7 @@
     <Compile Include="..\..\src\CycleArc.Setup\SetupLayout.cs" Link="SetupLayout.cs" />
     <!-- The installer's log-location choice, so production and these tests run the same code. -->
     <Compile Include="..\..\src\CycleArc.Setup\SetupLogPaths.cs" Link="SetupLogPaths.cs" />
+    <Compile Include="..\..\src\CycleArc.Setup\DesktopShortcuts.cs" Link="DesktopShortcuts.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />

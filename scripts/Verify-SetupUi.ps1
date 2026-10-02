@@ -6,9 +6,9 @@
 
 .DESCRIPTION
     This is the path a person takes when they double-click the downloaded installer. It
-    really installs, so it belongs on a disposable Windows machine only. It first checks
-    that cancelling before Install changes nothing, then installs for real by clicking the
-    installer's own buttons, and finally checks the completion page's Run choice is honoured.
+    really installs, so it belongs on a disposable Windows machine only. It checks that
+    cancelling after toggling the desktop shortcut changes nothing, then installs without
+    one, repairs with one, and repairs again after clearing the choice.
 
 .PARAMETER SetupPath
     The installer to drive. This must be the distributed CycleArc-Setup.exe, not the engine.
@@ -35,6 +35,7 @@ if (!$ConfirmDisposableEnvironment) {
 }
 
 Add-Type -AssemblyName System.Drawing
+. (Join-Path $PSScriptRoot 'LocalInstall.ps1')
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -54,23 +55,90 @@ public static class SetupUi {
 $idInstall = 100
 $idCancel = 101
 $idRun = 102
+$idDesktopShortcut = 103
 $bmClick = 0x00F5
 $bmGetCheck = 0x00F0
-$bmSetCheck = 0x00F1
-$wmClose = 0x0010
+$desktopShortcut = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'CycleArc.lnk'
+$startMenuShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'CycleArc.lnk'
+$shell = New-Object -ComObject WScript.Shell
 
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $SetupPath = [IO.Path]::GetFullPath($SetupPath)
 if (!(Test-Path -LiteralPath $SetupPath -PathType Leaf)) { throw "No installer at $SetupPath" }
 
 function Get-CycleArcState {
+    $managedRoot = Get-ManagedInstallRoot
     [ordered]@{
-        Programs = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\CycleArc\current\CycleArc.exe')
-        Legacy   = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'CycleArc\current\CycleArc.exe')
+        ManagedRoot = [string]$managedRoot
         Data     = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'ProMeter')
         Registry = Test-Path -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CycleArc'
         Running  = @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue).Count
+        DesktopShortcut = Test-Path -LiteralPath $desktopShortcut -PathType Leaf
+        DesktopTarget = if (Test-Path -LiteralPath $desktopShortcut -PathType Leaf) {
+            [string]$shell.CreateShortcut($desktopShortcut).TargetPath
+        } else { '' }
     }
+}
+
+function Assert-ShortcutTarget([string]$Shortcut, [string]$InstallRoot) {
+    if (!(Test-Path -LiteralPath $Shortcut -PathType Leaf)) { throw "Missing shortcut: $Shortcut" }
+    $actual = [IO.Path]::GetFullPath([string]$shell.CreateShortcut($Shortcut).TargetPath)
+    $expected = [IO.Path]::GetFullPath((Join-Path $InstallRoot 'CycleArc.exe'))
+    if (!$actual.Equals($expected, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Shortcut $Shortcut points to $actual instead of $expected"
+    }
+}
+
+function Get-Checkbox([IntPtr]$Window, [int]$Id, [string]$Name) {
+    $control = [SetupUi]::GetDlgItem($Window, $Id)
+    if ($control -eq [IntPtr]::Zero -or ![SetupUi]::IsWindowVisible($control)) {
+        throw "The $Name checkbox is missing or hidden."
+    }
+    $control
+}
+
+function Assert-CheckboxState([IntPtr]$Control, [bool]$Checked, [string]$Name) {
+    $actual = [SetupUi]::SendMessage($Control, $bmGetCheck, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64() -eq 1
+    if ($actual -ne $Checked) { throw "$Name checked=$actual; expected $Checked." }
+}
+
+function Wait-Completion([Diagnostics.Process]$Process, [IntPtr]$Window, [int]$Seconds) {
+    $deadline = [Diagnostics.Stopwatch]::StartNew()
+    while ($deadline.Elapsed.TotalSeconds -lt $Seconds) {
+        $Process.Refresh()
+        if ($Process.HasExited) { throw "The installer exited (code $($Process.ExitCode)) before the completion screen." }
+        $candidate = [SetupUi]::GetDlgItem($Window, $idRun)
+        if ($candidate -ne [IntPtr]::Zero -and [SetupUi]::IsWindowVisible($candidate)) { return $candidate }
+        Start-Sleep -Milliseconds 300
+    }
+    throw "No completion screen within $Seconds seconds."
+}
+
+function Invoke-SetupRepair([bool]$ExpectedInitial, [bool]$Desired, [string]$Stage) {
+    $process = Start-Process -FilePath $SetupPath -PassThru
+    try {
+        $window = Wait-SetupWindow $process
+        $choice = Get-Checkbox $window $idDesktopShortcut 'Desktop shortcut'
+        Assert-CheckboxState $choice $ExpectedInitial 'Desktop shortcut on reopening'
+        Save-WindowImage $window (Join-Path $OutputDirectory "setup-$Stage-confirm.png")
+        if ($ExpectedInitial -ne $Desired) {
+            [void][SetupUi]::SendMessage($choice, $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
+        }
+        Assert-CheckboxState $choice $Desired 'Desktop shortcut after toggle'
+        [void][SetupUi]::SendMessage([SetupUi]::GetDlgItem($window, $idInstall), $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
+        $runCheck = Wait-Completion $process $window $InstallTimeoutSeconds
+        if ([SetupUi]::IsWindowVisible($choice)) { throw 'The desktop shortcut choice remained visible after Install.' }
+        Save-WindowImage $window (Join-Path $OutputDirectory "setup-$Stage-done.png")
+        if ([SetupUi]::SendMessage($runCheck, $bmGetCheck, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64() -eq 1) {
+            [void][SetupUi]::SendMessage($runCheck, $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
+        }
+        Assert-CheckboxState $runCheck $false 'Run before Finish'
+        [void][SetupUi]::SendMessage([SetupUi]::GetDlgItem($window, $idInstall), $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
+        if (!$process.WaitForExit(60000)) { throw "The $Stage repair did not close after Finish." }
+        if ($process.ExitCode -ne 0) { throw "The $Stage repair exited $($process.ExitCode), expected 0." }
+        return $process.ExitCode
+    }
+    finally { try { if (!$process.HasExited) { $process.Kill($true) } } catch { } }
 }
 
 function Wait-SetupWindow([Diagnostics.Process]$Process, [int]$Seconds = 60) {
@@ -112,7 +180,7 @@ $report = [ordered]@{}
 
 # The scaled layout, checked by the shipped binary itself. Installs nothing.
 Write-Host '=== Layout self-test ==='
-$selfTest = Start-Process -FilePath $SetupPath -ArgumentList @('--selftest') -PassThru -Wait -NoNewWindow
+$selfTest = Start-Process -FilePath $SetupPath -ArgumentList @('--selftest') -PassThru -Wait -WindowStyle Hidden
 if ($selfTest.ExitCode -ne 0) {
     throw "CycleArc-Setup.exe --selftest reported a layout problem (exit $($selfTest.ExitCode))."
 }
@@ -122,6 +190,8 @@ Write-Host 'Layout self-test passed.'
 $before = Get-CycleArcState
 Write-Host "Before: $($before | ConvertTo-Json -Compress)"
 $report['before'] = $before
+if ($before.ManagedRoot) { throw "The UI test needs a fresh disposable user; found $($before.ManagedRoot)." }
+if ($before.DesktopShortcut) { throw "The disposable desktop already has $desktopShortcut." }
 
 # --- 1. Cancel before Install changes nothing. -------------------------------------------
 Write-Host '=== Cancel before install ==='
@@ -134,8 +204,13 @@ try {
     if ($installButton -eq [IntPtr]::Zero -or $cancelButton -eq [IntPtr]::Zero) {
         throw 'The confirmation screen is missing its Install or Cancel button.'
     }
+    $choice = Get-Checkbox $handle $idDesktopShortcut 'Desktop shortcut'
+    Assert-CheckboxState $choice $false 'Fresh desktop shortcut choice'
     $report['confirmInstallButton'] = Get-ControlText $installButton
     $report['confirmCancelButton'] = Get-ControlText $cancelButton
+    $report['confirmDesktopShortcutCheckbox'] = Get-ControlText $choice
+    [void][SetupUi]::SendMessage($choice, $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
+    Assert-CheckboxState $choice $true 'Desktop shortcut after toggle before Cancel'
     [void][SetupUi]::SendMessage($cancelButton, $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
     if (!$cancelProcess.WaitForExit(30000)) { throw 'The installer did not close after Cancel.' }
     $report['cancelExitCode'] = $cancelProcess.ExitCode
@@ -149,7 +224,7 @@ foreach ($key in $before.Keys) {
         throw "Cancelling changed '$key': $($before[$key]) -> $($afterCancel[$key])"
     }
 }
-Write-Host 'Cancel before install changed nothing.'
+Write-Host 'Cancel after toggling the shortcut choice changed nothing.'
 
 # --- 2. Install for real, clearing the Run checkbox on the completion page. ----------------
 Write-Host '=== Install ==='
@@ -158,8 +233,11 @@ if (Test-Path -LiteralPath $requestedLog) { Remove-Item -LiteralPath $requestedL
 $installProcess = Start-Process -FilePath $SetupPath -ArgumentList @('--log', $requestedLog) -PassThru
 try {
     $handle = Wait-SetupWindow $installProcess
+    $choice = Get-Checkbox $handle $idDesktopShortcut 'Desktop shortcut'
+    Assert-CheckboxState $choice $false 'Fresh desktop shortcut choice after Cancel'
     $installButton = [SetupUi]::GetDlgItem($handle, $idInstall)
     [void][SetupUi]::SendMessage($installButton, $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
+    if ([SetupUi]::IsWindowVisible($choice)) { throw 'The desktop shortcut choice remained visible on the progress screen.' }
 
     # The progress screen only exists while the engine runs, so capture it promptly.
     Start-Sleep -Milliseconds 900
@@ -168,16 +246,8 @@ try {
     }
 
     # The completion page is reached when the Run checkbox becomes visible.
-    $runCheck = [IntPtr]::Zero
-    $deadline = [Diagnostics.Stopwatch]::StartNew()
-    while ($deadline.Elapsed.TotalSeconds -lt $InstallTimeoutSeconds) {
-        $installProcess.Refresh()
-        if ($installProcess.HasExited) { throw "The installer exited (code $($installProcess.ExitCode)) before the completion screen." }
-        $candidate = [SetupUi]::GetDlgItem($handle, $idRun)
-        if ($candidate -ne [IntPtr]::Zero -and [SetupUi]::IsWindowVisible($candidate)) { $runCheck = $candidate; break }
-        Start-Sleep -Milliseconds 300
-    }
-    if ($runCheck -eq [IntPtr]::Zero) { throw "No completion screen within $InstallTimeoutSeconds seconds." }
+    $runCheck = Wait-Completion $installProcess $handle $InstallTimeoutSeconds
+    if ([SetupUi]::IsWindowVisible($choice)) { throw 'The desktop shortcut choice remained visible on the completion screen.' }
 
     Save-WindowImage $handle (Join-Path $OutputDirectory 'setup-3-done.png')
     $report['doneRunCheckbox'] = Get-ControlText $runCheck
@@ -185,8 +255,9 @@ try {
 
     # Clear Run, so the completion choice can be checked against what actually happens.
     if ([SetupUi]::SendMessage($runCheck, $bmGetCheck, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64() -eq 1) {
-        [void][SetupUi]::SendMessage($runCheck, $bmSetCheck, [IntPtr]0, [IntPtr]::Zero)
+        [void][SetupUi]::SendMessage($runCheck, $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
     }
+    Assert-CheckboxState $runCheck $false 'Run before Finish'
     $report['runClearedBeforeFinish'] = $true
 
     [void][SetupUi]::SendMessage([SetupUi]::GetDlgItem($handle, $idInstall), $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
@@ -200,12 +271,19 @@ $afterInstall = Get-CycleArcState
 Write-Host "After:  $($afterInstall | ConvertTo-Json -Compress)"
 $report['after'] = $afterInstall
 
-if (!$afterInstall.Programs -and !$afterInstall.Legacy) { throw 'Nothing was installed at either known root.' }
-$installRoot = if ($afterInstall.Programs) { Join-Path $env:LOCALAPPDATA 'Programs\CycleArc' } else { Join-Path $env:LOCALAPPDATA 'CycleArc' }
+if (!$afterInstall.ManagedRoot -or !(Test-ManagedInstallRoot $afterInstall.ManagedRoot)) {
+    throw 'No managed CycleArc installation was found after Install.'
+}
+$installRoot = $afterInstall.ManagedRoot
 $report['installRoot'] = $installRoot
 if (!(Test-Path -LiteralPath (Join-Path $installRoot 'CycleArc.exe') -PathType Leaf)) {
     throw "The stable launcher is missing at $installRoot"
 }
+if (Test-Path -LiteralPath $desktopShortcut -PathType Leaf) {
+    throw 'The unchecked installation created a desktop shortcut.'
+}
+Assert-ShortcutTarget $startMenuShortcut $installRoot
+$report['startMenuShortcut'] = $startMenuShortcut
 # The completion page's cleared Run box must be honoured.
 Start-Sleep -Seconds 3
 $running = @(Get-Process -Name 'CycleArc' -ErrorAction SilentlyContinue)
@@ -226,7 +304,47 @@ $report['requestedLog'] = $requestedLog
 $report['requestedLogBytes'] = $requestedLogLength
 Write-Host "The installer honoured --log ($requestedLogLength bytes at $requestedLog)."
 
+# --- 3. A same-version repair can opt in, then opt out again. ------------------------------
+Write-Host '=== Repair with desktop shortcut selected ==='
+$report['optInRepairExitCode'] = Invoke-SetupRepair $false $true '4-opt-in'
+Assert-ShortcutTarget $desktopShortcut $installRoot
+Assert-ShortcutTarget $startMenuShortcut $installRoot
+if ((Get-ManagedInstallRoot) -ne $installRoot) { throw 'The opt-in repair changed the managed install root.' }
+$report['desktopShortcutTargetAfterOptIn'] = [string]$shell.CreateShortcut($desktopShortcut).TargetPath
+
+Write-Host '=== Repair with desktop shortcut cleared ==='
+$report['optOutRepairExitCode'] = Invoke-SetupRepair $true $false '5-opt-out'
+if (Test-Path -LiteralPath $desktopShortcut -PathType Leaf) {
+    throw 'The opt-out repair did not remove its desktop shortcut.'
+}
+Assert-ShortcutTarget $startMenuShortcut $installRoot
+if ((Get-ManagedInstallRoot) -ne $installRoot) { throw 'The opt-out repair changed the managed install root.' }
+
+# The removed shortcut must stay absent when Setup is reopened and cancelled.
+Write-Host '=== Reopen after opt-out, then Cancel ==='
+$beforeFinalCancel = Get-CycleArcState
+$finalProcess = Start-Process -FilePath $SetupPath -PassThru
+try {
+    $window = Wait-SetupWindow $finalProcess
+    $choice = Get-Checkbox $window $idDesktopShortcut 'Desktop shortcut'
+    Assert-CheckboxState $choice $false 'Desktop shortcut after opt-out repair'
+    Save-WindowImage $window (Join-Path $OutputDirectory 'setup-6-final-confirm.png')
+    [void][SetupUi]::SendMessage([SetupUi]::GetDlgItem($window, $idCancel), $bmClick, [IntPtr]::Zero, [IntPtr]::Zero)
+    if (!$finalProcess.WaitForExit(30000)) { throw 'The final installer did not close after Cancel.' }
+    if ($finalProcess.ExitCode -ne 2) { throw "Final Cancel exited $($finalProcess.ExitCode), expected 2." }
+    $report['finalCancelExitCode'] = $finalProcess.ExitCode
+}
+finally { try { if (!$finalProcess.HasExited) { $finalProcess.Kill($true) } } catch { } }
+$afterFinalCancel = Get-CycleArcState
+foreach ($key in $beforeFinalCancel.Keys) {
+    if ($beforeFinalCancel[$key] -ne $afterFinalCancel[$key]) {
+        throw "Final Cancel changed '$key': $($beforeFinalCancel[$key]) -> $($afterFinalCancel[$key])"
+    }
+}
+if ($afterFinalCancel.DesktopShortcut) { throw 'The final Cancel recreated a desktop shortcut.' }
+$report['afterOptOut'] = $afterFinalCancel
+
 $reportPath = Join-Path $OutputDirectory 'setup-ui-report.json'
 $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reportPath -Encoding utf8
 Write-Host "Report: $reportPath"
-Write-Host 'Setup UI verification passed: confirm, progress and completion screens, cancel and Run choice.'
+Write-Host 'Setup UI verification passed: screens, cancel, Run choice and desktop shortcut opt-in/opt-out repairs.'

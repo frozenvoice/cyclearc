@@ -35,6 +35,9 @@ internal static partial class Native
     public const int WM_CTLCOLORSTATIC = 0x0138;
     public const int WM_APP = 0x8000;
     public const int WM_INSTALL_DONE = WM_APP + 1;
+    public const int DM_GETDEFID = 0x0400;
+    public const int DC_HASDEFID = 0x534B;
+    public const int IDCANCEL = 2;
 
     public const int BM_SETCHECK = 0x00F1;
     public const int BM_GETCHECK = 0x00F0;
@@ -115,6 +118,10 @@ internal static partial class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool TranslateMessage(ref MSG msg);
 
+    [LibraryImport("user32.dll", EntryPoint = "IsDialogMessageW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool IsDialogMessage(IntPtr hWnd, ref MSG msg);
+
     [LibraryImport("user32.dll", EntryPoint = "DispatchMessageW")]
     public static partial IntPtr DispatchMessage(ref MSG msg);
 
@@ -182,6 +189,9 @@ internal static partial class Native
 
     [LibraryImport("kernel32.dll", EntryPoint = "GetModuleHandleW", StringMarshalling = StringMarshalling.Utf16)]
     public static partial IntPtr GetModuleHandle(string? moduleName);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetUserDefaultUILanguage")]
+    public static partial ushort GetUserDefaultUILanguage();
 
     [LibraryImport("comctl32.dll", EntryPoint = "InitCommonControlsEx")]
     [return: MarshalAs(UnmanagedType.Bool)]

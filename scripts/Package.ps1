@@ -161,6 +161,9 @@ function Invoke-VpkPack {
         '--packTitle', $PackIdValue,
         '--packAuthors', 'CycleArc contributors',
         '--icon', ([IO.Path]::GetFullPath($IconFile)),
+        # The setup window owns the optional desktop link. Keeping it out of the Velopack
+        # package also prevents an in-app update from recreating a link the user declined.
+        '--shortcuts', 'StartMenuRoot',
         '--noPortable'
     )
     if (![string]::IsNullOrWhiteSpace($NotesPath)) {

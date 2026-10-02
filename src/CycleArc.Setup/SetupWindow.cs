@@ -11,22 +11,25 @@ internal sealed class SetupWindow
     private const int IdInstall = 100;
     private const int IdCancel = 101;
     private const int IdRun = 102;
+    private const int IdDesktopShortcut = 103;
 
     private readonly InstallTarget _target;
     private readonly string? _logPath;
+    private readonly bool _desktopShortcut;
     private readonly Native.WndProc _proc;
     private IntPtr _window;
-    private IntPtr _heading, _body, _locationLabel, _location, _progress, _status, _detail, _runCheck, _primary, _secondary;
+    private IntPtr _heading, _body, _locationLabel, _location, _progress, _status, _detail, _desktopShortcutCheck, _runCheck, _primary, _secondary;
     private IntPtr _titleFont, _bodyFont;
     private EngineResult? _result;
     private bool _installing;
 
     public SetupExitCode Exit { get; private set; } = SetupExitCode.Cancelled;
 
-    public SetupWindow(InstallTarget target, string? logPath = null)
+    public SetupWindow(InstallTarget target, string? logPath = null, bool? desktopShortcut = null)
     {
         _target = target;
         _logPath = logPath;
+        _desktopShortcut = desktopShortcut ?? DesktopShortcuts.IsPresent(target.Directory);
         _proc = WindowProc;
     }
 
@@ -70,6 +73,7 @@ internal sealed class SetupWindow
 
         while (Native.GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
         {
+            if (Native.IsDialogMessage(_window, ref msg)) continue;
             Native.TranslateMessage(ref msg);
             Native.DispatchMessage(ref msg);
         }
@@ -127,16 +131,21 @@ internal sealed class SetupWindow
         _status = Child("STATIC", "", Native.SS_LEFT | Native.SS_PATHELLIPSIS, SetupLayout.Status);
         _detail = Child("EDIT", "",
             Native.ES_READONLY | Native.ES_MULTILINE | Native.WS_BORDER | Native.WS_VSCROLL, SetupLayout.Detail);
+        _desktopShortcutCheck = Child("BUTTON", Strings.DesktopShortcutCheckbox,
+            Native.BS_AUTOCHECKBOX | Native.WS_TABSTOP, SetupLayout.DesktopShortcutCheck, IdDesktopShortcut);
         // Below the location box on the completion page, not on top of it.
-        _runCheck = Child("BUTTON", Strings.RunCheckbox, Native.BS_AUTOCHECKBOX, SetupLayout.RunCheck, IdRun);
+        _runCheck = Child("BUTTON", Strings.RunCheckbox,
+            Native.BS_AUTOCHECKBOX | Native.WS_TABSTOP, SetupLayout.RunCheck, IdRun);
         _primary = Child("BUTTON", Strings.InstallButton,
             Native.BS_DEFPUSHBUTTON | Native.WS_TABSTOP, SetupLayout.Primary, IdInstall);
         _secondary = Child("BUTTON", Strings.CancelButton,
             Native.BS_PUSHBUTTON | Native.WS_TABSTOP, SetupLayout.Secondary, IdCancel);
 
-        foreach (var control in new[] { _body, _locationLabel, _location, _status, _detail, _runCheck, _primary, _secondary })
+        foreach (var control in new[] { _body, _locationLabel, _location, _status, _detail, _desktopShortcutCheck, _runCheck, _primary, _secondary })
             Native.SendMessage(control, Native.WM_SETFONT, _bodyFont, 1);
         Native.SendMessage(_heading, Native.WM_SETFONT, _titleFont, 1);
+        Native.SendMessage(_desktopShortcutCheck, Native.BM_SETCHECK,
+            _desktopShortcut ? Native.BST_CHECKED : Native.BST_UNCHECKED, IntPtr.Zero);
         Native.SendMessage(_runCheck, Native.BM_SETCHECK, Native.BST_CHECKED, IntPtr.Zero);
     }
 
@@ -153,6 +162,7 @@ internal sealed class SetupWindow
         Native.SetWindowText(_primary, Strings.InstallButton);
         Native.SetWindowText(_secondary, Strings.CancelButton);
         Show(_heading, true); Show(_body, true); Show(_locationLabel, true); Show(_location, true);
+        Show(_desktopShortcutCheck, true);
         Show(_progress, false); Show(_status, false); Show(_detail, false); Show(_runCheck, false);
         Show(_primary, true); Show(_secondary, true);
         Native.EnableWindow(_primary, true);
@@ -164,7 +174,8 @@ internal sealed class SetupWindow
         Native.SetWindowText(_heading, Strings.ProgressHeading);
         Native.SetWindowText(_body, Strings.ProgressBody);
         Native.SetWindowText(_status, Strings.ProgressCopying);
-        Show(_locationLabel, false); Show(_location, false); Show(_detail, false); Show(_runCheck, false);
+        Show(_locationLabel, false); Show(_location, false); Show(_detail, false);
+        Show(_desktopShortcutCheck, false); Show(_runCheck, false);
         Show(_progress, true); Show(_status, true);
         // Indeterminate: the engine reports completion, not a percentage, and a fake
         // percentage would be a worse answer than an honest "working".
@@ -178,6 +189,7 @@ internal sealed class SetupWindow
         Native.SetWindowText(_heading, Strings.DoneHeading);
         Native.SetWindowText(_body, Strings.DoneBody);
         Show(_progress, false); Show(_status, false); Show(_detail, false);
+        Show(_desktopShortcutCheck, false);
         Show(_locationLabel, true); Show(_location, true);
         Native.SetWindowText(_location, _target.Directory);
         Show(_runCheck, true);
@@ -198,7 +210,7 @@ internal sealed class SetupWindow
             : result.LogError ?? Strings.NoLogWritten;
         Native.SetWindowText(_detail, text + (text.Length > 0 ? "\r\n\r\n" : "") + tail);
         Show(_progress, false); Show(_status, false); Show(_locationLabel, false); Show(_location, false);
-        Show(_runCheck, false); Show(_detail, true);
+        Show(_desktopShortcutCheck, false); Show(_runCheck, false); Show(_detail, true);
         Native.SetWindowText(_primary, Strings.CloseButton);
         Show(_primary, true); Show(_secondary, false);
         Native.EnableWindow(_primary, true);
@@ -207,6 +219,9 @@ internal sealed class SetupWindow
     private void StartInstall()
     {
         if (_installing) return;
+        // Read controls on the UI thread before the worker starts.
+        var wantsDesktopShortcut = Native.SendMessage(_desktopShortcutCheck, Native.BM_GETCHECK,
+            IntPtr.Zero, IntPtr.Zero).ToInt64() == Native.BST_CHECKED;
         _installing = true;
         SetupState.Report(SetupState.Installing);
         ShowProgress();
@@ -215,7 +230,8 @@ internal sealed class SetupWindow
         // Off the message loop, so the window keeps painting while the engine runs.
         var worker = new Thread(() =>
         {
-            var result = EngineRunner.Install(_target.Directory, CancellationToken.None, log);
+            var result = EngineRunner.Install(_target.Directory, CancellationToken.None, log,
+                createDesktopShortcut: wantsDesktopShortcut);
             _result = result;
             Native.PostMessage(window, Native.WM_INSTALL_DONE, IntPtr.Zero, IntPtr.Zero);
         })
@@ -244,8 +260,16 @@ internal sealed class SetupWindow
     {
         switch (msg)
         {
+            case Native.DM_GETDEFID:
+                return new IntPtr((Native.DC_HASDEFID << 16) | IdInstall);
+
             case Native.WM_COMMAND:
                 var id = (int)(wParam.ToInt64() & 0xFFFF);
+                if (id == Native.IDCANCEL)
+                {
+                    Native.PostMessage(hWnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                    return IntPtr.Zero;
+                }
                 if (id == IdInstall)
                 {
                     if (_installing) return IntPtr.Zero;
