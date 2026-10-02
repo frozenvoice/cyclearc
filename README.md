@@ -4,7 +4,7 @@
 
 A native Windows tray app for checking Codex, Claude and Cursor profiles, remaining percentages and reset times. Codex accounts also show reset credits when available.
 
-The selected account's detail popup adds a folded **Usage credits** (Codex), **Extra usage**
+The selected account's detail popup adds a folded **Credit balance** (Codex), **Extra usage**
 (Claude), or **On-demand** (Cursor) card. Expand it for the reported balance or spend/cap,
 remaining allowance and original check time; Cursor also shows the reported billing-period end.
 Each account remembers its expansion across refreshes and restarts. Codex credits keep their own
