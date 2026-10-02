@@ -41,7 +41,21 @@ internal static unsafe class DesktopShortcuts
             throw new IOException("The installed CycleArc Start Menu shortcut is missing or points to another installation.");
 
         Directory.CreateDirectory(desktop);
-        File.Copy(source, link, overwrite: owned);
+        // Keep the engine's icon and application identity, but point the desktop entry
+        // at the stable launcher rather than its versioned current executable.
+        using var shortcut = new ShellLink();
+        shortcut.Load(source);
+        shortcut.SetPath(Path.Combine(Path.GetFullPath(installRoot), "CycleArc.exe"));
+        var staged = Path.Combine(desktop, ".CycleArc-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            shortcut.Save(staged);
+            File.Move(staged, link, overwrite: owned);
+        }
+        finally
+        {
+            if (File.Exists(staged)) File.Delete(staged);
+        }
     }
 
     private static bool IsOwned(string link, string installRoot)
@@ -79,7 +93,7 @@ internal static unsafe class DesktopShortcuts
         return Path.GetFullPath(path);
     }
 
-    private static string? TryReadTarget(string link)
+    internal static string? TryReadTarget(string link)
     {
         try
         {
@@ -93,8 +107,8 @@ internal static unsafe class DesktopShortcuts
         }
     }
 
-    // Also used by isolated tests to make genuine .lnk files. Production always copies the
-    // Velopack link so its icon, working directory and other shell metadata stay intact.
+    // Used by isolated tests to make genuine .lnk files. Production loads the Velopack
+    // link so its icon, working directory and other shell metadata stay intact.
     internal static void CreateLink(string link, string target)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(link)!);

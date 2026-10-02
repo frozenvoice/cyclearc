@@ -31,15 +31,18 @@ public sealed class DesktopShortcutTests
     }
 
     [Fact]
-    public void SelectionCopiesTheInstalledStartMenuLink()
+    public void SelectionTargetsTheStableLauncherAndPreservesTheStartMenuLink()
     {
         using var paths = new Paths();
         paths.MakeStartMenuLink();
+        var original = File.ReadAllBytes(paths.StartMenuLink);
 
         DesktopShortcuts.Apply(paths.Root, true, paths.Desktop, paths.Programs);
 
         Assert.True(DesktopShortcuts.IsPresent(paths.Root, paths.Desktop));
-        Assert.Equal(File.ReadAllBytes(paths.StartMenuLink), File.ReadAllBytes(paths.DesktopLink));
+        Assert.Equal(paths.Launcher, DesktopShortcuts.TryReadTarget(paths.DesktopLink));
+        Assert.Equal(paths.CurrentExecutable, DesktopShortcuts.TryReadTarget(paths.StartMenuLink));
+        Assert.Equal(original, File.ReadAllBytes(paths.StartMenuLink));
     }
 
     [Fact]
@@ -52,7 +55,7 @@ public sealed class DesktopShortcutTests
 
         DesktopShortcuts.Apply(paths.Root, true, paths.Desktop, paths.Programs);
 
-        Assert.Equal(File.ReadAllBytes(paths.StartMenuLink), File.ReadAllBytes(paths.DesktopLink));
+        Assert.Equal(paths.Launcher, DesktopShortcuts.TryReadTarget(paths.DesktopLink));
         Assert.True(DesktopShortcuts.IsPresent(paths.Root, paths.Desktop));
     }
 
@@ -154,7 +157,8 @@ public sealed class DesktopShortcutTests
             File.WriteAllText(CurrentExecutable, "current");
         }
 
-        public void MakeStartMenuLink() => DesktopShortcuts.CreateLink(StartMenuLink, Launcher);
+        // Velopack 1.2.0 points its Start Menu entry directly at the current executable.
+        public void MakeStartMenuLink() => DesktopShortcuts.CreateLink(StartMenuLink, CurrentExecutable);
 
         public void Dispose()
         {

@@ -80,10 +80,13 @@ function Get-CycleArcState {
     }
 }
 
-function Assert-ShortcutTarget([string]$Shortcut, [string]$InstallRoot) {
+function Assert-ShortcutTarget([string]$Shortcut, [string]$InstallRoot, [switch]$AllowCurrent) {
     if (!(Test-Path -LiteralPath $Shortcut -PathType Leaf)) { throw "Missing shortcut: $Shortcut" }
     $actual = [IO.Path]::GetFullPath([string]$shell.CreateShortcut($Shortcut).TargetPath)
     $expected = [IO.Path]::GetFullPath((Join-Path $InstallRoot 'CycleArc.exe'))
+    if ($AllowCurrent -and $actual.Equals(
+        [IO.Path]::GetFullPath((Join-Path $InstallRoot 'current/CycleArc.exe')),
+        [StringComparison]::OrdinalIgnoreCase)) { return }
     if (!$actual.Equals($expected, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Shortcut $Shortcut points to $actual instead of $expected"
     }
@@ -282,7 +285,7 @@ if (!(Test-Path -LiteralPath (Join-Path $installRoot 'CycleArc.exe') -PathType L
 if (Test-Path -LiteralPath $desktopShortcut -PathType Leaf) {
     throw 'The unchecked installation created a desktop shortcut.'
 }
-Assert-ShortcutTarget $startMenuShortcut $installRoot
+Assert-ShortcutTarget $startMenuShortcut $installRoot -AllowCurrent
 $report['startMenuShortcut'] = $startMenuShortcut
 # The completion page's cleared Run box must be honoured.
 Start-Sleep -Seconds 3
@@ -308,7 +311,7 @@ Write-Host "The installer honoured --log ($requestedLogLength bytes at $requeste
 Write-Host '=== Repair with desktop shortcut selected ==='
 $report['optInRepairExitCode'] = Invoke-SetupRepair $false $true '4-opt-in'
 Assert-ShortcutTarget $desktopShortcut $installRoot
-Assert-ShortcutTarget $startMenuShortcut $installRoot
+Assert-ShortcutTarget $startMenuShortcut $installRoot -AllowCurrent
 if ((Get-ManagedInstallRoot) -ne $installRoot) { throw 'The opt-in repair changed the managed install root.' }
 $report['desktopShortcutTargetAfterOptIn'] = [string]$shell.CreateShortcut($desktopShortcut).TargetPath
 
@@ -317,7 +320,7 @@ $report['optOutRepairExitCode'] = Invoke-SetupRepair $true $false '5-opt-out'
 if (Test-Path -LiteralPath $desktopShortcut -PathType Leaf) {
     throw 'The opt-out repair did not remove its desktop shortcut.'
 }
-Assert-ShortcutTarget $startMenuShortcut $installRoot
+Assert-ShortcutTarget $startMenuShortcut $installRoot -AllowCurrent
 if ((Get-ManagedInstallRoot) -ne $installRoot) { throw 'The opt-out repair changed the managed install root.' }
 
 # The removed shortcut must stay absent when Setup is reopened and cancelled.

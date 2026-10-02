@@ -2,6 +2,12 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Desktop shortcut merge review (2026-10-03): the stable-launcher rewrite and its unit
+  tests were included in the passing 1,998-test local gate above. Fresh-install shortcut
+  UI verification now uses a separate disposable CI job instead of the already-installed
+  repair runner. `tests/VerificationWorkflow.Tests.ps1` passed the new runner-isolation
+  and packaged-artifact reuse contracts. No executable code changed after the full gate.
+
 - Codex credit balance wording (2026-10-03): renamed the selected-detail card to
   **Credit balance** / **크레딧 잔액** because its summary and Balance row both show the
   remaining balance, not spent credits. `dev-run.ps1 -NoLaunch` passed, including 1,998

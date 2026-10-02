@@ -31,7 +31,8 @@ function Get-Block([string]$Text, [string]$Start, [string]$End) {
 $push = Get-Block $workflow '  push:' '  pull_request:'
 $pullRequest = Get-Block $workflow '  pull_request:' '# A newer commit supersedes'
 $jobs = Get-Block $workflow 'jobs:' '  # Disposable GitHub-hosted runner only.'
-$managed = [regex]::Match($workflow, '(?ms)^  managed-setup-install:.*\z').Value
+$managed = [regex]::Match($workflow, '(?ms)^  managed-setup-install:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
+$shortcutChoices = [regex]::Match($workflow, '(?ms)^  setup-shortcut-choices:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
 $build = [regex]::Match($workflow, '(?ms)^  build:.*?(?=^  # Disposable GitHub-hosted runner only.)').Value
 
 Assert-Contract ($push -match '(?ms)^\s+branches:\s*\r?\n\s+-\s+main\s*$') 'push must be restricted to main'
@@ -57,6 +58,12 @@ Assert-Contract ($installerUpload -match '(?m)^\s+if-no-files-found:\s+error\s*$
 Assert-Contract ($build.Contains('path: artifacts/widget-previews/*')) 'CI must upload optional preview evidence'
 Assert-Contract ($managed.Contains('actions/download-artifact@v6')) 'managed install must consume the packaged artifact'
 Assert-Contract ($managed -notmatch '(?mi)dev-run\.ps1') 'managed install must not rebuild source'
+Assert-Contract (!$managed.Contains('Verify-SetupUi.ps1')) 'fresh-user shortcut checks must not reuse the managed install runner'
+Assert-Contract ($shortcutChoices -match '(?m)^\s+needs:\s+build\s*$') 'shortcut choices must consume the verified build'
+Assert-Contract ($shortcutChoices -match '(?m)^\s+runs-on:\s+windows-latest\s*$') 'shortcut choices must run on a separate disposable Windows runner'
+Assert-Contract ($shortcutChoices.Contains('actions/download-artifact@v6') -and $shortcutChoices.Contains('name: CycleArc-win-x64')) 'shortcut choices must download the existing installer artifact'
+Assert-Contract ($shortcutChoices.Contains('./scripts/Verify-SetupUi.ps1') -and $shortcutChoices.Contains('-ConfirmDisposableEnvironment')) 'shortcut choices must run the guarded installer UI verification'
+Assert-Contract ($shortcutChoices -notmatch '(?mi)dev-run\.ps1') 'shortcut choices must not rebuild source'
 Assert-Contract ($workflow -notmatch '(?mi)vs_buildtools|vswhere.*install|Workload\.VCTools') 'CI must not download/install Visual Studio'
 Assert-Contract ($build -notmatch '(?mi)^\s+run:\s+.*dotnet\s+(restore|build|test|publish)\b') 'workflow must not duplicate the shared dotnet gate commands'
 Assert-Contract ($workflow -notmatch '(?mi)Compile test-only build flavours') 'test-only compile must live in the shared gate'

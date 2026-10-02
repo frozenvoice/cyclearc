@@ -232,3 +232,35 @@ jobs:
           path: artifacts/setup-install/**
           if-no-files-found: ignore
 
+  # Shortcut choice checks require a fresh user with no managed installation.
+  # Keep them separate from the install/repair job and reuse its packaged artifact.
+  setup-shortcut-choices:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download installer assets
+        uses: actions/download-artifact@v6
+        with:
+          name: CycleArc-win-x64
+          path: publish/velopack
+
+      - name: Verify setup desktop shortcut choices
+        shell: pwsh
+        run: >-
+          ./scripts/Verify-SetupUi.ps1
+          -SetupPath publish/velopack/CycleArc-Setup.exe
+          -OutputDirectory artifacts/setup-shortcut-choices
+          -ConfirmDisposableEnvironment
+
+      - name: Upload shortcut-choice evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: setup-shortcut-choices
+          path: artifacts/setup-shortcut-choices/**
+          if-no-files-found: ignore
+
