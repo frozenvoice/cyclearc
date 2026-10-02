@@ -28,6 +28,13 @@ public sealed class SetupLayoutTests
     }
 
     [Fact]
+    public void TheDesktopShortcutCheckboxSitsBelowTheLocationBox()
+    {
+        Assert.True(SetupLayout.DesktopShortcutCheck.Y >= SetupLayout.Location.Bottom,
+            $"The desktop shortcut checkbox starts at {SetupLayout.DesktopShortcutCheck.Y}, above the location box's bottom at {SetupLayout.Location.Bottom}.");
+    }
+
+    [Fact]
     public void EveryControlFitsTheClientAreaAtOneToOne()
     {
         foreach (var box in SetupLayout.All)

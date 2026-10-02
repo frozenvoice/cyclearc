@@ -12,7 +12,7 @@ cards; the account list, widget and tray retain their existing content policy.
 | New evidence | Meaning |
 | --- | --- |
 | `widget-common-warning-synthetic-3-{en,ko}-{dark,light}-100.png` | Same stale warning on Codex, Claude and Cursor; local Claude receipt keeps Last received while the others show Last checked; ring colors still follow usage |
-| `usage-card-codex-ko-dark-expanded.png` | Decimal usage credits and original check time, separate from reset credits |
+| `usage-card-codex-ko-dark-expanded.png` | Decimal credit balance and original check time, separate from reset credits |
 | `usage-card-claude-en-light-expanded.png` | Synthetic monthly spend/cap and calculated remainder |
 | `usage-card-cursor-ko-light-collapsed.png` | One-line personal on-demand summary |
 | `usage-card-claude-ko-dark-off.png` | Explicitly disabled extra usage |

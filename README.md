@@ -4,7 +4,7 @@
 
 A native Windows tray app for checking Codex, Claude and Cursor profiles, remaining percentages and reset times. Codex accounts also show reset credits when available.
 
-The selected account's detail popup adds a folded **Usage credits** (Codex), **Extra usage**
+The selected account's detail popup adds a folded **Credit balance** (Codex), **Extra usage**
 (Claude), or **On-demand** (Cursor) card. Expand it for the reported balance or spend/cap,
 remaining allowance and original check time; Cursor also shows the reported billing-period end.
 Each account remembers its expansion across refreshes and restarts. Codex credits keep their own
@@ -77,7 +77,7 @@ Production views with synthetic usage values; these images do not show a real ac
 **Requirements:** Windows 10/11 on x64. Codex monitoring requires the installed Codex CLI and network access; discover an existing CLI login or sign in to another account through CycleArc. Claude monitoring requires the official Claude CLI for connection verification, Windows PowerShell, a signed-in Claude Desktop account for live checks, and a signed-in Claude Pro or Max account. StatusLine and Desktop subscription history remain fallbacks.
 
 1. Download **`CycleArc-Setup.exe`** from the [latest release](https://github.com/frozenvoice/cyclearc/releases/latest).
-2. Run the setup program, review the installation location and choose **Install**. Follow its progress, then choose **Run CycleArc → Finish**. A new installation goes under `%LOCALAPPDATA%\Programs\CycleArc`; an existing installation keeps its registered location, including the former `%LOCALAPPDATA%\CycleArc` path. The .NET runtime is bundled. Your settings, accounts and quota cache remain under `%LOCALAPPDATA%\ProMeter`.
+2. Run the setup program, review the installation location, optionally select **Create a desktop shortcut**, and choose **Install**. The shortcut option starts unchecked for a new installation; reinstalling reflects whether this installation currently has a desktop shortcut. Clearing it removes only this installation's shortcut. Updates and silent reinstalls do not recreate a deleted desktop shortcut, and the Start menu entry remains available. Follow its progress, then choose **Run CycleArc → Finish**. A new installation goes under `%LOCALAPPDATA%\Programs\CycleArc`; an existing installation keeps its registered location, including the former `%LOCALAPPDATA%\CycleArc` path. The .NET runtime is bundled. Your settings, accounts and quota cache remain under `%LOCALAPPDATA%\ProMeter`.
 3. Open the tray icon and **Manage accounts → Add an account**. For Codex, existing CLI sign-ins are discovered automatically; choose **New account sign-in** to add another account. For Claude, choose **Connect Claude**, then connect the current login or sign in through your browser.
 4. Codex appears after a successful quota check; Claude appears after verified connection and attempts a Desktop live check, with statusLine/history fallback when needed. If Codex cannot be found, install the [Codex CLI](https://developers.openai.com/codex/cli/) or open **Settings → Connection** and select its executable path. For Claude setup, follow the [connection steps below](#claude-code-connection).
 

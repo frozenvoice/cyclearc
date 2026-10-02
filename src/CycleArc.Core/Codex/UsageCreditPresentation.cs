@@ -23,7 +23,7 @@ public static class UsageCreditPresentation
         {
             UsageProviderId.Claude => UiText.T("Extra usage", "추가 사용"),
             UsageProviderId.Cursor => UiText.T("On-demand", "온디맨드"),
-            _ => UiText.T("Usage credits", "사용 크레딧")
+            _ => UiText.T("Credit balance", "크레딧 잔액")
         };
         if (Hidden(snapshot))
             return Card(title, Unknown, UiText.T("Check account connection", "계정 연결 확인 필요"), []);

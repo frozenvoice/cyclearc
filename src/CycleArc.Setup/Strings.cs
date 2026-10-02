@@ -6,9 +6,8 @@ namespace CycleArc.Setup;
 /// </summary>
 internal static class Strings
 {
-    private static readonly bool Korean =
-        System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
-            .Equals("ko", StringComparison.OrdinalIgnoreCase);
+    // Native AOT uses invariant globalization; ask Windows for the user's UI language.
+    private static readonly bool Korean = (Native.GetUserDefaultUILanguage() & 0x03ff) == 0x12;
 
     private static string T(string english, string korean) => Korean ? korean : english;
 
@@ -26,6 +25,8 @@ internal static class Strings
         "기존 CycleArc 설치를 찾았습니다. 같은 위치에 업데이트하며 계정·설정·사용량 기록은 그대로 유지됩니다.");
 
     public static string LocationLabel => T("Install location", "설치 위치");
+    public static string DesktopShortcutCheckbox => T(
+        "Create a desktop shortcut", "바탕화면 바로가기 만들기");
 
     public static string InstallButton => T("Install", "설치");
     public static string CancelButton => T("Cancel", "취소");
@@ -48,7 +49,10 @@ internal static class Strings
 
     public static string FailedHeading => T("Installation failed", "설치하지 못했습니다");
     public static string FailedBodyPrefix => T(
-        "CycleArc was not installed.", "CycleArc를 설치하지 못했습니다.");
+        "Setup could not be completed.", "설치를 완료하지 못했습니다.");
+    public static string ShortcutFailedPrefix => T(
+        "CycleArc was installed, but the desktop shortcut choice could not be applied:",
+        "CycleArc는 설치했지만 바탕화면 바로가기 설정을 적용하지 못했습니다:");
     public static string LogLabel => T("Log", "로그");
     public static string NoLogWritten => T(
         "No installer log could be written, so there is no log file to read.",

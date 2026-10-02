@@ -363,7 +363,7 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
 `CodexQuotaSnapshot.UsageCredits` and `.ExtraUsage` are optional provider data, separate from
 quota windows and earned reset credits. Cursor reuses the personal `cursor-on-demand` window's
 existing normalized amounts. `UsageCreditPresentation` projects only the selected account's
-detail card: **Usage credits**, **Extra usage**, or **On-demand**. The card starts collapsed;
+detail card: **Credit balance**, **Extra usage**, or **On-demand**. The card starts collapsed;
 `AppSettings.UsageCardExpandedAccounts` retains expansion by profile ID through account changes,
 refresh and window recreation. Account lists, widget summaries and tray output keep their existing
 policies. Card binding/expansion does not request data or alter usage-alert state.

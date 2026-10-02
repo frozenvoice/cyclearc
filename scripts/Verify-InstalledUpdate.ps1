@@ -336,7 +336,10 @@ Write-Host '    Distinct file versions and executable hashes confirmed (not an s
 # --- Install A ------------------------------------------------------------------------------
 
 Write-Step 'Installing test build A with its real Setup.exe'
+$desktopShortcut = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'CycleArc.lnk'
+Assert-True (!(Test-Path -LiteralPath $desktopShortcut)) 'the disposable desktop already has a CycleArc shortcut.'
 Invoke-Windowed $Builds.A.Setup @('--silent', '--installto', $InstallTo, '--log', (Join-Path $LogRoot 'setup-a.log')) 'Setup.exe for build A' 600
+Assert-True (!(Test-Path -LiteralPath $desktopShortcut)) 'a fresh silent installation created an unrequested desktop shortcut.'
 $Current = Join-Path $InstallTo 'current/CycleArc.exe'
 $Launcher = Join-Path $InstallTo 'CycleArc.exe'
 $Updater = Join-Path $InstallTo 'Update.exe'
@@ -402,6 +405,7 @@ Write-Fact 'installed.afterUpdate.fileVersion' (Get-FileVersionText $Current)
 Write-Fact 'installed.afterUpdate.sha256' (Get-Sha256 $Current)
 
 Write-Step 'Checking preservation, shortcuts and the Claude callback after the update'
+Assert-True (!(Test-Path -LiteralPath $desktopShortcut)) 'the in-app update recreated an unrequested desktop shortcut.'
 foreach ($shortcut in $shortcutsAfterInstall) {
     Assert-True (Test-Path -LiteralPath $shortcut.Link) "the shortcut $($shortcut.Link) did not survive the update."
     Assert-True (Test-Path -LiteralPath $shortcut.Target) "the shortcut $($shortcut.Link) points at a missing file."
@@ -428,6 +432,7 @@ $recovered = Get-DesktopStatus $Current
 Assert-True ($recovered -and $recovered.Succeeded) 'no desktop answered after the failed update.'
 Assert-True ((Get-Sha256 $Current) -eq $Builds.B.Sha256) 'the failed update left a different executable in place.'
 Assert-True ((Get-FileVersionText $Current) -eq $Builds.B.FileVersion) 'the restored file version is not the previous build.'
+Assert-True (!(Test-Path -LiteralPath $desktopShortcut)) 'failed-update recovery recreated an unrequested desktop shortcut.'
 # Identity, not containment: exactly one process is running the installed executable.
 $installedProcesses = @(Get-ProcessesRunning $Current)
 Write-Fact 'recovered.installedProcesses' (Get-ProcessSummary $installedProcesses)

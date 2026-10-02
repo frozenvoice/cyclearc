@@ -40,12 +40,16 @@ internal static class EngineRunner
     /// a build script finds the log where it asked for it; otherwise one is made alongside the
     /// extracted engine and copied next to the installation afterwards.
     /// </param>
-    public static EngineResult Install(string directory, CancellationToken token, string? logPath = null)
+    public static EngineResult Install(string directory, CancellationToken token, string? logPath = null,
+        bool? createDesktopShortcut = null)
     {
         var work = Path.Combine(Path.GetTempPath(), "CycleArc-setup-" + Guid.NewGuid().ToString("N"));
         string? logError = null;
         try
         {
+            // Read before the engine repairs/replaces the installation. Silent installs keep
+            // the actual shortcut state; a fresh install or a deleted shortcut stays off.
+            var wantsDesktopShortcut = createDesktopShortcut ?? DesktopShortcuts.IsPresent(directory);
             Directory.CreateDirectory(work);
             // Settled before the engine runs and never moved afterwards, so the path reported
             // on a failure is the path the log is actually at.
@@ -94,6 +98,15 @@ internal static class EngineRunner
             if (!InstallTargets.Looks(directory))
                 return new EngineResult(EngineOutcome.Failed, exit, logPath ?? "",
                     "The installer finished but no installation is present at " + directory + ".", logError);
+            try
+            {
+                DesktopShortcuts.Apply(directory, wantsDesktopShortcut);
+            }
+            catch (Exception ex)
+            {
+                return new EngineResult(EngineOutcome.Failed, -1, logPath ?? "",
+                    Strings.ShortcutFailedPrefix + Environment.NewLine + ex.Message, logError);
+            }
             return new EngineResult(EngineOutcome.Succeeded, 0, logPath ?? "", null, logError);
         }
         catch (OperationCanceledException) { throw; }

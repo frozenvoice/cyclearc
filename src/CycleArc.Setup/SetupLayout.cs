@@ -25,13 +25,15 @@ internal static class SetupLayout
     public static readonly LayoutBox Progress = new("progress", Margin, 132, 490, 18);
     public static readonly LayoutBox Status = new("status", Margin, 158, 490, 20);
     public static readonly LayoutBox Detail = new("detail", Margin, 112, 490, 100);
+    public static readonly LayoutBox DesktopShortcutCheck = new("desktopShortcutCheck", Margin, 168, 380, 24);
     public static readonly LayoutBox RunCheck = new("runCheck", Margin, 168, 300, 24);
     public static readonly LayoutBox Primary = new("primary", 318, 244, 96, 32);
     public static readonly LayoutBox Secondary = new("secondary", 420, 244, 96, 32);
 
     public static LayoutBox[] All => new[]
     {
-        Heading, Body, LocationLabel, Location, Progress, Status, Detail, RunCheck, Primary, Secondary,
+        Heading, Body, LocationLabel, Location, Progress, Status, Detail,
+        DesktopShortcutCheck, RunCheck, Primary, Secondary,
     };
 
     public static int Scale(int value, uint dpi) => (int)Math.Round(value * dpi / 96.0);
@@ -60,8 +62,11 @@ internal static class SetupLayout
         // two must not sit on top of each other - they did while Run stayed at the location's y.
         if (Overlap(Location, RunCheck))
             problems.Add($"{dpi} dpi: the Run checkbox overlaps the install location box.");
+        // The confirmation page shows the location and desktop shortcut checkbox together.
+        if (Overlap(Location, DesktopShortcutCheck))
+            problems.Add($"{dpi} dpi: the desktop shortcut checkbox overlaps the install location box.");
         // Every page keeps its controls clear of the button row.
-        foreach (var box in new[] { Location, Progress, Status, Detail, RunCheck })
+        foreach (var box in new[] { Location, Progress, Status, Detail, DesktopShortcutCheck, RunCheck })
             if (Overlap(box, Primary) || Overlap(box, Secondary))
                 problems.Add($"{dpi} dpi: '{box.Name}' overlaps the button row.");
         if (Overlap(Primary, Secondary))

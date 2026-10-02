@@ -2,6 +2,19 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Desktop shortcut merge review (2026-10-03): the stable-launcher rewrite and its unit
+  tests were included in the passing 1,998-test local gate above. Fresh-install shortcut
+  UI verification now uses a separate disposable CI job instead of the already-installed
+  repair runner. `tests/VerificationWorkflow.Tests.ps1` passed the new runner-isolation
+  and packaged-artifact reuse contracts. No executable code changed after the full gate.
+
+- Codex credit balance wording (2026-10-03): renamed the selected-detail card to
+  **Credit balance** / **크레딧 잔액** because its summary and Balance row both show the
+  remaining balance, not spent credits. `dev-run.ps1 -NoLaunch` passed, including 1,998
+  unit tests, production WPF checks and package verification. Exported `--usage-credits
+  artifacts/credit-balance-previews` passed 180 states; EN/KO Dark/Light expanded and
+  collapsed views were visually checked, and the two Codex monetary-card previews updated.
+
 - Common widget status and selected-account usage cards (unreleased, 2026-10-01):
   - Based on clean `786a32c8022c764e27d8c883f19d7f85c66e1eea`, branch
     `codex/widget-status-usage-credits`. Same semantic status drives all providers' warning
