@@ -71,15 +71,22 @@ public sealed class WidgetAccountModuleView : Border
     public TextBlock StatusText { get; } = new()
     {
         FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
+        LineHeight = 14, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
         Visibility = Visibility.Collapsed
     };
 
     public TextBlock StatusAgeText { get; } = new()
     {
         FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
+        LineHeight = 14, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
         Margin = new Thickness(0, 2, 0, 0), Visibility = Visibility.Collapsed
     };
-    public StackPanel StatusArea { get; } = new() { Margin = new Thickness(0, 5, 0, 0), Visibility = Visibility.Collapsed };
+    // Reserve both status lines even when healthy or before the first receipt. Showing a
+    // check/retry notice must not resize the widget or move a bottom-anchored window.
+    public StackPanel StatusArea { get; } = new()
+    {
+        Height = 30, Margin = new Thickness(0, 5, 0, 0), Visibility = Visibility.Hidden
+    };
     public Path StatusWarningIcon { get; } = new()
     {
         Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 1.35,
@@ -207,7 +214,7 @@ public sealed class WidgetAccountModuleView : Border
 
         StatusText.Text = model.StatusText;
         StatusText.Visibility = model.ShowStatusRow ? Visibility.Visible : Visibility.Collapsed;
-        StatusArea.Visibility = StatusText.Visibility;
+        StatusArea.Visibility = model.ShowStatusRow ? Visibility.Visible : Visibility.Hidden;
         var status = model.StatusPresentation;
         var warning = status?.IsWarning ?? model.IsStale;
         StatusAgeText.Text = status?.AgeText ?? "";
@@ -228,7 +235,7 @@ public sealed class WidgetAccountModuleView : Border
         System.Windows.Automation.AutomationProperties.SetName(this, AutomationText(model));
         System.Windows.Automation.AutomationProperties.SetHelpText(this, status?.DetailText ?? model.Tooltip);
 
-        // BindAccounts measures immediately, before WPF propagates a status-line size change.
+        // BindAccounts measures immediately, before WPF propagates quota-row changes.
         ((FrameworkElement)Child).InvalidateMeasure();
         InvalidateMeasure();
     }

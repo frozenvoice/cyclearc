@@ -2,6 +2,27 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Stable widget height across status changes (2026-10-03):
+  - Each account module reserves 30 DIP for two status lines plus the existing 5-DIP
+    top margin. Healthy status hides only the content. Refresh, retry, ordinary failure
+    and successful recovery keep the same height; account-count or quota-item changes
+    can still change the layout. This supersedes the footer-height behavior documented
+    in the 2026-09-21 healthy-status entry below.
+  - Release build with .NET SDK 8.0.424 passed. `--widget-status
+    artifacts/widget-status-stable` passed refresh/failure/recovery checks for all three
+    providers in EN/KO, Dark/Light and 80/100/150% zoom. `--widget-layout
+    artifacts/widget-height-layout` passed 151 checks, including unchanged actual HWND
+    height, position and `Moved` events across status changes.
+  - `--cursor-widget-summary-previews artifacts/widget-status-stable/cursor-summary`
+    passed 76 checks. The mixed-height fixture now uses a Cursor account with three
+    allowances instead of relying on a warning footer to make it taller. Cursor compact
+    height bounds include the reserved 35-DIP status space.
+  - The full unit suite passed 1,998/1,998. The final `dev-run.ps1 -NoLaunch -Fast` gate
+    passed in 3m17s: all production WPF checks, test-flavour build, single-file publish,
+    Native AOT setup packaging and package verification. It reused the passing unit result;
+    no unit code changed afterward. The installed application and running instance were
+    not changed.
+
 - Desktop shortcut merge review (2026-10-03): the stable-launcher rewrite and its unit
   tests were included in the passing 1,998-test local gate above. Fresh-install shortcut
   UI verification now uses a separate disposable CI job instead of the already-installed

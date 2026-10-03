@@ -599,6 +599,18 @@ internal static class WidgetLayoutChecks
             Check(Math.Abs(bothNative.Height - bothLayout) <= 4,
                 $"Two-period HWND {bothNative.Height} does not match layout {bothLayout}.");
 
+            var beforeStatus = (window.Left, window.Top, Moved: moved.Count);
+            var refreshing = both with { Snapshot = both.Snapshot.AsRefreshing() };
+            controller.Update(settings, UsageAccountOverview.Create([refreshing], refreshing.Profile.Id));
+            Pump();
+            Check(window.Modules[0].StatusText.Visibility == Visibility.Visible,
+                "Refresh status did not appear after Update().");
+            CheckWindowMatchesLayout(window, "bind-refreshing");
+            CheckAccountsFullyVisible(window, "bind-refreshing");
+            Check(Math.Abs(window.LastLayout!.Height - bothLayout) < 0.01
+                && Math.Abs(NativeDipSize(window).Height - bothNative.Height) < 0.01,
+                "Refresh status changed the arranged or HWND height.");
+
             var stale = both with { Snapshot = both.Snapshot with { Status = CodexQuotaStatus.Stale } };
             controller.Update(settings, UsageAccountOverview.Create([stale], stale.Profile.Id));
             Pump();
@@ -608,19 +620,21 @@ internal static class WidgetLayoutChecks
             CheckAccountsFullyVisible(window, "bind-status");
             var staleLayout = window.LastLayout!.Height;
             var staleNative = NativeDipSize(window);
-            Check(staleLayout > bothLayout + 4,
-                $"Status text did not grow the arranged layout ({bothLayout} → {staleLayout}).");
-            Check(staleNative.Height > bothNative.Height + 4
-                && staleNative.Height > weeklyNative.Height + 4,
-                $"Status text did not grow the HWND ({weeklyNative.Height}/{bothNative.Height} → {staleNative.Height}).");
+            Check(Math.Abs(staleLayout - bothLayout) < 0.01,
+                $"Status text changed the arranged height ({bothLayout} → {staleLayout}).");
+            Check(Math.Abs(staleNative.Height - bothNative.Height) < 0.01,
+                $"Status text changed the HWND height ({bothNative.Height} → {staleNative.Height}).");
             controller.Update(settings, UsageAccountOverview.Create([both], both.Profile.Id));
             Pump();
             Check(window.Modules[0].StatusText.Visibility != Visibility.Visible,
                 "Status text stayed after it was cleared.");
             CheckWindowMatchesLayout(window, "bind-status-cleared");
             var clearedNative = NativeDipSize(window);
-            Check(clearedNative.Height + 4 < staleNative.Height,
-                $"Clearing status text left the previous HWND height {staleNative.Height} → {clearedNative.Height}.");
+            Check(Math.Abs(clearedNative.Height - staleNative.Height) < 0.01,
+                $"Clearing status text changed HWND height {staleNative.Height} → {clearedNative.Height}.");
+            Check((window.Left, window.Top) == (beforeStatus.Left, beforeStatus.Top)
+                && moved.Count == beforeStatus.Moved && new WindowInteropHelper(window).Handle == hwnd,
+                "Status transitions moved, persisted position or recreated the widget.");
 
             controller.Update(settings, ThreeOverview());
             Pump();
@@ -1104,10 +1118,25 @@ internal static class WidgetLayoutChecks
             snapshot with { Provider = UsageProviderId.Claude, TechnicalDetail = ClaudeUsagePresentation.LiveDetail })
         { IsConnected = true };
 
+    private static CodexAccountView Cursor(string id, string label) =>
+        new(new CodexAccountProfile(id, "", label) { Provider = UsageProviderId.Cursor },
+            Both(0, 0) with
+            {
+                Provider = UsageProviderId.Cursor,
+                Windows =
+                [
+                    new("cursor-auto", 76.9, null, Now.AddDays(18), CodexWindowKind.Other),
+                    new("cursor-api", 2.9, null, Now.AddDays(18), CodexWindowKind.Other),
+                    new("cursor-sand", 12.5, null, Now.AddDays(4), CodexWindowKind.Other)
+                ]
+            }) { IsConnected = true };
+
     private static CodexAccountView[] MixedHeights() =>
     [
         Codex("mix-a", UiText.T("Main", "메인"), WeeklyOnly(41)),
-        Claude("mix-b", UiText.T("Work", "작업용"), Both(62, 18) with { Status = CodexQuotaStatus.Stale }),
+        // Cursor's three allowance rows produce a taller body. Status text now reserves
+        // the same space in every state, so warnings no longer create mixed heights.
+        Cursor("mix-b", UiText.T("Work Cursor", "작업용 Cursor")),
         Claude("mix-c", UiText.T("Personal Claude", "개인 Claude"), Both(85, 23)),
         Codex("mix-d", UiText.T("Kakao", "카카오"), Both(97, 44) with { Status = CodexQuotaStatus.Stale }),
         Claude("mix-e", UiText.T("Lab", "실험용"), Both(55, 30) with { TechnicalDetail = "claude-live-auth-required" })

@@ -297,11 +297,11 @@ internal static class Program
                         || (attention && string.IsNullOrEmpty(notice.Text)))
                         throw new InvalidOperationException($"Incorrect widget notice for {status}.");
                 }
-                WidgetFixture.BindSnapshot(widget, snapshot); // Recovery must remove the old failure text and its space.
+                WidgetFixture.BindSnapshot(widget, snapshot); // Recovery hides the failure text and retains its space.
                 var recoveredModule = WidgetFixture.Module(widget);
                 var recovered = recoveredModule.StatusText;
                 if (recovered.Visibility != Visibility.Collapsed
-                    || recoveredModule.StatusArea.Visibility != Visibility.Collapsed
+                    || recoveredModule.StatusArea.Visibility != Visibility.Hidden
                     || recoveredModule.Model!.StatusPresentation is not { ShowRow: false, IsWarning: false }
                     || recoveredModule.StatusArea.ToolTip is not string { Length: > 0 })
                     throw new InvalidOperationException("Widget notice remains after recovery.");
