@@ -49,7 +49,7 @@ Historical before/after comparisons were not regenerated.
 | `claude-overview-{en,ko}-{dark,light}.png` | Research selected with a Desktop history fallback: 91% five-hour / 47% weekly, unknown resets, Received and original observation time |
 | `claude-connection-{en,ko}-{dark,light}.png` | Official CLI connection choices, existing Desktop login for server checks and manual usage-page access; advanced settings collapsed |
 | `cursor-popup-{en,ko}-{dark,light}.png` | Cursor Models and Other Models monthly allowances, Grok Bot weekly allowance, named usage ring, each reset named and counted down under its value, disabled on-demand and the shared Last checked row |
-| `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary with integer used/remaining percentages and a named ring; healthy server status has no footer, with exact values/times and omitted budgets in tooltips/detail |
+| `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary with integer used/remaining percentages and a named ring; healthy server status hides its content within reserved footer space, with exact values/times and omitted budgets in tooltips/detail |
 | `widget-status-{before,after}-{en,ko}-{dark,light}.png` | Actual WPF Codex / Claude / Cursor accounts before and after collapsing healthy server status rows, at unchanged 100% width and typography |
 | `cursor-widget-summary-{before,after}-{en,ko}-{dark,light}.png` | Fixed synthetic Codex / Cursor / Claude accounts in the actual WPF widget, before and after the Cursor summary change at 100% zoom |
 | `cursor-widget-compact-{before,after}-{en,ko}-{dark,light}.png` | The follow-up comparison from `f0a9964`: the same synthetic mixed accounts, with the repeated ring target moved inside the ring at unchanged width/font sizes |
@@ -199,7 +199,15 @@ Checked-in examples: [Codex](usage-percent-codex-en-light.png),
 [widget boundary](usage-percent-cursor-ko-light-boundary.png), and
 [tiny detail boundary](usage-percent-codex-en-dark-tiny.png).
 
-The healthy-status follow-up uses `WidgetStatusRowChecks` and a fixed 2035-06-07 timestamp.
+The 2026-10-03 widget reserves a 30-DIP, two-line status area plus its existing 5-DIP
+top margin. Healthy server status hides the content while keeping that space, so
+checking, retry, failure and recovery text do not resize the widget. EN/KO,
+Dark/Light and 80/100/150% transition checks use `--widget-status <directory>`.
+The native `--widget-layout <directory>` checks also assert unchanged HWND height,
+position and saved-position events through checking, stale and healthy states.
+Current widget previews use this layout; historical before/after evidence stays intact.
+
+The historical healthy-status follow-up uses `WidgetStatusRowChecks` and a fixed 2035-06-07 timestamp.
 The before images render the production model/view from `5875b52`; after images use the
 same accounts, values and times with only healthy server footers collapsed. All 36
 standalone/mixed image pairs retain their widths and reduce their heights across EN/KO,

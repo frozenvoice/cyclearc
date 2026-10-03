@@ -52,7 +52,7 @@ internal static class WidgetStatusRowChecks
         UiText.SetLanguage(UiLanguage.English);
         applyTheme.Invoke(null, [AppTheme.Dark]);
         Console.WriteLine(expectHealthyCollapsed
-            ? "PASS: widget healthy status collapse, failure recovery, Claude source preservation and EN/KO Dark/Light 80/100/150 layouts."
+            ? "PASS: widget reserved status space, stable refresh/failure recovery, Claude source preservation and EN/KO Dark/Light 80/100/150 layouts."
             : "PASS: 36 original production WPF status-row baseline captures in EN/KO Dark/Light 80/100/150.");
     }
 
@@ -124,13 +124,13 @@ internal static class WidgetStatusRowChecks
 
     private static void CheckTransitions(UiLanguage language, AppTheme theme, bool expectHealthyCollapsed, string? directory)
     {
-        CheckProviderTransitions(UsageProviderId.Codex, language, theme, expectHealthyCollapsed, directory);
-        CheckProviderTransitions(UsageProviderId.Cursor, language, theme, expectHealthyCollapsed, directory);
-        CheckProviderTransitions(UsageProviderId.Claude, language, theme, expectHealthyCollapsed, directory);
+        foreach (var zoom in new[] { 80, 100, 150 })
+        foreach (var provider in new[] { UsageProviderId.Codex, UsageProviderId.Cursor, UsageProviderId.Claude })
+            CheckProviderTransitions(provider, language, theme, zoom, expectHealthyCollapsed, directory);
     }
 
     private static void CheckProviderTransitions(UsageProviderId provider,
-        UiLanguage language, AppTheme theme, bool expectHealthyCollapsed, string? directory)
+        UiLanguage language, AppTheme theme, int zoom, bool expectHealthyCollapsed, string? directory)
     {
         var healthy = provider == UsageProviderId.Cursor
             ? CursorAccount(CursorSnapshot())
@@ -139,16 +139,18 @@ internal static class WidgetStatusRowChecks
         var widget = CreateWidget();
         try
         {
+            widget.SetZoom(zoom, notify: false);
             widget.BindAccounts([healthy], healthy.Profile.Id, UsagePeriodPreference.Auto,
                 WidgetFixture.Desktop, Now);
             var healthyModule = WidgetFixture.Module(widget);
             var healthyHeight = LayoutHeight(widget, healthyModule);
+            var healthyPeriodCount = healthyModule.Periods.Count;
             CheckHealthyModule(healthyModule, healthy.Snapshot, expectHealthyCollapsed,
                 provider + " transition healthy");
 
             var visibleHeight = MeasureWithStatusVisible(widget, healthyModule);
-            Check(visibleHeight - healthyHeight >= 5 - 0.01,
-                provider + " healthy footer did not remove its 5 DIP top margin from layout.");
+            Check(Math.Abs(visibleHeight - healthyHeight) < 0.01,
+                provider + " healthy footer did not reserve status space.");
 
             foreach (var (label, account) in FailureStates(provider))
             {
@@ -159,14 +161,17 @@ internal static class WidgetStatusRowChecks
                     && !string.IsNullOrWhiteSpace(module.StatusText.Text),
                     provider + " " + label + " hid its recovery/status footer.");
                 var withFooter = LayoutHeight(widget, module);
-                module.StatusArea.Visibility = Visibility.Collapsed;
+                module.StatusArea.Visibility = Visibility.Hidden;
                 var withoutFooter = LayoutHeight(widget, module);
                 module.StatusArea.Visibility = Visibility.Visible;
-                Check(withFooter - withoutFooter >= 5 - 0.01,
-                    provider + " " + label + " did not restore footer layout height.");
+                Check(Math.Abs(withFooter - withoutFooter) < 0.01,
+                    provider + " " + label + " changed height when hiding status content.");
+                if (module.Periods.Count == healthyPeriodCount)
+                    Check(Math.Abs(withFooter - healthyHeight) < 0.01,
+                        provider + " " + label + " changed height without changing quota rows.");
                 LayoutHeight(widget, module);
                 WidgetFixture.RenderWidget(widget, directory is null ? null : Path.Combine(directory,
-                    $"widget-status-{provider.ToString().ToLowerInvariant()}-{label}-{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"));
+                    $"widget-status-{provider.ToString().ToLowerInvariant()}-{label}-{LanguageSuffix(language)}-{ThemeSuffix(theme)}-{zoom}.png"));
                 CheckModuleShape(widget, module, account.Snapshot, provider + " " + label);
 
                 widget.BindAccounts([healthy], healthy.Profile.Id, UsagePeriodPreference.Auto,
@@ -174,10 +179,10 @@ internal static class WidgetStatusRowChecks
                 CheckHealthyModule(WidgetFixture.Module(widget), healthy.Snapshot, expectHealthyCollapsed,
                     provider + " recovered from " + label);
                 Check(Math.Abs(LayoutHeight(widget, WidgetFixture.Module(widget)) - healthyHeight) < 0.01,
-                    provider + " recovery did not return to the compact healthy height.");
+                    provider + " recovery changed the reserved healthy height.");
             }
 
-            // Rebinding the latest server result must collapse the row again, after every
+            // Rebinding the latest server result must hide the content again, after every
             // failure state, without losing the exact tooltip/detail metadata.
             widget.BindAccounts([healthy], healthy.Profile.Id, UsagePeriodPreference.Auto,
                 WidgetFixture.Desktop, Now);
@@ -185,7 +190,7 @@ internal static class WidgetStatusRowChecks
             CheckHealthyModule(recovered, healthy.Snapshot, expectHealthyCollapsed,
                 provider + " transition recovered");
             Check(LayoutHeight(widget, recovered) == healthyHeight,
-                provider + " recovery did not return to the compact healthy height.");
+                provider + " recovery changed the reserved healthy height.");
         }
         finally { widget.CloseWithoutActivation(); }
     }
@@ -194,6 +199,7 @@ internal static class WidgetStatusRowChecks
     {
         if (provider == UsageProviderId.Codex)
         {
+            yield return ("refreshing", CodexAccount("codex-status", "Codex account", CodexSnapshot().AsRefreshing()));
             var stale = CodexSnapshot() with { Status = CodexQuotaStatus.Stale,
                 LastSuccessfulRefresh = Now.AddMinutes(-12), TechnicalDetail = null };
             yield return ("stale", CodexAccount("codex-status", "Codex account", stale));
@@ -204,6 +210,7 @@ internal static class WidgetStatusRowChecks
         }
         if (provider == UsageProviderId.Cursor)
         {
+            yield return ("refreshing", CursorAccount(CursorSnapshot().AsRefreshing()));
             yield return ("stale", CursorAccount(CursorSnapshot(CodexQuotaStatus.Stale, "cursor-live-request-failed",
                 Now.AddHours(-3))));
             yield return ("request-failed", CursorAccount(CursorSnapshot(CodexQuotaStatus.Available,
@@ -215,6 +222,7 @@ internal static class WidgetStatusRowChecks
             yield break;
         }
 
+        yield return ("refreshing", ClaudeAccount(ClaudeSnapshot(ClaudeUsagePresentation.LiveDetail).AsRefreshing()));
         yield return ("stale", ClaudeAccount(ClaudeSnapshot("claude-live-request-failed",
             CodexQuotaStatus.Stale, Now.AddHours(-3))));
         yield return ("request-failed", ClaudeAccount(ClaudeSnapshot("claude-live-request-failed",
@@ -354,6 +362,9 @@ internal static class WidgetStatusRowChecks
         var expected = expectHealthyCollapsed ? Visibility.Collapsed : Visibility.Visible;
         Check(module.StatusText.Visibility == expected,
             label + " did not use the expected healthy server status-row visibility.");
+        if (expectHealthyCollapsed)
+            Check(module.StatusArea.Visibility == Visibility.Hidden,
+                label + " removed reserved status space.");
         Check(module.StatusText.Text.Contains(UiText.T("Updated", "업데이트됨"), StringComparison.Ordinal)
             || module.StatusText.Text.Contains(UiText.T("Updated from", "Claude 서버에서"), StringComparison.Ordinal),
             label + " lost the normal updated status text in its retained model/view.");
@@ -401,7 +412,7 @@ internal static class WidgetStatusRowChecks
         module.StatusArea.Visibility = Visibility.Visible;
         module.StatusText.Visibility = Visibility.Visible;
         var height = LayoutHeight(widget, module);
-        module.StatusArea.Visibility = Visibility.Collapsed;
+        module.StatusArea.Visibility = Visibility.Hidden;
         module.StatusText.Visibility = Visibility.Collapsed;
         LayoutHeight(widget, module);
         return height;
