@@ -115,10 +115,8 @@ internal static class CursorWidgetSummaryChecks
             && accounts.All(account => account.Snapshot.Status is CodexQuotaStatus.Available or CodexQuotaStatus.Refreshing)
             && accounts.All(account => account.Snapshot.Windows.All(window => window.RemainingAmount is null));
         if (compactStandard)
-            // Keep the earlier 192-DIP summary budget plus the reserved 30-DIP status
-            // area and its 5-DIP margin, independently of status visibility.
-            Check(content.ActualHeight <= 192 + 35 + tolerance,
-                $"{name}: standard Cursor summary with reserved status grew beyond 227 DIP ({content.ActualHeight:0.##}).");
+            Check(content.ActualHeight <= 192 + tolerance,
+                $"{name}: standard Cursor summary grew beyond 192 DIP ({content.ActualHeight:0.##}).");
 
         for (var index = 0; index < widget.Modules.Count; index++)
         {
@@ -250,8 +248,8 @@ internal static class CursorWidgetSummaryChecks
                 $"{name}: unknown Cursor values were hidden or replaced with zero.");
         if (source.Status == CodexQuotaStatus.Available
             && source.Windows.All(window => window.RemainingAmount is null))
-            Check(module.ActualHeight <= 150 + 35,
-                $"{name}: Cursor summary expanded beyond its compact module plus reserved status height.");
+            Check(module.ActualHeight <= 150,
+                $"{name}: Cursor summary expanded beyond its compact module height.");
         if (model.IsStale)
             Check(module.StatusText.Visibility == Visibility.Visible
                 && model.StatusPresentation is { IsWarning: true }

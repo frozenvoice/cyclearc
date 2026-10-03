@@ -703,7 +703,7 @@ internal static class MixedProviderUiChecks
         Check(module.StatusAgeText.Visibility == Visibility.Visible
             && module.StatusAgeText.Text.StartsWith(ClaudeUsagePresentation.ReceiptLabel(snapshot) + " ", StringComparison.Ordinal)
             && !module.StatusAgeText.Text.Contains(Environment.NewLine, StringComparison.Ordinal)
-            && (module.StatusArea.ToolTip as string ?? "").Contains(ClaudeUsagePresentation.LastReceivedText(snapshot), StringComparison.Ordinal),
+            && module.StatusDetailText.Text.Contains(ClaudeUsagePresentation.LastReceivedText(snapshot), StringComparison.Ordinal),
             "Claude widget lost its original receipt label, age or exact receipt timestamp.");
         if (!warning) return;
         static double Luminance(Color color)

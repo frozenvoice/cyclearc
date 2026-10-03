@@ -13,9 +13,9 @@ using CycleArc.UI;
 namespace CycleArc.UiSmoke;
 
 /// <summary>
-/// Exercises the production widget's account status footer. The fixtures are deliberately
+/// Exercises the production widget's header status indicator. The fixtures are deliberately
 /// offline and date-stable: they cover the exact server projections as well as the local
-/// Claude receipts that must continue to retain their freshness row.
+/// Claude receipts that must continue to retain their freshness details.
 /// </summary>
 internal static class WidgetStatusRowChecks
 {
@@ -52,7 +52,7 @@ internal static class WidgetStatusRowChecks
         UiText.SetLanguage(UiLanguage.English);
         applyTheme.Invoke(null, [AppTheme.Dark]);
         Console.WriteLine(expectHealthyCollapsed
-            ? "PASS: widget reserved status space, stable refresh/failure recovery, Claude source preservation and EN/KO Dark/Light 80/100/150 layouts."
+            ? "PASS: compact widget header indicators, stable refresh/failure recovery, Claude source preservation and EN/KO Dark/Light 80/100/150 layouts."
             : "PASS: 36 original production WPF status-row baseline captures in EN/KO Dark/Light 80/100/150.");
     }
 
@@ -144,24 +144,31 @@ internal static class WidgetStatusRowChecks
                 WidgetFixture.Desktop, Now);
             var healthyModule = WidgetFixture.Module(widget);
             var healthyHeight = LayoutHeight(widget, healthyModule);
+            Check(healthyHeight <= (provider == UsageProviderId.Cursor ? 150 : 112),
+                provider + " healthy module contains excess vertical space.");
             var healthyPeriodCount = healthyModule.Periods.Count;
             CheckHealthyModule(healthyModule, healthy.Snapshot, expectHealthyCollapsed,
                 provider + " transition healthy");
 
             var visibleHeight = MeasureWithStatusVisible(widget, healthyModule);
             Check(Math.Abs(visibleHeight - healthyHeight) < 0.01,
-                provider + " healthy footer did not reserve status space.");
+                provider + " header indicator changed the compact healthy height.");
 
             foreach (var (label, account) in FailureStates(provider))
             {
                 widget.BindAccounts([account], account.Profile.Id, UsagePeriodPreference.Auto,
                     WidgetFixture.Desktop, Now);
                 var module = WidgetFixture.Module(widget);
-                Check(module.StatusText.Visibility == Visibility.Visible
+                Check(module.StatusArea.Visibility == Visibility.Visible
+                    && module.StatusText.Visibility == Visibility.Visible
                     && !string.IsNullOrWhiteSpace(module.StatusText.Text),
-                    provider + " " + label + " hid its recovery/status footer.");
+                    provider + " " + label + " hid its status indicator or tooltip summary.");
+                var active = !module.Model!.StatusPresentation!.IsWarning
+                    && (account.Snapshot.Status == CodexQuotaStatus.Refreshing || account.IsSigningIn);
+                Check(module.StatusActivityIcon.Visibility == (active ? Visibility.Visible : Visibility.Collapsed),
+                    provider + " " + label + " displayed the wrong activity indicator.");
                 var withFooter = LayoutHeight(widget, module);
-                module.StatusArea.Visibility = Visibility.Hidden;
+                module.StatusArea.Visibility = Visibility.Collapsed;
                 var withoutFooter = LayoutHeight(widget, module);
                 module.StatusArea.Visibility = Visibility.Visible;
                 Check(Math.Abs(withFooter - withoutFooter) < 0.01,
@@ -179,7 +186,7 @@ internal static class WidgetStatusRowChecks
                 CheckHealthyModule(WidgetFixture.Module(widget), healthy.Snapshot, expectHealthyCollapsed,
                     provider + " recovered from " + label);
                 Check(Math.Abs(LayoutHeight(widget, WidgetFixture.Module(widget)) - healthyHeight) < 0.01,
-                    provider + " recovery changed the reserved healthy height.");
+                    provider + " recovery changed the compact healthy height.");
             }
 
             // Rebinding the latest server result must hide the content again, after every
@@ -190,7 +197,7 @@ internal static class WidgetStatusRowChecks
             CheckHealthyModule(recovered, healthy.Snapshot, expectHealthyCollapsed,
                 provider + " transition recovered");
             Check(LayoutHeight(widget, recovered) == healthyHeight,
-                provider + " recovery changed the reserved healthy height.");
+                provider + " recovery changed the compact healthy height.");
         }
         finally { widget.CloseWithoutActivation(); }
     }
@@ -341,14 +348,22 @@ internal static class WidgetStatusRowChecks
                     Check(module.RingValueText.Foreground == (Brush)Application.Current.FindResource("TextBrush"),
                         "A status warning recolored the quota number.");
                     Check(!string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetHelpText(module))
-                        && module.StatusArea.ToolTip is string { Length: > 0 },
+                        && ReferenceEquals(module.StatusArea.ToolTip, module.StatusTooltip)
+                        && module.StatusDetailText.Text.Length > 0,
                         "The status region lost its detailed tooltip/accessibility explanation.");
-                    var area = module.StatusArea;
+                    var area = (FrameworkElement)module.StatusTooltip.Content;
+                    Arrange(area, 300, 300);
                     var summary = module.StatusText.TransformToAncestor(area).TransformBounds(new Rect(module.StatusText.RenderSize));
                     var age = module.StatusAgeText.TransformToAncestor(area).TransformBounds(new Rect(module.StatusAgeText.RenderSize));
                     Check(summary.Right <= area.ActualWidth + 0.5 && age.Right <= area.ActualWidth + 0.5
                         && age.Bottom <= area.ActualHeight + 0.5,
-                        "The two-line status text escapes its measured region.");
+                        "The status tooltip text escapes its measured region.");
+                    var indicator = module.StatusArea.TransformToAncestor(module)
+                        .TransformBounds(new Rect(module.StatusArea.RenderSize));
+                    var name = module.NameText.TransformToAncestor(module)
+                        .TransformBounds(new Rect(module.NameText.RenderSize));
+                    Check(indicator.Bottom <= name.Bottom + 4 && indicator.Top >= name.Top - 4,
+                        "A warning icon moved outside the existing identity line.");
                 }
                 WidgetMultiAccountChecks.CheckAlignment(widget, "common warning " + count);
             }
@@ -363,8 +378,8 @@ internal static class WidgetStatusRowChecks
         Check(module.StatusText.Visibility == expected,
             label + " did not use the expected healthy server status-row visibility.");
         if (expectHealthyCollapsed)
-            Check(module.StatusArea.Visibility == Visibility.Hidden,
-                label + " removed reserved status space.");
+            Check(module.StatusArea.Visibility == Visibility.Collapsed,
+                label + " retained a healthy status indicator or reserved space.");
         Check(module.StatusText.Text.Contains(UiText.T("Updated", "업데이트됨"), StringComparison.Ordinal)
             || module.StatusText.Text.Contains(UiText.T("Updated from", "Claude 서버에서"), StringComparison.Ordinal),
             label + " lost the normal updated status text in its retained model/view.");
@@ -412,7 +427,7 @@ internal static class WidgetStatusRowChecks
         module.StatusArea.Visibility = Visibility.Visible;
         module.StatusText.Visibility = Visibility.Visible;
         var height = LayoutHeight(widget, module);
-        module.StatusArea.Visibility = Visibility.Hidden;
+        module.StatusArea.Visibility = Visibility.Collapsed;
         module.StatusText.Visibility = Visibility.Collapsed;
         LayoutHeight(widget, module);
         return height;

@@ -50,7 +50,7 @@ internal static class WidgetLayoutChecks
         applyTheme.Invoke(null, [AppTheme.Dark]);
         count += RelayoutOrder(directory);
         count += RelayoutQueueDoesNotTouchAClosedWindow();
-        count += BindingResizesTheShownWindow();
+        count += BindingResizesTheShownWindow(directory);
         Console.WriteLine($"PASS: {count} widget layout checks; mixed-height work-area scroll, monitor relayout without a usage bind, scrollbar thumb vs window drag, header refresh button at 1/3/5 accounts, account-bind native resize; synthetic accounts only.");
     }
 
@@ -473,7 +473,7 @@ internal static class WidgetLayoutChecks
     /// Production Update() must apply the arranged size on the same HWND. The check does
     /// not call Relayout or ApplyNativeSize after Update: those belong to the bind path.
     /// </summary>
-    private static int BindingResizesTheShownWindow()
+    private static int BindingResizesTheShownWindow(string? directory)
     {
         var focus = new Window
         {
@@ -603,7 +603,9 @@ internal static class WidgetLayoutChecks
             var refreshing = both with { Snapshot = both.Snapshot.AsRefreshing() };
             controller.Update(settings, UsageAccountOverview.Create([refreshing], refreshing.Profile.Id));
             Pump();
-            Check(window.Modules[0].StatusText.Visibility == Visibility.Visible,
+            Check(window.Modules[0].StatusArea.Visibility == Visibility.Visible
+                && window.Modules[0].StatusActivityIcon.Visibility == Visibility.Visible
+                && ((RotateTransform)window.Modules[0].StatusActivityIcon.RenderTransform).HasAnimatedProperties,
                 "Refresh status did not appear after Update().");
             CheckWindowMatchesLayout(window, "bind-refreshing");
             CheckAccountsFullyVisible(window, "bind-refreshing");
@@ -614,8 +616,11 @@ internal static class WidgetLayoutChecks
             var stale = both with { Snapshot = both.Snapshot with { Status = CodexQuotaStatus.Stale } };
             controller.Update(settings, UsageAccountOverview.Create([stale], stale.Profile.Id));
             Pump();
-            Check(window.Modules[0].StatusText.Visibility == Visibility.Visible,
-                "Status text did not appear after Update().");
+            var warningModule = window.Modules[0];
+            Check(warningModule.StatusArea.Visibility == Visibility.Visible
+                && warningModule.StatusWarningIcon.Visibility == Visibility.Visible
+                && !((RotateTransform)warningModule.StatusActivityIcon.RenderTransform).HasAnimatedProperties,
+                "Warning indicator did not replace the refresh animation after Update().");
             CheckWindowMatchesLayout(window, "bind-status");
             CheckAccountsFullyVisible(window, "bind-status");
             var staleLayout = window.LastLayout!.Height;
@@ -624,10 +629,29 @@ internal static class WidgetLayoutChecks
                 $"Status text changed the arranged height ({bothLayout} → {staleLayout}).");
             Check(Math.Abs(staleNative.Height - bothNative.Height) < 0.01,
                 $"Status text changed the HWND height ({bothNative.Height} → {staleNative.Height}).");
+            warningModule.StatusTooltip.PlacementTarget = warningModule.StatusArea;
+            warningModule.StatusTooltip.IsOpen = true;
+            Pump();
+            try
+            {
+                Check(warningModule.StatusTooltip.ActualWidth > 0
+                    && warningModule.StatusText.IsVisible && warningModule.StatusAgeText.IsVisible
+                    && warningModule.StatusDetailText.IsVisible,
+                    "Opening the status tooltip did not reveal summary, age and full details.");
+                Check(Math.Abs(window.LastLayout!.Height - bothLayout) < 0.01
+                    && Math.Abs(NativeDipSize(window).Height - bothNative.Height) < 0.01,
+                    "Opening the status tooltip resized the widget.");
+                if (directory is not null)
+                    AccountUiChecks.RenderCurrent(warningModule.StatusTooltip,
+                        Path.Combine(directory, "widget-status-tooltip.png"));
+            }
+            finally { warningModule.StatusTooltip.IsOpen = false; }
             controller.Update(settings, UsageAccountOverview.Create([both], both.Profile.Id));
             Pump();
-            Check(window.Modules[0].StatusText.Visibility != Visibility.Visible,
-                "Status text stayed after it was cleared.");
+            Check(window.Modules[0].StatusArea.Visibility == Visibility.Collapsed
+                && !window.Modules[0].StatusTooltip.IsOpen
+                && !((RotateTransform)window.Modules[0].StatusActivityIcon.RenderTransform).HasAnimatedProperties,
+                "Status indicator, tooltip or animation stayed after recovery.");
             CheckWindowMatchesLayout(window, "bind-status-cleared");
             var clearedNative = NativeDipSize(window);
             Check(Math.Abs(clearedNative.Height - staleNative.Height) < 0.01,
