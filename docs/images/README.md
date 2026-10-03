@@ -11,7 +11,7 @@ cards; the account list, widget and tray retain their existing content policy.
 
 | New evidence | Meaning |
 | --- | --- |
-| `widget-common-warning-synthetic-3-{en,ko}-{dark,light}-100.png` | Same stale warning on Codex, Claude and Cursor; local Claude receipt keeps Last received while the others show Last checked; ring colors still follow usage |
+| `widget-common-warning-synthetic-3-{en,ko}-{dark,light}-100.png` | Same stale header warning icon on Codex, Claude and Cursor; tooltips retain Last received for local Claude receipts and Last checked for the others; ring colors still follow usage |
 | `usage-card-codex-ko-dark-expanded.png` | Decimal credit balance and original check time, separate from reset credits |
 | `usage-card-claude-en-light-expanded.png` | Synthetic monthly spend/cap and calculated remainder |
 | `usage-card-cursor-ko-light-collapsed.png` | One-line personal on-demand summary |
@@ -49,7 +49,7 @@ Historical before/after comparisons were not regenerated.
 | `claude-overview-{en,ko}-{dark,light}.png` | Research selected with a Desktop history fallback: 91% five-hour / 47% weekly, unknown resets, Received and original observation time |
 | `claude-connection-{en,ko}-{dark,light}.png` | Official CLI connection choices, existing Desktop login for server checks and manual usage-page access; advanced settings collapsed |
 | `cursor-popup-{en,ko}-{dark,light}.png` | Cursor Models and Other Models monthly allowances, Grok Bot weekly allowance, named usage ring, each reset named and counted down under its value, disabled on-demand and the shared Last checked row |
-| `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary with integer used/remaining percentages and a named ring; healthy server status hides its content within reserved footer space, with exact values/times and omitted budgets in tooltips/detail |
+| `cursor-widget-{en,ko}-{dark,light}.png` | Cursor Models / Other Models monthly and Grok Bot weekly summary with integer used/remaining percentages and a named ring; healthy server status hides its header icon, with exact values/times and omitted budgets in tooltips/detail |
 | `widget-status-{before,after}-{en,ko}-{dark,light}.png` | Actual WPF Codex / Claude / Cursor accounts before and after collapsing healthy server status rows, at unchanged 100% width and typography |
 | `cursor-widget-summary-{before,after}-{en,ko}-{dark,light}.png` | Fixed synthetic Codex / Cursor / Claude accounts in the actual WPF widget, before and after the Cursor summary change at 100% zoom |
 | `cursor-widget-compact-{before,after}-{en,ko}-{dark,light}.png` | The follow-up comparison from `f0a9964`: the same synthetic mixed accounts, with the repeated ring target moved inside the ring at unchanged width/font sizes |
@@ -199,13 +199,27 @@ Checked-in examples: [Codex](usage-percent-codex-en-light.png),
 [widget boundary](usage-percent-cursor-ko-light-boundary.png), and
 [tiny detail boundary](usage-percent-codex-en-dark-tiny.png).
 
-The 2026-10-03 widget reserves a 30-DIP, two-line status area plus its existing 5-DIP
-top margin. Healthy server status hides the content while keeping that space, so
-checking, retry, failure and recovery text do not resize the widget. EN/KO,
-Dark/Light and 80/100/150% transition checks use `--widget-status <directory>`.
-The native `--widget-layout <directory>` checks also assert unchanged HWND height,
-position and saved-position events through checking, stale and healthy states.
-Current widget previews use this layout; historical before/after evidence stays intact.
+The earlier 2026-10-03 reserved-footer implementation kept a 30-DIP, two-line status
+area plus a 5-DIP top margin. That implementation is superseded by account-header
+status icons, which remove all 35 DIP of footer space. Healthy server data hides the
+icon; checking shows a rotating arc unless an existing warning takes priority, and
+attention states show a warning triangle. Other states use pending/information icons.
+Full status, original checked/received age and details remain in tooltips and accessible
+name/help. Provider badges and quota presentation keep their own meaning.
+
+EN/KO, Dark/Light and 80/100/150% transition checks passed with
+`--widget-status artifacts/widget-inline-status`; healthy Codex/Claude modules measure
+109 DIP and three-allowance Cursor modules measure 137 DIP at 100% zoom. The native
+`--widget-layout artifacts/widget-inline-status/native-layout` run passed 151 checks,
+including unchanged HWND height while animations run, warnings replace them and the
+tooltip displays full status. The final `dev-run.ps1 -NoLaunch -Fast` gate passed in
+3m18.7s. Current exports in `artifacts/widget-inline-status/current-previews` passed
+36 `--screenshots` views, EN/KO Dark/Light `--cursor-ui` and 148 `--ring-bands` cases.
+The affected current image set is `widget.png`, four `cursor-widget-*` images, four
+`ring-bands-widget-*` images and four `widget-common-warning-synthetic-3-*` images.
+All 13 images were visually inspected and copied into this directory: provider badges
+and quota do not overlap, healthy views have no footer space, and EN/KO Dark/Light
+warning icons sit within the account headers. Historical before/after evidence stays intact.
 
 The historical healthy-status follow-up uses `WidgetStatusRowChecks` and a fixed 2035-06-07 timestamp.
 The before images render the production model/view from `5875b52`; after images use the

@@ -297,13 +297,13 @@ internal static class Program
                         || (attention && string.IsNullOrEmpty(notice.Text)))
                         throw new InvalidOperationException($"Incorrect widget notice for {status}.");
                 }
-                WidgetFixture.BindSnapshot(widget, snapshot); // Recovery hides the failure text and retains its space.
+                WidgetFixture.BindSnapshot(widget, snapshot); // Recovery removes the header indicator.
                 var recoveredModule = WidgetFixture.Module(widget);
                 var recovered = recoveredModule.StatusText;
                 if (recovered.Visibility != Visibility.Collapsed
-                    || recoveredModule.StatusArea.Visibility != Visibility.Hidden
+                    || recoveredModule.StatusArea.Visibility != Visibility.Collapsed
                     || recoveredModule.Model!.StatusPresentation is not { ShowRow: false, IsWarning: false }
-                    || recoveredModule.StatusArea.ToolTip is not string { Length: > 0 })
+                    || recoveredModule.StatusDetailText.Text.Length == 0)
                     throw new InvalidOperationException("Widget notice remains after recovery.");
                 CheckWidgetAccountBinding(widget, now);
                 Window[] windows = [flyout, widget,

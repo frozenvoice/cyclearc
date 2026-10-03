@@ -2,7 +2,35 @@
 
 ## Current work — Codex, Claude and Cursor
 
-- Stable widget height across status changes (2026-10-03):
+- Widget header status icons (2026-10-03):
+  - The replacement design removes the status footer and its reserved 35-DIP space.
+    Status moves to a small account-header icon: a rotating arc during refresh, a warning
+    triangle for attention states and pending/information icons for other states. Healthy
+    server status hides the icon. Full summary, original checked/received age and detail
+    remain in tooltips and accessible name/help, separate from provider badges and quotas.
+    Existing failure or previous-data warnings retain priority during refresh and show
+    the warning triangle instead of the rotating arc until recovery.
+  - `--widget-status artifacts/widget-inline-status` passed in EN/KO, Dark/Light and
+    80/100/150% zoom. At 100%, healthy Codex/Claude modules measure 109 DIP and a
+    three-allowance Cursor module measures 137 DIP; their full `LastLayout` heights are
+    165 and 193 DIP respectively, with the former 35-DIP footer space removed.
+  - `--widget-layout artifacts/widget-inline-status/native-layout` passed 151 checks.
+    Actual HWND checks verify the rotating animation plays, stops when status becomes
+    a warning, and leaves height unchanged when the tooltip shows summary, original
+    checked/received age and details. Recovery clears the icon, animation and tooltip.
+  - The final `dev-run.ps1 -NoLaunch -Fast` gate passed with exit code 0 in 3m18.7s;
+    evidence: `artifacts/widget-inline-status/dev-run.log`. Release build, desktop-instance
+    checks, installer/build-local regressions, all production UiSmoke, test-flavour build,
+    single-file publish, packaging and package verification passed. Unchanged Core/unit
+    code reused the preceding 1,998/1,998 passing result.
+  - Current-layout exports under `artifacts/widget-inline-status/current-previews` passed
+    36 `--screenshots` views, EN/KO Dark/Light `--cursor-ui` and 148 `--ring-bands` cases.
+    All 13 affected current widget previews were visually inspected and copied to
+    `docs/images`: provider badges and quota do not overlap, healthy views have no footer
+    space, and header warning icons are visible in EN/KO and Dark/Light. Historical
+    comparison images remain unchanged.
+
+- Earlier reserved-footer widget height implementation (2026-10-03):
   - Each account module reserves 30 DIP for two status lines plus the existing 5-DIP
     top margin. Healthy status hides only the content. Refresh, retry, ordinary failure
     and successful recovery keep the same height; account-count or quota-item changes

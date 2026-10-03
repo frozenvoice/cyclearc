@@ -1,4 +1,5 @@
 using System.Windows.Controls;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using CycleArc.Codex;
 using CycleArc.Providers.Cursor;
@@ -28,6 +29,7 @@ public sealed class WidgetAccountModuleView : Border
     private readonly ArcSegment _ringSegment = new() { SweepDirection = SweepDirection.Clockwise };
     private readonly StackPanel _periodPanel = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid _ringHost = new() { Width = RingDiameter, Height = RingDiameter, VerticalAlignment = VerticalAlignment.Top };
+    private readonly RotateTransform _statusRotation = new();
 
     // Selection is a short accent pill on a slightly lifted surface. The surface and its neutral
     // border mark the area; the accent stays this small so it never reads as a divider or as
@@ -81,18 +83,40 @@ public sealed class WidgetAccountModuleView : Border
         LineHeight = 14, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
         Margin = new Thickness(0, 2, 0, 0), Visibility = Visibility.Collapsed
     };
-    // Reserve both status lines even when healthy or before the first receipt. Showing a
-    // check/retry notice must not resize the widget or move a bottom-anchored window.
-    public StackPanel StatusArea { get; } = new()
+    // Status belongs to the existing identity line. Its tooltip can grow independently
+    // of the widget; there is no footer or reserved vertical space in a healthy module.
+    public Grid StatusArea { get; } = new()
     {
-        Height = 30, Margin = new Thickness(0, 5, 0, 0), Visibility = Visibility.Hidden
+        Width = 14, Height = 14, Margin = new Thickness(4, 0, 0, 0),
+        VerticalAlignment = VerticalAlignment.Center, Background = System.Windows.Media.Brushes.Transparent,
+        Visibility = Visibility.Collapsed
+    };
+    public System.Windows.Controls.ToolTip StatusTooltip { get; } = new() { MaxWidth = 320 };
+    public TextBlock StatusDetailText { get; } = new()
+    {
+        FontSize = 10.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 292,
+        Margin = new Thickness(0, 4, 0, 0)
     };
     public Path StatusWarningIcon { get; } = new()
     {
         Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 1.35,
         StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
         Data = Geometry.Parse("M6,1 L11,10 L1,10 Z M6,4 L6,6.5 M6,8 L6,8.3"),
-        Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+        Visibility = Visibility.Collapsed
+    };
+    public Path StatusActivityIcon { get; } = new()
+    {
+        Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 1.5,
+        StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+        Data = Geometry.Parse("M6,1 A5,5 0 1 1 1,6"),
+        RenderTransformOrigin = new System.Windows.Point(0.5, 0.5), Visibility = Visibility.Collapsed
+    };
+    public Path StatusInfoIcon { get; } = new()
+    {
+        Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 1.35,
+        StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+        Data = Geometry.Parse("M6,1 A5,5 0 1 1 6,11 A5,5 0 1 1 6,1 M6,5 L6,8 M6,3 L6,3.2"),
         Visibility = Visibility.Collapsed
     };
 
@@ -122,7 +146,17 @@ public sealed class WidgetAccountModuleView : Border
         RingTargetText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         StatusText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         StatusAgeText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        StatusDetailText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         StatusWarningIcon.SetResourceReference(Shape.StrokeProperty, "StaleBrush");
+        StatusActivityIcon.SetResourceReference(Shape.StrokeProperty, "AccentBrush");
+        StatusInfoIcon.SetResourceReference(Shape.StrokeProperty, "MutedBrush");
+        StatusActivityIcon.RenderTransform = _statusRotation;
+        Loaded += (_, _) => UpdateStatusAnimation();
+        Unloaded += (_, _) =>
+        {
+            UpdateStatusAnimation();
+            StatusTooltip.IsOpen = false;
+        };
         _ringTrack.SetResourceReference(Shape.StrokeProperty, "LineBrush");
 
         _ringArc.Data = new PathGeometry { Figures = { _ringFigure } };
@@ -139,9 +173,11 @@ public sealed class WidgetAccountModuleView : Border
         var identity = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(_avatarHost, Dock.Left);
         DockPanel.SetDock(_badge, Dock.Right);
+        DockPanel.SetDock(StatusArea, Dock.Right);
         _badge.Margin = new Thickness(6, 0, 0, 0);
         identity.Children.Add(_avatarHost);
         identity.Children.Add(_badge);
+        identity.Children.Add(StatusArea);
         identity.Children.Add(NameText);
 
         var body = new Grid { Margin = new Thickness(0, 7, 0, 0) };
@@ -155,13 +191,16 @@ public sealed class WidgetAccountModuleView : Border
         var content = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
         content.Children.Add(identity);
         content.Children.Add(body);
-        var statusHeader = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(StatusWarningIcon, Dock.Left);
-        statusHeader.Children.Add(StatusWarningIcon);
-        statusHeader.Children.Add(StatusText);
-        StatusArea.Children.Add(statusHeader);
-        StatusArea.Children.Add(StatusAgeText);
-        content.Children.Add(StatusArea);
+        StatusArea.Children.Add(StatusWarningIcon);
+        StatusArea.Children.Add(StatusActivityIcon);
+        StatusArea.Children.Add(StatusInfoIcon);
+        var statusDetails = new StackPanel();
+        statusDetails.Children.Add(StatusText);
+        statusDetails.Children.Add(StatusAgeText);
+        statusDetails.Children.Add(StatusDetailText);
+        StatusTooltip.Content = statusDetails;
+        StatusArea.ToolTip = StatusTooltip;
+        ToolTipService.SetInitialShowDelay(StatusArea, 150);
         var surface = new Grid();
         surface.Children.Add(content);
         surface.Children.Add(_selectionPill);
@@ -214,19 +253,28 @@ public sealed class WidgetAccountModuleView : Border
 
         StatusText.Text = model.StatusText;
         StatusText.Visibility = model.ShowStatusRow ? Visibility.Visible : Visibility.Collapsed;
-        StatusArea.Visibility = model.ShowStatusRow ? Visibility.Visible : Visibility.Hidden;
+        StatusArea.Visibility = model.ShowStatusRow ? Visibility.Visible : Visibility.Collapsed;
         var status = model.StatusPresentation;
         var warning = status?.IsWarning ?? model.IsStale;
         StatusAgeText.Text = status?.AgeText ?? "";
         StatusAgeText.Visibility = model.ShowStatusRow && !string.IsNullOrEmpty(StatusAgeText.Text)
             ? Visibility.Visible : Visibility.Collapsed;
         StatusWarningIcon.Visibility = model.ShowStatusRow && warning ? Visibility.Visible : Visibility.Collapsed;
-        StatusArea.ToolTip = status?.DetailText ?? model.Tooltip;
-        StatusText.ToolTip = StatusArea.ToolTip;
-        StatusAgeText.ToolTip = StatusArea.ToolTip;
+        var active = model.ShowStatusRow && !warning
+            && (account.Snapshot.Status == CodexQuotaStatus.Refreshing || account.IsSigningIn);
+        StatusActivityIcon.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+        StatusInfoIcon.Visibility = model.ShowStatusRow && !warning && !active ? Visibility.Visible : Visibility.Collapsed;
+        var details = status?.DetailText ?? model.Tooltip;
+        StatusDetailText.Text = string.Join(Environment.NewLine, details.Split(Environment.NewLine)
+            .Where(line => line != model.StatusText));
+        StatusText.ToolTip = details;
+        StatusAgeText.ToolTip = details;
         StatusText.SetResourceReference(TextBlock.ForegroundProperty, status?.BrushKey ?? (warning ? "StaleBrush" : "MutedBrush"));
         StatusText.FontWeight = warning ? FontWeights.SemiBold : FontWeights.Normal;
-        System.Windows.Automation.AutomationProperties.SetHelpText(StatusArea, status?.DetailText ?? model.Tooltip);
+        System.Windows.Automation.AutomationProperties.SetName(StatusArea, model.StatusText);
+        System.Windows.Automation.AutomationProperties.SetHelpText(StatusArea, details);
+        UpdateStatusAnimation();
+        if (!model.ShowStatusRow) StatusTooltip.IsOpen = false;
 
         IsSelected = model.IsSelected;
         ApplySurface();
@@ -238,6 +286,21 @@ public sealed class WidgetAccountModuleView : Border
         // BindAccounts measures immediately, before WPF propagates quota-row changes.
         ((FrameworkElement)Child).InvalidateMeasure();
         InvalidateMeasure();
+    }
+
+    private void UpdateStatusAnimation()
+    {
+        if (IsLoaded && StatusActivityIcon.Visibility == Visibility.Visible)
+        {
+            if (!_statusRotation.HasAnimatedProperties)
+                _statusRotation.BeginAnimation(RotateTransform.AngleProperty,
+                    new DoubleAnimation(0, 360, TimeSpan.FromSeconds(1)) { RepeatBehavior = RepeatBehavior.Forever });
+        }
+        else
+        {
+            _statusRotation.BeginAnimation(RotateTransform.AngleProperty, null);
+            _statusRotation.Angle = 0;
+        }
     }
 
     private static string AutomationText(WidgetAccountModel model)
@@ -282,7 +345,7 @@ public sealed class WidgetAccountModuleView : Border
         _ringHost.ToolTip = UsageRingBands.WithLabel(
             ring.RemainingSubLabel.Replace(Environment.NewLine, " ") + " " + ring.RemainingValueText
                 + " · " + UiText.CodexLegendUsed + " " + ring.CenterValueText, ring);
-        // Quota colors describe the last received values. Freshness has its own status row.
+        // Quota colors describe the last received values. Freshness has its own header icon.
         RingValueText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         var arcBrushKey = UsageRingBands.ArcBrushKey(ring.Band);
         _ringArc.SetResourceReference(Shape.StrokeProperty, arcBrushKey);
