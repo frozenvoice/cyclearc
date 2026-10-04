@@ -50,9 +50,38 @@
   - The live 0.6.1.0 installation remained running as the same PID at its legacy root,
     with unchanged SHA-256 `639C9E707C882650F4F1C3B1DBF2F6C47DE0DD8718245908C33B1D5E1CB9FE1B`.
     No live provider login was read or renewed by these tests. No public release was made.
-    Disposable installed CI is the remaining verification step. Historical compatibility
-    builds use pinned 0.9.1 source with synthetic E2E feed hooks and the current Setup
-    wrapper; they are not the unmodified public 0.9.1 binary.
+  - Clean [Windows PR verification](https://github.com/frozenvoice/cyclearc/actions/runs/37225018516)
+    passed for executable commit `91de6c31de6264c61e17b196c9e5a8f6cb556396`:
+    SDK 10.0.401, 1,998/1,998 tests and the full shared gate in 7m11.8s, plus both
+    disposable installed-artifact jobs. Fresh Setup installed into
+    `%LOCALAPPDATA%\Programs\CycleArc`, reported desktop readiness and matched packed
+    app SHA-256 `3F296B36C8B55BECF86D3FF8034583AD3919F8EBDA19713A5A2A9E8F292ADD73`;
+    same-version repair kept that hash. Setup UI verified cancel, Run unchecked,
+    desktop-shortcut opt-in/opt-out repairs and the stable launcher target. Confirmation,
+    progress and completion screenshots were downloaded and visually checked.
+    Local evidence: `artifacts/dotnet10/ci-windows.log` and `ci-setup-ui/`.
+  - [Disposable installed E2E](https://github.com/frozenvoice/cyclearc/actions/runs/37225030120)
+    passed all 14 stages in 4m3s on that same executable commit. The pinned 0.9.1
+    source baseline used SDK 8.0.425; the current source used SDK 10.0.401.
+    Historical compatibility builds use synthetic E2E feed hooks and the current
+    Setup wrapper; they are not the unmodified public 0.9.1 binary.
+    It installed .NET 8 / 0.9.1, attempted a deliberately failing .NET 10 / 0.10.1
+    update and restored the .NET 8 app, successfully updated to .NET 10 / 0.10.0,
+    then repeated failed-start recovery back to 0.10.0 and removed the installation.
+    Both failures actually exited before desktop readiness; both recovery markers
+    reached `completed:restored`, with the exact prior executable hash, one installed
+    desktop process, unchanged account/connection bytes and working callbacks.
+    Removal restored the user's statusLine, removed only owned callbacks and preserved
+    unrelated hooks, accounts, connections and usage. Evidence:
+    `artifacts/dotnet10/ci-installed-e2e.log`; artifact `installed-e2e-37225030120-1`.
+    Restored baseline SHA-256 `BDD8897FD6ECD45763901F5235923E845619A5CF04BDFBB783A72E9D9FB78FD6`;
+    restored 0.10.0 SHA-256 `62ACD7F69D86735202DE9D0B57DCB12BBF440E58CA74ED3ECDB22D0CA6867D36`.
+  - The final evidence-only documentation commit reuses the verified executable SHA
+    above; it does not claim new executable validation or repeat the shared gate.
+    Remaining platform scope: no Windows 10 LTSC physical/VM run or real-provider
+    credential compatibility session was performed. Signing still requires an approved
+    identity/procedure. Public release and actual-user installation require their
+    existing authorization and delivery procedure.
 
 - Widget header status icons (2026-10-03):
   - The replacement design removes the status footer and its reserved 35-DIP space.
