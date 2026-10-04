@@ -1,6 +1,11 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 
+[assembly: InternalsVisibleTo("CycleArc.PassiveMeasure")]
+
 namespace CycleArc.Providers.Claude;
+
+internal enum ClaudeDesktopUsageReadOperation { FileOpened, ParseInvoked }
 
 /// <summary>One usage-history sample written by Claude Desktop.</summary>
 public sealed record ClaudeDesktopUsageSample(DateTimeOffset ObservedAt, double? FiveHour, double? SevenDay);
@@ -27,9 +32,14 @@ public sealed class ClaudeDesktopUsageReader
     };
 
     private readonly IReadOnlyList<string> _paths;
+    private readonly Action<ClaudeDesktopUsageReadOperation>? _observe;
 
-    public ClaudeDesktopUsageReader(IEnumerable<string>? paths = null)
+    public ClaudeDesktopUsageReader(IEnumerable<string>? paths = null) : this(paths, null) { }
+
+    // Opt-in synthetic measurement receives operation counts only. Normal readers have no observer.
+    internal ClaudeDesktopUsageReader(IEnumerable<string>? paths, Action<ClaudeDesktopUsageReadOperation>? observe)
     {
+        _observe = observe;
         var candidates = paths ?? DiscoverDefaultPaths();
         _paths = candidates
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -176,12 +186,13 @@ public sealed class ClaudeDesktopUsageReader
         catch (ArgumentException) { return new(null, true); }
     }
 
-    private static ClaudeDesktopUsageRead ReadFile(string path, string organizationId, DateTimeOffset now)
+    private ClaudeDesktopUsageRead ReadFile(string path, string organizationId, DateTimeOffset now)
     {
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete, 8192, FileOptions.SequentialScan);
+            _observe?.Invoke(ClaudeDesktopUsageReadOperation.FileOpened);
             using var buffer = new MemoryStream();
             var chunk = new byte[8192];
             while (true)
@@ -192,6 +203,7 @@ public sealed class ClaudeDesktopUsageReader
                 buffer.Write(chunk, 0, count);
             }
 
+            _observe?.Invoke(ClaudeDesktopUsageReadOperation.ParseInvoked);
             return Parse(buffer.ToArray(), organizationId, now);
         }
         catch (FileNotFoundException) { return new(null); }
@@ -227,14 +239,19 @@ public sealed class ClaudeDesktopUsageReader
         return true;
     }
 
-    private static bool IsObjectWithUniqueAllowedProperties(JsonElement value, params string[] allowed)
+    private static bool IsObjectWithUniqueAllowedProperties(JsonElement value,
+        string first, string second, string? third = null)
     {
         if (value.ValueKind != JsonValueKind.Object) return false;
-        var names = new HashSet<string>(allowed, StringComparer.Ordinal);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var seen = 0;
         foreach (var property in value.EnumerateObject())
         {
-            if (!names.Contains(property.Name) || !seen.Add(property.Name)) return false;
+            // NameEquals compares decoded names, including JSON escapes, without
+            // materializing strings or allocating per-object sets/params arrays.
+            var bit = property.NameEquals(first) ? 1 : property.NameEquals(second) ? 2
+                : third is not null && property.NameEquals(third) ? 4 : 0;
+            if (bit == 0 || (seen & bit) != 0) return false;
+            seen |= bit;
         }
         return true;
     }
