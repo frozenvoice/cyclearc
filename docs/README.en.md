@@ -31,6 +31,11 @@ The **Codex**, **Claude** or **Cursor** label on account cards, selected details
 
 [Download for Windows](https://github.com/frozenvoice/cyclearc/releases/latest) · [Multi-account examples](#accounts) · [한국어](README.ko.md) · [Quick start](../README.md) · [Report an issue](https://github.com/frozenvoice/cyclearc/issues)
 
+Current popup, widget and settings previews use the **0.10.0 development source** with
+synthetic accounts. The published stable release checked on **2026-10-05** is **0.9.1**;
+the latest-release link can change. Historical comparisons and sample update screens are
+labeled separately.
+
 <table>
   <tr>
     <td align="center"><strong>Dark</strong></td>
@@ -265,7 +270,7 @@ Usage comes from the Desktop live profile/usage check when available, then the o
 | Pin button | Keep the detail card on top |
 | `Ctrl` + `+` / `Ctrl` + `-` | Enlarge or reduce the focused window - the detail card or the widget |
 | `Ctrl` + `0` | Restore the focused window to 100% |
-| `-` / `+` in either header | The same step as the shortcut, for that window only |
+| Zoom out / Zoom in (magnifying-glass −/+ icons) in either header | The same step as the shortcut, for that window only |
 | Drag the widget | Move it and save its position; a finished drag never opens the popup |
 | Click a widget account | Select that account everywhere and open the usage popup |
 | Click the widget header or empty area | Give the widget the keyboard, without opening the popup |

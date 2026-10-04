@@ -5,8 +5,11 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Automation;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using CycleArc.Codex;
 using CycleArc.Models;
 using CycleArc.Providers.Claude;
@@ -49,6 +52,7 @@ internal static class WidgetZoomChecks
                 var suffix = $"{language}-{theme}".ToLowerInvariant();
                 count += SeparateScales(directory, suffix);
                 count += ZoomedHeaderFits(directory, suffix);
+                count += ZoomIconsAtDpi(directory, suffix);
             }
 
             UiText.SetLanguage(UiLanguage.English);
@@ -64,6 +68,7 @@ internal static class WidgetZoomChecks
 
         Console.WriteLine($"PASS: {count} independent window zoom checks; separate widget/flyout scales, "
             + "buttons matching the keyboard, limits, header fit at 80/100/150% for 1/3/5 accounts, "
+            + "magnifier recognition and clipping at injected 100/125/150/175/200% DPI, "
             + "real-window focus separation between a header click and an account click, and a "
             + "saved size surviving reload and recreation without being written back.");
     }
@@ -347,6 +352,121 @@ internal static class WidgetZoomChecks
         }
 
         return checks;
+    }
+
+    /// <summary>
+    /// Rasterize the actual production magnifiers after layout at each injected DPI. This checks
+    /// that both signs, the lens and the handle remain distinct, including at the smallest zoom;
+    /// it is not a claim about native input or additional physical monitors.
+    /// </summary>
+    private static int ZoomIconsAtDpi(string? directory, string suffix)
+    {
+        var checks = 0;
+        var accounts = MixedHeights().Take(1).ToArray();
+        foreach (var dpi in new[] { 1.0, 1.25, 1.5, 1.75, 2.0 })
+        {
+            var widget = new FloatingWidget { ShowActivated = false };
+            var flyout = new FlyoutWindow { ShowActivated = false };
+            try
+            {
+                widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, Wide, Now);
+                flyout.BindAccounts(accounts, accounts[0].Profile.Id, false);
+                foreach (var percent in new[] { FlyoutZoom.MinPercent, 100, FlyoutZoom.MaxPercent })
+                {
+                    widget.SetZoom(percent, notify: false);
+                    flyout.ApplyWindowSettings(new AppSettings { FlyoutZoomPercent = percent });
+                    Layout(widget);
+                    AccountUiChecks.Render(flyout, 440 * percent / 100.0, null, null);
+                    // Templates must exist before injecting DPI into the complete visual tree.
+                    VisualTreeHelper.SetRootDpi(widget, new DpiScale(dpi, dpi));
+                    VisualTreeHelper.SetRootDpi(flyout, new DpiScale(dpi, dpi));
+                    VisualTreeHelper.SetRootDpi((Visual)widget.Content, new DpiScale(dpi, dpi));
+                    VisualTreeHelper.SetRootDpi((Visual)flyout.Content, new DpiScale(dpi, dpi));
+                    Layout(widget);
+                    AccountUiChecks.Render(flyout, 440 * percent / 100.0, null, null);
+                    foreach (var (host, prefix, headerName) in new (Window, string, string)[]
+                    {
+                        (widget, "Widget", "WidgetHeader"),
+                        (flyout, "Flyout", "FlyoutHeaderGrid"),
+                    })
+                    {
+                        var header = (FrameworkElement)host.FindName(headerName);
+                        foreach (var zoomIn in new[] { false, true })
+                        {
+                            var action = zoomIn ? "In" : "Out";
+                            var context = $"{suffix}/{prefix}/{percent}% zoom/{dpi * 100:0}% DPI/{action}";
+                            var button = (Button)host.FindName(prefix + "Zoom" + action + "Button");
+                            var icon = (System.Windows.Shapes.Path)host.FindName(prefix + "Zoom" + action + "Icon");
+                            var expectedHint = zoomIn ? UiText.ZoomInHint(percent) : UiText.ZoomOutHint(percent);
+                            Check(Equals(button.ToolTip, expectedHint)
+                                && AutomationProperties.GetName(button) == expectedHint,
+                                $"The localized zoom hint/accessibility name changed ({context}).");
+                            Check(Math.Abs(VisualTreeHelper.GetDpi(icon).DpiScaleX - dpi) < 0.001,
+                                $"The zoom icon did not inherit injected DPI ({context}); window={VisualTreeHelper.GetDpi(host).DpiScaleX}, "
+                                + $"header={VisualTreeHelper.GetDpi(header).DpiScaleX}, icon={VisualTreeHelper.GetDpi(icon).DpiScaleX}.");
+                            var ink = icon.Data.GetRenderBounds(new Pen(icon.Stroke, icon.StrokeThickness));
+                            Check(Contains(new Rect(icon.RenderSize), ink), $"The icon clips its stroke ({context}).");
+                            var iconBox = icon.TransformToAncestor(button).TransformBounds(ink);
+                            var headerInk = icon.TransformToAncestor(header).TransformBounds(ink);
+                            // Fractional DPI can round chrome a pixel beyond an unclipped Grid.
+                            // Check the actual ink; existing header checks still cover button order/fit.
+                            Check(Contains(new Rect(header.RenderSize), headerInk)
+                                && Contains(new Rect(button.RenderSize), iconBox),
+                                $"The zoom icon is clipped ({context}); header={header.RenderSize}, "
+                                + $"header ink={headerInk}, button size={button.RenderSize}, icon={iconBox}.");
+
+                            var scale = dpi * percent / 100.0;
+                            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(icon.ActualWidth * scale),
+                                (int)Math.Ceiling(icon.ActualHeight * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+                            bitmap.Render(icon);
+                            var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4];
+                            bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+                            bool HasInk(Rect region)
+                            {
+                                for (var y = (int)Math.Ceiling(region.Top * scale); y < region.Bottom * scale; y++)
+                                for (var x = (int)Math.Ceiling(region.Left * scale); x < region.Right * scale; x++)
+                                    if (pixels[(y * bitmap.PixelWidth + x) * 4 + 3] > 96) return true;
+                                return false;
+                            }
+                            Check(HasInk(new Rect(1, 4, 2, 4)) && HasInk(new Rect(11, 11, 3, 3))
+                                && HasInk(new Rect(4, 5, 4, 2)),
+                                $"The lens, handle or minus sign disappeared ({context}).");
+                            Check(HasInk(new Rect(5, 3.5, 2, 1.25)) == zoomIn,
+                                $"Zoom in/out no longer have distinct signs ({context}).");
+                            checks++;
+                        }
+                        if (directory is not null)
+                        {
+                            var scale = dpi * percent / 100.0;
+                            var visual = new DrawingVisual();
+                            using (var drawing = visual.RenderOpen())
+                            {
+                                drawing.DrawRectangle((Brush)host.FindResource("BgBrush"), null, new Rect(header.RenderSize));
+                                drawing.DrawRectangle(new VisualBrush(header), null, new Rect(header.RenderSize));
+                            }
+                            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(header.ActualWidth * scale),
+                                (int)Math.Ceiling(header.ActualHeight * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+                            bitmap.Render(visual);
+                            var encoder = new PngBitmapEncoder();
+                            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                            using var stream = File.Create(Path.Combine(directory,
+                                $"zoom-header-{prefix.ToLowerInvariant()}-{suffix}-dpi{dpi * 100:0}-zoom{percent}.png"));
+                            encoder.Save(stream);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                widget.Close();
+                flyout.Close();
+            }
+        }
+        return checks;
+
+        static bool Contains(Rect outer, Rect inner) => inner.Left >= outer.Left - 0.1
+            && inner.Top >= outer.Top - 0.1 && inner.Right <= outer.Right + 0.1
+            && inner.Bottom <= outer.Bottom + 0.1;
     }
 
     /// <summary>

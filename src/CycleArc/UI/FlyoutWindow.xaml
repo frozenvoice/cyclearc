@@ -193,14 +193,18 @@
                 <Button x:Name="FlyoutZoomOutButton" Grid.Column="2"
                         Style="{StaticResource FlyoutHeaderIconButton}"
                         Click="OnZoomOutClick" Margin="0,0,4,0">
-                    <TextBlock Text="&#xE949;" FontFamily="Segoe MDL2 Assets" FontSize="13"
-                               Foreground="{DynamicResource TextBrush}"/>
+                    <Path x:Name="FlyoutZoomOutIcon" Width="16" Height="16"
+                          Stroke="{DynamicResource TextBrush}" StrokeThickness="1.4"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M10.5,6 A4.5,4.5 0 1 1 1.5,6 A4.5,4.5 0 1 1 10.5,6 M9.3,9.3 L14,14 M3.75,6 L8.25,6"/>
                 </Button>
                 <Button x:Name="FlyoutZoomInButton" Grid.Column="3"
                         Style="{StaticResource FlyoutHeaderIconButton}"
                         Click="OnZoomInClick" Margin="0,0,4,0">
-                    <TextBlock Text="&#xE948;" FontFamily="Segoe MDL2 Assets" FontSize="13"
-                               Foreground="{DynamicResource TextBrush}"/>
+                    <Path x:Name="FlyoutZoomInIcon" Width="16" Height="16"
+                          Stroke="{DynamicResource TextBrush}" StrokeThickness="1.4"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M10.5,6 A4.5,4.5 0 1 1 1.5,6 A4.5,4.5 0 1 1 10.5,6 M9.3,9.3 L14,14 M3.75,6 L8.25,6 M6,3.75 L6,8.25"/>
                 </Button>
                 <Button x:Name="RefreshAllButton"
                         Grid.Column="4"
