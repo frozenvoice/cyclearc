@@ -2,6 +2,94 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Zoom controls and measured Claude passive parsing (2026-10-05):
+  - Started from clean `main` / `9e641a20c62cc376173942c9665b5ccd5b391e89`,
+    matching `origin/main` in `frozenvoice/cyclearc`. Source remains 0.10.0 / .NET 10;
+    the published stable release checked on this date remains 0.9.1.
+  - The widget and detail header now draw vector magnifiers with minus/plus signs
+    inside the lens. Button size, handlers, EN/KO tooltips and AutomationName, keyboard
+    shortcuts, independent 80–150% zoom and persisted settings remain unchanged.
+    `--widget-zoom` passed 771 checks, retaining the existing interaction/persistence
+    cases and adding 240 icon cases across EN/KO, Dark/Light, 80/100/150% zoom and
+    injected 100/125/150/175/200% DPI. Ink bounds and rendered lens/handle/signs are
+    checked; representative header crops were visually inspected. Injected DPI does
+    not establish physical multi-monitor behavior at every scale.
+  - Re-exported production views with isolated synthetic profiles: usage-period
+    details (18), base views (36), settings (127 checks and 24 tab/size captures),
+    Cursor EN/KO Dark/Light, and ring bands (148 checks). Visually inspected and
+    replaced exactly 38 affected guide PNGs; local image/link targets resolve.
+    The new source version and published version are explicitly separated. Dated
+    feature evidence, historical comparisons, native edge-placement captures and
+    unrelated management/connection/update/tray previews were preserved.
+    Missing credit cards remain visible; zero, unknown and failure presentation
+    follows the existing rules. Export commands and the exact selection are in the
+    [image guide](images/README.md).
+  - Before optimization, the opt-in synthetic harness measured the reader and complete
+    `ClaudeQuotaService.RefreshAsync` passive path with 1/5 accounts and 1/64/512
+    samples per account. Each scenario used 12 warmup ticks and five trials; the
+    retained baseline, optimized build and retained baseline repeat (A1/B/A2) each
+    passed all 120 trial rows. Fixture writes/assertions are excluded; Stopwatch and
+    process-wide allocated-byte counters measure serial calls with warm file caches.
+    This measures neither a two-second timer schedule nor whole-app idle CPU.
+  - The only parser optimization replaces per-object allowed-name/duplicate HashSets,
+    params arrays and decoded property strings with `JsonProperty.NameEquals` and a
+    small seen-bit mask. No file cache or refresh delay was added. The 2-second tick,
+    `MaintainVisibility`, task and semaphore gates, binding rereads/leases/race checks,
+    8 KiB/1 MiB limits, Changed equality, cancellation and shutdown are unchanged.
+  - At 64 samples per account, complete passive allocated bytes per tick (combined
+    ten baseline trials versus five optimized trials) were:
+
+    | Scenario | 1 account, before → after | 5 accounts, before → after |
+    | --- | ---: | ---: |
+    | Unchanged | 122,594 → 49,688 (-59.5%) | 1,851,373 → 763,155 (-58.8%) |
+    | Desktop receipt updated | 147,442 → 75,636 (-48.7%) | 2,000,487 → 912,251 (-54.4%) |
+    | statusLine receipt updated | 122,750 → 49,826 (-59.4%) | 1,863,436 → 769,405 (-58.7%) |
+
+    Unchanged elapsed-time medians were A1/B/A2 = 2.799/2.256/47.955 ms for one
+    account and 26.398/12.351/93.069 ms for five. Some updated cases were slower;
+    large drift prevents any latency/idle-CPU improvement claim. Per-run ranges,
+    direct-reader results and reproduction details are in the
+    [measurement report](../tests/CycleArc.PassiveMeasure/README.md).
+  - Desktop history opens and Parse calls remain one per account/tick. These counters
+    exclude connection/statusLine/cache file counts; full-passive time/allocation
+    includes their production operations. Unchanged data caused zero Changed events
+    or fake auth calls; Desktop updates caused one of each per account/tick, and
+    statusLine updates caused one Changed event with zero fake auth calls. Every
+    tick accepted the expected latest percentage, original timestamp and source.
+    No real account, credential, CLI or usage history was used. Raw reports, exact
+    baseline/after source and binary hashes remain under `artifacts/zoom-passive-refresh`.
+  - Focused Claude reader/collector/statusLine/live/mixed-provider/binding-generation
+    regressions passed 123/123 without skips, including ten new escaped-name,
+    duplicate/unknown-property, same-metadata replacement, newly appearing candidate
+    and actual oversized-file cases. Existing regressions were retained.
+  - The first integrated gate passed Release build, desktop-instance IPC and local
+    installation regressions, then stopped in the existing BuildLocal synthetic
+    setup-state test because its child did not report `installing`. The exact failing
+    case and then the exact preceding A/B/C sequence both passed when reproduced
+    independently, with all original budgets and assertions unchanged. No test or
+    production change was made for this failure; its cause remains unproven. The
+    initial log and focused diagnostic logs are retained beside the final gate log.
+  - The final integrated local gate passed, exit 0, in 9m03.9s on executable commit
+    `f908dd8` with `MSBUILDDISABLENODEREUSE=1` and
+    `DOTNET_CLI_USE_MSBUILD_SERVER=0`:
+    `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+    -TestResultsDirectory artifacts/zoom-passive-refresh/test-results
+    -PreviewDirectory artifacts/zoom-passive-refresh/final-previews`.
+    All 2,008 unit tests passed without skips; the full WPF suite includes 771 zoom,
+    180 credit-card, 306 provider-state, 148 ring-band, 411 tray and 180 DPI/layout
+    cases. Final wrapped/failure-state EN/KO Dark/Light widget captures were also
+    visually inspected. Test-flavour compile/publish, bundled native SQLite probe,
+    built/published Claude receiver, production single-file publish, full-package
+    verification and isolated portable update/snapshot restoration all passed.
+    Those portable checks are component evidence, not actual-user installation.
+  - Local logs contain NU1900 because NuGet vulnerability metadata was unavailable;
+    package restoration/builds completed. Existing unsigned-asset, delegated
+    Velopack bootstrap and optional newer-tool warnings remain. No dependency,
+    installer/update policy, legacy folder or SQLite component was removed, and no
+    public release or actual-user installation was performed. Physical DPI/input
+    coverage at every injected scale and real-account/device performance remain
+    outside this synthetic verification.
+
 - .NET 10 LTS migration (2026-10-05):
   - Started from clean `main` / `50c73b4f070ccb8e6192c0dbbfc1b6476aa89153`
     (0.9.1), matching origin; no existing open PR covered this work. Version 0.10.0

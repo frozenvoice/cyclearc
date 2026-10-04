@@ -5,11 +5,19 @@ They show the CycleArc product name, Codex/Claude/Cursor provider labels and cur
 They are not captures of a user's account or fabricated UI mockups. The sample percentages,
 reset times and credits illustrate the layout; they do not promise specific plan entitlements.
 
-The 2026-10-01 common-status and monetary-card evidence uses the fixed synthetic time
+Current overview, account/Claude detail, Cursor popup/widget, ring-band detail/widget,
+`widget.png` and the two guide settings previews are generated from the **0.10.0
+development source**. The published stable release checked on **2026-10-05** is **0.9.1**;
+these previews do not describe a newly published release. The window headers use
+magnifying-glass −/+ zoom buttons. Their tooltips, accessibility names, shortcuts and
+independently saved 80–150% zoom remain unchanged. Missing/unknown/zero/failure credit
+states remain visible according to the existing presentation rules.
+
+The earlier 2026-10-01 common-status and monetary-card evidence uses the fixed synthetic time
 2035-06-07 and account names prefixed **Synthetic**. Only selected details gain monetary
 cards; the account list, widget and tray retain their existing content policy.
 
-| New evidence | Meaning |
+| Earlier feature evidence (2026-10-01) | Meaning |
 | --- | --- |
 | `widget-common-warning-synthetic-3-{en,ko}-{dark,light}-100.png` | Same stale header warning icon on Codex, Claude and Cursor; tooltips retain Last received for local Claude receipts and Last checked for the others; ring colors still follow usage |
 | `usage-card-codex-ko-dark-expanded.png` | Decimal credit balance and original check time, separate from reset credits |
@@ -24,15 +32,16 @@ After a Release build, reproduce with UiSmoke `--usage-credits artifacts/usage-c
 cases in EN/KO, Dark/Light, 80/100/150%, 1/3/5 accounts, long names/large amounts, per-account
 expansion through refresh/recreation, accessibility, small work area and native 2-DIP snap
 retention. The second includes first receipt, retries, recovery and identity protection.
-The current overview, account overview, Claude detail/waiting, Cursor popup, widget and
-ring-band widget/detail images were refreshed; historical before/after images and unrelated settings/management/update
-previews were preserved. Every copied PNG was visually inspected. Full local captures remain
+That export refreshed the overview, account overview, Claude detail/waiting, Cursor popup, widget and
+ring-band widget/detail images; historical before/after images and unrelated settings/management/update
+previews were preserved. Those overview/header previews have since been refreshed for 0.10.0.
+Full local captures remain
 in the ignored artifact directories; no real-account pixels or amounts are included.
 
-For 0.6.7 the same current-layout set was re-exported after the version bump: widget images now
-show the selected account as a lifted surface with a short accent marker instead of the former
-full-height left line, `settings.png` / `settings-ko-dark.png` show the **Apply** button between
-Cancel and Save, and popup headers read 0.6.7. Other differences are export-time reset countdowns.
+Historical export record for 0.6.7: the same layout set was re-exported after the version bump.
+It introduced the selected account's lifted surface and short accent marker in place of the
+full-height left line, and settings previews showed the **Apply** button between Cancel and Save.
+The current guide previews now show the development assembly version instead of 0.6.7.
 Historical before/after comparisons were not regenerated.
 
 | Files | Contents |
@@ -40,8 +49,8 @@ Historical before/after comparisons were not regenerated.
 | `updates-{en,ko}-{dark,light}.png` | Production update window showing a sample 0.6.0 → 0.6.1 upgrade with the release's widget and installer highlights; download and restart require separate approval |
 | `overview-dark.png`, `overview-light.png`, `settings.png`, `widget.png` | English single-account popup, settings, and the multi-account widget (three synthetic accounts in one row) |
 | `settings-ko-dark.png` | Korean settings with visual theme selection, grouped preferences, expandable help and the running version; the English counterpart remains `settings.png` |
-| `edge-snap-{widget,flyout}-{100,150}.png` | Native synthetic widget/detail windows at 100% and 150% app zoom, attached right/bottom at the current 2-DIP inset on the 150%-DPI primary monitor; measured work-area surround is neutral and excludes other apps |
-| `edge-snap-margin-before-{widget,flyout}-100.png` | Historical 8-DIP baseline from `c08558d`, with the same fixed synthetic data and 100% app zoom as the current edge-snap images |
+| `edge-snap-{widget,flyout}-{100,150}.png` | Historical native placement captures, retaining the header/version at that test: synthetic widget/detail windows at 100% and 150% app zoom, attached right/bottom at the 2-DIP inset on the 150%-DPI primary monitor; measured work-area surround is neutral and excludes other apps |
+| `edge-snap-margin-before-{widget,flyout}-100.png` | Historical 8-DIP baseline from `c08558d`, with the same fixed synthetic data and 100% app zoom as the corresponding 2-DIP captures |
 | `accounts-overview-{en,ko}-{dark,light}.png` | Two ready Codex accounts, with Work / 업무용 selected; the unconnected Claude profile is absent from the cards and counts |
 | `accounts-manage-{en,ko}-{dark,light}.png` | All three registered profiles, including unconnected Research / 실험용 Claude, with connection, nickname and saved-order controls |
 | `claude-waiting-{en,ko}-{dark,light}.png` | Connected Research before its first sample, with unknown shared subscription limits, Awaiting usage and Open usage page |
@@ -57,20 +66,33 @@ Historical before/after comparisons were not regenerated.
 | `ring-bands-{widget,detail}-{en,ko}-{dark,light}.png`, `ring-bands-tray.png`, `ring-bands-comparison.png` | Usage ring color bands on the production widget, detail popup and tray renderer, with synthetic English-named accounts (Personal, Research, Design, Work, Writing, Prototype, Travel, Lab) and `example.invalid` emails: 69.99% blue, 70% / 84.99% amber, 85% / 99.6% orange (99.6% reads 100 in the Codex tray but is not exhausted), 100% red, stale Claude 90% with an orange usage ring, normal quota text and a separate yellow status warning, and unknown gray (the native tray keeps its separate stale-ring policy); the widget mixes Codex, Claude and Cursor with the 85% account selected |
 | `cursor-tray-icons.png` | Cursor fractional inputs shown as whole tray digits in number/ring styles at 16/24/32 pixels on dark/light taskbars; zero, full usage and unknown included |
 
-To refresh the current-layout previews after a popup or widget change, export into a scratch
-folder and copy back only files that already exist here, so historical before/after comparisons
-and other check outputs are left alone:
+The 2026-10-05 zoom refresh replaced 38 current guide previews after visual inspection:
+overview (2), account/Claude detail (16), Cursor popup/widget (8), ring-band detail/widget
+and comparison (9), base widget (1), and EN/KO settings (2). It left the dated evidence
+and unrelated management, connection, update and tray-only images intact. To reproduce
+that selection after a Release build, export production views into a scratch folder:
 
 ```powershell
 dotnet build CycleArc.sln -c Release
 $ui = 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj'
 $out = 'artifacts/doc-previews'
-dotnet run --project $ui -c Release --no-build -- --screenshots $out
-dotnet run --project $ui -c Release --no-build -- --claude-desktop-screenshots $out
+dotnet run --project $ui -c Release --no-build -- --usage-period-screenshots $out
+dotnet run --project $ui -c Release --no-build -- --screenshots "$out/base"
+dotnet run --project $ui -c Release --no-build -- --settings-window "$out/settings"
 dotnet run --project $ui -c Release --no-build -- --cursor-ui $out
 dotnet run --project $ui -c Release --no-build -- --ring-bands $out
-Get-ChildItem $out -Filter *.png | Where-Object { Test-Path (Join-Path docs/images $_.Name) } |
-    Copy-Item -Destination docs/images -Force
+$names = @('overview-dark.png', 'overview-light.png', 'ring-bands-comparison.png')
+foreach ($family in @('accounts-overview', 'claude-live', 'claude-waiting',
+    'claude-overview', 'cursor-popup', 'cursor-widget', 'ring-bands-detail', 'ring-bands-widget')) {
+    foreach ($language in @('en', 'ko')) {
+        foreach ($theme in @('dark', 'light')) { $names += "$family-$language-$theme.png" }
+    }
+}
+# Inspect the exported PNGs before replacing these exact current previews.
+foreach ($name in $names) { Copy-Item "$out/$name" "docs/images/$name" -Force }
+Copy-Item "$out/base/widget.png" docs/images/widget.png -Force
+Copy-Item "$out/settings/settings-en-dark.png" docs/images/settings.png -Force
+Copy-Item "$out/settings/settings-ko-dark.png" docs/images/settings-ko-dark.png -Force
 ```
 
 The multi-account fixtures live in `DocumentationScreenshots.SampleAccounts`. They use the
@@ -112,8 +134,8 @@ The PNG sidecars record HWND size/position, work area, OS DPI and app zoom. Acro
 12 before/after pairs (two windows, two monitors, 80/100/150% zoom), sizes are identical;
 positions move 6 physical pixels at 100% OS DPI and 9 pixels at 150%. Only the reset
 countdown hour digit differs inside the window. Local paired evidence and geometry are
-in `artifacts/snap-margin-2dip/{before,after}` and `comparison.json`; only affected current
-edge-snap previews and the two 100% baseline images are checked in.
+in `artifacts/snap-margin-2dip/{before,after}` and `comparison.json`; only the affected 2-DIP
+placement captures and the two 100% baseline images are checked in.
 
 The Claude previews use those same profiles with Research connected and selected, so all three
 accounts appear. The waiting view has no quota yet. The server preview supplies synthetic
@@ -194,7 +216,7 @@ The 306 rendered cases cover all three providers in EN/KO, Dark/Light/System and
 80/100/150% zoom, plus three simultaneously shown native widget/flyout pairs. These
 fixtures use the fixed observation time 2035-06-07; reset countdowns in the popup
 are relative to export time. No real account is accessed.
-Checked-in examples: [Codex](usage-percent-codex-en-light.png),
+Historical percentage-format validation examples (with their original headers/versions): [Codex](usage-percent-codex-en-light.png),
 [Claude](usage-percent-claude-ko-dark.png), [Cursor](usage-percent-cursor-en-light.png),
 [widget boundary](usage-percent-cursor-ko-light-boundary.png), and
 [tiny detail boundary](usage-percent-codex-en-dark-tiny.png).
@@ -213,11 +235,11 @@ EN/KO, Dark/Light and 80/100/150% transition checks passed with
 `--widget-layout artifacts/widget-inline-status/native-layout` run passed 151 checks,
 including unchanged HWND height while animations run, warnings replace them and the
 tooltip displays full status. The final `dev-run.ps1 -NoLaunch -Fast` gate passed in
-3m18.7s. Current exports in `artifacts/widget-inline-status/current-previews` passed
+3m18.7s. That run's exports in `artifacts/widget-inline-status/current-previews` passed
 36 `--screenshots` views, EN/KO Dark/Light `--cursor-ui` and 148 `--ring-bands` cases.
-The affected current image set is `widget.png`, four `cursor-widget-*` images, four
+Its affected image set was `widget.png`, four `cursor-widget-*` images, four
 `ring-bands-widget-*` images and four `widget-common-warning-synthetic-3-*` images.
-All 13 images were visually inspected and copied into this directory: provider badges
+All 13 images were visually inspected and copied into this directory at that time: provider badges
 and quota do not overlap, healthy views have no footer space, and EN/KO Dark/Light
 warning icons sit within the account headers. Historical before/after evidence stays intact.
 

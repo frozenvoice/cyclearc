@@ -11,7 +11,7 @@ A native Windows tray app for checking each account's usage, remaining allowance
 
 ## Get started
 
-The .NET 10 requirements below describe the 0.10.0 source build. The latest-release link serves the published version; its release notes identify the bundled runtime.
+The .NET 10 requirements below describe the 0.10.0 source build. As of 2026-10-05, the published stable release is 0.9.1. The latest-release link serves the published version; its release notes identify the bundled runtime.
 
 **Windows x64:** use a supported Windows 11 release or Windows 10 Enterprise LTSC 1809 or Enterprise/IoT Enterprise LTSC 21H2 edition. The Windows API minimum remains 1809; ordinary Windows 10 editions are outside .NET 10 vendor support. See [OS compatibility](docs/DOTNET10-MIGRATION.md#operating-systems). The 0.10.0 source build bundles the .NET 10 runtime; no separate .NET installation is needed.
 
@@ -50,7 +50,7 @@ Release artifacts are unsigned unless an approved code-signing pipeline is confi
 <a id="privacy"></a>
 <a id="upgrading-from-earlier-releases"></a>
 
-The [detailed user guide](docs/README.en.md) preserves account examples, production-view previews, controls and earlier-release guidance. See [Claude integration](docs/CLAUDE-INTEGRATION.md), [Cursor integration](docs/CURSOR.md), [architecture](docs/ARCHITECTURE.md) and [validation evidence](docs/VALIDATION.md) for implementation details.
+The [detailed user guide](docs/README.en.md) includes account examples, production-view previews, controls and earlier-release guidance. Current popup, widget and settings previews use the 0.10.0 development source and synthetic accounts. The popup and widget headers use magnifying-glass −/+ buttons for each window's independent zoom; keyboard shortcuts and saved sizes work as before. See [Claude integration](docs/CLAUDE-INTEGRATION.md), [Cursor integration](docs/CURSOR.md), [architecture](docs/ARCHITECTURE.md) and [validation evidence](docs/VALIDATION.md) for implementation details.
 
 CycleArc makes no model requests to measure usage and collects no prompts, conversations or telemetry. Credentials used for read-only provider checks stay in memory; projected quotas and local preferences remain local. [Data and privacy details](docs/README.en.md#privacy).
 
