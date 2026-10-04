@@ -2,12 +2,13 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <StartupObject>CycleArc.Program</StartupObject>
-    <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <!-- WPF owns startup; WinForms ApplicationConfiguration.Initialize is not called.
          DPI awareness must be embedded in the executable manifest before any HWND. -->
-    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+    <!-- WFO0003 is the .NET 9+ WinForms diagnostic for this intentional WPF manifest. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\cyclearc.ico</ApplicationIcon>
     <RootNamespace>CycleArc</RootNamespace>
@@ -28,7 +29,6 @@
     <ProjectReference Include="..\CycleArc.Core\CycleArc.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="System.Drawing.Common" Version="8.0.11" />
     <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
   <ItemGroup>

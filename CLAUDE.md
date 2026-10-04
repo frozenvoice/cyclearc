@@ -14,15 +14,15 @@ them; everything else stays in AGENTS.md and the scoped documents.
 
 | Path | Contents |
 | --- | --- |
-| `src/CycleArc` | WPF desktop, tray, installation bootstrap, Velopack client, update supervisor (`net8.0-windows`, Windows only) |
-| `src/CycleArc.Core` | Providers, presentation, persistence, update coordinator/recovery, Claude connection and callbacks (`net8.0`, portable) |
-| `tests/CycleArc.Tests` | xunit unit and regression tests (`net8.0`) |
-| `tests/CycleArc.UiSmoke` | Production WPF checks, process checks, documentation previews (`net8.0-windows`) |
+| `src/CycleArc` | WPF desktop, tray, installation bootstrap, Velopack client, update supervisor (`net10.0-windows10.0.17763.0`, Windows only) |
+| `src/CycleArc.Core` | Providers, presentation, persistence, update coordinator/recovery, Claude connection and callbacks (`net10.0`, portable) |
+| `tests/CycleArc.Tests` | xunit unit and regression tests (`net10.0`) |
+| `tests/CycleArc.UiSmoke` | Production WPF checks, process checks, documentation previews (`net10.0-windows10.0.17763.0`) |
 | `scripts`, `tests/*.ps1`, `dev-run.ps1` | Packaging, release, local installation and verification scripts (PowerShell 7) |
 
 ## Commands
 
-Windows, PowerShell 7 and the .NET 8 SDK are required; the desktop and UiSmoke projects do not
+Windows, PowerShell 7 and the .NET 10 SDK selected by `global.json` are required; the desktop and UiSmoke projects do not
 build on other platforms. Building `CycleArc-Setup.exe` from source also needs Visual Studio 2022
 with the **Desktop development with C++** workload, because the setup window is published with
 Native AOT; `dev-run.ps1` and `Package.ps1` check for the MSVC linker and a Windows SDK before

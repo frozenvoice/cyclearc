@@ -81,6 +81,7 @@ public class DevRunScriptGuardTests
         {
             "preflight",
             "workflow-contract",
+            "sdk-regression",
             "setup-ui-toolchain",
             "release-guard",
             "restore",
@@ -89,10 +90,12 @@ public class DevRunScriptGuardTests
             "ui-smoke-desktop-instance",
             "local-install-regression",
             "build-local-regression",
+            "installed-update-regression",
             "unit-test",
             "ui-smoke-full",
             "widget-preview",
             "test-flavour-build",
+            "test-flavour-publish",
             "publish",
             "package",
             "package-verify"

@@ -44,7 +44,7 @@ Assert-Contract ($workflow.Contains('cancel-in-progress: ${{ github.event_name =
 Assert-Contract ($build -match '(?m)^\s+runs-on:\s+windows-2022\s*$') 'source build must use the VS2022 runner image'
 Assert-Contract ($managed -match '(?m)^\s+runs-on:\s+windows-latest\s*$') 'managed install must retain its disposable current-image runner'
 Assert-Contract ($build -match 'actions/setup-dotnet@v5') 'source build must set up the .NET SDK'
-Assert-Contract ($build -match '(?m)^\s+dotnet-version:\s+["'']8\.0\.x["'']\s*$') 'source build must keep the 8.0.x SDK channel'
+Assert-Contract ($build -match '(?m)^\s+dotnet-version:\s+["'']10\.0\.x["'']\s*$') 'source build must install the stable 10.0.x SDK channel selected by global.json'
 Assert-Contract ($build -notmatch '(?mi)^\s+cache:\s*') 'NuGet cache must remain opt-in'
 Assert-Contract ($workflow -notmatch '(?mi)actions/cache@') 'workflow must not add a separate binary/cache action'
 Assert-Contract ($build.Contains('./dev-run.ps1 -NoLaunch')) 'CI must call the shared no-launch gate'
@@ -69,18 +69,29 @@ Assert-Contract ($build -notmatch '(?mi)^\s+run:\s+.*dotnet\s+(restore|build|tes
 Assert-Contract ($workflow -notmatch '(?mi)Compile test-only build flavours') 'test-only compile must live in the shared gate'
 
 foreach ($stage in @(
-    'preflight', 'workflow-contract', 'setup-ui-toolchain', 'release-guard', 'restore',
+    'preflight', 'workflow-contract', 'sdk-regression', 'setup-ui-toolchain', 'release-guard', 'restore',
     'tool-restore', 'build', 'ui-smoke-desktop-instance', 'local-install-regression',
-    'build-local-regression', 'unit-test', 'ui-smoke-full', 'widget-preview',
-    'test-flavour-build', 'publish', 'package', 'package-verify'
+    'build-local-regression', 'installed-update-regression', 'unit-test', 'ui-smoke-full', 'widget-preview',
+    'test-flavour-build', 'test-flavour-publish', 'publish', 'package', 'package-verify'
 )) {
     Assert-Contract ($devRun.Contains("Invoke-DevRunStep '$stage'")) "dev-run is missing stage '$stage'"
 }
 Assert-Contract ($devRun.Contains('[string]$TestResultsDirectory') -and $devRun.Contains('[string]$PreviewDirectory')) 'dev-run evidence parameters are missing'
 Assert-Contract ($devRun.Contains('Assert-SetupUiToolchain -RepoRoot $RepoRoot')) 'the shared gate must check the preinstalled AOT toolchain'
+Assert-Contract ($devRun.Contains('Assert-CycleArcDotnetSdk -RepoRoot $RepoRoot')) 'the shared gate must verify the selected SDK before build cleanup'
+foreach ($sourceWorkflow in @('windows-e2e.yml', 'windows-build-local.yml')) {
+    $sourceText = Get-Content -LiteralPath (Join-Path $RepoRoot ".github/workflows/$sourceWorkflow") -Raw
+    Assert-Contract ($sourceText -match '(?m)^\s+runs-on:\s+windows-2022\s*$') "$sourceWorkflow must use the VS2022 AOT image"
+    Assert-Contract ($sourceText -match '(?m)^\s+dotnet-version:\s+["'']10\.0\.x["'']\s*$') "$sourceWorkflow must install the 10.0.x SDK channel"
+}
+$installedWorkflow = Get-Content -LiteralPath (Join-Path $RepoRoot '.github/workflows/windows-e2e.yml') -Raw
+Assert-Contract ($installedWorkflow.Contains('50c73b4f070ccb8e6192c0dbbfc1b6476aa89153')) 'installed migration check must default to the known .NET 8 version 0.9.1 source commit'
+Assert-Contract ($installedWorkflow.Contains('dotnet-version: "8.0.x"') -and $installedWorkflow.Contains("version = '8.0.100'")) 'historical baseline must explicitly select its own .NET 8 SDK'
+Assert-Contract ($installedWorkflow.Contains('$verifyArguments.BaselineRepoRoot')) 'installed migration check must pass the separately built .NET 8 baseline to the real installed-app verification'
 Assert-Contract ($devRun.Contains('''--logger'', ''trx''') -and $devRun.Contains('''--results-directory'', $TestResultsPath')) 'TRX output must be optional and shared'
 Assert-Contract ($devRun.Contains('''--widget-accounts'', $PreviewPath')) 'preview output must be optional and shared'
 Assert-Contract ($devRun.Contains('CycleArcTestBuild=CYCLEARC_TEST_E2E%3BCYCLEARC_TEST_FAIL_STARTUP')) 'test-only build flavours must be in the shared gate'
+Assert-Contract ($devRun.Contains("'--published-native-dependencies'")) 'single-file native dependencies must be exercised from an isolated test-flavour executable'
 $releaseRestore = "Invoke-Dotnet -Arguments @('restore', 'CycleArc.sln', '-p:Configuration=Release')"
 $releaseBuild = "Invoke-Dotnet -Arguments @('build', 'CycleArc.sln', '-c', 'Release', '--no-restore')"
 Assert-Contract ($devRun.Contains($releaseRestore)) 'the shared Release build must have a matching solution restore'

@@ -1,6 +1,6 @@
 name: Windows build-local entry point
 
-# Runs the real build-local.cmd double-click path on a GitHub-hosted windows-latest
+# Runs the real build-local.cmd double-click path on a disposable windows-2022
 # runner: no injected DevRun/RunSetup/StartLauncher scriptblocks, the real
 # dev-run.ps1 gate, the real CycleArc-Setup.exe and the real managed install under
 # %LOCALAPPDATA%\CycleArc. It installs build A, installs build B over it with the
@@ -19,7 +19,7 @@ on:
 
 jobs:
   build-local-entry-point:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 120
     steps:
       - name: Checkout
@@ -28,7 +28,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Record the runner's pre-existing CycleArc state
         run: |

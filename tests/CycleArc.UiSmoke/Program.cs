@@ -69,6 +69,11 @@ internal static class Program
             ClaudeStatusLineProcessChecks.Run(executable);
             return 0;
         }
+        if (args is ["--published-native-dependencies", var nativeExecutable])
+        {
+            PublishedNativeDependencyChecks.Run(nativeExecutable);
+            return 0;
+        }
         if (args is ["--live-accounts", "read" or "login" or "relogin"])
             return LiveAccountChecks.RunAsync(args[1]).GetAwaiter().GetResult();
         if (args is ["--cursor-live-read"])

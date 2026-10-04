@@ -50,7 +50,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       # restore/build/test/UiSmoke/test-flavour/publish/package/package-verify are
       # shared with the local -NoLaunch gate. CI only supplies evidence destinations.

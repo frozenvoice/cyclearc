@@ -35,6 +35,7 @@ $ErrorActionPreference = 'Stop'
 # Shared with Package.ps1 so both demand the same Native AOT prerequisites.
 . (Join-Path $PSScriptRoot 'SetupUiToolchain.ps1')
 . (Join-Path $PSScriptRoot 'SetupUiPrerequisites.ps1')
+. (Join-Path $PSScriptRoot 'DotnetSdk.ps1')
 
 function Get-BuildLocalRepoRoot {
     [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -305,21 +306,18 @@ function Get-BuildLocalGitState([string]$RepoRoot) {
 
 function Test-BuildLocalDotnetSdk([string[]]$SdkList) {
     foreach ($line in @($SdkList)) {
-        if ($line -match '^\s*(\d+)\.' -and [int]$Matches[1] -ge 8) { return $true }
+        if ($line -match '^\s*(\d+\.\d+\.\d+)\s+\[' -and (Test-CycleArcSelectedSdk $Matches[1])) { return $true }
     }
     $false
 }
 
-function Assert-BuildLocalTools {
+function Assert-BuildLocalTools([string]$RepoRoot) {
     foreach ($name in @('pwsh', 'dotnet', 'git')) {
         if (!(Get-Command $name -ErrorAction SilentlyContinue)) {
-            throw "Missing required tool '$name'. Install PowerShell 7 and the .NET 8 SDK, then retry. The current installation was not replaced."
+            throw "Missing required tool '$name'. Install PowerShell 7 and the .NET 10 SDK, then retry. The current installation was not replaced."
         }
     }
-    $sdks = @(& dotnet --list-sdks 2>&1 | ForEach-Object { $_.ToString() })
-    if (!(Test-BuildLocalDotnetSdk $sdks)) {
-        throw "A .NET SDK 8 or newer is required to build CycleArc (found '$($sdks -join '; ')'). The current installation was not replaced."
-    }
+    Assert-CycleArcDotnetSdk -RepoRoot $RepoRoot
 }
 
 function New-BuildLocalLogDirectory([string]$RepoRoot) {
@@ -893,7 +891,7 @@ function Invoke-BuildLocal {
         $transcript = $logPath
         Start-Transcript -LiteralPath $logPath | Out-Null
         Assert-CycleArcTree -Root $RepoRoot
-        Assert-BuildLocalTools
+        Assert-BuildLocalTools -RepoRoot $RepoRoot
         # Supplying a packaged fixture bypasses the source-build requirement. Production
         # runs probe first, and may offer installation only with interactive approval.
         if (!$PackagedSetup) {

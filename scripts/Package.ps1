@@ -30,6 +30,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shared with Build-Local.ps1 so both demand the same Native AOT prerequisites.
 . (Join-Path $PSScriptRoot 'SetupUiToolchain.ps1')
+. (Join-Path $PSScriptRoot 'DotnetSdk.ps1')
 
 function Assert-PackageVersion {
     param([Parameter(Mandatory)][string]$Value)
@@ -411,5 +412,15 @@ function Invoke-Package {
 
 if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
     if ([string]::IsNullOrWhiteSpace($Version)) { throw 'Usage: pwsh -File ./scripts/Package.ps1 -PublishedDir <dir> -OutputDir <dir> -Version <version>' }
-    Invoke-Package -PublishedDirectory $PublishedDir -OutputDirectory $OutputDir -PackageVersion $Version -NotesPath $ReleaseNotesPath -PackageIdValue $PackId -EntryPoint $MainExe -ChannelName $Channel -Command $VpkCommand | Out-Null
+    $packageRepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+    Assert-CycleArcDotnetSdk -RepoRoot $packageRepoRoot
+    # Resolve caller-relative inputs before selecting the checkout for dotnet/global.json.
+    $PublishedDir = [IO.Path]::GetFullPath($PublishedDir)
+    $OutputDir = [IO.Path]::GetFullPath($OutputDir)
+    if ($ReleaseNotesPath) { $ReleaseNotesPath = [IO.Path]::GetFullPath($ReleaseNotesPath) }
+    Push-Location -LiteralPath $packageRepoRoot
+    try {
+        Invoke-Package -PublishedDirectory $PublishedDir -OutputDirectory $OutputDir -PackageVersion $Version -NotesPath $ReleaseNotesPath -PackageIdValue $PackId -EntryPoint $MainExe -ChannelName $Channel -Command $VpkCommand | Out-Null
+    }
+    finally { Pop-Location }
 }

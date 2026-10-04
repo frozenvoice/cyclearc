@@ -6,6 +6,59 @@ Windows 트레이에서 **여러 Codex·Claude·Cursor 프로필의 사용률, �
 
 선택한 계정은 상세 카드와 트레이에 표시되며, 위젯은 여러 계정을 나란히 비교하면서 선택한 계정을 강조합니다.
 
+아래 .NET 10 요구 사항은 0.10.0 소스 빌드 기준입니다. 최신 릴리즈 링크에서는 공개된 버전을 내려받으며, 포함된 런타임은 해당 릴리즈 설명에서 확인하세요.
+
+**Windows x64:** 지원 중인 Windows 11 또는 Windows 10 Enterprise LTSC 1809 또는 Enterprise/IoT Enterprise LTSC 21H2 에디션을 사용하세요. Windows API 최소 버전은 1809로 유지하지만 일반 Windows 10 에디션은 .NET 10 공급업체 지원 범위 밖입니다. [OS 호환성과 이전 조건](DOTNET10-MIGRATION.md#operating-systems)을 확인하세요. 0.10.0 소스 빌드에는 .NET 10 런타임이 포함됩니다.
+
+## 설치와 실행
+
+배포 파일은 **`CycleArc-Setup.exe`**입니다. Velopack 1.2.0 기반 설치기가 필요한 앱 파일을 관리하며 런타임이 포함되어 별도 .NET 설치가 필요 없습니다.
+
+[최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 **Release · Windows x64** 설치 프로그램을 다운로드해 실행하세요. 새 안정 설치는 `%LOCALAPPDATA%\Programs\CycleArc` 아래에 두며, 기존 설치는 등록된 위치를 유지합니다(예전 `%LOCALAPPDATA%\CycleArc` 포함). 사용자 설정·계정·사용량 캐시는 기존 `%LOCALAPPDATA%\ProMeter`에 유지합니다.
+
+설치 화면에서 위치를 확인하고, 원하면 **바탕화면 바로가기 만들기**를 선택한 뒤 **설치**를 누르세요. 새 설치에서는 기본 해제이며, 재설치에서는 현재 설치의 바탕화면 바로가기 유무를 반영합니다. 선택을 해제하면 현재 설치에 속한 바로가기만 제거합니다. 업데이트나 무인 재설치로 삭제한 바로가기가 다시 생기지 않으며, 시작 메뉴에서는 계속 실행할 수 있습니다. 설치 진행 상태를 확인하고, 완료되면 **CycleArc 실행**을 선택한 상태로 **마침**을 누르세요.
+
+## 업데이트와 복구
+
+설치된 정식 버전은 시작 20초 뒤와 이후 6시간마다 GitHub Releases의 정식 채널을 확인합니다. 변경 내용과 함께 새 버전이 표시되며 **업데이트 다운로드**를 누른 뒤 **재시작 후 적용**을 선택해야 적용됩니다. **나중에** 또는 취소를 선택할 수 있으며 시작 시 자동 적용하지 않습니다. 전체 `.nupkg`는 다운로드 직후와 Velopack 적용 직전에 SHA-256을 확인합니다.
+
+교체 전에 이전 앱의 검증된 사본을 설치 폴더 밖에 보관합니다. 파일 교체에 실패하거나 새 앱이 준비 완료 신호를 보내지 못하면 별도 복구 프로세스가 이전 버전을 복원하고 다시 실행합니다. 계정과 설정은 앱 파일과 분리해 유지합니다. 복구까지 막히면 백업을 보존하고 위치를 안내합니다. 이 확인은 시작 단계에 적용되며, 이후 사용 중 발생하는 모든 오류를 감지하는 기능은 아닙니다.
+
+<details>
+<summary><strong>업데이트 화면 예시</strong></summary>
+
+<p><img src="images/updates-ko-dark.png" alt="현재 버전과 새 버전, 변경 내용, 나중에와 업데이트 다운로드 버튼이 있는 CycleArc 화면" width="480"></p>
+<p>실제 WPF 화면에 0.6.0 → 0.6.1 업그레이드 예시와 다중 계정 위젯, 상세·위젯 독립 크기, 설치 진행 관련 변경 내용을 넣어 렌더링했습니다. 다운로드가 끝나도 앱은 종료되지 않으며 검증 후 재시작 후 적용 버튼을 눌러야 합니다.</p>
+
+</details>
+
+릴리즈 파이프라인에서 코드 서명을 설정하지 않은 경우 배포 자산은 서명되지 않습니다. 설치 프로그램만으로 Windows SmartScreen 경고가 사라지지는 않습니다.
+
+실제 데스크톱 앱은 관리형 설치 루트 아래 `current\CycleArc.exe`에서 실행합니다. 새 설치의 기본 경로는 `%LOCALAPPDATA%\Programs\CycleArc\current\CycleArc.exe`이며, 기존 설치는 `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe` 같은 등록된 위치를 유지할 수 있습니다. 루트의 `CycleArc.exe`는 데스크톱과 Windows 시작용 안정 런처이며, Claude statusLine·오류 훅은 stdin/stdout 전달을 보장하기 위해 current 실행 파일을 직접 사용합니다. 기존 CycleArc 소유 콜백은 CLI 신원과 저장된 바인딩이 일치할 때만 새 경로로 옮기며, 이전 실행 파일이 이미 없어도 설정에 있는 정확한 소유 wrapper라면 옮길 수 있습니다. 기존 statusLine, 별명, 계정 연결, 관련 없는 설정과 훅은 보존합니다.
+
+처음 설치할 때 현재 세션의 IPC와 실행 파일을 확인할 수 있으면 예전 표준 설치의 데스크톱을 종료하고 새 설치를 실행합니다. 다른 경로에서 실행 중인 개발 빌드는 먼저 실행된 인스턴스 정책을 유지합니다. 예전 `%LOCALAPPDATA%\CycleArc` 경로는 이미 설치된 경우 계속 사용하며, 개발용 단일 파일은 `%LOCALAPPDATA%\Programs\CycleArc-dev`에 두고 GitHub 업데이트 확인 대상에서 제외합니다.
+
+**설정 → 앱**에서 제거하거나 `Update.exe --uninstall`을 실행하면, 설치 파일을 지우기 전에 이 설치가 바꾼 Claude 설정을 되돌립니다. 이번에 제거하는 설치가 소유한 콜백만 정리합니다. 이전 statusLine은 원래 모습 그대로 복원하고 CycleArc 오류 훅은 제거하며, 사용자가 직접 바꾼 statusLine·다른 도구의 훅·다른 CycleArc 설치가 소유한 wrapper는 건드리지 않습니다. `%LOCALAPPDATA%\ProMeter`의 계정·설정·사용량 기록·Claude 연결 정보는 삭제하거나 로그아웃하지 않으므로 다시 설치하면 그대로 사용할 수 있습니다. 정리는 제한 시간 안에서만 수행하며 제거를 지연시키지 않습니다. 설정 파일이 잠겨 있거나 손상됐거나 동시에 편집 중이면 파일을 그대로 두고 결과를 `%LOCALAPPDATA%\ProMeter\claude-uninstall-cleanup.json`에 기록합니다.
+
+Codex 조회에는 이 PC에 설치된 **Codex CLI**와 네트워크 연결이 필요합니다. 기존 CLI 로그인을 찾아 연결하거나 CycleArc에서 다른 계정의 공식 로그인을 시작할 수 있습니다. Claude 서버 조회에는 공식 Claude CLI의 연결 확인, Windows PowerShell, 로그인된 Claude Desktop과 Claude Pro·Max 계정이 필요합니다. statusLine과 Claude Desktop 구독 사용량 기록은 로컬 기록으로 사용할 수 있습니다. 두 서비스 모두 CycleArc에서 공식 로그인을 시작할 수 있습니다.
+앱은 `codex.exe` 또는 `codex.cmd`를 PATH와 일반 설치 위치에서 찾습니다.
+자동으로 찾지 못하면 트레이 메뉴 → 설정에서 실행 파일의 절대 경로를 지정하세요.
+Codex CLI 자체는 이 배포 파일에 포함하지 않습니다.
+
+## 문제 해결
+
+- **Codex를 찾지 못함:** Codex CLI를 설치하거나 **설정 → 연결**에서 실행 파일 경로를 지정하세요. **로그인 변경됨 / 연결 확인 필요**라면 [해당 프로필을 다시 연결](#codex-연결-복구)하세요.
+- **Claude 사용량 대기 / 오래된 데이터:** 연결한 계정과 같은 계정으로 Claude Desktop에 로그인한 뒤 새로고침하세요. 반복되는 서버 요청 제한은 **설정 → 연결**에서 확인 주기를 늘려 완화할 수 있습니다. [Claude 연결 안내](#claude-code-연결).
+- **Cursor 로그인 변경:** Cursor에서 기존 프로필의 원래 계정으로 다시 로그인하세요. [Cursor 호환성과 한도 안내](CURSOR.md).
+- **위젯이 보이지 않음:** 표시할 계정과 **위젯 표시** 설정을 확인하고 **설정 → 위젯**에서 위치를 초기화하세요.
+- **오류 제보:** 실행 중인 버전, 오류와 재현 방법을 [이슈](https://github.com/frozenvoice/cyclearc/issues)에 남기세요. 자격 증명과 대화 내용은 첨부하지 마세요.
+
+## 상세 안내
+
+[Claude 연동](CLAUDE-INTEGRATION.md) · [Cursor 연동](CURSOR.md) · [구조](ARCHITECTURE.md) · [검증 기록](VALIDATION.md) · [.NET 10 이전·서명 조건](DOTNET10-MIGRATION.md) · [영문 사용자 안내](README.en.md)
+
+## 화면과 표시 방식
+
 선택 계정 상세팝업에는 **크레딧 잔액**(Codex), **추가 사용**(Claude), **온디맨드**(Cursor)
 접이식 카드가 표시됩니다. 펼치면 제공된 잔액 또는 사용액·상한·상한까지 남음과 원래 확인 시각을
 볼 수 있으며, Cursor는 제공된 청구 기간 종료도 표시합니다. 펼침 상태는 계정별로 새로고침·재시작
@@ -144,39 +197,6 @@ ChatGPT Pro/Sol 기록 추정 기능은 종료했습니다. Edge/Chrome 확장, 
 2. **자세히 볼 계정을 선택합니다.** 목록에서 파란 테두리가 있는 업무용이 현재 선택 계정이며, 선택해도 목록 순서는 바뀌지 않습니다. 큰 링의 **남음 36%**, 한도 행의 **사용 64%**, 리셋권도 모두 업무용 계정의 정보입니다. 다른 카드를 누르면 상세 화면·트레이·위젯의 표시 계정이 바뀝니다. 이 선택으로 다른 Codex 앱의 로그인 계정이 바뀌거나 새로고침이 시작되지는 않습니다.
 3. **미연결 프로필은 계정 관리에 남습니다.** 이전에 등록한 실험용 Claude는 연결되지 않아 이 메인 화면에는 나오지 않습니다. 등록된 프로필은 3개여도 **계정 · 2**, **전체 최신**으로 표시합니다. 연결을 완료하면 첫 사용량이 없어도 메인에 표시됩니다.
 
-## 설치와 실행
-
-배포 파일은 **`CycleArc-Setup.exe`**입니다. Velopack 1.2.0 기반 설치기가 필요한 앱 파일을 관리하며 .NET 런타임이 포함되어 별도 .NET 설치가 필요 없습니다.
-
-[최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 **Release · Windows x64** 설치 프로그램을 다운로드해 실행하세요. 새 안정 설치는 `%LOCALAPPDATA%\Programs\CycleArc` 아래에 두며, 기존 설치는 등록된 위치를 유지합니다(예전 `%LOCALAPPDATA%\CycleArc` 포함). 사용자 설정·계정·사용량 캐시는 기존 `%LOCALAPPDATA%\ProMeter`에 유지합니다.
-
-설치 화면에서 위치를 확인하고, 원하면 **바탕화면 바로가기 만들기**를 선택한 뒤 **설치**를 누르세요. 새 설치에서는 기본 해제이며, 재설치에서는 현재 설치의 바탕화면 바로가기 유무를 반영합니다. 선택을 해제하면 현재 설치에 속한 바로가기만 제거합니다. 업데이트나 무인 재설치로 삭제한 바로가기가 다시 생기지 않으며, 시작 메뉴에서는 계속 실행할 수 있습니다. 설치 진행 상태를 확인하고, 완료되면 **CycleArc 실행**을 선택한 상태로 **마침**을 누르세요.
-
-설치된 정식 버전은 시작 20초 뒤와 이후 6시간마다 GitHub Releases의 정식 채널을 확인합니다. 변경 내용과 함께 새 버전이 표시되며 **업데이트 다운로드**를 누른 뒤 **재시작 후 적용**을 선택해야 적용됩니다. **나중에** 또는 취소를 선택할 수 있으며 시작 시 자동 적용하지 않습니다. 전체 `.nupkg`는 다운로드 직후와 Velopack 적용 직전에 SHA-256을 확인합니다.
-
-교체 전에 이전 앱의 검증된 사본을 설치 폴더 밖에 보관합니다. 파일 교체에 실패하거나 새 앱이 준비 완료 신호를 보내지 못하면 별도 복구 프로세스가 이전 버전을 복원하고 다시 실행합니다. 계정과 설정은 앱 파일과 분리해 유지합니다. 복구까지 막히면 백업을 보존하고 위치를 안내합니다. 이 확인은 시작 단계에 적용되며, 이후 사용 중 발생하는 모든 오류를 감지하는 기능은 아닙니다.
-
-<details>
-<summary><strong>업데이트 화면 예시</strong></summary>
-
-<p><img src="images/updates-ko-dark.png" alt="현재 버전과 새 버전, 변경 내용, 나중에와 업데이트 다운로드 버튼이 있는 CycleArc 화면" width="480"></p>
-<p>실제 WPF 화면에 0.6.0 → 0.6.1 업그레이드 예시와 다중 계정 위젯, 상세·위젯 독립 크기, 설치 진행 관련 변경 내용을 넣어 렌더링했습니다. 다운로드가 끝나도 앱은 종료되지 않으며 검증 후 재시작 후 적용 버튼을 눌러야 합니다.</p>
-
-</details>
-
-릴리즈 파이프라인에서 코드 서명을 설정하지 않은 경우 배포 자산은 서명되지 않습니다. 설치 프로그램만으로 Windows SmartScreen 경고가 사라지지는 않습니다.
-
-실제 데스크톱 앱은 관리형 설치 루트 아래 `current\CycleArc.exe`에서 실행합니다. 새 설치의 기본 경로는 `%LOCALAPPDATA%\Programs\CycleArc\current\CycleArc.exe`이며, 기존 설치는 `%LOCALAPPDATA%\CycleArc\current\CycleArc.exe` 같은 등록된 위치를 유지할 수 있습니다. 루트의 `CycleArc.exe`는 데스크톱과 Windows 시작용 안정 런처이며, Claude statusLine·오류 훅은 stdin/stdout 전달을 보장하기 위해 current 실행 파일을 직접 사용합니다. 기존 CycleArc 소유 콜백은 CLI 신원과 저장된 바인딩이 일치할 때만 새 경로로 옮기며, 이전 실행 파일이 이미 없어도 설정에 있는 정확한 소유 wrapper라면 옮길 수 있습니다. 기존 statusLine, 별명, 계정 연결, 관련 없는 설정과 훅은 보존합니다.
-
-처음 설치할 때 현재 세션의 IPC와 실행 파일을 확인할 수 있으면 예전 표준 설치의 데스크톱을 종료하고 새 설치를 실행합니다. 다른 경로에서 실행 중인 개발 빌드는 먼저 실행된 인스턴스 정책을 유지합니다. 예전 `%LOCALAPPDATA%\CycleArc` 경로는 이미 설치된 경우 계속 사용하며, 개발용 단일 파일은 `%LOCALAPPDATA%\Programs\CycleArc-dev`에 두고 GitHub 업데이트 확인 대상에서 제외합니다.
-
-**설정 → 앱**에서 제거하거나 `Update.exe --uninstall`을 실행하면, 설치 파일을 지우기 전에 이 설치가 바꾼 Claude 설정을 되돌립니다. 이번에 제거하는 설치가 소유한 콜백만 정리합니다. 이전 statusLine은 원래 모습 그대로 복원하고 CycleArc 오류 훅은 제거하며, 사용자가 직접 바꾼 statusLine·다른 도구의 훅·다른 CycleArc 설치가 소유한 wrapper는 건드리지 않습니다. `%LOCALAPPDATA%\ProMeter`의 계정·설정·사용량 기록·Claude 연결 정보는 삭제하거나 로그아웃하지 않으므로 다시 설치하면 그대로 사용할 수 있습니다. 정리는 제한 시간 안에서만 수행하며 제거를 지연시키지 않습니다. 설정 파일이 잠겨 있거나 손상됐거나 동시에 편집 중이면 파일을 그대로 두고 결과를 `%LOCALAPPDATA%\ProMeter\claude-uninstall-cleanup.json`에 기록합니다.
-
-Codex 조회에는 이 PC에 설치된 **Codex CLI**와 네트워크 연결이 필요합니다. 기존 CLI 로그인을 찾아 연결하거나 CycleArc에서 다른 계정의 공식 로그인을 시작할 수 있습니다. Claude 서버 조회에는 공식 Claude CLI의 연결 확인, Windows PowerShell, 로그인된 Claude Desktop과 Claude Pro·Max 계정이 필요합니다. statusLine과 Claude Desktop 구독 사용량 기록은 로컬 기록으로 사용할 수 있습니다. 두 서비스 모두 CycleArc에서 공식 로그인을 시작할 수 있습니다.
-앱은 `codex.exe` 또는 `codex.cmd`를 PATH와 일반 설치 위치에서 찾습니다.
-자동으로 찾지 못하면 트레이 메뉴 → 설정에서 실행 파일의 절대 경로를 지정하세요.
-Codex CLI 자체는 이 배포 파일에 포함하지 않습니다.
-
 ## 계정 추가와 연결
 
 팝업의 **계정 관리** 또는 **설정 → 연결 → Codex·Claude 계정 관리**를 여세요.
@@ -289,7 +309,7 @@ Plus를 포함해 서버가 제공하는 한도 기간을 표시하며,
 
 ## 개발
 
-Windows, PowerShell 7, .NET 8 SDK가 필요합니다. 소스에서 `CycleArc-Setup.exe` 설치기를 빌드하려면 Setup 창이 Native AOT로 빌드되므로 Visual Studio Build Tools 2022의 **Desktop development with C++** 워크로드(MSVC x64/x86 도구와 Windows SDK 포함)도 필요합니다. 배포된 설치기를 실행할 때는 Visual Studio나 이 개발 도구가 필요하지 않으며, 적합한 구성 요소가 이미 있는 Visual Studio 설치가 있으면 `build-local`이 재사용합니다.
+Windows, PowerShell 7, .NET 10 SDK(`global.json`으로 선택)가 필요합니다. 소스에서 `CycleArc-Setup.exe` 설치기를 빌드하려면 Setup 창이 Native AOT로 빌드되므로 Visual Studio Build Tools 2022의 **Desktop development with C++** 워크로드(MSVC x64/x86 도구와 Windows SDK 포함)도 필요합니다. 배포된 설치기를 실행할 때는 Visual Studio나 이 개발 도구가 필요하지 않으며, 적합한 구성 요소가 이미 있는 Visual Studio 설치가 있으면 `build-local`이 재사용합니다.
 
 대화형 `build-local.cmd`/`scripts/Build-Local.ps1`에서 prerequisite 확인에 실패하면 누락 항목과 함께 **필요한 Microsoft 빌드 도구 설치**, **수동 설치 안내**, **취소**만 제시합니다. 설치는 명시적으로 동의한 경우에만 진행하며, Microsoft 공식 bootstrapper를 사용하고 Authenticode 서명이 Microsoft인지 확인한 경우에만 실행합니다. 회사 관리 PC에서는 관리자 권한이나 회사 IT 승인이 필요할 수 있습니다. `-NoPrerequisitePrompt`는 이 대화형 프롬프트를 끄며, `-SilentInstall`, CI, stdin 리디렉션 등 비대화형 실행에서는 프롬프트나 자동 설치 없이 누락 사항과 해결 방법을 출력하고 빠르게 실패합니다.
 

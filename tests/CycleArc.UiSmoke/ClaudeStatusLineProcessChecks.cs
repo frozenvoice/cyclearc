@@ -27,7 +27,7 @@ internal static class ClaudeStatusLineProcessChecks
     public static void Run(string? executable = null)
     {
         executable ??= Path.Combine(RepositoryRoot(), "src", "CycleArc", "bin", "Release",
-            "net8.0-windows10.0.17763.0", "CycleArc.exe");
+            "net10.0-windows10.0.17763.0", "CycleArc.exe");
         executable = Path.GetFullPath(executable);
         if (!File.Exists(executable)) throw new FileNotFoundException("Build the production executable before checking stdin.");
         var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "cyclearc-stdin-test-" + Guid.NewGuid().ToString("N"), "A space O'Brien $x`"));
