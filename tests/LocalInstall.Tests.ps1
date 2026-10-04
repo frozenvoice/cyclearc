@@ -360,9 +360,39 @@ try {
     Assert-InstallDesktopMutexAbsent -MutexName $mutexName
 
     # Exercise actual Windows process termination only against this test's child.
-    $child = Start-Process -FilePath (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '[Threading.Thread]::Sleep(60000)') -WindowStyle Hidden -PassThru
+    # Process.Path can be empty, or briefly identify ntdll.dll, before the Windows
+    # loader finishes. The child's marker establishes readiness before capturing
+    # its executable path; the stop helper must still reject an unavailable path.
+    $childExecutable = Join-Path $PSHOME 'pwsh.exe'
+    $childReadyScript = Join-Path $testRoot 'owned-child.ps1'
+    $childReadyPath = Join-Path $testRoot 'owned-child.ready'
+    Set-Content -LiteralPath $childReadyScript -Value @'
+param([Parameter(Mandatory)][string]$ReadyPath)
+[IO.File]::WriteAllText($ReadyPath, 'ready')
+[Threading.Thread]::Sleep(60000)
+'@
+    $childStart = [Diagnostics.ProcessStartInfo]::new($childExecutable)
+    $childStart.UseShellExecute = $false
+    $childStart.CreateNoWindow = $true
+    $childStart.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+    foreach ($childArgument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $childReadyScript, '-ReadyPath', $childReadyPath)) {
+        [void]$childStart.ArgumentList.Add($childArgument)
+    }
+    $child = [Diagnostics.Process]::Start($childStart)
     try {
         $null = $child.Handle
+        $childReadyWatch = [Diagnostics.Stopwatch]::StartNew()
+        while (!(Test-Path -LiteralPath $childReadyPath -PathType Leaf)) {
+            if ($child.HasExited) { throw "Owned child exited before readiness (exit $($child.ExitCode))" }
+            if ($childReadyWatch.Elapsed.TotalSeconds -ge 10) { throw 'Owned child did not report readiness' }
+            Start-Sleep -Milliseconds 50
+        }
+        $child.Refresh()
+        if ((ConvertTo-InstallAbsolutePath ([string]$child.Path)) -ine (ConvertTo-InstallAbsolutePath $childExecutable)) {
+            throw "Ready child path '$($child.Path)' does not match requested executable '$childExecutable'"
+        }
+        $unknownPath = [pscustomobject]@{ Process=$child; ProcessId=$child.Id; Path='' }
+        if (Stop-CycleArcDesktopProcess -ProcessRecord $unknownPath) { throw 'An unavailable process path was accepted for termination' }
         $pidOnly = [pscustomobject]@{ ProcessId=$child.Id; Path=$child.Path }
         if (Stop-CycleArcDesktopProcess -ProcessRecord $pidOnly) { throw 'A PID without a retained process was stopped' }
         $wrong = [pscustomobject]@{ Process=$child; ProcessId=$child.Id; Path=$outsideExe }
@@ -376,6 +406,10 @@ try {
     finally {
         if (!$child.HasExited) { $child.Kill(); $null = $child.WaitForExit(5000) }
         $child.Dispose()
+        foreach ($childArtifact in @($childReadyScript, $childReadyPath)) {
+            Assert-TestDirectory $childArtifact
+            Remove-Item -LiteralPath $childArtifact -Force -ErrorAction SilentlyContinue
+        }
     }
     Write-Host 'PASS: outside-install desktop discovery, legacy paths, session/product isolation, headless routing, mutex conflicts, and actual process termination.'
 }

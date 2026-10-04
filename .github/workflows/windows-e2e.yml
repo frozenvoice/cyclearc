@@ -1,6 +1,6 @@
 name: Windows installed E2E
 
-# Runs scripts/Verify-InstalledUpdate.ps1 end to end on a GitHub-hosted windows-latest runner:
+# Runs scripts/Verify-InstalledUpdate.ps1 end to end on a disposable VS2022 runner:
 # real Setup.exe installation, the in-app update through the production update path, failed-start
 # recovery, real removal and the Claude cleanup. The runner is discarded after the job, which is
 # why this may install and uninstall for the runner's own Windows user. It never touches a
@@ -15,10 +15,16 @@ name: Windows installed E2E
 
 on:
   workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: '.NET 8 version 0.9.1 source commit; blank runs the current-runtime fixture only'
+        default: '50c73b4f070ccb8e6192c0dbbfc1b6476aa89153'
+        required: false
+        type: string
 
 jobs:
   installed-e2e:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 90
     steps:
       - name: Checkout
@@ -27,7 +33,29 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
+          dotnet-version: "10.0.x"
+
+      - name: Checkout .NET 8 baseline source
+        if: inputs.baseline_ref != ''
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.baseline_ref }}
+          path: .tmp/net8-baseline
+
+      - name: Setup baseline .NET 8 SDK
+        if: inputs.baseline_ref != ''
+        uses: actions/setup-dotnet@v5
+        with:
           dotnet-version: "8.0.x"
+
+      - name: Select stable .NET 8 only in the baseline checkout
+        if: inputs.baseline_ref != ''
+        shell: pwsh
+        run: |
+          $baseline = Join-Path $env:GITHUB_WORKSPACE '.tmp/net8-baseline'
+          @{
+            sdk = @{ version = '8.0.100'; rollForward = 'latestFeature'; allowPrerelease = $false }
+          } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $baseline 'global.json')
 
       - name: Record the runner's pre-existing CycleArc state
         run: |
@@ -44,13 +72,19 @@ jobs:
           $report.GetEnumerator() | ForEach-Object { "$($_.Key) = $($_.Value)" }
 
       - name: Run the installed-app verification
+        env:
+          CYCLEARC_BASELINE_REF: ${{ inputs.baseline_ref }}
         run: |
           $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/e2e'
           New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
           # A transcript, not Tee-Object: the script reports through Write-Host, which does not
           # flow through the pipeline, so a tee would save an empty log for a failed run.
           Start-Transcript -Path (Join-Path $artifacts 'verification.log') | Out-Null
-          try { ./scripts/Verify-InstalledUpdate.ps1 -ConfirmDisposableEnvironment -WorkRoot $artifacts }
+          $verifyArguments = @{ ConfirmDisposableEnvironment = $true; WorkRoot = $artifacts }
+          if ($env:CYCLEARC_BASELINE_REF -ne '') {
+            $verifyArguments.BaselineRepoRoot = Join-Path $env:GITHUB_WORKSPACE '.tmp/net8-baseline'
+          }
+          try { ./scripts/Verify-InstalledUpdate.ps1 @verifyArguments }
           finally { Stop-Transcript | Out-Null }
 
       # Collected for a failed run as well, so a failure is diagnosable from the artifact alone.

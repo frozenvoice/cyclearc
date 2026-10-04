@@ -2,6 +2,58 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- .NET 10 LTS migration (2026-10-05):
+  - Started from clean `main` / `50c73b4f070ccb8e6192c0dbbfc1b6476aa89153`
+    (0.9.1), matching origin; no existing open PR covered this work. Version 0.10.0
+    migrates every current project, SDK selection, developer scripts and Windows CI.
+    [Compatibility review, OS support and signing conditions](DOTNET10-MIGRATION.md).
+  - Local toolchain: Windows 10.0.26300 x64, SDK 10.0.401 / runtime 10.0.12,
+    VS2022 Build Tools MSVC 14.44.35207, native Windows SDK 10.0.26100.0.
+    WPF's API target remains Windows 10.0.17763.0. Velopack/vpk stays 1.2.0;
+    tool restore resolves its net10.0 asset. Microsoft.Data.Sqlite is 10.0.12
+    with SQLitePCLRaw 2.1.13; WindowsDesktop supplies System.Drawing 10.
+  - The first shared gate passed Release build and desktop IPC, then exposed an
+    existing installer-test startup race: `Process.Path` was read before the owned
+    PowerShell child finished loading (empty or transient `ntdll.dll` path).
+    Five focused reproductions failed three times. The fixture now signals readiness
+    and verifies its requested executable before taking the process snapshot; the
+    production retained-handle/path checks are unchanged. Unknown paths still fail closed.
+    A sandboxed Restart Manager probe returned Windows code 29; the identical permitted
+    probe returned 0. Installer checks require the latter environment and were not weakened.
+  - A subsequent build hit an atomic MSBuild temporary-file access denial after earlier
+    sandboxed workers had been reused. Fresh-worker atomic-write probes passed. The final
+    gate used `MSBUILDDISABLENODEREUSE=1` and `DOTNET_CLI_USE_MSBUILD_SERVER=0` in its
+    process environment, without disabling atomic writes, coverage or security checks.
+  - Final local command: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+    -TestResultsDirectory artifacts/dotnet10/test-results
+    -PreviewDirectory artifacts/dotnet10/previews` passed, exit 0, in 5m53.6s.
+    Evidence: `artifacts/dotnet10/dev-run.log` and the net10.0 TRX result.
+    All 1,998 unit tests passed with no skips. SDK/workflow/release guards, installer
+    and build-local regressions, bound installed-recovery evidence checks, full WPF
+    UiSmoke, test-flavour build/publish, production publish and package verification passed.
+  - The bundled executable loaded/extracted native SQLite, queried the engine and read
+    only the exact synthetic Cursor token row; fixture database bytes remained unchanged.
+    Production built and published Claude receiver process checks passed. WPF coverage
+    includes 306 all-provider states, 148 ring bands, 108 usage-period states, 411 tray
+    renders, 180 DPI/layout renders, 36 resource/layout renders and 151 widget-layout checks.
+    Separately exported 36 production views; visually checked representative account,
+    connection, settings, overview and widget views plus final EN/KO Dark/Light wrapped,
+    mixed-height and failure-state widget previews. No layout regression was observed.
+  - Package checks verified the real 0.10.0 Velopack feed, damaged-cache recovery,
+    tamper-before-apply rejection, retry and data preservation. Isolated portable apply
+    and external-snapshot restoration passed; these are component evidence, not a claim
+    of managed installed-app verification. Both output file versions are 0.10.0.0.
+    Local SHA-256: app `6330F61D11459E55CFAE3C6C26337489825153FD05A559C7FD0C7B16AB5B3619`;
+    AOT Setup `6F1B35AEB115AED883FACE257C9A439A604DD31B611D2D78252341029281AFBA`.
+    Existing Velopack warnings about the delegated early bootstrap, unsigned assets
+    and a newer optional vpk version remain; the matched 1.2.0 dependency is retained.
+  - The live 0.6.1.0 installation remained running as the same PID at its legacy root,
+    with unchanged SHA-256 `639C9E707C882650F4F1C3B1DBF2F6C47DE0DD8718245908C33B1D5E1CB9FE1B`.
+    No live provider login was read or renewed by these tests. No public release was made.
+    Disposable installed CI is the remaining verification step. Historical compatibility
+    builds use pinned 0.9.1 source with synthetic E2E feed hooks and the current Setup
+    wrapper; they are not the unmodified public 0.9.1 binary.
+
 - Widget header status icons (2026-10-03):
   - The replacement design removes the status footer and its reserved 35-DIP space.
     Status moves to a small account-header icon: a rotating arc during refresh, a warning

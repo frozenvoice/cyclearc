@@ -25,6 +25,7 @@ Set-Location -LiteralPath $RepoRoot
 $localInstallScript = Join-Path $RepoRoot 'scripts/LocalInstall.ps1'
 . $localInstallScript
 . (Join-Path $RepoRoot 'scripts/SetupUiToolchain.ps1')
+. (Join-Path $RepoRoot 'scripts/DotnetSdk.ps1')
 $StagingDir = Join-Path $RepoRoot 'publish/.dev-staging'
 $CurrentLocalDir = Join-Path $RepoRoot 'publish/local'
 # The development single-file build replaces itself here. Kept apart from the managed
@@ -121,6 +122,7 @@ function Invoke-DevRunStep {
 }
 
 Invoke-DevRunStep 'preflight' {
+    Assert-CycleArcDotnetSdk -RepoRoot $RepoRoot
     # Identify desktop instances before any build cleanup. A process holding a file
     # under a build output would make the cleanup ambiguous, so stop before touching
     # that output and report the exact PID/path to the caller.
@@ -143,6 +145,7 @@ Invoke-DevRunStep 'preflight' {
 }
 
 Invoke-DevRunStep 'workflow-contract' { & (Join-Path $RepoRoot 'tests/VerificationWorkflow.Tests.ps1') }
+Invoke-DevRunStep 'sdk-regression' { & (Join-Path $RepoRoot 'tests/DotnetSdk.Tests.ps1') }
 Invoke-DevRunStep 'setup-ui-toolchain' {
     try {
         Assert-SetupUiToolchain -RepoRoot $RepoRoot | Out-Null
@@ -172,6 +175,7 @@ Invoke-DevRunStep 'ui-smoke-desktop-instance' {
 }
 Invoke-DevRunStep 'local-install-regression' { & (Join-Path $RepoRoot 'tests/LocalInstall.Tests.ps1') }
 Invoke-DevRunStep 'build-local-regression' { & (Join-Path $RepoRoot 'tests/BuildLocal.Tests.ps1') }
+Invoke-DevRunStep 'installed-update-regression' { & (Join-Path $RepoRoot 'tests/InstalledUpdateScript.Tests.ps1') }
 Invoke-DevRunStep 'unit-test' {
     if ($Fast) {
         Write-Host 'unit-test skipped (-Fast)'
@@ -204,6 +208,19 @@ Invoke-DevRunStep 'test-flavour-build' {
         '-p:CycleArcTestBuild=CYCLEARC_TEST_E2E%3BCYCLEARC_TEST_FAIL_STARTUP',
         '-o', $flavourOutput
     )
+}
+Invoke-DevRunStep 'test-flavour-publish' {
+    $testFlavourPublish = Join-Path $RepoRoot 'artifacts/test-flavour-publish'
+    Assert-DevRunPath $testFlavourPublish
+    if (Test-Path -LiteralPath $testFlavourPublish) {
+        Remove-Item -LiteralPath $testFlavourPublish -Recurse -Force
+    }
+    Invoke-Dotnet -Arguments @(
+        'publish', 'src/CycleArc/CycleArc.csproj', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
+        '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=None', '-p:DebugSymbols=false',
+        '-p:CycleArcTestBuild=CYCLEARC_TEST_E2E', '-o', $testFlavourPublish
+    )
+    Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--published-native-dependencies', (Join-Path $testFlavourPublish 'CycleArc.exe'))
 }
 Invoke-DevRunStep 'publish' {
     Invoke-Dotnet -Arguments @('publish', 'src/CycleArc/CycleArc.csproj', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $StagingDir)

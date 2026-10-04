@@ -39,19 +39,28 @@
 
 .PARAMETER KeepInstallation
     Skip the removal phase, leaving the installed app in place for manual inspection.
+.PARAMETER BaselineRepoRoot
+    Optional detached .NET 8 source checkout (0.9.1) for build A. Its global.json must
+    select stable .NET 8. Builds B and Fail use this checkout's .NET 10 application.
+    This compiles a test-feed-enabled baseline from historical source; it is not the
+    unmodified public release binary. Before upgrading A to B, it applies the .NET 10
+    failure build and proves that the .NET 8 supervisor restores A after the new desktop
+    actually fails to start. All install/update/recovery operations are real.
 #>
 [CmdletBinding()]
 param(
     [switch]$ConfirmDisposableEnvironment,
     [string]$InstallTo,
     [string]$WorkRoot,
-    [switch]$KeepInstallation
+    [switch]$KeepInstallation,
+    [string]$BaselineRepoRoot
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+. (Join-Path $RepoRoot 'scripts/DotnetSdk.ps1')
 $UiSmokeProject = Join-Path $RepoRoot 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj'
 $DesktopProject = Join-Path $RepoRoot 'src/CycleArc/CycleArc.csproj'
 $DataRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ProMeter'
@@ -61,11 +70,31 @@ $InstallTo = [IO.Path]::GetFullPath($InstallTo)
 if (!$WorkRoot) { $WorkRoot = Join-Path ([IO.Path]::GetTempPath()) ("cyclearc-installed-e2e-" + [Guid]::NewGuid().ToString('N')) }
 $WorkRoot = [IO.Path]::GetFullPath($WorkRoot)
 
-$Builds = [ordered]@{
-    A    = @{ Version = '9.9.1'; Constants = @('CYCLEARC_TEST_E2E') }
-    B    = @{ Version = '9.9.2'; Constants = @('CYCLEARC_TEST_E2E') }
-    Fail = @{ Version = '9.9.3'; Constants = @('CYCLEARC_TEST_E2E', 'CYCLEARC_TEST_FAIL_STARTUP') }
+function Get-InstalledVerificationBuilds([switch]$CrossRuntime, [string]$MigrationVersion) {
+    $plan = [ordered]@{
+        A    = @{ Version = '9.9.1'; Constants = @('CYCLEARC_TEST_E2E') }
+        B    = @{ Version = '9.9.2'; Constants = @('CYCLEARC_TEST_E2E') }
+        Fail = @{ Version = '9.9.3'; Constants = @('CYCLEARC_TEST_E2E', 'CYCLEARC_TEST_FAIL_STARTUP') }
+    }
+    if ($CrossRuntime) {
+        if ($MigrationVersion -notmatch '^\d+\.\d+\.\d+$' -or [version]$MigrationVersion -le [version]'0.9.1') {
+            throw 'The migrated app must have a plain semantic version newer than baseline 0.9.1.'
+        }
+        $migration = [version]$MigrationVersion
+        $plan.A.Version = '0.9.1'
+        $plan.B.Version = $MigrationVersion
+        $plan.Fail.Version = '{0}.{1}.{2}' -f $migration.Major, $migration.Minor, ($migration.Build + 1)
+    }
+    $plan
 }
+function Get-InstalledVerificationSourceRoot([string]$BuildName, [string]$CurrentRepoRoot, [string]$HistoricalRepoRoot) {
+    if ($BuildName -notin @('A', 'B', 'Fail')) { throw "Unknown verification build '$BuildName'." }
+    if ($BuildName -eq 'A' -and $HistoricalRepoRoot) { return $HistoricalRepoRoot }
+    $CurrentRepoRoot
+}
+if ($BaselineRepoRoot) { $BaselineRepoRoot = [IO.Path]::GetFullPath($BaselineRepoRoot) }
+$migrationVersion = [regex]::Match((Get-Content -LiteralPath (Join-Path $RepoRoot 'Directory.Build.props') -Raw), '<Version>\s*([^<]+?)\s*</Version>').Groups[1].Value.Trim()
+$Builds = Get-InstalledVerificationBuilds -CrossRuntime:([bool]$BaselineRepoRoot) -MigrationVersion $migrationVersion
 $Evidence = [ordered]@{}
 $script:StepNumber = 0
 
@@ -103,7 +132,7 @@ function ConvertTo-CommandLineArgument([string]$Value) {
 function Invoke-Windowed([string]$Executable, [string[]]$Arguments, [string]$What, [int]$TimeoutSeconds = 900) {
     Write-Host "    > $Executable $($Arguments -join ' ')"
     $quoted = @($Arguments | ForEach-Object { ConvertTo-CommandLineArgument $_ })
-    $process = Start-Process -FilePath $Executable -ArgumentList $quoted -PassThru
+    $process = Start-Process -FilePath $Executable -ArgumentList $quoted -PassThru -WindowStyle Hidden
     if (!$process.WaitForExit($TimeoutSeconds * 1000)) {
         try { $process.Kill($true) } catch { }
         throw "VERIFICATION FAILED: $What did not finish within $TimeoutSeconds seconds."
@@ -171,10 +200,36 @@ function Get-RecoveryOutcome([string[]]$Ignore) {
                 Marker    = $marker
                 Text      = ((Get-Content -LiteralPath $path -Raw -ErrorAction SilentlyContinue) + '').Trim()
                 Detail    = $detail
+                FailureText = if (Test-Path -LiteralPath (Join-Path $directory 'failure.txt')) {
+                    (Get-Content -LiteralPath (Join-Path $directory 'failure.txt') -Raw -ErrorAction SilentlyContinue) + ''
+                } else { '' }
             }
         }
     }
     $null
+}
+function Test-FailedStartRecoveryEvidence($Outcome, $Job, [hashtable]$PreviousBuild, [hashtable]$FailingBuild, [string]$InstallationRoot) {
+    if (!$Outcome -or !$Job) { return $false }
+    foreach ($name in @('Marker', 'Text', 'FailureText')) {
+        if ($name -notin @($Outcome.PSObject.Properties | ForEach-Object Name)) { return $false }
+    }
+    foreach ($name in @('TargetVersion', 'TargetExecutableSha256', 'Snapshot')) {
+        if ($name -notin @($Job.PSObject.Properties | ForEach-Object Name)) { return $false }
+    }
+    if (!$Job.Snapshot) { return $false }
+    foreach ($name in @('Version', 'ExecutableSha256', 'InstallationRoot')) {
+        if ($name -notin @($Job.Snapshot.PSObject.Properties | ForEach-Object Name)) { return $false }
+    }
+    # A previous hash can still be present before replacement starts. The completion
+    # marker plus the bound job and the supervisor's failed readiness report prove
+    # that this exact new executable was applied, launched and then rolled back.
+    ($Outcome.Marker -eq 'completed') -and ($Outcome.Text -eq 'restored') -and
+        (([string]$Outcome.FailureText).Contains('CycleArc exited before becoming ready.')) -and
+        ($Job.TargetVersion -eq $FailingBuild.Version) -and
+        ($Job.TargetExecutableSha256 -eq $FailingBuild.Sha256) -and
+        ($Job.Snapshot.Version -eq $PreviousBuild.Version) -and
+        ($Job.Snapshot.ExecutableSha256 -eq $PreviousBuild.Sha256) -and
+        ($Job.Snapshot.InstallationRoot -ieq $InstallationRoot)
 }
 function Get-Sha256OrNull([string]$Path) {
     try {
@@ -218,8 +273,9 @@ function Get-InstalledProcesses([string]$Root) {
     }
 }
 function Stop-InstalledDesktop([string]$Root) {
-    # Test-harness step only: the shipped app has no forced-exit entry point.
-    foreach ($process in @(Get-InstalledProcesses $Root)) { try { $process.Kill() } catch { } }
+    if (@(Get-InstalledProcesses $Root).Count -gt 0) {
+        Invoke-Windowed (Join-Path $Root 'current/CycleArc.exe') @('--desktop-shutdown') 'graceful installed desktop shutdown' 30
+    }
     Wait-Until { @(Get-InstalledProcesses $Root).Count -eq 0 } 30 'the installed CycleArc processes to exit'
 }
 
@@ -280,6 +336,28 @@ Assert-True (@(Get-InstallationShortcuts $InstallTo).Count -eq 0) 'a CycleArc sh
 Write-Fact 'installationRoot' $InstallTo
 Write-Fact 'dataRoot' $DataRoot
 Write-Fact 'workRoot' $WorkRoot
+Assert-CycleArcDotnetSdk -RepoRoot $RepoRoot
+if ($BaselineRepoRoot) {
+    Assert-True ($BaselineRepoRoot -ne $RepoRoot) 'the baseline must be a separate historical checkout.'
+    $baselineProject = Join-Path $BaselineRepoRoot 'src/CycleArc/CycleArc.csproj'
+    Assert-True (Test-Path -LiteralPath $baselineProject -PathType Leaf) 'baseline desktop project is missing.'
+    Assert-True ((Get-Content -LiteralPath $baselineProject -Raw) -match '<TargetFramework>net8\.0-windows') 'baseline desktop must target .NET 8 Windows.'
+    $baselineProps = Get-Content -LiteralPath (Join-Path $BaselineRepoRoot 'Directory.Build.props') -Raw
+    Assert-True ($baselineProps -match '<Version>\s*0\.9\.1\s*</Version>') 'baseline source must be version 0.9.1.'
+    Assert-True ([version]$Builds.B.Version -gt [version]$Builds.A.Version) 'the migrated app version must be newer than the baseline.'
+    Push-Location -LiteralPath $BaselineRepoRoot
+    try {
+        $baselineSdk = (& dotnet --version | Out-String).Trim()
+        Assert-True ($LASTEXITCODE -eq 0 -and (Test-CycleArcSelectedSdk -SelectedVersion $baselineSdk -MinimumVersion '8.0.100')) 'baseline global.json must select a stable .NET 8 SDK.'
+        $baselineCommit = (& git rev-parse HEAD | Out-String).Trim()
+        Assert-True ($LASTEXITCODE -eq 0) 'could not identify baseline commit.'
+    }
+    finally { Pop-Location }
+    Write-Fact 'baseline.commit' $baselineCommit
+    Write-Fact 'baseline.sdk' $baselineSdk
+    Write-Fact 'baseline.flavour' 'historical 0.9.1 source with CYCLEARC_TEST_E2E; production update validation retained'
+}
+Set-Location -LiteralPath $RepoRoot
 
 New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
 $LogRoot = (New-Item -ItemType Directory -Path (Join-Path $WorkRoot 'logs') -Force).FullName
@@ -304,14 +382,20 @@ foreach ($name in $Builds.Keys) {
     Write-Step "Publishing test build $name ($($build.Version)) and packaging its installer"
     $publish = Join-Path $BuildRoot "$name/app"
     $feed = Join-Path $BuildRoot "$name/feed"
-    Invoke-Checked 'dotnet' @(
-        'publish', $DesktopProject, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
+    $sourceRoot = Get-InstalledVerificationSourceRoot -BuildName $name -CurrentRepoRoot $RepoRoot -HistoricalRepoRoot $BaselineRepoRoot
+    $sourceProject = Join-Path $sourceRoot 'src/CycleArc/CycleArc.csproj'
+    Push-Location -LiteralPath $sourceRoot
+    try {
+        Invoke-Checked 'dotnet' @(
+        'publish', $sourceProject, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
         '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true',
         '-p:DebugType=None', '-p:DebugSymbols=false',
         "-p:Version=$($build.Version)", "-p:FileVersion=$($build.Version).0", "-p:AssemblyVersion=$($build.Version).0",
         # An unescaped semicolon would end the property and MSBuild would read the next
         # constant as another switch, so join them with the escaped form.
         "-p:CycleArcTestBuild=$($build.Constants -join '%3B')", '-o', $publish) "publish of test build $name"
+    }
+    finally { Pop-Location }
     $executable = Join-Path $publish 'CycleArc.exe'
     $files = @(Get-ChildItem -LiteralPath $publish -File -Recurse)
     Assert-True ($files.Count -eq 1 -and $files[0].Name -eq 'CycleArc.exe') "test build $name published more than CycleArc.exe."
@@ -383,6 +467,71 @@ function Start-InstalledDesktop([string]$Feed) {
     $started
 }
 
+function Get-NoticeProcesses {
+    $installed = @(@(Get-InstalledProcesses $InstallTo) | ForEach-Object { $_.Id })
+    Get-CycleArcProcesses | Where-Object { $installed -notcontains $_.Id }
+}
+
+function Invoke-FailedStartRecovery([hashtable]$PreviousBuild, [string]$EvidencePrefix) {
+    Stop-InstalledDesktop $InstallTo
+    Assert-True ((Get-Sha256 $Current) -eq $PreviousBuild.Sha256) 'the recovery starting executable is not the expected previous build.'
+    $accountsBefore = Get-Sha256 (Join-Path $DataRoot 'codex-accounts.json')
+    $connectionBefore = Get-Sha256 (Join-Path $DataRoot "accounts/$SeededProfile/claude-connection.json")
+    $recoveryBefore = @(Get-RecoveryDirectories)
+    $failing = Start-InstalledDesktop $Builds.Fail.Feed
+    Wait-Until { $failing.HasExited } 600 'the running app to close itself for the failing update'
+    Wait-Until {
+        $outcome = Get-RecoveryOutcome $recoveryBefore
+        if ($outcome -and $outcome.Marker -eq 'failed') {
+            throw "VERIFICATION FAILED: the recovery supervisor reported '$($outcome.Text)' in $($outcome.Directory).$($outcome.Detail)"
+        }
+        if (!$outcome) { return $false }
+        $job = Get-Content -LiteralPath (Join-Path $outcome.Directory 'job.json') -Raw | ConvertFrom-Json
+        if (!(Test-FailedStartRecoveryEvidence $outcome $job $PreviousBuild $Builds.Fail $InstallTo)) { return $false }
+        if ((Get-Sha256OrNull $Current) -ne $PreviousBuild.Sha256) { return $false }
+        $status = Get-DesktopStatus $Current
+        $status -and $status.Succeeded -and ($status.ProcessId -ne $failing.Id) -and
+            ([IO.Path]::GetFullPath($status.ExecutablePath) -ieq [IO.Path]::GetFullPath($Current))
+    } 900 'a new restored marker and the previous installation to restart after the failed new desktop'
+    $recoveryOutcome = Get-RecoveryOutcome $recoveryBefore
+    $job = Get-Content -LiteralPath (Join-Path $recoveryOutcome.Directory 'job.json') -Raw | ConvertFrom-Json
+    Assert-True (Test-FailedStartRecoveryEvidence $recoveryOutcome $job $PreviousBuild $Builds.Fail $InstallTo) 'the failed-start recovery evidence does not match this update.'
+    Write-Fact "$EvidencePrefix.marker" "$($recoveryOutcome.Marker): $($recoveryOutcome.Text)"
+    Write-Fact "$EvidencePrefix.failedTarget.version" $job.TargetVersion
+    Write-Fact "$EvidencePrefix.failedTarget.sha256" $job.TargetExecutableSha256
+    Write-Fact "$EvidencePrefix.failure" 'verified target desktop exited before becoming ready'
+    $recovered = Get-DesktopStatus $Current
+    Assert-True ($recovered -and $recovered.Succeeded) 'no desktop answered after the failed update.'
+    Assert-True ((Get-Sha256 $Current) -eq $PreviousBuild.Sha256) 'the failed update left a different executable in place.'
+    Assert-True ((Get-FileVersionText $Current) -eq $PreviousBuild.FileVersion) 'the restored file version is not the previous build.'
+    Assert-True (!(Test-Path -LiteralPath $desktopShortcut)) 'failed-update recovery recreated an unrequested desktop shortcut.'
+    $installedProcesses = @(Get-ProcessesRunning $Current)
+    Write-Fact "$EvidencePrefix.installedProcesses" (Get-ProcessSummary $installedProcesses)
+    Assert-True ($installedProcesses.Count -eq 1) `
+        ("expected exactly one process running $Current after recovery, found " +
+            "$($installedProcesses.Count): $(Get-ProcessSummary $installedProcesses)")
+    Assert-True ([IO.Path]::GetFullPath($recovered.ExecutablePath) -ieq [IO.Path]::GetFullPath($Current)) 'the recovered desktop is not the installed executable.'
+    Write-Fact "$EvidencePrefix.fileVersion" (Get-FileVersionText $Current)
+    Write-Fact "$EvidencePrefix.sha256" (Get-Sha256 $Current)
+    Write-Fact "$EvidencePrefix.desktop" ("pid $($recovered.ProcessId), $($recovered.ExecutablePath)")
+    # A restored update's supervisor shows a modal notice from its snapshot copy.
+    # Close only those helpers, leaving the recovered installed desktop alive.
+    $helpers = @(Get-NoticeProcesses)
+    Write-Fact "$EvidencePrefix.noticeProcesses" $helpers.Count
+    foreach ($helper in $helpers) { try { $helper.Kill() } catch { } }
+    if ($helpers.Count -gt 0) { Wait-Until { @(Get-NoticeProcesses).Count -eq 0 } 30 'the recovery notice to close' }
+    Assert-True ((Get-Sha256 (Join-Path $DataRoot 'codex-accounts.json')) -eq $accountsBefore) 'failed-start recovery changed the account registry.'
+    Assert-True ((Get-Sha256 (Join-Path $DataRoot "accounts/$SeededProfile/claude-connection.json")) -eq $connectionBefore) 'failed-start recovery changed the Claude connection record.'
+    Invoke-UiSmoke @('--claude-uninstall-installed', $DataRoot, $SeedPath, $InstallTo) 'Claude callback check after failed-start recovery'
+    Write-Fact "$EvidencePrefix.dataAndCallbacks" 'account registry and connection hashes preserved; synthetic callback passed'
+}
+
+if ($BaselineRepoRoot) {
+    Write-Step 'Applying the .NET 10 failure build to .NET 8 A and proving recovery back to A'
+    Invoke-FailedStartRecovery -PreviousBuild $Builds.A -EvidencePrefix 'crossRuntimeRecovery'
+    Stop-InstalledDesktop $InstallTo
+}
+
 Write-Step 'Starting the installed app and driving the real in-app update to build B'
 $desktop = Start-InstalledDesktop $Builds.B.Feed
 $statusBefore = Get-DesktopStatus $Current
@@ -415,48 +564,7 @@ Invoke-UiSmoke @('--claude-uninstall-installed', $DataRoot, $SeedPath, $InstallT
 # --- Failed start recovery --------------------------------------------------------------------
 
 Write-Step 'Applying a build that quits before readiness and watching the supervisor recover'
-Stop-InstalledDesktop $InstallTo
-$recoveryBefore = @(Get-RecoveryDirectories)
-$failing = Start-InstalledDesktop $Builds.Fail.Feed
-Wait-Until { $failing.HasExited } 600 'the running app to close itself for the failing update'
-Wait-Until {
-    $outcome = Get-RecoveryOutcome $recoveryBefore
-    if ($outcome -and $outcome.Marker -eq 'failed') {
-        throw "VERIFICATION FAILED: the recovery supervisor reported '$($outcome.Text)' in $($outcome.Directory).$($outcome.Detail)"
-    }
-    ((Get-Sha256OrNull $Current) -eq $Builds.B.Sha256) -and ($null -ne (Get-DesktopStatus $Current))
-} 900 'the supervisor to restore and restart the previous installation'
-$recoveryOutcome = Get-RecoveryOutcome $recoveryBefore
-Write-Fact 'recovery.marker' $(if ($recoveryOutcome) { "$($recoveryOutcome.Marker): $($recoveryOutcome.Text)" } else { 'none recorded yet' })
-$recovered = Get-DesktopStatus $Current
-Assert-True ($recovered -and $recovered.Succeeded) 'no desktop answered after the failed update.'
-Assert-True ((Get-Sha256 $Current) -eq $Builds.B.Sha256) 'the failed update left a different executable in place.'
-Assert-True ((Get-FileVersionText $Current) -eq $Builds.B.FileVersion) 'the restored file version is not the previous build.'
-Assert-True (!(Test-Path -LiteralPath $desktopShortcut)) 'failed-update recovery recreated an unrequested desktop shortcut.'
-# Identity, not containment: exactly one process is running the installed executable.
-$installedProcesses = @(Get-ProcessesRunning $Current)
-Write-Fact 'recovered.installedProcesses' (Get-ProcessSummary $installedProcesses)
-Assert-True ($installedProcesses.Count -eq 1) `
-    ("expected exactly one process running $Current after recovery, found " +
-        "$($installedProcesses.Count): $(Get-ProcessSummary $installedProcesses)")
-Assert-True ([IO.Path]::GetFullPath($recovered.ExecutablePath) -ieq [IO.Path]::GetFullPath($Current)) 'the recovered desktop is not the installed executable.'
-Write-Fact 'recovered.fileVersion' (Get-FileVersionText $Current)
-Write-Fact 'recovered.sha256' (Get-Sha256 $Current)
-Write-Fact 'recovered.desktop' ("pid $($recovered.ProcessId), $($recovered.ExecutablePath)")
-
-# A restored update ends with the supervisor showing a modal notice from its snapshot copy.
-# That helper waits for a person, so an unattended run has to acknowledge it explicitly.
-# It is whatever CycleArc process is not the installation, and the step after this one
-# needs the installed desktop alive, so name that one rather than guess at the other.
-function Get-NoticeProcesses {
-    $installed = @(@(Get-InstalledProcesses $InstallTo) | ForEach-Object { $_.Id })
-    Get-CycleArcProcesses | Where-Object { $installed -notcontains $_.Id }
-}
-$helpers = @(Get-NoticeProcesses)
-Write-Fact 'recovery.noticeProcesses' $helpers.Count
-foreach ($helper in $helpers) { try { $helper.Kill() } catch { } }
-if ($helpers.Count -gt 0) { Wait-Until { @(Get-NoticeProcesses).Count -eq 0 } 30 'the recovery notice to close' }
-Invoke-UiSmoke @('--claude-uninstall-installed', $DataRoot, $SeedPath, $InstallTo) 'Claude callback check after recovery'
+Invoke-FailedStartRecovery -PreviousBuild $Builds.B -EvidencePrefix 'recovery'
 
 function Write-Evidence {
     Write-Host ''

@@ -36,6 +36,7 @@ function Invoke-TestGit([string]$Directory, [string[]]$Arguments) {
 }
 
 function New-TestCycleArcTree([string]$Directory) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'global.json') -Destination $Directory
     New-Item -ItemType Directory -Path (Join-Path $Directory 'src/CycleArc') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $Directory 'CycleArc.sln') -Value 'synthetic solution'
     Set-Content -LiteralPath (Join-Path $Directory 'src/CycleArc/CycleArc.csproj') -Value 'synthetic project'
@@ -345,11 +346,11 @@ exit 0
     Write-Host 'PASS: no local variable shadows a parameter by spelling in the install scripts.'
 
 
-    if (!(Test-BuildLocalDotnetSdk @('8.0.415 [C:\Program Files\dotnet\sdk\8.0.415]'))) {
-        throw 'An 8.x SDK listing must be accepted'
+    if (Test-BuildLocalDotnetSdk @('8.0.415 [C:\Program Files\dotnet\sdk\8.0.415]')) {
+        throw 'An 8.x SDK listing must be rejected'
     }
     if (!(Test-BuildLocalDotnetSdk @('10.0.400 [C:\Program Files\dotnet\sdk\10.0.400]'))) {
-        throw 'A newer default SDK must be accepted when it can build net8.0'
+        throw 'A stable 10.0 SDK listing must be accepted'
     }
     if (Test-BuildLocalDotnetSdk @('6.0.428 [C:\Program Files\dotnet\sdk\6.0.428]')) {
         throw 'A 6.x SDK listing must not be treated as sufficient'
@@ -357,7 +358,10 @@ exit 0
     if (!(Test-BuildLocalDotnetSdk @('10.0.400 [C:\Program Files\dotnet\sdk\10.0.400]', '8.0.415 [C:\Program Files\dotnet\sdk\8.0.415]'))) {
         throw 'A mixed 8.x and 10.x SDK listing must be accepted'
     }
-    Write-Host 'PASS: .NET SDK 8+ detection ignores a newer default --version.'
+    foreach ($invalidSdk in @('11.0.100 [sdk]', '10.0.100-preview.1 [sdk]', '10.0.99 [sdk]')) {
+        if (Test-BuildLocalDotnetSdk @($invalidSdk)) { throw "Unsupported SDK listing accepted: $invalidSdk" }
+    }
+    Write-Host 'PASS: .NET SDK 10.0 detection rejects older, next-major and preview SDKs.'
 
     $defaultRoot = Get-DefaultManagedInstallRoot
     $log = Join-Path $testRoot 'setup.log'
