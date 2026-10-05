@@ -2,12 +2,14 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using CycleArc.Codex;
+using CycleArc.Providers.Usage;
 
 namespace CycleArc.UI;
 
 public partial class FlyoutWindow
 {
     private Dictionary<string, bool> _usageCardExpanded = new(StringComparer.Ordinal);
+    private bool _usageCreditsCompact;
     public event Action<string, bool>? UsageCardExpansionChanged;
 
     private void ApplyUsageCardSettings(AppSettings settings)
@@ -19,6 +21,13 @@ public partial class FlyoutWindow
     private void BindUsageCard(CodexQuotaSnapshot snapshot)
     {
         var card = UsageCreditPresentation.Create(snapshot);
+        _usageCreditsCompact = snapshot.Status == CodexQuotaStatus.Available && card.Notice.Length == 0
+            && !UsageCreditPresentation.Hidden(snapshot) && (snapshot.Provider switch
+            {
+                UsageProviderId.Claude => snapshot.ExtraUsage is null,
+                UsageProviderId.Cursor => !snapshot.Windows.Any(window => window.LimitId == "cursor-on-demand"),
+                _ => snapshot.UsageCredits is null && snapshot.UsageCreditsFailure is null or "credits-not-provided"
+            });
         UsageCreditsCard.Visibility = Visibility.Visible;
         UsageCreditsCard.Tag = SelectedProfileId;
         AutomationProperties.SetAutomationId(UsageCreditsCard, "usage-credits-" + SelectedProfileId);
@@ -67,11 +76,24 @@ public partial class FlyoutWindow
     private void ApplyUsageCardExpansion()
     {
         var expanded = _usageCardExpanded.GetValueOrDefault(SelectedProfileId ?? "");
+        ApplyAuxiliaryCardAppearance(UsageCreditsCard, UsageCreditsTitle, _usageCreditsCompact && !expanded);
         UsageCreditsDetails.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
         UsageCreditsChevron.Data = Geometry.Parse(expanded ? "M1,7 L7,1 L13,7" : "M1,1 L7,7 L13,1");
         var action = expanded ? UiText.T("Collapse", "접기") : UiText.T("Expand", "펼치기");
         UsageCreditsExpandButton.ToolTip = UsageCreditsTitle.Text + " · " + action;
         AutomationProperties.SetName(UsageCreditsExpandButton, UsageCreditsTitle.Text + " · " + action);
         AutomationProperties.SetHelpText(UsageCreditsExpandButton, UsageCreditsSummary.Text);
+    }
+
+    private static void ApplyAuxiliaryCardAppearance(Border card, TextBlock title, bool compact)
+    {
+        card.BorderThickness = new Thickness(compact ? 0 : 1);
+        card.Padding = new Thickness(12, compact ? 1 : 8, 12, compact ? 1 : 8);
+        card.Margin = new Thickness(0, compact ? 6 : 10, 0, 0);
+        title.FontSize = compact ? 12 : 13;
+        title.FontWeight = compact ? FontWeights.Normal : FontWeights.SemiBold;
+        title.SetResourceReference(TextBlock.ForegroundProperty, compact ? "MutedBrush" : "TextBrush");
+        if (compact) card.Background = System.Windows.Media.Brushes.Transparent;
+        else card.SetResourceReference(Border.BackgroundProperty, "CardBrush");
     }
 }

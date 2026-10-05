@@ -154,7 +154,6 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
                     <Border Background="{DynamicResource GhostBrush}" CornerRadius="9" Width="28" Height="28" Margin="0,0,10,0">
@@ -254,45 +253,20 @@
                     <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="14"
                                Foreground="{DynamicResource TextBrush}"/>
                 </Button>
-                <Button x:Name="PinButton"
+                <Button x:Name="WindowOptionsButton"
                         Grid.Column="6"
                         Style="{StaticResource FlyoutHeaderIconButton}"
-                        Click="OnPinClick"
-                        ToolTip="Pin"
-                        AutomationProperties.Name="Pin"
-                        Margin="0,0,4,0">
-                    <Grid Width="14" Height="14">
-                        <Path x:Name="PinOutline"
-                              Stroke="{DynamicResource TextBrush}"
-                              StrokeThickness="1.4"
-                              StrokeStartLineCap="Round"
-                              StrokeEndLineCap="Round"
-                              StrokeLineJoin="Round"
-                              Fill="Transparent"
-                              Stretch="Uniform"
-                              Data="M7,1 C5.3,1 4,2.5 4,4.2 L4,7.2 L2.2,7.2 L2.2,8.8 L6.2,8.8 L6.2,13 L7.8,13 L7.8,8.8 L11.8,8.8 L11.8,7.2 L10,7.2 L10,4.2 C10,2.5 8.7,1 7,1 Z"/>
-                        <Path x:Name="PinFilled"
-                              Fill="{DynamicResource AccentBrush}"
-                              Stroke="{DynamicResource AccentBrush}"
-                              StrokeThickness="0.4"
-                              Stretch="Uniform"
-                              Visibility="Collapsed"
-                              Data="M7,1 C5.3,1 4,2.5 4,4.2 L4,7.2 L2.2,7.2 L2.2,8.8 L6.2,8.8 L6.2,13 L7.8,13 L7.8,8.8 L11.8,8.8 L11.8,7.2 L10,7.2 L10,4.2 C10,2.5 8.7,1 7,1 Z"/>
-                    </Grid>
-                </Button>
-                <Button x:Name="CloseFlyoutButton"
-                        Grid.Column="7"
-                        Style="{StaticResource FlyoutHeaderIconButton}"
-                        Click="OnCloseClick"
-                        ToolTip="Close"
-                        AutomationProperties.Name="Close">
-                    <Path Width="12"
-                          Height="12"
-                          Stroke="{DynamicResource TextBrush}"
-                          StrokeThickness="1.6"
-                          StrokeStartLineCap="Round"
-                          Data="M2,2 L10,10 M10,2 L2,10"
-                          Stretch="Uniform"/>
+                        Click="OnWindowOptionsClick">
+                    <Button.ContextMenu>
+                        <ContextMenu x:Name="WindowOptionsMenu">
+                            <MenuItem x:Name="PinMenuItem" IsCheckable="True" Click="OnPinClick"/>
+                            <Separator/>
+                            <MenuItem x:Name="CloseFlyoutMenuItem" Click="OnCloseClick"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                    <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource TextBrush}"
+                          StrokeThickness="2.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M2,8 L2.1,8 M8,8 L8.1,8 M14,8 L14.1,8"/>
                 </Button>
             </Grid>
             <ScrollViewer x:Name="FlyoutContentScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="14,4,14,14" MaxHeight="640">
@@ -300,13 +274,22 @@
                     <DockPanel Margin="0,0,0,10">
                         <ContentControl x:Name="SelectedAvatarHost" DockPanel.Dock="Left" Margin="0,0,9,0"
                                         VerticalAlignment="Center" Focusable="False" IsTabStop="False"/>
-                        <Grid x:Name="SelectedAccountHeader" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <Grid x:Name="SelectedAccountHeader" HorizontalAlignment="Stretch" VerticalAlignment="Center">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="SelectedAccountText" FontWeight="SemiBold" FontSize="15" TextTrimming="CharacterEllipsis"
                                        VerticalAlignment="Center" Margin="0,0,8,0" Visibility="Collapsed" Foreground="{DynamicResource TextBrush}"/>
+                            <ComboBox x:Name="AccountSelector" Margin="0,0,8,0" MinHeight="32" FontSize="13"
+                                      MaxDropDownHeight="240" Visibility="Collapsed" SelectedValuePath="Id"
+                                      SelectionChanged="OnAccountSelectorChanged">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
                             <ui:UsageProviderBadge x:Name="SelectedProviderBadge" Grid.Column="1"/>
                         </Grid>
                     </DockPanel>

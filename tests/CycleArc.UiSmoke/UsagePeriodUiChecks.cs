@@ -2,6 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Automation.Peers;
+using System.Windows.Automation;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -57,6 +58,9 @@ internal static class UsagePeriodUiChecks
                         }
                     }
                     if (changes.Count != 0) throw new InvalidOperationException("Binding a period fired a user change.");
+                    Check(!Text(flyout, "UsagePeriodHint").Contains(UiText.T("Detail, tray", "상세·트레이"), StringComparison.Ordinal),
+                        "Repeated period help remained in the quota card.");
+                    CheckAccountSelector(flyout, account);
 
                     // Native selection automation also covers the checked-state path used by arrow keys.
                     Select(flyout, "FiveHourPeriodButton");
@@ -136,6 +140,35 @@ internal static class UsagePeriodUiChecks
             for (var x = 0; x < 24; x++)
                 Check(actualBitmap.GetPixel(x, y) == expectedBitmap.GetPixel(x, y), "Tray icon rendered a different period.");
         }
+    }
+
+    private static void CheckAccountSelector(FlyoutWindow flyout, CodexAccountView first)
+    {
+        var second = first with { Profile = first.Profile with { Id = "other-period-fixture", Label = "Synthetic other" },
+            Snapshot = first.Snapshot with { Status = CodexQuotaStatus.Stale, TechnicalDetail = "timeout" } };
+        var selections = new List<string>();
+        void Selected(string id) => selections.Add(id);
+        flyout.AccountSelected += Selected;
+        try
+        {
+            flyout.BindAccounts([first, second], first.Profile.Id, false);
+            var selector = (ComboBox)flyout.FindName("AccountSelector");
+            Check(selector.Visibility == Visibility.Visible && selector.Focusable
+                && System.Windows.Input.KeyboardNavigation.GetIsTabStop(selector)
+                && AutomationProperties.GetName(selector).Length > 0 && selections.Count == 0,
+                "Account dropdown is inaccessible or binding changed the selected account.");
+            Check(((ItemsControl)flyout.FindName("AccountOverview")).Items.Count == 2,
+                "Account dropdown hid the comparison/recovery cards.");
+            selector.SelectedValue = second.Profile.Id;
+            Check(selections.SequenceEqual([second.Profile.Id]), "Dropdown did not emit one display-account selection.");
+            flyout.BindAccounts([first, second], second.Profile.Id, false);
+            Check((string?)selector.SelectedValue == second.Profile.Id && selections.Count == 1,
+                "Account rebind fired a duplicate selection.");
+            flyout.BindAccounts([first], first.Profile.Id, false);
+            Check(selector.Visibility == Visibility.Collapsed && selections.Count == 1,
+                "Single-account binding left a redundant selector or emitted selection.");
+        }
+        finally { flyout.AccountSelected -= Selected; }
     }
 
     private static void CheckChoiceLayout(FlyoutWindow flyout)

@@ -128,8 +128,9 @@ public class FlyoutUxAndFailureSummaryTests
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
         var xaml = document.ToString();
         Assert.Contains("x:Name=\"TitleText\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"PinButton\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"CloseFlyoutButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WindowOptionsButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PinMenuItem\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"CloseFlyoutMenuItem\"", xaml, StringComparison.Ordinal);
         Assert.Contains("AccentBrush", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("ProgressBar", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("SyncProgressStrip", xaml, StringComparison.Ordinal);
@@ -138,11 +139,11 @@ public class FlyoutUxAndFailureSummaryTests
         var spinner = document.Descendants(ns + "Viewbox")
             .Single(element => (string?)element.Attribute(x + "Name") == "RefreshSpinner");
         Assert.Equal("Collapsed", (string?)spinner.Attribute("Visibility"));
-        var close = document.Descendants(ns + "Button")
-            .Single(element => (string?)element.Attribute(x + "Name") == "CloseFlyoutButton");
+        var close = document.Descendants(ns + "MenuItem")
+            .Single(element => (string?)element.Attribute(x + "Name") == "CloseFlyoutMenuItem");
         Assert.Equal("OnCloseClick", (string?)close.Attribute("Click"));
-        var pin = document.Descendants(ns + "Button")
-            .Single(element => (string?)element.Attribute(x + "Name") == "PinButton");
+        var pin = document.Descendants(ns + "MenuItem")
+            .Single(element => (string?)element.Attribute(x + "Name") == "PinMenuItem");
         Assert.Equal("OnPinClick", (string?)pin.Attribute("Click"));
         Assert.Contains("OnHeaderMouseLeftButtonDown", xaml, StringComparison.Ordinal);
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", xaml, StringComparison.Ordinal);
@@ -172,8 +173,7 @@ public class FlyoutUxAndFailureSummaryTests
         Assert.DoesNotContain("Pinned", drag, StringComparison.Ordinal);
         var interactive = Slice(code, "private bool HeaderSourceIsInteractive", "private IReadOnlyList<ScreenRect> EnumerateWorkAreas");
         Assert.Contains("RefreshAllButton", interactive, StringComparison.Ordinal);
-        Assert.Contains("PinButton", interactive, StringComparison.Ordinal);
-        Assert.Contains("CloseFlyoutButton", interactive, StringComparison.Ordinal);
+        Assert.Contains("WindowOptionsButton", interactive, StringComparison.Ordinal);
         Assert.DoesNotContain("_suppressDeactivateClose", code, StringComparison.Ordinal);
         Assert.DoesNotContain("OnHeaderButtonPreviewMouseDown", code, StringComparison.Ordinal);
         Assert.DoesNotContain("OnDeactivated", code, StringComparison.Ordinal);
