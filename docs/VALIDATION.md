@@ -2,6 +2,48 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Observed quota history and window controls (2026-10-05):
+  - Started from clean `684f20e` / `origin/main`. Window cleanup is `ff2ed7a`;
+    actual-observation history and its tests are `31beeba`, with option-cache
+    optimization and its regression checks in `65007be`. Existing provider
+    snapshots feed isolated, bounded local history. Graphs retain actual source
+    and receipt timestamps, separate units/windows and gaps, and add no forecasts,
+    account switching, remote requests or polling timer.
+  - All **2,064 unit tests passed**, with zero skips. Final executable verification
+    completed `dev-run.ps1 -NoLaunch -Fast` in **3m49s**, reusing that unchanged unit
+    suite. Full production WPF, desktop IPC, installer/script guards, test-flavour
+    build/publish, native SQLite and built/published receiver checks, single-file
+    production publish, Velopack packaging and portable recovery all passed.
+    Evidence: `artifacts/observed-trends/full-gate.log` and `test-results-final`.
+  - Verification corrected asynchronous fixture teardown and old widget-height
+    assumptions: manager tests await their recorder before deleting isolated roots;
+    original 192/150/112-DIP summary-body limits remain, with the added graph measured
+    independently. The mixed-height fixture retains a short first row and reaches
+    the taller selected last row. Focused and full checks cover 36 new graph
+    combinations, 100 Cursor layouts, 151 layout cases, 771 zoom checks and 180 DPI
+    cases, alongside the existing provider/state/theme/interaction suite. Another
+    33 related unit tests and the four strict native popup scenarios passed after
+    caching account and metric option sources; the compact graph skips unused
+    picker work. Normal-desktop verification resolved the focused sandbox desktop's
+    inability to activate windows without changing production activation behavior.
+  - Captured actual production WPF with synthetic profiles before and after the
+    change, inspected both languages/themes and populated/empty/remaining-amount
+    views, and updated the 38 affected current guide images. Eight additional
+    comparison/detail images are linked from [the evidence report](OBSERVED-TRENDS.md).
+    Real accounts, installed-app data, credentials and user caches were not used.
+  - The report also records repeated default-GC CPU/memory measurements using the
+    same five-account isolated fixture and preserved baseline executable. All three
+    final trials completed (10m14s); 15/18 phase pairs are comparable, with final-tray
+    request-boundary mismatches excluded. Initial-tray medians are CPU 0.729→0.365%
+    of one core and Private Bytes 28.371→29.160 MiB. UI-state Private Bytes still
+    rises about 11–14 MiB; widget CPU paired delta remains +3.021 pp [−2.136,+3.177].
+    Caching reduces avoidable picker work, but these runs do not establish zero
+    overhead or universal UI/memory improvement. The final gate's cached NU1900
+    warnings were followed by a warning-free forced restore with auditing enabled.
+    These short runs do not establish real-account compatibility, long-session retention
+    or installed-app update/recovery/removal; installed E2E requires a disposable
+    Windows environment and was not run on the working user profile.
+
 - Isolated Windows idle measurements (2026-10-05):
   - Started from clean `b318ca6c376e1b2ec2e8ffb3a9c81d3bbf9e9ab8`, matching
     `origin/main` in `frozenvoice/cyclearc`. Added a dedicated self-contained WPF
