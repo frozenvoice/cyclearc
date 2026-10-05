@@ -1,0 +1,265 @@
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Threading;
+
+namespace CycleArc.IdleMeasure;
+
+internal static class Program
+{
+    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+
+    [STAThread]
+    private static int Main(string[] args)
+    {
+        var clock = Stopwatch.StartNew();
+        Options? options = null;
+        try
+        {
+            options = Options.Parse(args);
+            var sampler = new ProcessMetricsSampler();
+            var entry = sampler.Capture("entry", clock.Elapsed.TotalSeconds);
+            var runtime = ProcessMetricsSampler.CaptureRuntimeIdentity();
+            ValidateConfiguration(options.Configuration, runtime);
+            var fixture = new SyntheticAccounts(options.FixtureRoot);
+            int result = 1;
+            var app = new AppHarness(fixture, async app =>
+            {
+                try
+                {
+                    await RunAsync(app, fixture, options, sampler, runtime, entry, clock);
+                    result = 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(ex);
+                    WriteJson(options.Output + ".failure.json", new { Status = "failed", Error = ex.ToString() });
+                }
+                finally
+                {
+                    try { await app.StopAsync(); await fixture.DisposeAsync(); }
+                    catch (Exception ex) { result = 1; Console.Error.WriteLine(ex); }
+                    app.Shutdown(result);
+                }
+            }) { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            // Match UiSmoke: App.xaml has an exact x:Class and cannot initialize a subclass.
+            app.Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("/CycleArc;component/UI/Themes.xaml", UriKind.Relative)
+            });
+            app.Run();
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            if (options is not null) WriteJson(options.Output + ".failure.json", new { Status = "failed", Error = ex.ToString() });
+            return 1;
+        }
+    }
+
+    private static async Task RunAsync(AppHarness app, SyntheticAccounts fixture, Options options,
+        ProcessMetricsSampler sampler, RuntimeIdentity runtime, ProcessSample entry, Stopwatch clock)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var duration = options.WarmupSeconds + options.PhaseSeconds * 6;
+        var measurements = new Measurements(sampler, app.Dispatcher, clock, duration);
+        // Warm instrumentation and allocate buffers before the steady phases. No forced GC.
+        var sampleTask = Task.Run(() => measurements.SampleAsync(cancellation.Token));
+        var probeTask = Task.Run(() => measurements.ProbeAsync(cancellation.Token));
+        var phases = new List<PhaseResult>(7);
+        var inventories = new List<NativeVirtualMemoryInventory>(7);
+        var transitions = new List<TransitionResult>(4);
+        try
+        {
+            await app.InitializeAsync();
+            await app.AssertDataWhenIdleAsync();
+            var ready = sampler.Capture("ready", clock.Elapsed.TotalSeconds);
+            var readyMilliseconds = clock.Elapsed.TotalMilliseconds;
+            WriteJson(options.Output + ".ready.json", new { ProcessId = Environment.ProcessId, EntryToReadyMilliseconds = readyMilliseconds });
+            await Phase("warmup", options.WarmupSeconds, false, false);
+            await Phase("tray-idle", options.PhaseSeconds, false, false);
+            await Transition("show-flyout", () => app.ShowFlyout(true));
+            await Phase("flyout-visible", options.PhaseSeconds, true, false);
+            await Transition("hide-flyout", () => app.ShowFlyout(false));
+            await Phase("tray-after-flyout", options.PhaseSeconds, false, false);
+            await Transition("show-widget", () => app.ShowWidget(true));
+            await Phase("widget-visible", options.PhaseSeconds, false, true);
+            measurements.Phase = "synthetic-refresh";
+            var beforeRefresh = fixture.CaptureCounters();
+            var refreshStart = clock.Elapsed.TotalMilliseconds;
+            await app.RefreshAsync();
+            await app.PublishAndReadPassiveAsync();
+            var refreshMilliseconds = clock.Elapsed.TotalMilliseconds - refreshStart;
+            var afterRefresh = fixture.CaptureCounters();
+            Require(afterRefresh.CodexQuotaRequests >= beforeRefresh.CodexQuotaRequests + 2
+                && afterRefresh.ClaudeLiveRequests >= beforeRefresh.ClaudeLiveRequests + 2
+                && afterRefresh.CursorUsageRequests >= beforeRefresh.CursorUsageRequests + 1
+                && afterRefresh.CursorHttpRequests >= beforeRefresh.CursorHttpRequests + 3,
+                "Synthetic manual refresh must perform all providers' external requests.");
+            await Phase("post-refresh-widget", options.PhaseSeconds, false, true);
+            await Transition("hide-widget", () => app.ShowWidget(false));
+            await Phase("tray-after-refresh", options.PhaseSeconds, false, false);
+            await app.AssertDataWhenIdleAsync();
+            Require(app.PassiveTicks >= duration / 3, "Two-second passive timer stopped or lost excessive ticks.");
+            cancellation.Cancel();
+            await Task.WhenAll(sampleTask, probeTask);
+            var final = sampler.Capture("final", clock.Elapsed.TotalSeconds);
+            // Stop/dispose only after all measured endpoints. Report serialization is not timed.
+            await app.StopAsync();
+            var production = typeof(App).Assembly;
+            WriteJson(options.Output, new
+            {
+                SchemaVersion = 1, Status = "complete", options.Configuration, options.Trial,
+                options.PhaseSeconds, options.WarmupSeconds, ProcessId = Environment.ProcessId,
+                FixtureRoot = options.FixtureRoot, Runtime = runtime,
+                ProductionAssembly = production.Location,
+                ProductionVersion = production.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+                HarnessVersion = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+                EntryToReadyMilliseconds = readyMilliseconds, Entry = entry, Ready = ready, Final = final,
+                RefreshMilliseconds = refreshMilliseconds, BeforeRefresh = beforeRefresh, AfterRefresh = afterRefresh,
+                Phases = phases, Transitions = transitions, VirtualMemoryInventories = inventories,
+                Samples = measurements.Samples.Take(measurements.SampleCount).ToArray(),
+                UiProbes = measurements.Probes.Take(measurements.ProbeCount).ToArray(),
+                Counters = fixture.CaptureCounters(), app.PassiveTicks, app.AutomaticTicks, app.DisplayTicks,
+                Assertions = new[] { "five isolated accounts", "latest passive values and original timestamps",
+                    "all providers performed refresh requests", "production window visibility", "passive timer remains active" },
+                Limitations = new[] { "Synthetic current-source WPF harness; ordinary installed bootstrap, IPC, updater and discovery excluded",
+                    "External provider transport is synthetic with cancellable 10ms responses",
+                    "UI latency is a dispatcher/scheduling proxy, not click-to-pixel latency",
+                    "GC pauses are cumulative; individual maximum pauses are not observed",
+                    "ManagedAllocatedBytes is GC.GetTotalMemory(false), not retained live objects",
+                    "Last-GC sizes are dated snapshots; private-minus-GC commit is not native heap attribution",
+                    "Instrumentation and fixture memory are included equally in every configuration" }
+            });
+            Console.WriteLine("PASS: isolated idle measurement, provider requests, latest data, account isolation and visibility.");
+
+            async Task Transition(string name, Action action)
+            {
+                measurements.Phase = name;
+                var start = clock.Elapsed.TotalMilliseconds;
+                action();
+                var returned = clock.Elapsed.TotalMilliseconds;
+                // WPF render/layout priorities precede ApplicationIdle. This is still
+                // a dispatcher milestone, not a physical screen-present timestamp.
+                var idle = await app.Dispatcher.InvokeAsync(() => clock.Elapsed.TotalMilliseconds, DispatcherPriority.ApplicationIdle);
+                transitions.Add(new TransitionResult(name, start, returned - start, idle - start));
+            }
+
+            async Task Phase(string phase, int seconds, bool flyout, bool widget)
+            {
+                measurements.Phase = phase;
+                WriteJson(options.Output + ".progress.json", new { phase, ProcessId = Environment.ProcessId, ElapsedSeconds = clock.Elapsed.TotalSeconds });
+                app.AssertVisibility(flyout, widget);
+                var start = sampler.Capture(phase, clock.Elapsed.TotalSeconds);
+                var counters = fixture.CaptureCounters();
+                await Task.Delay(TimeSpan.FromSeconds(seconds));
+                var end = sampler.Capture(phase, clock.Elapsed.TotalSeconds);
+                var countersAfter = fixture.CaptureCounters();
+                measurements.Phase = "boundary-inventory";
+                app.AssertVisibility(flyout, widget);
+                await app.AssertDataWhenIdleAsync();
+                phases.Add(new PhaseResult(phase, start, end, counters, countersAfter));
+                inventories.Add(sampler.CaptureVirtualMemoryInventory(phase));
+            }
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await Task.WhenAll(sampleTask, probeTask);
+        }
+    }
+
+    private static void ValidateConfiguration(string label, RuntimeIdentity runtime)
+    {
+        Require(!runtime.IsServerGc, "Expected the production workstation GC default.");
+        Require(runtime.GcConfiguration.TryGetValue("GCConserveMem", out var conserve), "GCConserveMem unavailable.");
+        Require(runtime.GcConfiguration.TryGetValue("ConcurrentGC", out var concurrent), "ConcurrentGC unavailable.");
+        Require(Convert.ToInt32(conserve) == (label == "conserve5" ? 5 : label == "conserve7" ? 7 : 0), "GC conservation setting did not apply.");
+        Require(Convert.ToBoolean(concurrent) == (label != "concurrent-off"), "Concurrent GC setting did not apply.");
+    }
+
+    internal static void Require(bool condition, string message)
+    {
+        if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static void WriteJson(string path, object value)
+    {
+        File.WriteAllText(path + ".writing", JsonSerializer.Serialize(value, Json));
+        File.Move(path + ".writing", path, true);
+    }
+
+    private sealed record Options(string Output, string FixtureRoot, int PhaseSeconds, int WarmupSeconds, string Configuration, int Trial)
+    {
+        public static Options Parse(string[] args)
+        {
+            Require(args.Length == 12, "Six explicit option/value pairs are required; use scripts/Measure-Idle.ps1.");
+            var values = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int i = 0; i < args.Length; i += 2) values.Add(args[i], args[i + 1]);
+            string output = Path.GetFullPath(values["--output"]), root = Path.GetFullPath(values["--fixture-root"]);
+            Require(!File.Exists(output) && Directory.Exists(Path.GetDirectoryName(output)), "Output must be a new file in an existing report directory.");
+            Require(Directory.Exists(root) && !Directory.EnumerateFileSystemEntries(root).Any(), "Fixture root must be a fresh empty directory.");
+            Require((File.GetAttributes(root) & FileAttributes.ReparsePoint) == 0, "Fixture root cannot be a reparse point.");
+            int phase = int.Parse(values["--phase-seconds"]), warmup = int.Parse(values["--warmup-seconds"]), trial = int.Parse(values["--trial"]);
+            string config = values["--config-label"];
+            Require(phase is >= 5 and <= 600 && warmup is >= 0 and <= 600 && trial is >= 1 and <= 3, "Invalid measurement duration/trial.");
+            Require(config is "default" or "conserve5" or "conserve7" or "concurrent-off", "Unknown GC configuration.");
+            return new Options(output, root, phase, warmup, config, trial);
+        }
+    }
+
+    private sealed class Measurements(ProcessMetricsSampler sampler, Dispatcher dispatcher, Stopwatch clock, int seconds)
+    {
+        public readonly ProcessSample[] Samples = new ProcessSample[seconds + 180];
+        public readonly UiProbe[] Probes = new UiProbe[(seconds + 180) * 2];
+        public int SampleCount, ProbeCount;
+        private string _phase = "startup";
+        public string Phase { get => Volatile.Read(ref _phase); set => Volatile.Write(ref _phase, value); }
+
+        public async Task SampleAsync(CancellationToken token)
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    Require(SampleCount < Samples.Length, "Sample buffer exhausted.");
+                    Samples[SampleCount++] = sampler.Capture(Phase, clock.Elapsed.TotalSeconds);
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        }
+
+        public async Task ProbeAsync(CancellationToken token)
+        {
+            // Absolute intended due time includes GC/thread-pool delay before dispatch.
+            double due = clock.Elapsed.TotalMilliseconds + 500;
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(0, due - clock.Elapsed.TotalMilliseconds)), token);
+                    var phase = Phase;
+                    double queued = clock.Elapsed.TotalMilliseconds;
+                    double executed = await dispatcher.InvokeAsync(() => clock.Elapsed.TotalMilliseconds, DispatcherPriority.Input, token);
+                    Require(ProbeCount < Probes.Length, "UI probe buffer exhausted.");
+                    Probes[ProbeCount++] = new UiProbe(phase, due, queued, executed,
+                        Math.Max(0, executed - due), Math.Max(0, executed - queued));
+                    due += 500;
+                    if (due < executed) due += Math.Ceiling((executed - due) / 500) * 500;
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        }
+    }
+
+    private readonly record struct UiProbe(string Phase, double DueMilliseconds, double QueuedMilliseconds,
+        double ExecutedMilliseconds, double DueToExecutionMilliseconds, double QueueToExecutionMilliseconds);
+    private sealed record PhaseResult(string Name, ProcessSample Start, ProcessSample End,
+        FixtureCounters CountersBefore, FixtureCounters CountersAfter);
+    private sealed record TransitionResult(string Name, double StartMilliseconds,
+        double SynchronousActionMilliseconds, double UntilDispatcherIdleMilliseconds);
+}
