@@ -74,6 +74,21 @@ internal static class UsageCreditUiChecks
                 {
                     flyout.BindAccounts([Sample(provider, state)], AccountId, false);
                     Render(state);
+                    if (state == "missing")
+                    {
+                        var auxiliary = (Border)flyout.FindName("UsageCreditsCard");
+                        // Expansion remains account-owned; the healthy missing folded row is compact.
+                        ((Button)flyout.FindName("UsageCreditsExpandButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        Require(auxiliary.BorderThickness == new Thickness(0)
+                            && ((TextBlock)flyout.FindName("UsageCreditsSummary")).Text == UiText.T("Not provided", "미제공")
+                            && AutomationProperties.GetName(auxiliary).Contains(UiText.T("Not provided", "미제공")),
+                            "Healthy missing credit data lost its compact, explicit, accessible state.");
+                        ((Button)flyout.FindName("UsageCreditsExpandButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    }
+                    if (state is "failed" or "identity")
+                        Require(((Border)flyout.FindName("UsageCreditsCard")).BorderThickness == new Thickness(1)
+                            && ((System.Windows.Shapes.Path)flyout.FindName("UsageCreditsWarning")).Visibility == Visibility.Visible,
+                            "Credit failure or reconnect requirement was compacted away.");
                     if (state == "identity")
                     {
                         Require(flyout.DetailRows.Count == 0, "Identity mismatch retained quota rows.");

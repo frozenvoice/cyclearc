@@ -113,7 +113,7 @@ public partial class App : Application
                             _claudeConnections.VerifyUsageIdentityAsync),
                         liveFactory: profile => new ClaudeLiveUsageCollector(accounts, profile.Id,
                             new ClaudeOAuthUsageClient(new ClaudeDesktopCredentialReader()))),
-                    new CursorUsageProvider(accounts) ]);
+                    new CursorUsageProvider(accounts) ], observationWarning: _log.Warn);
         }
         catch
         {
@@ -690,6 +690,7 @@ public partial class App : Application
     {
         if (IsExiting) return;
         IsExiting = true;
+        var shutdownTime = Stopwatch.StartNew();
         try
         {
             RunExitCleanup(() => _widgetController?.Dispose(), "Widget shutdown failed");
@@ -712,6 +713,9 @@ public partial class App : Application
         catch (Exception ex) { LogExitFailure("App shutdown wait failed", ex); }
         finally
         {
+            if (_codex is not null)
+                await _codex.StopObservationsAsync(TimeSpan.FromMilliseconds(
+                    Math.Max(1, 15_000 - shutdownTime.Elapsed.TotalMilliseconds)));
             try { RunExitCleanup(() => _tray?.Dispose(), "Tray shutdown failed"); }
             finally { Shutdown(); }
         }
@@ -731,6 +735,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // Direct Shutdown paths also stop optional recording; never block WPF exit.
+        RunExitCleanup(() => { if (_codex is not null) _ = _codex.StopObservationsAsync(TimeSpan.Zero); }, "Observation recorder shutdown failed");
         RunExitCleanup(() => _widgetController?.Dispose(), "Widget shutdown failed");
         RunExitCleanup(() => _environment?.Dispose(), "Environment monitor shutdown failed");
         RunExitCleanup(() => _instanceServer?.DisposeAsync().AsTask().GetAwaiter().GetResult(), "Desktop IPC shutdown failed");

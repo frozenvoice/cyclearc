@@ -20,6 +20,9 @@ public sealed record CodexAccountView(CodexAccountProfile Profile, CodexQuotaSna
             : Profile.Provider.Name() + " · " + Profile.Id[..Math.Min(6, Profile.Id.Length)]) : Profile.Label;
     public string ProviderName => Profile.Provider.Name();
     public bool IsConnected { get; init; }
+    public Observations.QuotaObservationHistorySnapshot? Observations { get; init; }
+    public bool ObservationStorageUnavailable { get; init; }
+    public bool ObservationHistoryLoading { get; init; }
     public bool IsAwaitingUsage => IsConnected
         && Snapshot.Status == CodexQuotaStatus.Unavailable && !Snapshot.HasUsablePercentages
         && (Profile.Provider == UsageProviderId.Claude && Snapshot.TechnicalDetail == "claude-connected-waiting"

@@ -8,7 +8,7 @@ public sealed class CodexIdentityRecoveryTests
     [Fact]
     public async Task ImportedRecoveryReplacesProfileAfterVerifiedQuotaAndPreservesLatestOrderAndSelection()
     {
-        using var scenario = new RecoveryScenario("managed@example.invalid");
+        await using var scenario = new RecoveryScenario("managed@example.invalid");
         await scenario.Manager.RefreshManuallyAsync(CancellationToken.None);
 
         var oldCache = scenario.ReadImportedCache();
@@ -54,7 +54,7 @@ public sealed class CodexIdentityRecoveryTests
     [Fact]
     public async Task ImportedRecoveryKeepsSelectionWhenAnotherProfileWasSelected()
     {
-        using var scenario = new RecoveryScenario("managed@example.invalid");
+        await using var scenario = new RecoveryScenario("managed@example.invalid");
         scenario.Manager.Select(scenario.Managed.Id);
         await scenario.Manager.RefreshManuallyAsync(CancellationToken.None);
 
@@ -76,7 +76,7 @@ public sealed class CodexIdentityRecoveryTests
     [Fact]
     public async Task ImportedRecoveryQuotaFailurePreservesRegistryProfileSelectionAndCache()
     {
-        using var scenario = new RecoveryScenario("managed@example.invalid", candidateQuotaFailure: true);
+        await using var scenario = new RecoveryScenario("managed@example.invalid", candidateQuotaFailure: true);
         await scenario.Manager.RefreshManuallyAsync(CancellationToken.None);
 
         var oldRegistry = scenario.ReadRegistry();
@@ -104,7 +104,7 @@ public sealed class CodexIdentityRecoveryTests
     [Fact]
     public async Task ImportedRecoveryCancellationPreservesRegistryProfileSelectionAndCache()
     {
-        using var scenario = new RecoveryScenario("managed@example.invalid", candidateDelay: TimeSpan.FromSeconds(30));
+        await using var scenario = new RecoveryScenario("managed@example.invalid", candidateDelay: TimeSpan.FromSeconds(30));
         await scenario.Manager.RefreshManuallyAsync(CancellationToken.None);
 
         var oldRegistry = scenario.ReadRegistry();
@@ -139,7 +139,7 @@ public sealed class CodexIdentityRecoveryTests
     [Fact]
     public async Task ImportedRecoveryRejectsExistingManagedIdentityWithoutChangingState()
     {
-        using var scenario = new RecoveryScenario("main@example.invalid");
+        await using var scenario = new RecoveryScenario("main@example.invalid");
         await scenario.Manager.RefreshManuallyAsync(CancellationToken.None);
 
         var oldRegistry = scenario.ReadRegistry();
@@ -167,7 +167,7 @@ public sealed class CodexIdentityRecoveryTests
     [Fact]
     public async Task ImportedDuplicateProjectionSuppressesQuotaAndCreditsButManagedProfileRemainsUsable()
     {
-        using var scenario = new RecoveryScenario("main@example.invalid");
+        await using var scenario = new RecoveryScenario("main@example.invalid");
         await scenario.Manager.RefreshManuallyAsync(CancellationToken.None);
 
         var imported = scenario.Manager.Accounts.Single(account => account.Profile.Id == scenario.Imported.Id);
@@ -195,12 +195,13 @@ public sealed class CodexIdentityRecoveryTests
     [Fact]
     public async Task RemovingOtherProfileAndRestartingDoesNotClearRequiredIdentityRecovery()
     {
-        using var scenario = new RecoveryScenario("main@example.invalid");
+        await using var scenario = new RecoveryScenario("main@example.invalid");
         await scenario.Manager.RefreshManuallyAsync(CancellationToken.None);
         Assert.Equal("codex-identity-conflict", scenario.Manager.Accounts[0].Snapshot.TechnicalDetail);
         Assert.True(scenario.Manager.Remove(scenario.Managed.Id));
-        var restarted = new CodexAccountManager(scenario.Store, scenario.Data.Root,
-            profile => scenario.Data.Service(profile, scenario.ImportedFactory), () => AccountTestDirectory.Executable);
+        await AccountTestDirectory.StopManagerAsync(scenario.Manager);
+        var restarted = scenario.Data.TrackManager(new CodexAccountManager(scenario.Store, scenario.Data.Root,
+            profile => scenario.Data.Service(profile, scenario.ImportedFactory), () => AccountTestDirectory.Executable));
         Assert.Equal("codex-identity-conflict", restarted.Accounts.Single().Snapshot.TechnicalDetail);
         await restarted.RefreshManuallyAsync(CancellationToken.None);
         Assert.Empty(restarted.Accounts.Single().Snapshot.Windows);
@@ -219,7 +220,7 @@ public sealed class CodexIdentityRecoveryTests
         return AccountTestProtocol.Standard(line);
     }
 
-    private sealed class RecoveryScenario : IDisposable
+    private sealed class RecoveryScenario : IAsyncDisposable
     {
         public AccountTestDirectory Data { get; }
         public CodexAccountStore Store { get; }
@@ -258,7 +259,7 @@ public sealed class CodexIdentityRecoveryTests
                 ResponseDelay = candidateDelay
             };
 
-            Manager = new CodexAccountManager(
+            Manager = Data.TrackManager(new CodexAccountManager(
                 Store,
                 Data.Root,
                 profile => profile.Id == Imported.Id
@@ -266,7 +267,7 @@ public sealed class CodexIdentityRecoveryTests
                     : profile.Id == Managed.Id
                         ? Data.Service(profile, ManagedFactory)
                         : Data.Service(profile, CandidateFactory),
-                () => AccountTestDirectory.Executable);
+                () => AccountTestDirectory.Executable));
         }
 
         public string ReadRegistry() =>
@@ -278,6 +279,6 @@ public sealed class CodexIdentityRecoveryTests
         public byte[] ReadImportedBinding() =>
             File.ReadAllBytes(Store.SnapshotPath(Imported) + ".identity.json");
 
-        public void Dispose() => Data.Dispose();
+        public ValueTask DisposeAsync() => Data.DisposeAsync();
     }
 }

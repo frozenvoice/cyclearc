@@ -36,6 +36,13 @@ public partial class FlyoutWindow : Window
     private readonly RefreshIndicatorController _refreshIndicator = new();
     private bool _refreshActive;
     private bool _bindingUsagePeriod;
+    private bool _bindingAccountSelector;
+    private AccountChoice[] _accountChoices = [];
+    private bool _resetCreditsCompact;
+    private sealed record AccountChoice(string Id, string AccountName, string ProviderName)
+    {
+        public string DisplayName { get; } = AccountName + " · " + ProviderName;
+    }
     // Folded by default: the summary line names the count and the nearest expiry.
     private bool _creditsExpanded;
     private System.Windows.Controls.ToolTip? _creditHelpTip;
@@ -81,7 +88,12 @@ public partial class FlyoutWindow : Window
         IsVisibleChanged += (_, _) =>
         {
             ApplyRefreshVisuals();
-            if (!IsVisible && _creditHelpTip is not null) _creditHelpTip.IsOpen = false;
+            if (!IsVisible)
+            {
+                if (_creditHelpTip is not null) _creditHelpTip.IsOpen = false;
+                WindowOptionsMenu.IsOpen = false;
+                AccountSelector.IsDropDownOpen = false;
+            }
         };
         Activated += (_, _) => ApplyRefreshVisuals();
         ContentRendered += (_, _) => ApplyRefreshVisuals();
@@ -258,6 +270,12 @@ public partial class FlyoutWindow : Window
 
     public void Bind(CodexQuotaSnapshot snapshot, bool refreshing = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
+        _observationAccount = null;
+        BindSnapshot(snapshot, refreshing, preference);
+    }
+
+    private void BindSnapshot(CodexQuotaSnapshot snapshot, bool refreshing, UsagePeriodPreference preference)
+    {
         // Keep action/status metadata while defending every selected-detail projection,
         // including legacy reset credits, against accidentally retained account values.
         if (UsageCreditPresentation.Hidden(snapshot)) snapshot = snapshot with
@@ -289,7 +307,8 @@ public partial class FlyoutWindow : Window
         selectedId = overview.SelectedId;
         SelectedProfileId = selectedId.Length == 0 ? null : selectedId;
         var selected = overview.Selected;
-        Bind(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing, overview.Preference);
+        _observationAccount = selected;
+        BindSnapshot(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing, overview.Preference);
         AccountSection.Visibility = Visibility.Visible;
         ManageAccountsButton.Content = UiText.T("Manage accounts", "계정 관리");
         AccountsHeading.Text = UiText.T($"Accounts · {accounts.Count}", $"계정 · {accounts.Count}");
@@ -306,6 +325,15 @@ public partial class FlyoutWindow : Window
         SelectedAvatarHost.Content = selected is null ? null : AccountSummary.Avatar(selected, 30);
         SelectedAccountText.Visibility = Visibility.Visible;
         SelectedAccountText.ToolTip = selected?.Email ?? selected?.DisplayName;
+        BindAccountChoices(accounts, selectedId);
+        AccountSelector.Visibility = accounts.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        SelectedAccountText.Visibility = accounts.Count > 1 ? Visibility.Collapsed : Visibility.Visible;
+        var selectionHelp = UiText.T("Select the account shown in CycleArc details, tray and widget.",
+            "CycleArc 상세·트레이·위젯에 표시할 계정을 선택합니다.");
+        AccountSelector.ToolTip = selectionHelp;
+        System.Windows.Automation.AutomationProperties.SetName(AccountSelector,
+            UiText.T("Display account", "표시 계정"));
+        System.Windows.Automation.AutomationProperties.SetHelpText(AccountSelector, selectionHelp);
         var failed = accounts.Count(a => a.Snapshot.Status != CodexQuotaStatus.Available && !a.IsAwaitingUsage);
         var waiting = accounts.Count(a => a.IsAwaitingUsage);
         // Only a Claude statusLine or Desktop history sample is "received"; a live server check
@@ -327,6 +355,50 @@ public partial class FlyoutWindow : Window
     }
 
     private void OnAccountsClick(object sender, RoutedEventArgs e) => AccountsRequested?.Invoke();
+
+    private void BindAccountChoices(IReadOnlyList<CodexAccountView> accounts, string selectedId)
+    {
+        var changed = _accountChoices.Length != accounts.Count || AccountSelector.ItemsSource is null;
+        for (var index = 0; !changed && index < accounts.Count; index++)
+        {
+            var account = accounts[index];
+            var choice = _accountChoices[index];
+            changed = choice.Id != account.Profile.Id || choice.AccountName != account.DisplayName
+                || choice.ProviderName != account.Profile.Provider.Name();
+        }
+        _bindingAccountSelector = true;
+        try
+        {
+            // Quota and refresh changes do not change the options. Reusing their source
+            // avoids replacing the ComboBox's items and selection on every quota event.
+            if (changed)
+            {
+                _accountChoices = new AccountChoice[accounts.Count];
+                for (var index = 0; index < accounts.Count; index++)
+                {
+                    var account = accounts[index];
+                    _accountChoices[index] = new(account.Profile.Id, account.DisplayName, account.Profile.Provider.Name());
+                }
+                AccountSelector.ItemsSource = _accountChoices;
+            }
+            if (!Equals(AccountSelector.SelectedValue, selectedId)) AccountSelector.SelectedValue = selectedId;
+        }
+        finally { _bindingAccountSelector = false; }
+    }
+
+    private void OnAccountSelectorChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_bindingAccountSelector || AccountSelector.SelectedItem is not AccountChoice choice
+            || choice.Id == SelectedProfileId) return;
+        if (_redeemingCredit)
+        {
+            _bindingAccountSelector = true;
+            try { AccountSelector.SelectedValue = SelectedProfileId; }
+            finally { _bindingAccountSelector = false; }
+            return;
+        }
+        AccountSelected?.Invoke(choice.Id);
+    }
     private void OnClaudeUsagePage(object sender, RoutedEventArgs e) => ClaudeUsagePage.Open(this, OpenExternalForTest);
 
     public void SetRefreshPresentation(FlyoutRefreshPresentation presentation)
@@ -418,8 +490,8 @@ public partial class FlyoutWindow : Window
         RefreshAllButton.ToolTip = UiText.RefreshAll;
         System.Windows.Automation.AutomationProperties.SetName(RefreshAllButton, UiText.RefreshAll);
         ApplyPinGlyph();
-        CloseFlyoutButton.ToolTip = UiText.Close;
-        System.Windows.Automation.AutomationProperties.SetName(CloseFlyoutButton, UiText.Close);
+        CloseFlyoutMenuItem.Header = UiText.Close;
+        System.Windows.Automation.AutomationProperties.SetName(CloseFlyoutMenuItem, UiText.Close);
     }
 
     public void PlaceNearTaskbar()
@@ -513,6 +585,7 @@ public partial class FlyoutWindow : Window
         CodexSecondaryRowsHost.Visibility = secondary.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         ApplyCodexRing(snapshot);
+        BindObservedTrend(snapshot);
     }
 
     // One detail row: label and value, with the value's detail (reset countdown, time) below it.
@@ -591,6 +664,9 @@ public partial class FlyoutWindow : Window
             return;
         }
         var credits = CodexCreditCard.From(snapshot, DateTimeOffset.Now);
+        _resetCreditsCompact = snapshot.Status == CodexQuotaStatus.Available && snapshot.ResetCreditsAvailable is null
+            && !UsageCreditPresentation.Hidden(snapshot)
+            && !WidgetStatusPresentation.From(snapshot, snapshot.LastAttemptedRefresh ?? DateTimeOffset.UtcNow).IsWarning;
         ResetCreditsCount.Text = credits.CountText;
         CreditExpiryRows.Items.Clear();
         for (var index = 0; index < credits.Rows.Count; index++)
@@ -638,6 +714,9 @@ public partial class FlyoutWindow : Window
         // The first row is the nearest expiry; without rows the notice explains why.
         CreditSummaryText.Text = credits.Rows.Count > 0 ? credits.Rows[0].Text : credits.Notice ?? "";
         CreditSummaryText.ToolTip = string.IsNullOrEmpty(CreditSummaryText.Text) ? null : CreditSummaryText.Text;
+        System.Windows.Automation.AutomationProperties.SetName(ResetCreditsCard,
+            ResetCreditsTitle.Text + ": " + credits.CountText + " · " + CreditSummaryText.Text);
+        ApplyCreditExpansion();
     }
 
     private async Task UseCreditAsync(CodexCreditExpiryRow item)
@@ -713,6 +792,7 @@ One credit will be consumed.",
 
     private void ApplyCreditExpansion()
     {
+        ApplyAuxiliaryCardAppearance(ResetCreditsCard, ResetCreditsTitle, _resetCreditsCompact && !_creditsExpanded);
         CreditDetails.Visibility = _creditsExpanded ? Visibility.Visible : Visibility.Collapsed;
         CreditExpandChevron.Data = Geometry.Parse(_creditsExpanded ? "M1,7 L7,1 L13,7" : "M1,1 L7,7 L13,1");
         var label = _creditsExpanded ? UiText.T("Collapse reset credits", "리셋권 접기") : UiText.T("Expand reset credits", "리셋권 펼치기");
@@ -857,9 +937,15 @@ One credit will be consumed.",
             WeeklyPeriodButton.IsChecked = UsagePeriod == UsagePeriodPreference.Weekly;
         }
         finally { _bindingUsagePeriod = false; }
-        UsagePeriodHint.Text = UsagePeriod == UsagePeriodPreference.Auto
-            ? UiText.T("Auto: 5 hours first · Detail, tray & widget", "자동: 5시간 우선 · 상세·트레이·위젯 공통")
-            : UiText.T("Applies to detail, tray and widget.", "상세·트레이·위젯에 함께 적용됩니다.");
+        var shownPeriod = ring.Window?.Kind switch
+        {
+            CodexWindowKind.FiveHour => UiText.T("5-hour", "5시간"),
+            CodexWindowKind.Weekly => UiText.T("Weekly", "주간"),
+            _ => ring.Window is null ? UiText.T("Unavailable", "미제공") : ring.RemainingSubLabel
+        };
+        UsagePeriodHint.Text = UiText.T($"Showing {shownPeriod}", $"{shownPeriod} 표시")
+            + (ring.Window is not null && !ring.IsAvailable ? UiText.T(" · Unknown", " · 알 수 없음") : "")
+            + (UsagePeriod == UsagePeriodPreference.Auto ? UiText.T(" · Auto", " · 자동") : "");
         var requested = UsagePeriod == UsagePeriodPreference.FiveHour ? CodexWindowKind.FiveHour
             : UsagePeriod == UsagePeriodPreference.Weekly ? CodexWindowKind.Weekly : (CodexWindowKind?)null;
         UsagePeriodFallback.Text = requested is not null && ring.IsAvailable && ring.Window?.Kind != requested
@@ -932,6 +1018,13 @@ One credit will be consumed.",
     private void OnRefreshAllClick(object sender, RoutedEventArgs e) => SyncRequested?.Invoke();
 
     private void OnSettingsClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
+
+    private void OnWindowOptionsClick(object sender, RoutedEventArgs e)
+    {
+        WindowOptionsMenu.PlacementTarget = WindowOptionsButton;
+        WindowOptionsMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        WindowOptionsMenu.IsOpen = true;
+    }
 
     private void OnPinClick(object sender, RoutedEventArgs e)
     {
@@ -1030,11 +1123,13 @@ One credit will be consumed.",
 
     private void ApplyPinGlyph()
     {
-        PinFilled.Visibility = Pinned ? Visibility.Visible : Visibility.Collapsed;
-        PinOutline.Visibility = Pinned ? Visibility.Collapsed : Visibility.Visible;
         var label = Pinned ? UiText.Unpin : UiText.Pin;
-        PinButton.ToolTip = label;
-        System.Windows.Automation.AutomationProperties.SetName(PinButton, label);
+        PinMenuItem.Header = label;
+        PinMenuItem.IsChecked = Pinned;
+        System.Windows.Automation.AutomationProperties.SetName(PinMenuItem, label);
+        var options = UiText.T("Window options", "창 옵션");
+        WindowOptionsButton.ToolTip = Pinned ? options + UiText.T(" · Pinned", " · 고정됨") : options;
+        System.Windows.Automation.AutomationProperties.SetName(WindowOptionsButton, (string)WindowOptionsButton.ToolTip);
     }
 
     private bool HeaderSourceIsInteractive(DependencyObject? source)
@@ -1045,8 +1140,7 @@ One credit will be consumed.",
                 || ReferenceEquals(source, StatusText)
                 || ReferenceEquals(source, RefreshProgressText)
                 || ReferenceEquals(source, RefreshAllButton)
-                || ReferenceEquals(source, PinButton)
-                || ReferenceEquals(source, CloseFlyoutButton))
+                || ReferenceEquals(source, WindowOptionsButton))
             {
                 return true;
             }

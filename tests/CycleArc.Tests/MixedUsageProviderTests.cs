@@ -14,13 +14,13 @@ public class MixedUsageProviderTests
     [InlineData("binding", true)]
     [InlineData("cache", true)]
     [InlineData("unreadable", true)]
-    public void NewClaudeFlowDiscardsOnlyItsOwnEmptyDraft(string outcome, bool kept)
+    public async Task NewClaudeFlowDiscardsOnlyItsOwnEmptyDraft(string outcome, bool kept)
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
-        var manager = new CodexAccountManager(store, data.Home("codex"),
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Home("codex"),
             [new CodexUsageProvider(p => data.Service(p, new ScriptedCodexProcessFactory()), () => AccountTestDirectory.Executable),
-             new ClaudeUsageProvider(store)]);
+             new ClaudeUsageProvider(store)]));
         var existing = manager.AddClaude("Previously registered");
         manager.Select(existing.Id);
         string? draftId = null;
@@ -49,14 +49,14 @@ public class MixedUsageProviderTests
     [Fact]
     public async Task MixedProfilesKeepIndependentValuesAliasesOrderAndSelectedProviderAcrossRestart()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var requested = 0;
         var clock = new MutableClock(DateTimeOffset.Parse("2030-01-01T00:00:00Z"));
         IUsageProvider[] Providers() => [new CodexUsageProvider(p => data.Service(p,
                 new ScriptedCodexProcessFactory { Responder = line => { requested++; return AccountTestProtocol.Standard(line); } }),
             () => AccountTestDirectory.Executable), new ClaudeUsageProvider(store, clock)];
-        var manager = new CodexAccountManager(store, data.Home("codex"), Providers());
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Home("codex"), Providers()));
         var first = manager.AddClaude("  개인\n계정  ");
         var second = manager.AddClaude("Work");
         Assert.Equal("개인계정", first.Label);
@@ -82,7 +82,8 @@ public class MixedUsageProviderTests
         manager.Select(second.Id);
         Assert.True(manager.Move(second.Id, -1));
         Assert.Equal(second.Id, manager.SelectedId);
-        var restarted = new CodexAccountManager(store, data.Root, Providers());
+        await AccountTestDirectory.StopManagerAsync(manager);
+        var restarted = data.TrackManager(new CodexAccountManager(store, data.Root, Providers()));
         Assert.Equal(second.Id, restarted.SelectedId);
         Assert.Equal(new[] { "default", second.Id, first.Id }, restarted.Accounts.Select(a => a.Profile.Id));
         Assert.Equal(86, restarted.Snapshot.Windows[0].UsedPercent);
@@ -101,11 +102,11 @@ public class MixedUsageProviderTests
     [Fact]
     public async Task ClaudeNeverUsesCodexLoginCreditOrDiscoveryAndRemovalDisablesCollector()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var codex = new CodexUsageProvider(p => data.Service(p,
             new ScriptedCodexProcessFactory { Responder = AccountTestProtocol.Standard }), () => AccountTestDirectory.Executable);
-        var manager = new CodexAccountManager(store, data.Home("codex"), [codex, new ClaudeUsageProvider(store)]);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Home("codex"), [codex, new ClaudeUsageProvider(store)]));
         var claude = manager.AddClaude("Work");
         var browserOpened = false;
         var result = await manager.LoginAsync(claude.Id, "", (_, _) => { browserOpened = true; return Task.CompletedTask; }, CancellationToken.None);

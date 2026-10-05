@@ -44,7 +44,7 @@ public partial class SettingsWindow : Window
         IconBox.ItemsSource = new[] { UiText.T("Usage number", "사용률 숫자"), UiText.T("Usage ring", "사용률 링"), UiText.T("Left number", "남은 양 숫자") };
         IconBox.SelectedIndex = (int)settings.TrayIconStyle;
         TraySummary.Text = UiText.T("Usage at a glance in your taskbar.", "작업표시줄에서 사용률을 한눈에.");
-        TrayDetails.Header = UiText.T("How the tray icon works", "트레이 아이콘 표시 안내");
+        TrayDetails.Header = UiText.T("Display period & tray guide", "표시 기간·트레이 안내");
         StartupLabel.Text = UiText.StartWithWindows;
         StartupBox.IsChecked = settings.StartWithWindows;
         EdgeSnapLabel.Text = UiText.T("Snap windows to screen edges", "화면 가장자리에 자동 정렬");
@@ -59,6 +59,9 @@ public partial class SettingsWindow : Window
         TrayHint.Text = UiText.T(
             "The tray shows the used percentage as large digits without the % sign (67 means 67%); the background is transparent. Text follows your Windows taskbar theme. Unknown usage shows ?. Check the tooltip or detail card for status. The ring style shows usage as progress. The left number shows what is left instead (33 means 33% left), like the popup and widget rings.",
             "트레이는 % 기호 없이 사용률 숫자를 크게 표시합니다(67은 67% 사용). 배경은 투명합니다. 글자색은 Windows 작업표시줄 테마에 맞춰 바뀌며, 알 수 없는 값은 ?로 표시합니다. 상태는 툴팁이나 상세 카드에서 확인하세요. 링은 같은 값을 진행률로 표시합니다. 남은 양 숫자는 팝업·위젯 링처럼 남은 양을 표시합니다(33은 33% 남음).");
+        TrayHint.Text += Environment.NewLine + Environment.NewLine + UiText.T(
+            "Choose Auto, 5 hours or Weekly in the detail popup. Auto prefers a known 5-hour limit, then weekly. If the requested period is unavailable, the popup identifies the period shown instead. The same preference applies to detail, tray and widget. Selecting an account changes only the account displayed in CycleArc.",
+            "상세 팝업에서 자동·5시간·주간을 선택하세요. 자동은 확인된 5시간 한도를 우선하고 다음으로 주간을 표시합니다. 선택한 기간이 미제공이면 대신 표시하는 기간을 팝업에서 안내합니다. 상세·트레이·위젯에 같은 기준이 적용됩니다. 계정 선택은 CycleArc에 표시할 계정만 변경합니다.");
         WidgetTitle.Text = UiText.T("Desktop widget", "바탕화면 위젯");
         ResetWidgetPositionButton.Content = UiText.T("Reset widget position", "위젯 위치 초기화");
         ResetWidgetPositionButton.ToolTip = UiText.T("Move the widget to the primary screen when you apply or save.", "적용하거나 저장하면 위젯을 기본 화면으로 이동합니다.");

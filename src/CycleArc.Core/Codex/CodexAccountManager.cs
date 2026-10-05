@@ -1,6 +1,8 @@
 using CycleArc.Providers.Usage;
 using CycleArc.Providers.Claude;
 using CycleArc.Providers.Cursor;
+using CycleArc.Observations;
+using CycleArc.Services;
 
 namespace CycleArc.Codex;
 
@@ -11,6 +13,7 @@ public sealed class CodexAccountManager
 {
     private readonly object _gate = new();
     private readonly CodexAccountStore _store;
+    private readonly QuotaObservationRecorder _observations;
     private readonly Func<CodexAccountProfile, IUsageAccountService> _createService;
     private readonly Dictionary<string, IUsageAccountService> _services = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Action<CodexQuotaSnapshot>> _serviceHandlers = new(StringComparer.Ordinal);
@@ -26,16 +29,25 @@ public sealed class CodexAccountManager
     private readonly HashSet<string> _refreshingProfiles = new(StringComparer.Ordinal);
 
     public CodexAccountManager(CodexAccountStore store, string defaultHome,
-        Func<CodexAccountProfile, CodexQuotaService> createService, Func<string?> configuredPath)
-        : this(store, defaultHome, [new CodexUsageProvider(createService, configuredPath)]) { }
+        Func<CodexAccountProfile, CodexQuotaService> createService, Func<string?> configuredPath,
+        IClock? observationClock = null, Action<string>? observationWarning = null)
+        : this(store, defaultHome, [new CodexUsageProvider(createService, configuredPath)], observationClock, observationWarning) { }
 
-    public CodexAccountManager(CodexAccountStore store, string defaultHome, IEnumerable<IUsageProvider> providers)
+    public CodexAccountManager(CodexAccountStore store, string defaultHome, IEnumerable<IUsageProvider> providers,
+        IClock? observationClock = null, Action<string>? observationWarning = null)
+        : this(store, defaultHome, providers, observationClock, observationWarning, null) { }
+
+    internal CodexAccountManager(CodexAccountStore store, string defaultHome, IEnumerable<IUsageProvider> providers,
+        IClock? observationClock, Action<string>? observationWarning, Action<string>? observationBeforeIo)
     {
         _store = store;
         _configuration = store.LoadOrMigrate(defaultHome);
         var registered = providers.ToDictionary(provider => provider.Id);
         _createService = profile => registered.TryGetValue(profile.Provider, out var provider)
             ? provider.Create(profile) : throw new InvalidDataException("Account provider is unavailable.");
+        _observations = new QuotaObservationRecorder(store.RootDirectory, _configuration.Profiles.Select(profile => profile.Id),
+            observationClock, observationWarning, observationBeforeIo);
+        _observations.Changed += () => Changed?.Invoke();
         foreach (var profile in _configuration.Profiles)
         {
             AddService(profile);
@@ -48,6 +60,9 @@ public sealed class CodexAccountManager
     }
 
     public event Action? Changed;
+    public QuotaObservationRecorderStatistics ObservationStatistics => _observations.Statistics;
+    public Task WaitForObservationsIdleAsync() => _observations.WaitForIdleAsync();
+    public Task StopObservationsAsync(TimeSpan budget) => _observations.StopAsync(budget);
     public CodexRefreshCoordinator Refresh { get; }
     public string SelectedId { get { lock (_gate) return _configuration.SelectedId; } }
     public bool IsSigningIn { get { lock (_gate) return _loginProfile is not null; } }
@@ -79,8 +94,14 @@ public sealed class CodexAccountManager
                     var email = identityConflict ? null : service.Email;
                     var hasMatchingIdentity = profile.Provider == UsageProviderId.Codex
                         && fingerprint is not null && repeated.Contains(fingerprint) && !identityConflict;
+                    var connected = !identityConflict && service.IsConnected;
                     return new CodexAccountView(profile, snapshot, email, _loginProfile == profile.Id, hasMatchingIdentity)
-                        { IsConnected = !identityConflict && service.IsConnected };
+                    {
+                        IsConnected = connected,
+                        Observations = connected && snapshot.Windows.Count > 0 ? _observations.GetSnapshot(profile.Id) : null,
+                        ObservationStorageUnavailable = connected && _observations.GetStorageUnavailable(profile.Id),
+                        ObservationHistoryLoading = connected && _observations.GetLoading(profile.Id)
+                    };
                 }).ToArray();
             }
         }
@@ -157,7 +178,7 @@ public sealed class CodexAccountManager
             if (!result.Success) return result;
 
             // Repeated connection of the same verified Cursor identity reuses its
-            // existing profile, nickname, position and quota history.
+            // existing profile, nickname and position.
             string? existingId = null;
             ICursorAccountOperations? existing = null;
             if (draft is not null && result.IdentityFingerprint is not null)
@@ -183,7 +204,17 @@ public sealed class CodexAccountManager
             if (result.Success)
             {
                 IUsageAccountService? connected;
-                lock (_gate) connected = _services.GetValueOrDefault(existingId ?? id);
+                Task<bool> reset = Task.FromResult(false);
+                lock (_gate)
+                {
+                    var connectedId = existingId ?? id;
+                    connected = _services.GetValueOrDefault(connectedId);
+                    var profile = _configuration.Profiles.FirstOrDefault(candidate => candidate.Id == connectedId);
+                    if (connected is not null && profile is not null)
+                        reset = _observations.ResetAsync(profile, ObservationBindingOf(connected), connected.Snapshot,
+                            TimeSpan.FromSeconds(2), token);
+                }
+                await reset.ConfigureAwait(false);
                 if (connected is not null) await RefreshActiveAsync(connected, token).ConfigureAwait(false);
             }
             return result;
@@ -265,6 +296,7 @@ public sealed class CodexAccountManager
             _identityConflicts.Remove(id);
             _identityConflictMarkersPending.Remove(id);
             _services.Remove(id);
+            _observations.Remove(id);
         }
         Changed?.Invoke();
         return true;
@@ -419,6 +451,19 @@ public sealed class CodexAccountManager
             var result = await operations.LoginAsync(openBrowser, token).ConfigureAwait(false);
             if (result.Status == CodexQuotaStatus.Available)
             {
+                // Explicit successful login starts a new observed history generation,
+                // including reconnecting the same identity. Cancellation retains history.
+                Task<bool> reset = Task.FromResult(false);
+                lock (_gate)
+                {
+                    var profile = _configuration.Profiles.FirstOrDefault(candidate => candidate.Id == profileId);
+                    if (profile is not null && _services.TryGetValue(profileId, out var current) && ReferenceEquals(current, service))
+                        reset = _observations.ResetAsync(profile, ObservationBindingOf(service), service.Snapshot,
+                            TimeSpan.FromSeconds(2), token);
+                }
+                // Join only the durable generation marker, with a finite budget. The
+                // optional history file save remains independent of quota collection.
+                await reset.ConfigureAwait(false);
                 await _processSlots.WaitAsync(token).ConfigureAwait(false);
                 try { await service.RefreshAsync(token).ConfigureAwait(false); }
                 finally { _processSlots.Release(); }
@@ -510,7 +555,8 @@ public sealed class CodexAccountManager
                 _services.Remove(profileId);
                 _identityConflicts.Remove(profileId);
                 _identityConflictMarkersPending.Remove(profileId);
-                AddService(replacement, candidateService);
+                _observations.Remove(profileId);
+                AddService(replacement, candidateService, recordInitialObservation: true);
             }
             RefreshIdentityConflicts();
             Changed?.Invoke();
@@ -535,18 +581,39 @@ public sealed class CodexAccountManager
         }
         return operations!.ConsumeCreditAsync(creditId, token);
     }
-    private IUsageAccountService AddService(CodexAccountProfile profile, IUsageAccountService? service = null)
+    private IUsageAccountService AddService(CodexAccountProfile profile, IUsageAccountService? service = null,
+        bool recordInitialObservation = false)
     {
         service ??= _createService(profile);
         _services.Add(profile.Id, service);
-        Action<CodexQuotaSnapshot> handler = _ =>
+        var captured = service;
+        // A cache at construction establishes its original source watermark only.
+        // Imported recovery instead registers an already accepted candidate observation.
+        _observations.Register(profile, ObservationBindingOf(service), recordInitialObservation
+            ? CodexQuotaSnapshot.Empty(CodexQuotaStatus.Unavailable) with { Provider = profile.Provider } : service.Snapshot);
+        if (recordInitialObservation) _observations.Observe(profile.Id, ObservationBindingOf(service), service.Snapshot);
+        Action<CodexQuotaSnapshot> handler = snapshot =>
         {
+            lock (_gate)
+                if (!_services.TryGetValue(profile.Id, out var current) || !ReferenceEquals(current, captured)) return;
             RefreshIdentityConflicts();
+            lock (_gate)
+            {
+                if (!_services.TryGetValue(profile.Id, out var current) || !ReferenceEquals(current, captured)) return;
+                if (!_identityConflicts.Contains(profile.Id))
+                    _observations.Observe(profile.Id, ObservationBindingOf(captured), snapshot);
+            }
             Changed?.Invoke();
         };
         _serviceHandlers.Add(profile.Id, handler);
         service.Changed += handler;
         return service;
+    }
+
+    private static string? ObservationBindingOf(IUsageAccountService service)
+    {
+        try { return (service as IUsageObservationBinding)?.ObservationBindingKey; }
+        catch (Exception) { return null; } // Optional recording must never fail a provider operation.
     }
 
     // Conflict markers are durable recovery state, so calculate and persist them

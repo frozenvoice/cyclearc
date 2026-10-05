@@ -13,6 +13,31 @@ magnifying-glass −/+ zoom buttons. Their tooltips, accessibility names, shortc
 independently saved 80–150% zoom remain unchanged. Missing/unknown/zero/failure credit
 states remain visible according to the existing presentation rules.
 
+The observed-history update refreshes these same 38 current guide previews. The detail
+header now keeps zoom, refresh and settings beside Window options; multi-account details
+have a display-account dropdown. Healthy missing credits are folded auxiliary rows.
+The guide fixtures begin with no local observations, so their new graph area explicitly
+says **No observations yet**. Historical dated evidence below remains unchanged.
+
+| Observed-history evidence (2026-10-05) | Meaning |
+| --- | --- |
+| `observed-trends-{before,after}-{en-light,ko-dark}.png` | Same production two-account documentation fixture at baseline `684f20e` and after the update: header/account controls, concise period state, compact missing credits and the initial empty history. Percentages/accounts are unchanged; fixture-relative timestamps reflect each capture time. |
+| `observed-trends-populated-ko-dark.png` | Production detail with four actual synthetic used-percent observations and an explicit gap; the ring still shows remaining percentage. |
+| `observed-trends-values-en-light.png` | Expanded actual-value list with original observation and first app-receipt times, plus a labeled metric selector. |
+| `observed-trends-remaining-ko-dark.png` | Separate USD remaining-amount series: normal decreases connect inside their segment, and the unknown interval stays open. |
+| `observed-trends-widget-ko-dark.png` | Five-account production widget with a graph on the selected account only. |
+
+The populated fixture uses a fixed synthetic clock starting at **2026-10-05 05:00 UTC**,
+four source observations over eight minutes and first app receipts seven seconds later.
+It contains no real account data. Reproduce the feature captures after a Release build:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --observed-trends artifacts/observed-trends/after/trends
+```
+
+See [observed-history verification](../OBSERVED-TRENDS.md) for local checks, persistence
+limits and the separate same-fixture CPU/memory comparison.
+
 The earlier 2026-10-01 common-status and monetary-card evidence uses the fixed synthetic time
 2035-06-07 and account names prefixed **Synthetic**. Only selected details gain monetary
 cards; the account list, widget and tray retain their existing content policy.

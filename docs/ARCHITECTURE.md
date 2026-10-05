@@ -104,6 +104,8 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
   explicit fallbacks. Without a known percentage, a present window remains unknown. The detail
   selector and ring shortcut save settings and rebind all surfaces without querying a provider,
   changing the selected account or renewing receipt metadata. Missing settings default to Auto.
+  The popup shows a concise resolved-period label and preserves explicit fallback warnings;
+  the full shared-period explanation lives in the collapsed General settings display/tray guide.
   Missing windows are omitted, and unknown percentages are never filled with zero.
   A present malformed window/container is a protocol failure and retains the same account's
   last-good sample and success time. Absent/null optional windows remain valid.
@@ -345,18 +347,60 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
   one position-save event. Click-through remains an explicit setting and disables input.
 - The final supplied sample removes the redundant ring legend and places the credit count in
   a badge beside its title. The badge opens help; the right chevron toggles the expiry list.
-  Expansion defaults on, survives refresh, and keeps a 108 DIP list viewport for 1+ credits.
+  Expansion defaults folded, survives refresh, and keeps a 108 DIP list viewport for 1+ credits.
 - Reset-credit help is click-toggled on one reused tooltip instance. Refresh keeps its state;
   hiding the detail window closes it. Automatic hover opening is disabled for this button.
 - Flyout refresh uses only the header status and fixed-size spinning button; no sliding progress
   bar or duplicate in-card refreshing message changes the card height.
-- Flyout header exposes refresh, settings, pin and close. Settings is owned by the visible
+- Flyout header exposes independent zoom, refresh, settings and a themed Window options menu
+  containing pin/unpin and close. A keyboard-accessible account dropdown above the quota card
+  raises the existing display-selection event without starting login or quota requests; binding
+  suppresses duplicate selection events and credit redemption guards account changes.
+  The bottom account summaries retain attention and connection-recovery states. Settings is owned by the visible
   flyout so it stays above a pinned card. Ring captions omit the product prefix; the old
   accuracy badge is removed. Widget-only options are disabled when the widget is off.
 - Cleanup audit: old WPF views/WebView2/companion are excluded from desktop build, but legacy
   Core logic, SQLite package, compatibility settings fields and regression tests remain.
   Removing that shared legacy layer requires a separate source/project split; none runs as
-  a CycleArc history collector.
+  a legacy conversation collector. The quota-only observation store below is separate.
+
+### Observed quota history
+
+The observation recorder consumes accepted successful provider snapshots from existing refresh paths.
+It does not query providers, request models, shorten polling, forecast depletion or pace, score account
+switches or change another app's login. Re-rendering or receiving the same source observation again
+does not append a sample; stale/failure/cache rereads do not renew the record's freshness.
+
+Each profile has an isolated connection context and versioned local `quota-observations.json`.
+Provider, logical limit ID/kind, duration, metric and unit remain separate; points retain reset-window
+identity, measurement basis, original observation time and app-receipt time. Used percentage is its
+own metric, not the detail ring's remaining percentage. Used and remaining amounts retain independent
+provider-supplied units; there is no conversion or addition across percentages, tokens, currencies,
+accounts or windows. Unknown intervals, resets, reconnection and basis changes break segments;
+unknown reset identity permits points only. No unobserved past samples or interpolated gaps are generated.
+
+Retention uses source-observation times: at most seven days and 2,048 points per logical limit/metric,
+32 series and 16,384 total points per profile, with an 8 MiB serialized-file cap. The bounded JSON
+store reuses flushed temporary-file/atomic-replacement and valid-backup handling; it introduces no
+database framework. Only normalized quota values and necessary identity/window/source metadata are
+stored, without credentials, email, prompts or conversations. Account removal and connection epochs
+isolate old records from deleted or reconnected profiles. Unsupported/corrupt history or a save failure
+remains an optional-history warning and cannot block current quota checks or reset settings/accounts.
+Successful explicit Codex and Cursor reconnects await flushed history-generation markers before their
+follow-up quota read, within a two-second asynchronous budget. A timeout disables history for the
+session while queued invalidation can still finish. If the process is lost before any marker can be
+written, storage cannot prove that reconnect on the next start; this is a persistence-failure limit,
+not a reason to turn a successful quota connection into a failure. Claude's connection generation
+already rotates on explicit reauthentication.
+
+`ObservedTrendView` and `QuotaSparkline` display the represented current window, last observed time
+and unit; detail can expand actual values with both timestamps. Empty data has an explicit no-records
+state, and one point has no inferred line. Only the selected widget account displays the small graph;
+the native tray retains its existing icon/status contract. Stable history/current-window projections
+and geometry are reused, and the expanded values list is built when needed. Snapshot, account, metric
+or displayed-window changes update the view; the existing display timer does not recalculate every
+account's graph each second. EN/KO, theme resources, accessible descriptions and independent zoom
+continue to apply to production detail and widget views.
 
 ### Selected-account usage credits and additional spending
 
@@ -367,6 +411,9 @@ detail card: **Credit balance**, **Extra usage**, or **On-demand**. The card sta
 `AppSettings.UsageCardExpandedAccounts` retains expansion by profile ID through account changes,
 refresh and window recreation. Account lists, widget summaries and tray output keep their existing
 policies. Card binding/expansion does not request data or alter usage-alert state.
+Healthy, truly unprovided optional values use a compact folded auxiliary row; expanding restores
+the normal card. Missing reset-credit metadata follows the same rule. Zero, unknown, stale/failure
+and identity/reconnection states keep their existing meanings and visible warnings.
 
 Optional data has its own observation time and failure classification. A successful quota refresh
 does not renew the timestamp of omitted or malformed credit data. Collectors keep prior valid
