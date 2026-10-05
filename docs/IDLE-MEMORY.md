@@ -7,7 +7,8 @@ This experiment measures the current source's production providers and WPF views
 Cursor. Each Claude account has 64 synthetic Desktop history observations. External
 adapters are fake, while production protocol parsing, collectors, account binding checks,
 cache writes, projections and refresh guards remain in the path. Each synthetic request
-keeps the same bounded delay and request count across configurations.
+uses the same bounded delay across configurations. Reports retain request counts;
+comparisons with unequal active work are excluded from paired aggregates.
 
 This is a source-based, self-contained Release WPF harness. It does not execute ordinary
 installed-app startup, update/startup IPC or account discovery. It uses production tray,
@@ -76,6 +77,9 @@ The real tray stays registered, the flyout is pinned while shown, and the widget
 enabled only for its two phases. Account/settings controls that could start external
 login or configuration flows are disconnected in the fixture. The one-minute automatic
 refresh and display timers and two-second passive/visibility timer remain active.
+The fixture deliberately selects the supported **one-minute** automatic refresh interval
+to exercise that path. Production defaults to **five minutes**. Here, `default` means
+GC defaults, not the production default refresh interval.
 The explicit synthetic refresh runs between the two widget phases; a separate phase
 label prevents its samples from entering an idle median. Assertions join overlapping
 refreshes after taking the phase endpoints, without cancelling or suppressing requests.
@@ -96,6 +100,10 @@ ready/progress markers. Fingerprints are verified before/after every child and f
 batch. Source HEAD must remain fixed during the batch. The parent observes ready markers
 on a polling interval; this timing includes observation latency and is distinct from the
 child's internal initialization time.
+Paired aggregates require matching Codex process/quota, Claude live and Cursor usage/HTTP
+counts at both phase boundaries; whole-run comparisons require matching final counts.
+Every raw observation/delta remains available. Passive/history-read counts are reported;
+this eligibility check does not establish identical timer scheduling.
 
 ## GC variants and adoption rule
 
@@ -203,20 +211,187 @@ and [EventPipe scope](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/
 
 ## Results and decision
 
-**Pending measured batch and integrated validation.** No production GC setting has been
-selected by this document. Fill the identities, exact parameters, repeat summaries,
-provider call counts, native inventory and validation evidence from completed reports.
-Aggregate each phase within each trial before comparing trials; per-second samples from
-one process are not independent experimental repeats. Keep spread/outliers visible.
+**Keep production GC defaults.** ConserveMemory=5 reduced memory after displaying WPF
+views, but did not meet the predeclared threshold across states and repeats. Initial
+tray idle did not improve materially, one post-refresh pair fell below 10%, and total
+GC pauses increased. CPU and response observations were mixed. No production source
+or GC setting was changed; background GC remains enabled.
 
-| Variant | Stable idle WS / private WS / Private Bytes | Managed / GC commit | CPU / allocations / GC counts / pause | UI p95 / max | Three-pair decision |
-| --- | --- | --- | --- | --- | --- |
-| Default | Pending | Pending | Pending | Pending | Baseline |
-| Conserve 5 | Pending | Pending | Pending | Pending | Pending |
-| Conserve 7 | Pending | Pending | Pending | Pending | Pending |
-| Background GC off | Pending | Pending | Pending | Pending | Experiment only |
+The formal batch ran on 2026-10-05, 00:17:08.586–00:57:47.936 UTC (40m39.35s), on
+Windows 10.0.26300 x64 with 16 logical CPUs. All 12 processes completed: four GC
+configurations, three trials each, 20-second warmup and six 30-second phases. The
+self-contained artifact and its before/after fingerprints stayed fixed. No deliberate
+builds or tests overlapped timing. This is one desktop session, not a controlled
+multi-machine experiment. Short pilots are excluded.
 
-Source/published/installed identity: pending. Measured phases and parameters: pending.
-Provider/data/visibility assertions and request-equivalence evidence: pending.
-Native inventory and handle behavior: pending. Unit/WPF/Release validation: pending.
-Final decision and any separate tuning commit SHA: pending.
+The checked-in [84 phase rows](measurements/idle-memory-2026-10-05.csv) contain trial
+medians, CPU/allocation/GC deltas, UI quantiles, sample counts and request boundaries.
+The [run/native evidence](measurements/idle-memory-2026-10-05-evidence.json) contains
+startup/final snapshots, effective runtime settings, transitions, counters, hashes and
+84 native inventories, without local paths or PIDs. Raw local samples/logs remain under
+`artifacts/idle-memory/full-b75a289`; the final analysis is under
+`artifacts/idle-memory/full-b75a289-summary-v2`.
+
+### Identity
+
+The starting checkout was clean at `b318ca6c376e1b2ec2e8ffb3a9c81d3bbf9e9ab8`, matching
+`origin/main` in `frozenvoice/cyclearc`. The measured executable/source commit is
+`b75a289f9da7562d52504577b5651dad4806553d`. The analysis-only correction is
+`57379151a9cbb30fe8cc0d31810c338dfb434f17`; it does not change the measured executable.
+
+| Artifact | Version/source evidence | Runtime evidence |
+| --- | --- | --- |
+| Installed `current/CycleArc.exe`, inspected read-only | 0.6.1 + `7adacd231406dd8c8e0d47255e0b098374ba39ea` informational version | Embedded runtime configuration names .NET / WindowsDesktop 8.0.30; loaded CLR not independently attested |
+| Existing local Release files | 0.10.0 + `f908dd8`, stale relative to starting HEAD | Existing self-contained files name 10.0.12; excluded from measurement |
+| Fresh production/harness assemblies | 0.10.0 + `b75a289f9da7562d52504577b5651dad4806553d` | Actual child CLR .NET 10.0.12, x64 workstation GC in all 12 runs |
+
+| File | SHA-256 |
+| --- | --- |
+| Installed `current/CycleArc.exe` | `639C9E707C882650F4F1C3B1DBF2F6C47DE0DD8718245908C33B1D5E1CB9FE1B` |
+| Measured `CycleArc.IdleMeasure.exe` | `589A1B6C1E833B3943ACD885A7CB0FD808D68E3B077A4B6C4946DEA545461F52` |
+| Measured production `CycleArc.dll` | `D1D802575528BFEF14982B2C3E2781A0BF7D947200C692CCC54B93F325B3B5DC` |
+| Measured `coreclr.dll` | `128AEE8C62A673D64739E585E3876B61133571CEC83A46240A62581D5465639B` |
+
+Effective ConserveMem was 0 / 5 / 7 / 0, and ConcurrentGC true / true / true / false.
+Concurrent off also reported Batch latency mode and a 128 MiB gen-0 maximum budget;
+the others reported Interactive and 48 MiB. These are observed consequences of the
+single override, not additional overrides. Build SDK was 10.0.401. Installed-app memory
+was not measured, and the running app, accounts, credentials and settings were untouched.
+
+### Memory
+
+Values are MiB, medians of three per-trial phase medians. Individual seconds are not
+independent experimental repeats. Tables retain all observations, including the final
+phase's unequal-work observation qualified below.
+
+| Default GC phase | Working Set | Private WS | Private Bytes (trial range) | Managed allocated | Last-GC commit |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Initial tray idle | 91.99 | 22.23 | 27.97 (27.80–28.23) | 8.72 | unavailable |
+| Flyout visible | 194.01 | 80.94 | 131.00 (130.01–131.26) | 28.07 | unavailable |
+| Tray after flyout | 195.93 | 82.77 | 134.61 (131.02–135.15) | 32.44 | unavailable |
+| Widget visible | 225.83 | 105.93 | 164.22 (164.08–165.52) | 14.68 | 52.70 |
+| Widget after refresh | 225.87 | 104.39 | 173.61 (171.79–173.73) | 37.17 | 52.70 |
+| Tray after refresh | 225.62 | 104.35 | 172.14 (169.71–172.33) | 43.53 | 52.70 |
+
+Under default GC, no natural GC occurred in the initial three measured phases. Managed bytes include
+uncollected objects, not just retained live objects. Views, resources, runtime state
+and fixture overhead remain after hiding windows; these short observations cannot
+distinguish intentional retention from long-term leaks.
+
+| Private Bytes phase | Default | Conserve 5 | Conserve 7 | Concurrent off |
+| --- | ---: | ---: | ---: | ---: |
+| Initial tray idle | 27.97 | 27.99 | 28.18 | 27.99 |
+| Flyout visible | 131.00 | 129.36 | 131.70 | 129.37 |
+| Tray after flyout | 134.61 | 131.31 | 128.47 | 131.68 |
+| Widget visible | 164.22 | 145.30 | 149.24 | 164.48 |
+| Widget after refresh | 173.61 | 150.02 | 159.45 | 172.49 |
+| Tray after refresh | 172.14 | 150.78 | 163.90 | 171.48 |
+
+Every initial-idle paired change is below 0.6 MiB. Conserve 5's three eligible
+post-refresh-widget pairs save **25.73 / 21.76 / 16.65 MiB** (**14.82% / 12.67% /
+9.58%**). Its first two last-GC commits fall from 52.70 to about 29.1 MiB, supporting
+a GC-commit contribution. This is an observed benefit; the third pair misses 10%.
+Its two eligible final-tray pairs save 26.61 / 18.93 MiB (15.44% / 11.15%).
+Conserve 7's post-refresh changes are -24.59 / +2.18 / -14.28 MiB; concurrent off's
+are -1.12 / +0.99 / -1.39 MiB. Neither has repeatable savings in all trials.
+
+### CPU, allocation, pauses and response
+
+One-core CPU percentages are median phase CPU/wall-time percentages; divide by 16 for
+machine normalization. CPU accounting is quantized to 15.625 ms, so a zero measured
+delta does not prove zero activity.
+
+| Phase | Default | Conserve 5 | Conserve 7 | Concurrent off |
+| --- | ---: | ---: | ---: | ---: |
+| Initial tray idle | 0.417% | 0.469% | 0.417% | 0.417% |
+| Flyout visible | 7.396% | 8.594% | 8.021% | 7.500% |
+| Tray after flyout | 0.208% | 0.000% | 0.052% | 0.104% |
+| Widget visible | 8.125% | 6.875% | 6.667% | 7.552% |
+| Widget after refresh | 1.719% | 1.719% | 1.562% | 1.615% |
+| Tray after refresh | 0.677% | 0.573% | 0.885% | 1.042% |
+
+Initial idle allocates about 2.44–2.50 MiB per 30 seconds across settings. Entry-to-final
+CPU medians are 7,625 / 7,891 / 7,766 / 7,516 ms and allocation medians 99.22 / 92.76 /
+98.36 / 100.89 MiB. These whole-run observations include less active work in default
+trial 3 and cannot establish a CPU or allocation improvement.
+
+| Configuration | Total GC pause, trial 1 / 2 / 3 (ms) | Final gen0/gen1/gen2 counts, trial 1; 2; 3 |
+| --- | --- | --- |
+| Default | 32.448 / 31.068 / 13.775 | 2/1/0; 2/1/0; 1/0/0 |
+| Conserve 5 | 34.471 / 35.934 / 31.209 | 3/2/1; 3/2/1; 2/1/1 |
+| Conserve 7 | 36.715 / 28.150 / 36.372 | 3/2/1; 2/1/0; 3/2/1 |
+| Concurrent off | 46.091 / 32.284 / 29.796 | 2/1/0; 2/1/0; 2/1/0 |
+
+Using only the two eligible whole-run pairs, Conserve 5 increases total pause by
+2.023 / 4.866 ms and concurrent off by 13.643 / 1.216 ms. Conserve 5 performs a gen-2
+collection in each trial; default does not. These are cumulative pauses, not individual
+maximum pauses.
+
+| Response observation (ms) | Default | Conserve 5 | Conserve 7 | Concurrent off |
+| --- | ---: | ---: | ---: | ---: |
+| Entry to ready, median | 623 | 554 | 783 | 711 |
+| Explicit synthetic refresh, median | 192 | 217 | 194 | 194 |
+| Initial idle probe due-lateness p95, median | 0.822 | 0.807 | 2.419 | 9.552 |
+| Flyout due-lateness p95, median | 3.935 | 8.917 | 11.443 | 8.549 |
+| Widget due-lateness p95, median | 31.397 | 1.286 | 2.673 | 25.242 |
+| Post-refresh widget due-lateness p95, median | 25.760 | 2.890 | 14.964 | 20.588 |
+| Largest steady-phase due lateness | 321.418 | 104.717 | 153.821 | 174.174 |
+
+Conserve 5 has better widget-phase scheduling observations, without consistent improvement
+in initial/flyout states. Initial-tray latency differences occur without GC, cautioning
+against attributing every latency difference to GC policy. Widget show-to-Dispatcher-idle ranges are
+228–4,415 / 106–143 / 100–175 / 105–724 ms; hide ranges are 244–3,183 / 14–39 /
+29–2,131 / 73–563 ms. Outliers remain; host/compositor effects are not isolated.
+These proxies do not establish click-to-pixel timing or regression-free user experience.
+Full due/queue quantiles and transitions are preserved in the evidence.
+
+### Native memory and resources
+
+All 84 VirtualQuery inventories completed. All 2,425 periodic samples and 204
+entry/ready/final/phase-boundary samples obtained native metrics and Private WS without
+fallback/failure. Default initial-tray boundary PRIVATE-type commit was 19.28–20.24 MiB,
+IMAGE commit 150.35 MiB and MAPPED commit 270.62–270.67 MiB. Post-refresh-widget PRIVATE
+commit was 142.43–144.30 MiB, IMAGE 335.07 MiB and MAPPED 317.40–317.76 MiB.
+These categories are address mappings, not native heap ownership or unique resident RAM.
+
+Default post-refresh-widget non-GC private-commit residual estimates were
+121.80 / 120.02 / 121.96 MiB, based on boundary Private Bytes minus last-GC commit.
+Initial estimates remain null because no GC had occurred. These boundary snapshots
+must not be substituted for periodic phase medians. They cannot identify a native leak.
+
+Across settings, initial-tray median handle counts were about 537–538, GDI 16 and USER 17;
+flyout about 802–805 / 37 / 35; widget about 793–796 / 45 / 37; final tray about
+792–795 / 45 / 36–37. GUI resources remain after hiding views. Thread counts are dated
+boundary snapshots, not refreshed each second. No long-run resource trend was measured.
+
+### Request equivalence and validation
+
+All 12 runs passed five-account isolation, latest passive values/original timestamps,
+provider refresh, window visibility and active passive-timer assertions. Each explicit
+refresh made two Codex quota requests, two Claude live requests, one Cursor usage request
+and three Cursor HTTP requests. No provider path was removed to lower measured cost.
+
+Eleven runs ended with three automatic ticks and Codex/Claude/Cursor usage/HTTP totals
+10 / 10 / 5 / 15. Default trial 3 ended with two automatic ticks and 8 / 8 / 4 / 12.
+The finite observation ends around a timer boundary; its exact timing cause was not
+traced, so it is not attributed to a GC setting. The summarizer excludes trial 3's
+final-tray pair for each variant and their whole-run comparisons: **60 of 63 phase
+pairs** (including warmup) and **six of nine whole-run pairs** remain eligible. Other
+phases retain three pairs. No run was discarded/retried to obtain equal counts.
+Passive ticks ranged 86–100 and history reads 180–214; this scheduling variation also
+limits causal CPU/allocation claims.
+
+The integrated local `dev-run.ps1 -NoLaunch` gate passed once on executable commit
+`b75a289` in 7m03.4s: Release build, 2,008/2,008 unit tests without skips, full WPF,
+desktop-instance and installer-script fixtures, test-flavour publish, native SQLite
+synthetic probe, built/published receiver, self-contained single-file publish, Velopack
+packaging and portable rollback/recovery component checks. Logs/previews are under
+`artifacts/idle-memory`. The analysis-only change passed parser and saved-report checks
+for exact exclusions/counts, eligible-only aggregates, CSV request boundaries and
+preservation of 42 phases without GC snapshots.
+
+Ordinary installed startup, real network/account latency, physical display presentation,
+long-session retention and native heap ownership remain unmeasured. Destructive installed
+update testing requires a disposable Windows user/VM and was not run on this working
+profile. Passive refresh, cancellation/input limits, visibility recovery, installer/update
+flow and production GC settings are unchanged. No tuning commit was adopted.

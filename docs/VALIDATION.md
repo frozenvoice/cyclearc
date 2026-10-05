@@ -2,6 +2,64 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Isolated Windows idle measurements (2026-10-05):
+  - Started from clean `b318ca6c376e1b2ec2e8ffb3a9c81d3bbf9e9ab8`, matching
+    `origin/main` in `frozenvoice/cyclearc`. Added a dedicated self-contained WPF
+    harness, five synthetic accounts, per-process native/managed/CPU/UI sampling,
+    rotated GC comparisons and saved-report analysis. No production source or GC
+    setting changed. [Method, results, identities and limits](IDLE-MEMORY.md).
+  - Kept the installed 0.6.1 / packaged .NET 8.0.30 executable separate from stale
+    local 0.10.0 + `f908dd8` files and freshly measured 0.10.0 + `b75a289` assemblies.
+    All measured children actually loaded .NET 10.0.12 x64 workstation GC. Before/after
+    artifact fingerprints matched. No installed-app control, real account/history,
+    credentials, external provider requests or memory dumps were used.
+  - One 40m39.35s formal Windows batch completed all 12 processes: default GC,
+    ConserveMemory 5 and 7, and concurrent GC off, three trials each. Each used
+    20 seconds warmup and six 30-second phases. The fixture selected a supported
+    one-minute automatic refresh cadence (production defaults to five minutes),
+    with real two-second passive/visibility and one-minute display timers.
+  - Default initial-tray medians were WS 91.99 MiB, private WS 22.23 MiB,
+    Private Bytes 27.97 MiB and one-core CPU 0.417%. After displaying views and
+    refreshing, final-tray Private Bytes was 172.14 MiB. These are source-harness
+    observations including instrumentation, not installed-app footprint claims.
+  - Conserve 5 saved 25.73 / 21.76 / 16.65 MiB (14.82% / 12.67% / 9.58%) in
+    the three comparable post-refresh-widget pairs. Initial-idle changes were
+    below 0.6 MiB for every setting. Conserve 5 increased cumulative GC pause in
+    both comparable whole-run pairs by 2.023 / 4.866 ms; other settings and CPU/UI
+    responses were inconsistent. The declared cross-state/repeat threshold was
+    not met, so production defaults and background GC remain unchanged.
+  - All 12 passed latest passive data/original timestamps, five-account isolation,
+    provider refresh, visibility and timer assertions. Explicit refresh request
+    deltas matched in all 12. Default trial 3 ended with two automatic ticks,
+    versus three elsewhere, so final-tray and whole-run comparisons for that
+    trial are ineligible. All raw observations remain: 60/63 eligible phase pairs
+    including warmup, 6/9 eligible whole-run pairs. Timer scheduling differs;
+    no CPU/allocation improvement or specific GC cause is inferred from it.
+  - All 84 native inventories completed; native samples obtained private WS,
+    handles and GUI counts without fallback/error. Mapping categories and
+    private-minus-GC commit estimates do not establish native heap ownership.
+    Startup, pauses, allocations, resources, UI proxies, counters and individual
+    trials are preserved in the linked report's CSV/JSON evidence.
+  - The integrated local gate passed once on executable commit
+    `b75a289f9da7562d52504577b5651dad4806553d`, exit 0, in 7m03.4s, using
+    `MSBUILDDISABLENODEREUSE=1` and `DOTNET_CLI_USE_MSBUILD_SERVER=0`:
+    `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+    -TestResultsDirectory artifacts/idle-memory/test-results
+    -PreviewDirectory artifacts/idle-memory/validation-previews`.
+    All 2,008 unit tests passed without skips, along with full WPF, desktop IPC,
+    installer/build-local regressions, installed-update planning guards,
+    test-flavour compile/publish, native SQLite synthetic probe, built/published
+    receiver, single-file production publish, Velopack full-package verification
+    and portable rollback/recovery component checks. Log:
+    `artifacts/idle-memory/integrated-gate.log`.
+  - Saved-report analysis correction `57379151a9cbb30fe8cc0d31810c338dfb434f17`
+    passed parser/focused checks for exact unequal-work exclusions, eligible-only
+    aggregate counts/means, CSV counters and 42 absent GC snapshots kept null.
+    No broad rebuild was repeated for analysis/documentation changes. Ordinary
+    installed startup, real-network latency, physical display presentation,
+    native heap ownership and long-session retention remain unmeasured. Actual
+    installed update/removal was not run on the user's working Windows profile.
+
 - Zoom controls and measured Claude passive parsing (2026-10-05):
   - Started from clean `main` / `9e641a20c62cc376173942c9665b5ccd5b391e89`,
     matching `origin/main` in `frozenvoice/cyclearc`. Source remains 0.10.0 / .NET 10;
