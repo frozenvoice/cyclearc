@@ -7,6 +7,8 @@ Reads a complete Measure-Idle.ps1 run and its child reports. Writes summary.json
 summary.csv without overwriting existing files. Optional OutputDirectory must be new.
 Quantiles use linear interpolation at (count - 1) * percentile. Comparisons pair the
 same trial and phase with default; ratios are unknown when default is zero or missing.
+Raw observations and paired differences are retained even when active request counts
+differ. Only pairs with matching active counts enter paired aggregate statistics.
 No configuration is automatically recommended or adopted.
 .EXAMPLE
 ./scripts/Summarize-Idle.ps1 -RunDirectory ./artifacts/idle-memory/run-20261005-example
@@ -90,8 +92,21 @@ function Format-CsvNumber([AllowNull()][object]$Value, [double]$Divisor = 1) {
     ([double]$Value / $Divisor).ToString('0.######', [Globalization.CultureInfo]::InvariantCulture)
 }
 
+function Get-ActiveCounterComparisonReasons([object]$Baseline, [object]$Observed, [string]$Boundary) {
+    foreach ($counter in $activeRequestCounters) {
+        $baselineValue = $Baseline.PSObject.Properties[$counter].Value
+        $observedValue = $Observed.PSObject.Properties[$counter].Value
+        if ($baselineValue -ne $observedValue) {
+            'Active request count differs at {0}: {1}, default={2}, configuration={3}.' -f
+                $Boundary, $counter, $baselineValue, $observedValue
+        }
+    }
+}
+
 $phaseNames = @('warmup', 'tray-idle', 'flyout-visible', 'tray-after-flyout',
     'widget-visible', 'post-refresh-widget', 'tray-after-refresh')
+$activeRequestCounters = @('CodexStarts', 'CodexQuotaRequests', 'ClaudeLiveRequests',
+    'CursorUsageRequests', 'CursorHttpRequests')
 $metrics = @('MedianWorkingSetBytes', 'MedianPrivateWorkingSetBytes', 'MedianPrivateBytes',
     'MedianManagedAllocatedBytes', 'MedianLastGcHeapBytes', 'MedianLastGcCommittedBytes',
     'MedianLastGcFragmentedBytes', 'MedianNonGcPrivateCommitResidualEstimateBytes',
@@ -103,6 +118,7 @@ $metrics = @('MedianWorkingSetBytes', 'MedianPrivateWorkingSetBytes', 'MedianPri
 $trialPhases = [Collections.Generic.List[object]]::new()
 $trialRuns = [Collections.Generic.List[object]]::new()
 $seenChildren = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$runComparisons = [Collections.Generic.List[object]]::new()
 
 foreach ($result in $run.Results) {
     if ($result.Status -ne 'complete' -or $result.ExitCode -ne 0 -or $result.TimedOut) {
@@ -149,6 +165,8 @@ foreach ($result in $run.Results) {
         Ready = $report.Ready
         Final = $report.Final
         FinalCounters = $report.Counters
+        ComparisonEligible = $null
+        ComparisonReasons = @('Default baseline; no paired comparison.')
         PassiveTicks = $report.PassiveTicks
         AutomaticTicks = $report.AutomaticTicks
         DisplayTicks = $report.DisplayTicks
@@ -201,6 +219,10 @@ foreach ($result in $run.Results) {
             UiQueueP95Milliseconds = $queue.P95
             UiQueueMaxMilliseconds = $queue.Maximum
             FixtureCounterDeltas = Get-CounterDeltas $phase.CountersBefore $phase.CountersAfter
+            CountersBefore = $phase.CountersBefore
+            CountersAfter = $phase.CountersAfter
+            ComparisonEligible = $null
+            ComparisonReasons = @('Default baseline; no paired comparison.')
             NativeVirtualMemoryInventory = if ($native.Count -eq 1) { $native[0] } else { $null }
             Start = $phase.Start
             End = $phase.End
@@ -214,6 +236,24 @@ foreach ($result in $run.Results) {
     }
 }
 
+foreach ($trialRun in $trialRuns) {
+    if ($trialRun.Configuration -ceq 'default') { continue }
+    $baseline = @($trialRuns | Where-Object { $_.Configuration -ceq 'default' -and $_.Trial -eq $trialRun.Trial })
+    if ($baseline.Count -eq 1) {
+        $reasons = @(Get-ActiveCounterComparisonReasons $baseline[0].FinalCounters $trialRun.FinalCounters 'run end')
+    } else { $reasons = @('Default configuration was omitted; no same-trial baseline is available.') }
+    $trialRun.ComparisonEligible = $baseline.Count -eq 1 -and $reasons.Count -eq 0
+    $trialRun.ComparisonReasons = $reasons
+    $runComparisons.Add([pscustomobject][ordered]@{
+        Configuration = $trialRun.Configuration
+        Trial = $trialRun.Trial
+        ComparisonEligible = $trialRun.ComparisonEligible
+        ComparisonReasons = $trialRun.ComparisonReasons
+        DefaultFinalCounters = if ($baseline.Count -eq 1) { $baseline[0].FinalCounters } else { $null }
+        ConfigurationFinalCounters = $trialRun.FinalCounters
+    })
+}
+
 $aggregates = [Collections.Generic.List[object]]::new()
 $paired = [Collections.Generic.List[object]]::new()
 $pairedAggregates = [Collections.Generic.List[object]]::new()
@@ -223,15 +263,28 @@ foreach ($configuration in $run.Configurations) {
         $aggregateMetrics = [ordered]@{}
         foreach ($metric in $metrics) { $aggregateMetrics[$metric] = Get-MetricStatistics $rows $metric }
         $aggregates.Add([pscustomobject][ordered]@{
-            Configuration = $configuration; Phase = $phaseName; Trials = $rows.Count; Metrics = $aggregateMetrics
+            Configuration = $configuration; Phase = $phaseName; Trials = $rows.Count
+            StatisticsBasis = 'All observed trials, including workload-inequivalent observations.'
+            Metrics = $aggregateMetrics
         })
-        if ($configuration -ceq 'default' -or 'default' -notin $run.Configurations) { continue }
+        if ($configuration -ceq 'default') { continue }
+        if ('default' -notin $run.Configurations) {
+            foreach ($row in $rows) {
+                $row.ComparisonEligible = $false
+                $row.ComparisonReasons = @('Default configuration was omitted; no same-trial baseline is available.')
+            }
+            continue
+        }
         $phasePairs = [Collections.Generic.List[object]]::new()
         foreach ($row in $rows) {
             $baseline = @($trialPhases | Where-Object {
                 $_.Configuration -ceq 'default' -and $_.Phase -ceq $phaseName -and $_.Trial -eq $row.Trial
             })
             if ($baseline.Count -ne 1) { throw 'A default comparison has no unique same-trial/same-phase baseline.' }
+            $reasons = @(Get-ActiveCounterComparisonReasons $baseline[0].CountersBefore $row.CountersBefore 'phase start') +
+                @(Get-ActiveCounterComparisonReasons $baseline[0].CountersAfter $row.CountersAfter 'phase end')
+            $row.ComparisonEligible = $reasons.Count -eq 0
+            $row.ComparisonReasons = $reasons
             $pairedMetrics = [ordered]@{}
             foreach ($metric in $metrics) {
                 $defaultValue = $baseline[0].PSObject.Properties[$metric].Value
@@ -247,21 +300,27 @@ foreach ($configuration in $run.Configurations) {
                 }
             }
             $pair = [pscustomobject][ordered]@{
-                Configuration = $configuration; Trial = $row.Trial; Phase = $phaseName; Metrics = $pairedMetrics
+                Configuration = $configuration; Trial = $row.Trial; Phase = $phaseName
+                ComparisonEligible = $row.ComparisonEligible; ComparisonReasons = $reasons; Metrics = $pairedMetrics
             }
             $phasePairs.Add($pair)
             $paired.Add($pair)
         }
         $comparisonMetrics = [ordered]@{}
+        $eligiblePhasePairs = @($phasePairs | Where-Object { $_.ComparisonEligible })
         foreach ($metric in $metrics) {
             $comparisonMetrics[$metric] = [pscustomobject][ordered]@{
-                Delta = Get-NumberStatistics @($phasePairs | ForEach-Object { $_.Metrics[$metric].Delta })
-                Ratio = Get-NumberStatistics @($phasePairs | ForEach-Object { $_.Metrics[$metric].Ratio })
-                PercentChange = Get-NumberStatistics @($phasePairs | ForEach-Object { $_.Metrics[$metric].PercentChange })
+                Delta = Get-NumberStatistics @($eligiblePhasePairs | ForEach-Object { $_.Metrics[$metric].Delta })
+                Ratio = Get-NumberStatistics @($eligiblePhasePairs | ForEach-Object { $_.Metrics[$metric].Ratio })
+                PercentChange = Get-NumberStatistics @($eligiblePhasePairs | ForEach-Object { $_.Metrics[$metric].PercentChange })
             }
         }
         $pairedAggregates.Add([pscustomobject][ordered]@{
-            Configuration = $configuration; Phase = $phaseName; Pairs = $phasePairs.Count; Metrics = $comparisonMetrics
+            Configuration = $configuration; Phase = $phaseName; Pairs = $phasePairs.Count
+            RequestedPairs = $phasePairs.Count; EligiblePairs = $eligiblePhasePairs.Count
+            IneligiblePairs = $phasePairs.Count - $eligiblePhasePairs.Count
+            StatisticsBasis = 'Only pairs with matching active request counts at both phase boundaries.'
+            Metrics = $comparisonMetrics
         })
     }
 }
@@ -288,12 +347,17 @@ $summary = [ordered]@{
         'Native virtual-memory allocation classes and non-GC private-commit residuals do not attribute native heap ownership.'
         'UI due/queue latency measures scheduling/dispatcher response, not click-to-pixel delay.'
         'Paired differences and ratios are data summaries, not an automatic adoption or statistical-significance decision.'
+        'All raw observations and paired deltas are retained. Paired aggregate statistics exclude workload-ineligible pairs.'
+        'Phase eligibility requires matching active request counts at both start and end; run eligibility requires matching final active request counts.'
+        'Passive/history-read counts remain visible and may differ; they are not required to match for active-request eligibility.'
         $(if ($run.Pilot) { 'Pilot: short diagnostic run; do not treat it as the repeated full comparison.' }
           else { 'Full requested trial matrix completed.' })
         $(if ('default' -notin $run.Configurations) { 'Default configuration was omitted; paired comparisons are unavailable.' }
           else { 'Comparisons pair each configuration with default within the same trial and phase.' })
     )
     Runs = $trialRuns
+    RunComparisons = $runComparisons
+    ActiveRequestCounterNames = $activeRequestCounters
     TrialPhases = $trialPhases
     ConfigurationPhaseAggregates = $aggregates
     PairedComparisons = $paired
@@ -307,8 +371,16 @@ $csvTemporary = $csvOutput + $temporarySuffix
 [IO.File]::WriteAllText($jsonTemporary, ($summary | ConvertTo-Json -Depth 30), [Text.UTF8Encoding]::new($false))
 $trialPhases | ForEach-Object {
     $row = $_
-    $csvRow = [ordered]@{ Configuration = $row.Configuration; Trial = $row.Trial; Phase = $row.Phase }
+    $csvRow = [ordered]@{
+        Configuration = $row.Configuration; Trial = $row.Trial; Phase = $row.Phase
+        ComparisonEligible = $row.ComparisonEligible; ComparisonReasons = $row.ComparisonReasons -join ' '
+    }
     foreach ($name in @('SampleCount', 'UiProbeCount', 'LastGcSnapshotSampleCount')) { $csvRow[$name] = $row.PSObject.Properties[$name].Value }
+    foreach ($counter in @($activeRequestCounters) + 'ClaudeHistoryReadCalls') {
+        $csvRow[$counter + 'Before'] = $row.CountersBefore.PSObject.Properties[$counter].Value
+        $csvRow[$counter + 'After'] = $row.CountersAfter.PSObject.Properties[$counter].Value
+        $csvRow[$counter + 'Delta'] = $row.FixtureCounterDeltas.PSObject.Properties[$counter].Value
+    }
     foreach ($name in @('WorkingSetBytes', 'PrivateWorkingSetBytes', 'PrivateBytes', 'ManagedAllocatedBytes',
         'LastGcHeapBytes', 'LastGcCommittedBytes', 'LastGcFragmentedBytes', 'NonGcPrivateCommitResidualEstimateBytes')) {
         $csvRow[$name.Replace('Bytes', '') + 'MedianMiB'] = Format-CsvNumber $row.PSObject.Properties['Median' + $name].Value 1048576
