@@ -43,6 +43,15 @@
     These short runs do not establish real-account compatibility, long-session retention
     or installed-app update/recovery/removal; installed E2E requires a disposable
     Windows environment and was not run on the working user profile.
+  - The first PR CI at `583ed4a` passed 2,063 unit tests but found one additional
+    Claude fixture deleting its root before a history write finished. The follow-up
+    owns/awaits managers in that fixture and the history-restart fixture, and drains
+    the flyout fixture before deletion. Focused checks passed 9 Claude tests, 16
+    observation-manager tests and 4 native popup scenarios. Only test lifetimes
+    changed; production WPF/package and measurement evidence remain applicable.
+    The freshly built complete unit suite then passed **2,064/2,064**, zero skipped,
+    in **1m29s**; evidence is in `artifacts/observed-trends/test-results-ci-fix` and
+    `ci-fix/full-unit.log`. The failed SHA was not retried unchanged.
 
 - Isolated Windows idle measurements (2026-10-05):
   - Started from clean `b318ca6c376e1b2ec2e8ffb3a9c81d3bbf9e9ab8`, matching

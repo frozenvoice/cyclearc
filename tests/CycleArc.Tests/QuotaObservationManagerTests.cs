@@ -470,6 +470,7 @@ public sealed class QuotaObservationManagerTests
         public string HistoryPath => Path.Combine(Root, "accounts", Profile.Id, QuotaObservationRecorder.FileName);
         public string EpochPath => Path.Combine(Root, "accounts", Profile.Id, QuotaObservationRecorder.EpochFileName);
         private readonly Action<string>? _warning;
+        private readonly List<CodexAccountManager> _managers = [];
 
         public Fixture(UsageProviderId provider, Action<string>? warning = null, Action<string>? beforeIo = null,
             Action<Fixture>? beforeStart = null)
@@ -483,13 +484,19 @@ public sealed class QuotaObservationManagerTests
             Provider = new(provider);
             _warning = warning;
             beforeStart?.Invoke(this);
-            Manager = new(Store, Path.Combine(Root, "unused-default-home"), [Provider], Clock, warning, beforeIo);
+            Manager = TrackManager(new(Store, Path.Combine(Root, "unused-default-home"), [Provider], Clock, warning, beforeIo));
         }
 
-        public CodexAccountManager Restart() => new(Store, Path.Combine(Root, "unused-default-home"), [Provider], Clock, _warning);
+        public CodexAccountManager Restart() => TrackManager(new(Store, Path.Combine(Root, "unused-default-home"), [Provider], Clock, _warning));
+        private CodexAccountManager TrackManager(CodexAccountManager manager)
+        {
+            _managers.Add(manager);
+            return manager;
+        }
+
         public async ValueTask DisposeAsync()
         {
-            await Manager.StopObservationsAsync(TimeSpan.FromSeconds(5));
+            foreach (var manager in _managers) await AccountTestDirectory.StopManagerAsync(manager);
             if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);
         }
     }

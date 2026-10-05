@@ -10,7 +10,7 @@ public sealed class ClaudeLiveIntegrationTests
     [Fact]
     public async Task PassiveRefreshDoesNotCallLiveAndActiveRefreshPublishesResetTimes()
     {
-        using var data = new Data();
+        await using var data = new Data();
         var live = new FakeLiveSource
         {
             Next = new(new(data.Clock.UtcNow,
@@ -35,7 +35,7 @@ public sealed class ClaudeLiveIntegrationTests
     [Fact]
     public async Task LiveFailureKeepsLastGoodValuesAndRemainsVisibleAfterPassiveRead()
     {
-        using var data = new Data();
+        await using var data = new Data();
         var live = new FakeLiveSource
         {
             Next = new(new(data.Clock.UtcNow, new(46, data.Clock.UtcNow.AddHours(5)), null))
@@ -62,7 +62,7 @@ public sealed class ClaudeLiveIntegrationTests
     [Fact]
     public async Task LiveAttemptSchedulingUsesTheConfiguredInterval()
     {
-        using var data = new Data();
+        await using var data = new Data();
         var live = new FakeLiveSource
         {
             Next = new(new(data.Clock.UtcNow, new(46, data.Clock.UtcNow.AddHours(5)), null))
@@ -82,7 +82,7 @@ public sealed class ClaudeLiveIntegrationTests
     [Fact]
     public async Task BindingRotationBeforeAnActiveReadCannotReuseThePreviousLiveSample()
     {
-        using var data = new Data();
+        await using var data = new Data();
         var live = new FakeLiveSource
         {
             Next = new(new(data.Clock.UtcNow, new(46, data.Clock.UtcNow.AddHours(5)), null))
@@ -102,7 +102,7 @@ public sealed class ClaudeLiveIntegrationTests
     [Fact]
     public async Task BindingRotationDuringDesktopFallbackHidesTheOldLiveResult()
     {
-        using var data = new Data();
+        await using var data = new Data();
         var live = new FakeLiveSource
         {
             Next = new(new(data.Clock.UtcNow, new(46, data.Clock.UtcNow.AddHours(5)), null))
@@ -130,7 +130,7 @@ public sealed class ClaudeLiveIntegrationTests
     [Fact]
     public async Task ManagerUsesLiveCapabilityForAutomaticAndManualRefreshButPassiveUsesLocalPath()
     {
-        using var data = new Data();
+        await using var data = new Data();
         var live = new FakeLiveSource
         {
             Next = new(new(data.Clock.UtcNow, new(46, data.Clock.UtcNow.AddHours(5)), null))
@@ -152,7 +152,7 @@ public sealed class ClaudeLiveIntegrationTests
     [Fact]
     public async Task NewLocalReceiptDoesNotRenewExtraUsageOrHideItsFailedServerCheck()
     {
-        using var data = new Data();
+        await using var data = new Data();
         var observed = data.Clock.UtcNow;
         var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, observed);
         var live = new FakeLiveSource { Next = new(new(observed, new(46, observed.AddHours(5)), null)
@@ -182,7 +182,7 @@ public sealed class ClaudeLiveIntegrationTests
     [Fact]
     public async Task OptionalExtraFailureDoesNotChangeValidQuotaStatusAndSuccessClearsOnlyItsOwnFailure()
     {
-        using var data = new Data();
+        await using var data = new Data();
         var observed = data.Clock.UtcNow;
         var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, observed);
         var live = new FakeLiveSource { Next = new(new(observed, new(46, observed.AddHours(5)), null)
@@ -212,7 +212,7 @@ public sealed class ClaudeLiveIntegrationTests
     [Fact]
     public async Task ActiveIdentityFailureHidesAllQuotaAndMoneyAcrossLocalReceiptsRestartAndNewLiveQuota()
     {
-        using var data = new Data();
+        await using var data = new Data();
         var observed = data.Clock.UtcNow;
         var extra = new ClaudeExtraUsage(true, 3.2m, 10m, false, "USD", 32, observed);
         var live = new FakeLiveSource { Next = new(new(observed, new(46, observed.AddHours(5)), null)
@@ -306,8 +306,9 @@ public sealed class ClaudeLiveIntegrationTests
         }
     }
 
-    private sealed class Data : IDisposable
+    private sealed class Data : IAsyncDisposable
     {
+        private readonly List<CodexAccountManager> _managers = [];
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "cyclearc-live-integration-" + Guid.NewGuid().ToString("N"));
         public MutableClock Clock { get; } = new(DateTimeOffset.UtcNow);
         public CodexAccountStore Accounts { get; }
@@ -334,11 +335,17 @@ public sealed class ClaudeLiveIntegrationTests
             new(Inbox, Clock, Connections.Read, email: _ => "live@example.invalid",
                 failureStore: new ClaudeFailureStore(Accounts), desktop: desktop, live: live);
 
-        public CodexAccountManager Manager(IClaudeLiveUsageSource live) =>
-            new(Accounts, Root, [new ClaudeUsageProvider(Accounts, Clock, liveFactory: _ => live)]);
-
-        public void Dispose()
+        public CodexAccountManager Manager(IClaudeLiveUsageSource live)
         {
+            var manager = new CodexAccountManager(Accounts, Root,
+                [new ClaudeUsageProvider(Accounts, Clock, liveFactory: _ => live)]);
+            _managers.Add(manager);
+            return manager;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            foreach (var manager in _managers) await AccountTestDirectory.StopManagerAsync(manager);
             if (Directory.Exists(Root)) Directory.Delete(Root, true);
         }
     }

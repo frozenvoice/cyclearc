@@ -99,6 +99,21 @@ focused sandbox invocation had no foreground window because its desktop differed
 the Windows input desktop; the same compiled checks passed on the normal desktop. No
 production activation behavior or NuGet audit setting was changed.
 
+The first PR Windows run at `583ed4a` exposed one additional test teardown race: the
+Claude live integration fixture deleted its temporary root while a queued observation
+write still held its temporary file. The run passed 2,063 tests and failed that one; it
+did not reach WPF/package or disposable setup checks. The fixture now owns and awaits
+its managers. An audit also made the history-restart fixture own every restarted manager
+on assertion-failure paths and joined the flyout fixture's background reconciliation
+before cleanup. These changes affect three test files only; they do not alter production
+code or measured binaries. Focused follow-up checks passed nine Claude integration tests,
+16 observation-manager tests and all four strict native popup scenarios. The original
+CI failure is retained rather than retried unchanged.
+After these fixes converged, the complete local unit suite passed again: **2,064/2,064**,
+zero skipped, in **1m29s**, using the freshly built tests. The TRX is retained under
+`artifacts/observed-trends/test-results-ci-fix`; the log is `ci-fix/full-unit.log`.
+Unchanged production WPF, publishing, packaging and performance checks were not repeated.
+
 The same two-account production fixture is retained in
 [before](images/observed-trends-before-ko-dark.png) and
 [after](images/observed-trends-after-ko-dark.png) captures. Its initial history is empty.
