@@ -101,9 +101,117 @@ internal static class ObservedTrendUiChecks
             }
             CheckStates(directory, language, theme);
         }
+        CheckMetricPickerReuse();
         CheckGeometry(directory);
         Console.WriteLine($"PASS: {checks} observed-trend production detail/widget combinations; EN/KO, dark/light, 80/100/150%, five accounts, real-value access, metric isolation, empty/zero/stale/reconnect states, stable geometry and 96/144/192-DPI renders.");
     }
+
+    private static void CheckMetricPickerReuse()
+    {
+        var previousLanguage = UiText.Language;
+        UiText.SetLanguage(UiLanguage.English);
+        try
+        {
+            var account = Account(UsageProviderId.Cursor);
+            var view = new ObservedTrendView();
+            view.Bind(account, account.Snapshot.Windows[0]);
+            view.MetricPicker.SelectedIndex = 1;
+            var source = view.MetricPicker.ItemsSource;
+            var selection = view.MetricPicker.SelectedItem;
+            var selectionChanges = 0;
+            view.MetricPicker.SelectionChanged += (_, _) => selectionChanges++;
+            for (var minute = 10; minute < 16; minute++)
+            {
+                account = NextObservation(account, minute);
+                view.Bind(account, account.Snapshot.Windows[0]);
+                Check(ReferenceEquals(source, view.MetricPicker.ItemsSource)
+                    && ReferenceEquals(selection, view.MetricPicker.SelectedItem)
+                    && view.Chart.Data?.Metric == QuotaObservationMetric.UsedAmount,
+                    "A newly accepted observation reset unchanged metric choices or selection.");
+            }
+            Check(selectionChanges == 0, "Unchanged metric choices raised selection changes on accepted observations.");
+
+            var changedUnit = account.Snapshot.Windows[0] with { Unit = "EUR" };
+            view.Bind(account, changedUnit);
+            Check(!ReferenceEquals(source, view.MetricPicker.ItemsSource)
+                && view.MetricPicker.SelectedIndex == 1 && view.TitleText.Text.Contains("EUR"),
+                "A changed amount unit did not refresh labels while retaining the metric.");
+            source = view.MetricPicker.ItemsSource;
+            UiText.SetLanguage(UiLanguage.Korean);
+            view.Bind(account, changedUnit);
+            Check(!ReferenceEquals(source, view.MetricPicker.ItemsSource)
+                && view.MetricPicker.SelectedIndex == 1
+                && view.MetricPicker.SelectedItem!.ToString()!.Contains("사용"),
+                "A changed language did not refresh the metric labels or lost selection.");
+            source = view.MetricPicker.ItemsSource;
+            view.Bind(account with { Profile = account.Profile with { Id = "another-profile" } }, changedUnit);
+            Check(ReferenceEquals(source, view.MetricPicker.ItemsSource)
+                && view.MetricPicker.SelectedIndex == 0 && view.Chart.Data?.Metric == QuotaObservationMetric.UsedPercent,
+                "A changed profile did not reset the metric without rebuilding identical choices.");
+            view.MetricPicker.SelectedIndex = 1;
+            view.Bind(account with { Profile = account.Profile with { Id = "another-profile" },
+                Observations = account.Observations! with { Context = account.Observations!.Context with { BindingKey = new string('b', 64) } } }, changedUnit);
+            Check(view.MetricPicker.SelectedIndex == 0, "A reconnected binding retained the previous selected metric.");
+
+            UiText.SetLanguage(UiLanguage.English);
+            var remainingOnly = changedUnit with { UsedPercent = null, UsedAmount = null };
+            view.Bind(account with { Observations = null }, remainingOnly);
+            Check(view.MetricPicker.Items.Count == 1 && view.MetricPicker.SelectedIndex == 0
+                && view.MetricPicker.Visibility == Visibility.Collapsed
+                && view.TitleText.Text.Contains("Remaining") && view.TitleText.Text.Contains("EUR"),
+                "Changed metric availability did not remove missing choices and select the remaining amount.");
+
+            var compact = new ObservedTrendView(compact: true);
+            var compactAccount = Account(UsageProviderId.Cursor);
+            compact.Bind(compactAccount, compactAccount.Snapshot.Windows[0]);
+            Check(compact.MetricPicker.ItemsSource is null && compact.MetricPicker.Items.Count == 0
+                && CachedWindowCount(compactAccount.Observations!) == 1
+                && compact.Chart.Data?.Metric == QuotaObservationMetric.UsedPercent
+                && compact.Chart.Data?.Points.Length == 4,
+                "Compact percent graph built an unused picker or unused metric snapshots.");
+            compactAccount = NextObservation(compactAccount, 10);
+            compact.Bind(compactAccount, compactAccount.Snapshot.Windows[0]);
+            Check(compact.MetricPicker.ItemsSource is null && CachedWindowCount(compactAccount.Observations!) == 1
+                && compact.Chart.Data?.Points.Length == 5,
+                "Compact accepted history built unused choices or lost graph points.");
+
+            var amountHistory = compactAccount.Observations!;
+            amountHistory = new(amountHistory.Context, amountHistory.Revision, amountHistory.Watermark,
+                amountHistory.Series.Where(series => series.Metric != QuotaObservationMetric.UsedPercent).ToImmutableArray());
+            var amountWindow = compactAccount.Snapshot.Windows[0] with { UsedPercent = null };
+            compact.Bind(compactAccount with { Observations = amountHistory }, amountWindow);
+            Check(compact.Chart.Data?.Metric == QuotaObservationMetric.UsedAmount
+                && compact.Chart.Data?.Points.Length == 5 && CachedWindowCount(amountHistory) == 2,
+                "Compact amount fallback probed the unused remaining metric or changed graph semantics.");
+            var nextAmountHistory = new QuotaObservationHistorySnapshot(amountHistory.Context,
+                amountHistory.Revision + 1, amountHistory.Watermark, amountHistory.Series);
+            compact.Bind(compactAccount with { Observations = nextAmountHistory }, amountWindow);
+            Check(compact.Chart.Data?.Metric == QuotaObservationMetric.UsedAmount
+                && CachedWindowCount(nextAmountHistory) == 1 && compact.MetricPicker.ItemsSource is null,
+                "Compact valid amount metric requested unused snapshots or reset its selection.");
+        }
+        finally { UiText.SetLanguage(previousLanguage); }
+    }
+
+    private static CodexAccountView NextObservation(CodexAccountView account, int minute)
+    {
+        var at = Start.AddMinutes(minute);
+        var clock = new MutableClock(at.AddSeconds(7));
+        var history = new QuotaObservationHistory(account.Observations!.Context, clock);
+        history.MergeLoaded(account.Observations);
+        var window = account.Snapshot.Windows[0] with
+        {
+            UsedPercent = 46 + minute - 8, UsedAmount = 23 + (minute - 8) / 2m,
+            RemainingAmount = 27 - (minute - 8) / 2m, AmountObservedAt = at
+        };
+        var snapshot = account.Snapshot with { LastAttemptedRefresh = at, LastSuccessfulRefresh = at, Windows = [window] };
+        Check(history.Observe(snapshot, clock.UtcNow), "Metric-choice fixture did not accept the next real observation.");
+        return account with { Snapshot = snapshot, Observations = history.Snapshot };
+    }
+
+    private static int CachedWindowCount(QuotaObservationHistorySnapshot history) =>
+        ((System.Collections.IDictionary)typeof(QuotaObservationHistorySnapshot)
+            .GetField("_views", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(history)!).Count;
 
     private static void CheckStates(string? directory, UiLanguage language, AppTheme theme)
     {

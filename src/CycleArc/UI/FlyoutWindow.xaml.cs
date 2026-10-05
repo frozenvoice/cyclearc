@@ -37,8 +37,12 @@ public partial class FlyoutWindow : Window
     private bool _refreshActive;
     private bool _bindingUsagePeriod;
     private bool _bindingAccountSelector;
+    private AccountChoice[] _accountChoices = [];
     private bool _resetCreditsCompact;
-    private sealed record AccountChoice(string Id, string DisplayName);
+    private sealed record AccountChoice(string Id, string AccountName, string ProviderName)
+    {
+        public string DisplayName { get; } = AccountName + " · " + ProviderName;
+    }
     // Folded by default: the summary line names the count and the nearest expiry.
     private bool _creditsExpanded;
     private System.Windows.Controls.ToolTip? _creditHelpTip;
@@ -321,14 +325,7 @@ public partial class FlyoutWindow : Window
         SelectedAvatarHost.Content = selected is null ? null : AccountSummary.Avatar(selected, 30);
         SelectedAccountText.Visibility = Visibility.Visible;
         SelectedAccountText.ToolTip = selected?.Email ?? selected?.DisplayName;
-        _bindingAccountSelector = true;
-        try
-        {
-            AccountSelector.ItemsSource = accounts.Select(account => new AccountChoice(account.Profile.Id,
-                account.DisplayName + " · " + account.Profile.Provider.Name())).ToArray();
-            AccountSelector.SelectedValue = selectedId;
-        }
-        finally { _bindingAccountSelector = false; }
+        BindAccountChoices(accounts, selectedId);
         AccountSelector.Visibility = accounts.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
         SelectedAccountText.Visibility = accounts.Count > 1 ? Visibility.Collapsed : Visibility.Visible;
         var selectionHelp = UiText.T("Select the account shown in CycleArc details, tray and widget.",
@@ -358,6 +355,37 @@ public partial class FlyoutWindow : Window
     }
 
     private void OnAccountsClick(object sender, RoutedEventArgs e) => AccountsRequested?.Invoke();
+
+    private void BindAccountChoices(IReadOnlyList<CodexAccountView> accounts, string selectedId)
+    {
+        var changed = _accountChoices.Length != accounts.Count || AccountSelector.ItemsSource is null;
+        for (var index = 0; !changed && index < accounts.Count; index++)
+        {
+            var account = accounts[index];
+            var choice = _accountChoices[index];
+            changed = choice.Id != account.Profile.Id || choice.AccountName != account.DisplayName
+                || choice.ProviderName != account.Profile.Provider.Name();
+        }
+        _bindingAccountSelector = true;
+        try
+        {
+            // Quota and refresh changes do not change the options. Reusing their source
+            // avoids replacing the ComboBox's items and selection on every quota event.
+            if (changed)
+            {
+                _accountChoices = new AccountChoice[accounts.Count];
+                for (var index = 0; index < accounts.Count; index++)
+                {
+                    var account = accounts[index];
+                    _accountChoices[index] = new(account.Profile.Id, account.DisplayName, account.Profile.Provider.Name());
+                }
+                AccountSelector.ItemsSource = _accountChoices;
+            }
+            if (!Equals(AccountSelector.SelectedValue, selectedId)) AccountSelector.SelectedValue = selectedId;
+        }
+        finally { _bindingAccountSelector = false; }
+    }
+
     private void OnAccountSelectorChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_bindingAccountSelector || AccountSelector.SelectedItem is not AccountChoice choice

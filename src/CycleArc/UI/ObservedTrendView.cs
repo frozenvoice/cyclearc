@@ -23,6 +23,10 @@ public sealed class ObservedTrendView : Border
     private bool _loading, _unavailable, _hidden, _binding;
     private QuotaObservationMetric _metric = QuotaObservationMetric.UsedPercent;
     private QuotaObservationWindow? _rendered;
+    private List<MetricChoice>? _metricChoices;
+    private int _metricChoicesMask;
+    private UiLanguage? _metricChoicesLanguage;
+    private string? _metricChoicesUnit;
 
     public QuotaSparkline Chart { get; } = new();
     public TextBlock TitleText { get; } = new() { FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
@@ -44,9 +48,14 @@ public sealed class ObservedTrendView : Border
         if (!compact) SetResourceReference(BackgroundProperty, "CardBrush");
         var panel = new StackPanel();
         var heading = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(_metricPicker, Dock.Right);
-        _metricPicker.Margin = new Thickness(8, 0, 0, 0);
-        heading.Children.Add(_metricPicker);
+        _metricPicker.Visibility = Visibility.Collapsed;
+        if (!compact)
+        {
+            DockPanel.SetDock(_metricPicker, Dock.Right);
+            _metricPicker.Margin = new Thickness(8, 0, 0, 0);
+            _metricPicker.DisplayMemberPath = nameof(MetricChoice.Label);
+            heading.Children.Add(_metricPicker);
+        }
         heading.Children.Add(TitleText);
         TitleText.FontSize = compact ? 10 : 12;
         LastObservationText.FontSize = compact ? 9 : 10;
@@ -119,29 +128,63 @@ public sealed class ObservedTrendView : Border
             _values.ItemsSource = null;
             return;
         }
-        var choices = Enum.GetValues<QuotaObservationMetric>()
-            .Where(metric => HasMetric(metric)).Select(metric => new MetricChoice(metric, MetricLabel(metric))).ToList();
-        if (choices.Count == 0) choices.Add(new(QuotaObservationMetric.UsedPercent, MetricLabel(QuotaObservationMetric.UsedPercent)));
-        if (!choices.Any(choice => choice.Metric == _metric)) _metric = choices[0].Metric;
-        _binding = true;
-        _metricPicker.ItemsSource = choices;
-        _metricPicker.DisplayMemberPath = nameof(MetricChoice.Label);
-        _metricPicker.SelectedItem = choices.First(choice => choice.Metric == _metric);
-        _metricPicker.Visibility = !_compact && choices.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
-        _binding = false;
-        AutomationProperties.SetName(_metricPicker, UiText.T("Observed metric", "관측 항목"));
-        ValuesExpander.Header = UiText.T("Actual observations", "실제 관측값");
-        AutomationProperties.SetName(_values, UiText.T("Actual observation time, received time and value", "실제 관측 시각, 앱 수신 시각과 값"));
+        if (_compact)
+        {
+            // The widget has no metric selector. Keep its represented metric without
+            // constructing unused metric views or resetting a collapsed ItemsControl.
+            if (!HasMetric(_metric))
+                _metric = HasMetric(QuotaObservationMetric.UsedPercent) ? QuotaObservationMetric.UsedPercent
+                    : HasMetric(QuotaObservationMetric.UsedAmount) ? QuotaObservationMetric.UsedAmount
+                    : HasMetric(QuotaObservationMetric.RemainingAmount) ? QuotaObservationMetric.RemainingAmount
+                    : QuotaObservationMetric.UsedPercent;
+        }
+        else
+        {
+            UpdateMetricPicker();
+            ValuesExpander.Header = UiText.T("Actual observations", "실제 관측값");
+            AutomationProperties.SetName(_values, UiText.T("Actual observation time, received time and value", "실제 관측 시각, 앱 수신 시각과 값"));
+        }
         Present();
     }
 
+    private void UpdateMetricPicker()
+    {
+        var mask = 0;
+        foreach (var metric in Enum.GetValues<QuotaObservationMetric>())
+            if (HasMetric(metric)) mask |= 1 << (int)metric;
+        if (mask == 0) mask = 1 << (int)QuotaObservationMetric.UsedPercent;
+        var labelUnit = mask == (1 << (int)QuotaObservationMetric.UsedPercent) || string.IsNullOrWhiteSpace(_window?.Unit)
+            ? null : _window?.Unit;
+        if (_metricChoices is null || _metricChoicesMask != mask
+            || _metricChoicesLanguage != UiText.Language || _metricChoicesUnit != labelUnit)
+        {
+            _metricChoices = Enum.GetValues<QuotaObservationMetric>()
+                .Where(metric => (mask & (1 << (int)metric)) != 0)
+                .Select(metric => new MetricChoice(metric, MetricLabel(metric))).ToList();
+            _metricChoicesMask = mask;
+            _metricChoicesLanguage = UiText.Language;
+            _metricChoicesUnit = labelUnit;
+        }
+        var selected = _metricChoices.FirstOrDefault(choice => choice.Metric == _metric) ?? _metricChoices[0];
+        _metric = selected.Metric;
+        _binding = true;
+        try
+        {
+            if (!ReferenceEquals(_metricPicker.ItemsSource, _metricChoices)) _metricPicker.ItemsSource = _metricChoices;
+            _metricPicker.SelectedItem = selected;
+            _metricPicker.Visibility = _metricChoices.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        finally { _binding = false; }
+        AutomationProperties.SetName(_metricPicker, UiText.T("Observed metric", "관측 항목"));
+    }
+
     private bool HasMetric(QuotaObservationMetric metric) => _window is not null &&
-        (_history?.GetCurrentWindow(_window, metric).Points.IsEmpty == false || metric switch
+        ((metric switch
         {
             QuotaObservationMetric.UsedPercent => _window.UsedPercent is not null,
             QuotaObservationMetric.UsedAmount => _window.UsedAmount is not null,
             _ => _window.RemainingAmount is not null
-        });
+        }) || _history?.GetCurrentWindow(_window, metric).Points.IsEmpty == false);
 
     private string MetricLabel(QuotaObservationMetric metric)
     {
