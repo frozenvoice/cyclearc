@@ -214,8 +214,9 @@ internal static class AccountTestProtocol
     public const string Completed = """{"method":"account/login/completed","params":{"loginId":"3e2f5a8d-9263-49f5-8407-9fa2e9468434","success":true,"error":null,"onboardingEntrypoint":null}}""";
 }
 
-internal sealed class AccountTestDirectory : IDisposable
+internal sealed class AccountTestDirectory : IDisposable, IAsyncDisposable
 {
+    private readonly List<CodexAccountManager> _managers = [];
     public const string Executable = @"C:\Tools\codex.exe";
     public string Root { get; } = Path.Combine(Path.GetTempPath(), "CycleArc-accounts-" + Guid.NewGuid().ToString("N"));
     public AccountTestDirectory() => Directory.CreateDirectory(Root);
@@ -227,5 +228,32 @@ internal sealed class AccountTestDirectory : IDisposable
         return new(new CodexExecutableLocator(files), new CodexAppServerClient(factory),
             new CodexSnapshotStore(new CodexAccountStore(Root).SnapshotPath(profile)), "test", profile: profile);
     }
-    public void Dispose() => Directory.Delete(Root, true);
+    public CodexAccountManager TrackManager(CodexAccountManager manager)
+    {
+        _managers.Add(manager);
+        return manager;
+    }
+
+    public static async Task StopManagerAsync(CodexAccountManager manager)
+    {
+        await manager.StopObservationsAsync(TimeSpan.FromSeconds(5));
+        // Stop preserves quota behavior on optional-storage failure. A fixture may
+        // delete its root only after its background writer has actually finished.
+        var idle = manager.WaitForObservationsIdleAsync();
+        Assert.True(idle.IsCompletedSuccessfully, "Observation writer did not stop before fixture cleanup.");
+        await idle;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var manager in _managers) await StopManagerAsync(manager);
+        Directory.Delete(Root, true);
+    }
+
+    public void Dispose()
+    {
+        if (_managers.Count > 0)
+            throw new InvalidOperationException("A fixture owning account managers requires asynchronous disposal.");
+        Directory.Delete(Root, true);
+    }
 }

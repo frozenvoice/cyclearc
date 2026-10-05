@@ -9,14 +9,14 @@ public class CodexAccountManagerTests
     [Fact]
     public async Task ManyAccountsShareBoundedRefreshAndCancelledWaiterDoesNotReleaseOwner()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var state = store.LoadOrMigrate(data.Home("first"));
         var profiles = state.Profiles.Concat(Enumerable.Range(1, 5).Select(i =>
             new CodexAccountProfile(Guid.NewGuid().ToString("N"), data.Home("account" + i), "Account " + i))).ToArray();
         store.Save(state with { Profiles = profiles });
         var factory = new GatedAccountFactory();
-        var manager = new CodexAccountManager(store, profiles[0].HomePath, p => data.Service(p, factory), () => AccountTestDirectory.Executable);
+        var manager = data.TrackManager(new CodexAccountManager(store, profiles[0].HomePath, p => data.Service(p, factory), () => AccountTestDirectory.Executable));
         var first = manager.RefreshManuallyAsync(CancellationToken.None);
         var initial = await factory.NextAsync();
         var other = await factory.NextAsync();
@@ -49,7 +49,7 @@ public class CodexAccountManagerTests
     [Fact]
     public async Task OneSignedOutAccountDoesNotEraseOthersAndSelectionSurvivesRestart()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var state = store.LoadOrMigrate(data.Home("first"));
         var second = new CodexAccountProfile(Guid.NewGuid().ToString("N"), data.Home("second"), "Work");
@@ -59,7 +59,7 @@ public class CodexAccountManagerTests
             new ScriptedCodexProcessFactory { Responder = line => signedOut && profile.Id == second.Id
                 && JsonNode.Parse(line)?["method"]?.ToString() == "account/read"
                 ? ["""{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}"""] : AccountTestProtocol.Standard(line) });
-        var manager = new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable));
         await manager.RefreshManuallyAsync(CancellationToken.None);
         Assert.All(manager.Accounts, account => Assert.True(account.HasMatchingIdentity));
         manager.Select(second.Id);
@@ -70,7 +70,8 @@ public class CodexAccountManagerTests
         Assert.Equal(CodexQuotaStatus.SignedOut, manager.Selected!.Snapshot.Status);
         Assert.All(manager.Accounts, account => Assert.False(account.HasMatchingIdentity));
         Assert.Empty(manager.Selected.Snapshot.Windows);
-        var restarted = new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable);
+        await AccountTestDirectory.StopManagerAsync(manager);
+        var restarted = data.TrackManager(new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable));
         Assert.Equal(second.Id, restarted.SelectedId);
         Assert.All(restarted.Accounts, account => Assert.Empty(account.Snapshot.Windows));
         await restarted.RefreshManuallyAsync(CancellationToken.None);
@@ -81,7 +82,7 @@ public class CodexAccountManagerTests
     [Fact]
     public async Task DiscoveryImportsVerifiedAccountReferencesWithoutCloningOrDuplicates()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var existing = data.Home("existing");
         var next = data.Home("custom-codex");
@@ -98,7 +99,7 @@ public class CodexAccountManagerTests
             }
             return AccountTestProtocol.Standard(line);
         }});
-        var manager = new CodexAccountManager(store, existing, Service, () => AccountTestDirectory.Executable);
+        var manager = data.TrackManager(new CodexAccountManager(store, existing, Service, () => AccountTestDirectory.Executable));
         var result = await manager.DiscoverAsync([existing, next, next, empty, malformed], true, CancellationToken.None);
         Assert.Equal(new CodexDiscoveryResult(1, 1, 1), result);
         Assert.Equal(2, manager.Accounts.Count);
@@ -118,15 +119,15 @@ public class CodexAccountManagerTests
     [Fact]
     public async Task LoginDoesNotBlockOtherAccountsOrAllowAnotherInteractiveLogin()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var factory = new GatedAccountFactory();
         var loggedInFactory = new ScriptedCodexProcessFactory { Responder = line =>
             JsonNode.Parse(line)?["method"]?.ToString() == "account/login/start"
                 ? AccountTestProtocol.Standard(line).Append(AccountTestProtocol.Completed).ToArray()
                 : AccountTestProtocol.Standard(line) };
-        var manager = new CodexAccountManager(store, data.Home("existing"), profile =>
-            data.Service(profile, profile.IsManaged ? loggedInFactory : factory), () => AccountTestDirectory.Executable);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Home("existing"), profile =>
+            data.Service(profile, profile.IsManaged ? loggedInFactory : factory), () => AccountTestDirectory.Executable));
         var browserReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var browserRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var login = manager.LoginAsync(null, "New", (_, _) => { browserReached.TrySetResult(); return browserRelease.Task; }, CancellationToken.None);
@@ -157,9 +158,9 @@ public class CodexAccountManagerTests
     [Fact]
     public async Task FailedImportedRecoveryOnlyAttemptsLoginInAnIsolatedHome()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var factory = new ScriptedCodexProcessFactory { Responder = AccountTestProtocol.Standard };
-        var manager = new CodexAccountManager(new(data.Root), data.Home("existing"), profile => data.Service(profile, factory), () => AccountTestDirectory.Executable);
+        var manager = data.TrackManager(new CodexAccountManager(new(data.Root), data.Home("existing"), profile => data.Service(profile, factory), () => AccountTestDirectory.Executable));
         var result = await manager.LoginAsync("default", "", (_, _) => throw new InvalidOperationException("Must not open browser"), CancellationToken.None);
         Assert.NotEqual(CodexQuotaStatus.Available, result.Status);
         Assert.Equal(1, factory.StartCount);
@@ -169,16 +170,16 @@ public class CodexAccountManagerTests
     }
 
     [Fact]
-    public void RemovingSelectedAccountChoosesRemainingProfileAndNeverDeletesQuota()
+    public async Task RemovingSelectedAccountChoosesRemainingProfileAndNeverDeletesQuota()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var initial = store.LoadOrMigrate(data.Home("existing"));
         var next = store.NewManaged("Other");
         store.Save(initial with { Profiles = [initial.Profiles[0], next], SelectedId = next.Id });
         Directory.CreateDirectory(Path.GetDirectoryName(store.SnapshotPath(next))!);
         File.WriteAllText(store.SnapshotPath(next), "preserved synthetic cache");
-        var manager = new CodexAccountManager(store, data.Root, p => data.Service(p, new ScriptedCodexProcessFactory()), () => null);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Root, p => data.Service(p, new ScriptedCodexProcessFactory()), () => null));
         Assert.True(manager.Remove(next.Id));
         Assert.Equal("default", manager.SelectedId);
         Assert.Equal("preserved synthetic cache", File.ReadAllText(store.SnapshotPath(next)));
@@ -192,7 +193,7 @@ public class CodexAccountManagerTests
     [Fact]
     public async Task AccountOrderPersistsWithoutChangingSelectionQuotasOrStartingRefresh()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var initial = store.LoadOrMigrate(data.Home("existing"));
         var profiles = initial.Profiles.Concat(new[] { store.NewManaged("Work"), store.NewManaged("Other") }).ToArray();
@@ -210,7 +211,7 @@ public class CodexAccountManagerTests
                 response["result"]!["rateLimits"]!["primary"]!["usedPercent"] = (Array.IndexOf(profiles, profile) + 1) * 10;
                 return [response.ToJsonString()];
             } });
-        var manager = new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable));
         await manager.RefreshManuallyAsync(CancellationToken.None);
         manager.Select(profiles[1].Id);
         var completedRequests = requests;
@@ -224,7 +225,8 @@ public class CodexAccountManagerTests
         Assert.Same(selectedSnapshot, manager.Snapshot);
         Assert.Equal(completedRequests, requests);
         Assert.All(profiles, profile => Assert.Equal(caches[profile.Id], File.ReadAllText(store.SnapshotPath(profile))));
-        var restarted = new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable);
+        await AccountTestDirectory.StopManagerAsync(manager);
+        var restarted = data.TrackManager(new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable));
         Assert.Equal(expected, restarted.Accounts.Select(a => a.Profile.Id));
         Assert.Equal(profiles[1].Id, restarted.SelectedId);
         Assert.All(restarted.Accounts, account => Assert.Empty(account.Snapshot.Windows));
@@ -233,12 +235,12 @@ public class CodexAccountManagerTests
     }
 
     [Fact]
-    public void AccountOrderIgnoresBoundariesAndInvalidRequests()
+    public async Task AccountOrderIgnoresBoundariesAndInvalidRequests()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
-        var manager = new CodexAccountManager(store, data.Home("existing"),
-            profile => data.Service(profile, new ScriptedCodexProcessFactory()), () => null);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Home("existing"),
+            profile => data.Service(profile, new ScriptedCodexProcessFactory()), () => null));
         var changed = 0;
         manager.Changed += () => changed++;
         Assert.False(manager.Move("default", -1));
@@ -254,12 +256,12 @@ public class CodexAccountManagerTests
     [Fact]
     public async Task FirstSuccessfulNewLoginSelectsUsableAccountAndKeepsEveryProfile()
     {
-        using var data = new AccountTestDirectory();
-        var manager = new CodexAccountManager(new(data.Root), data.Home("unused-default"), profile =>
+        await using var data = new AccountTestDirectory();
+        var manager = data.TrackManager(new CodexAccountManager(new(data.Root), data.Home("unused-default"), profile =>
             data.Service(profile, new ScriptedCodexProcessFactory { Responder = line =>
                 JsonNode.Parse(line)?["method"]?.ToString() == "account/login/start"
                     ? AccountTestProtocol.Standard(line).Append(AccountTestProtocol.Completed).ToArray()
-                    : AccountTestProtocol.Standard(line) }), () => AccountTestDirectory.Executable);
+                    : AccountTestProtocol.Standard(line) }), () => AccountTestDirectory.Executable));
         var result = await manager.LoginAsync(null, "First", (_, _) => Task.CompletedTask, CancellationToken.None);
         Assert.Equal(CodexQuotaStatus.Available, result.Status);
         Assert.Equal("First", manager.Selected!.DisplayName);

@@ -10,11 +10,11 @@ public class CursorAccountRegistryTests
     [Fact]
     public async Task RepeatedCurrentLoginReusesBoundProfileAndFailureDiscardsOnlyEmptyDraft()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var fail = false;
         var provider = new CursorStubProvider(profile => new CursorStub(store, profile, () => fail));
-        var manager = new CodexAccountManager(store, data.Home("codex"), [new FakeProvider(UsageProviderId.Codex), provider]);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Home("codex"), [new FakeProvider(UsageProviderId.Codex), provider]));
         Assert.True((await manager.ConnectCursorAsync(null, "Work", default)).Success);
         var cursor = Assert.Single(manager.Accounts, a => a.Profile.Provider == UsageProviderId.Cursor);
         var firstId = cursor.Profile.Id;
@@ -37,7 +37,7 @@ public class CursorAccountRegistryTests
     [Fact]
     public async Task CancelledNewConnectionReleasesLoginGateAndKeepsExistingSelection()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var cancel = true;
         var provider = new CursorStubProvider(profile => new CursorStub(store, profile, () =>
@@ -45,7 +45,7 @@ public class CursorAccountRegistryTests
             if (cancel) throw new OperationCanceledException();
             return false;
         }));
-        var manager = new CodexAccountManager(store, data.Home("codex"), [new FakeProvider(UsageProviderId.Codex), provider]);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Home("codex"), [new FakeProvider(UsageProviderId.Codex), provider]));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => manager.ConnectCursorAsync(null, "Draft", default));
         Assert.Single(manager.Accounts);
         Assert.Equal("default", manager.SelectedId);
@@ -55,13 +55,13 @@ public class CursorAccountRegistryTests
     }
 
     [Fact]
-    public void CursorAdditionPreservesOtherProvidersSelectionOrderAndAliasesAcrossRestart()
+    public async Task CursorAdditionPreservesOtherProvidersSelectionOrderAndAliasesAcrossRestart()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         IUsageProvider[] providers = [new FakeProvider(UsageProviderId.Codex),
             new FakeProvider(UsageProviderId.Claude), new FakeProvider(UsageProviderId.Cursor)];
-        var manager = new CodexAccountManager(store, data.Home("codex"), providers);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Home("codex"), providers));
         manager.Rename("default", "Existing Codex");
         var claude = manager.AddClaude("Existing Claude");
         manager.Select(claude.Id);
@@ -71,7 +71,8 @@ public class CursorAccountRegistryTests
         Assert.False(cursor.IsManaged);
         Assert.True(manager.Move(cursor.Id, -1));
         var secondClaude = manager.AddClaude("Another Claude");
-        var restored = new CodexAccountManager(store, data.Home("unused"), providers);
+        await AccountTestDirectory.StopManagerAsync(manager);
+        var restored = data.TrackManager(new CodexAccountManager(store, data.Home("unused"), providers));
         Assert.Equal(claude.Id, restored.SelectedId);
         Assert.Equal(new[] { "default", cursor.Id, claude.Id, secondClaude.Id }, restored.Accounts.Select(a => a.Profile.Id));
         Assert.Equal(new[] { "Existing Codex", "Cursor work", "Existing Claude", "Another Claude" },

@@ -266,6 +266,12 @@ public partial class FlyoutWindow : Window
 
     public void Bind(CodexQuotaSnapshot snapshot, bool refreshing = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
+        _observationAccount = null;
+        BindSnapshot(snapshot, refreshing, preference);
+    }
+
+    private void BindSnapshot(CodexQuotaSnapshot snapshot, bool refreshing, UsagePeriodPreference preference)
+    {
         // Keep action/status metadata while defending every selected-detail projection,
         // including legacy reset credits, against accidentally retained account values.
         if (UsageCreditPresentation.Hidden(snapshot)) snapshot = snapshot with
@@ -297,7 +303,8 @@ public partial class FlyoutWindow : Window
         selectedId = overview.SelectedId;
         SelectedProfileId = selectedId.Length == 0 ? null : selectedId;
         var selected = overview.Selected;
-        Bind(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing, overview.Preference);
+        _observationAccount = selected;
+        BindSnapshot(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing, overview.Preference);
         AccountSection.Visibility = Visibility.Visible;
         ManageAccountsButton.Content = UiText.T("Manage accounts", "계정 관리");
         AccountsHeading.Text = UiText.T($"Accounts · {accounts.Count}", $"계정 · {accounts.Count}");
@@ -550,6 +557,7 @@ public partial class FlyoutWindow : Window
         CodexSecondaryRowsHost.Visibility = secondary.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         ApplyCodexRing(snapshot);
+        BindObservedTrend(snapshot);
     }
 
     // One detail row: label and value, with the value's detail (reset countdown, time) below it.

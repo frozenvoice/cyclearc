@@ -9,7 +9,7 @@ public sealed class CodexAccountProjectionTests
     [Fact]
     public async Task ImportedConflictIsPersistedDuringRefresh_WhileProjectionStaysPure()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var initial = store.LoadOrMigrate(data.Home("imported"));
         var managed = store.NewManaged("Managed");
@@ -24,7 +24,7 @@ public sealed class CodexAccountProjectionTests
                     : AccountTestProtocol.Standard(line);
             } });
 
-        var manager = new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable));
         await manager.RefreshManuallyAsync(CancellationToken.None);
 
         var marker = store.SnapshotPath(initial.Profiles[0]) + ".identity-conflict";
@@ -46,7 +46,7 @@ public sealed class CodexAccountProjectionTests
     [Fact]
     public async Task ProjectionDoesNotWaitForBindingLock_AndRefreshRevalidatesChangedBinding()
     {
-        using var data = new AccountTestDirectory();
+        await using var data = new AccountTestDirectory();
         var store = new CodexAccountStore(data.Root);
         var initial = store.LoadOrMigrate(data.Home("first"));
         var second = new CodexAccountProfile(Guid.NewGuid().ToString("N"), data.Home("second"), "Second");
@@ -66,7 +66,7 @@ public sealed class CodexAccountProjectionTests
                     : AccountTestProtocol.Standard(line);
             } });
 
-        var manager = new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable);
+        var manager = data.TrackManager(new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable));
         await manager.RefreshManuallyAsync(CancellationToken.None);
         Assert.All(manager.Accounts, account =>
         {

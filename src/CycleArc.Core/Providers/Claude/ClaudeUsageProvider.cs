@@ -19,7 +19,7 @@ public sealed class ClaudeUsageProvider(CodexAccountStore accounts, IClock? cloc
     }
 }
 
-public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccountService
+public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccountService, IUsageObservationBinding
 {
     private readonly ClaudeStatusLineStore _store;
     private readonly ClaudeFailureStore? _failureStore;
@@ -67,6 +67,8 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
     public string? Email => _connection?.Binding?.Disconnected == true ? null : _email?.Invoke(_connection?.Binding?.IdentityFingerprint);
     public string? IdentityFingerprint => Email is null ? null : _connection?.Binding?.IdentityFingerprint;
     public bool IsConnected => HasBoundConnection;
+    public string? ObservationBindingKey => _connection is { Unavailable: false, Binding: { BindingGeneration: { } generation } binding }
+        ? generation + ":" + binding.IdentityFingerprint : null;
     public bool IsRefreshing { get; private set; }
     public bool ReceivesPassiveUpdates => true;
     public bool ShouldRefresh(DateTimeOffset now, TimeSpan interval) => _live is not null

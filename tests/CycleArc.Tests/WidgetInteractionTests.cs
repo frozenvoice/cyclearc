@@ -164,7 +164,7 @@ public class WidgetInteractionTests
         Assert.Contains("tip.IsOpen = !tip.IsOpen", code);
         Assert.Contains("_creditHelpTip ??= MakeTooltip(helpText)", code);
         Assert.Contains("ToolTipService.SetIsEnabled(CreditHelpButton, false)", code);
-        Assert.Contains("if (!IsVisible && _creditHelpTip is not null) _creditHelpTip.IsOpen = false", code);
+        Assert.Matches(@"if\s*\(!IsVisible\)\s*\{\s*if\s*\(_creditHelpTip is not null\)\s*_creditHelpTip\.IsOpen = false;", code);
         Assert.DoesNotContain("CreditHelpButton.ToolTip = MakeTooltip(", code);
     }
 

@@ -153,7 +153,11 @@ internal static class WidgetLayoutChecks
 
     private static int MixedHeightScroll(string? directory, string suffix)
     {
-        var accounts = MixedHeights();
+        // Keep the first row short and select the taller Cursor module in the last row.
+        // Selecting the first account would add its observed row and erase this fixture's
+        // deliberate first-module underestimate of later content.
+        var accounts = MixedHeights().OrderBy(account => account.Profile.Provider == UsageProviderId.Cursor).ToArray();
+        var selectedId = accounts[^1].Profile.Id;
         var widget = new FloatingWidget { ShowActivated = false };
         // Before Show, window and content are separate visual roots. Normalize both
         // before binding; Show below still applies the real monitor DPI to the HWND.
@@ -161,7 +165,7 @@ internal static class WidgetLayoutChecks
         VisualTreeHelper.SetRootDpi((FrameworkElement)widget.Content, new DpiScale(1, 1));
         try
         {
-            widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, Narrow, Now);
+            widget.BindAccounts(accounts, selectedId, UsagePeriodPreference.Auto, Narrow, Now);
             Layout(widget);
             var header = (FrameworkElement)widget.FindName("WidgetHeader");
             var headerHeight = header.DesiredSize.Height + header.Margin.Bottom;
@@ -175,6 +179,8 @@ internal static class WidgetLayoutChecks
             var probe = new ScreenRect(0, 0, 760, 1040);
             var byFirst = WidgetGridLayout.For(accounts.Length, headerHeight, heights[0], probe);
             var byAll = WidgetGridLayout.For(accounts.Length, headerHeight, heights, probe);
+            Check(heights.Take(byAll.Columns).Max() + 8 < heights.Skip(byAll.Columns).Max(),
+                $"{suffix}: the first mixed-height row is not shorter than a later row.");
             var firstTotal = WidgetGridLayout.ChromeHeight + headerHeight
                 + (byFirst.Rows * heights[0]) + ((byFirst.Rows - 1) * WidgetGridLayout.SeparatorThickness);
             var allTotal = WidgetGridLayout.ChromeHeight + headerHeight
@@ -189,7 +195,7 @@ internal static class WidgetLayoutChecks
             Check(!firstOnShort.Scrolls && expected.Scrolls,
                 $"{suffix}: the fixture does not reproduce a short first row hiding later overflow.");
 
-            widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, shortArea, Now);
+            widget.BindAccounts(accounts, selectedId, UsagePeriodPreference.Auto, shortArea, Now);
             Layout(widget);
             var layout = widget.LastLayout!;
             var content = (FrameworkElement)widget.Content;
@@ -218,7 +224,7 @@ internal static class WidgetLayoutChecks
             WidgetFixture.RenderWidget(widget, PathFor(directory, $"widget-scrolled-last-row-{suffix}"));
 
             var reordered = Enumerable.Reverse(accounts).ToArray();
-            widget.BindAccounts(reordered, reordered[0].Profile.Id, UsagePeriodPreference.Auto, shortArea, Now);
+            widget.BindAccounts(reordered, selectedId, UsagePeriodPreference.Auto, shortArea, Now);
             Layout(widget);
             Check(widget.LastLayout!.Scrolls, $"{suffix}: reordering dropped scrolling.");
             ScrollToLastPeriod(widget, scroller, suffix + "/reordered");
@@ -226,7 +232,7 @@ internal static class WidgetLayoutChecks
             var grown = accounts.ToArray();
             grown[0] = Claude(grown[0].Profile.Id, grown[0].DisplayName,
                 Both(85, 23) with { Status = CodexQuotaStatus.Stale });
-            widget.BindAccounts(grown, grown[0].Profile.Id, UsagePeriodPreference.Auto, shortArea, Now);
+            widget.BindAccounts(grown, selectedId, UsagePeriodPreference.Auto, shortArea, Now);
             Layout(widget);
             Check(widget.LastLayout!.Scrolls, $"{suffix}: adding status text dropped scrolling.");
             Check(widget.Modules[0].StatusText.Visibility == Visibility.Visible,
@@ -1084,6 +1090,12 @@ internal static class WidgetLayoutChecks
         var bounds = target.TransformToAncestor(scroller).TransformBounds(new Rect(target.RenderSize));
         Check(bounds.Bottom <= scroller.ViewportHeight + 2,
             $"{name}: scrolling cannot reach the last period of the last account ({bounds.Bottom} > {scroller.ViewportHeight}).");
+        if (last.Trend is { Visibility: Visibility.Visible } trend)
+        {
+            var trendBounds = trend.TransformToAncestor(scroller).TransformBounds(new Rect(trend.RenderSize));
+            Check(trendBounds.Bottom <= scroller.ViewportHeight + 2,
+                $"{name}: scrolling cannot reach the selected account's observed row.");
+        }
         foreach (var line in last.Periods)
         {
             Check(line.RemainingText.ActualWidth + 0.5 >= line.RemainingText.DesiredSize.Width

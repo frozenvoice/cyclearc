@@ -10,7 +10,10 @@ remaining allowance and original check time; Cursor also shows the reported bill
 Each account remembers its expansion across refreshes and restarts. Codex credits keep their own
 unit and remain separate from reset credits. Claude's remaining amount is the monthly cap minus
 spend, not a prepaid balance; Cursor keeps the server's remaining value. Off, zero, unlimited
-and missing values stay distinct. No monetary rows are added to the account list, widget or tray.
+and missing values stay distinct. Healthy, truly unprovided credit details use a compact folded
+row; expanding restores the full card. Missing reset-credit metadata follows the same rule.
+Unknown values, zero, stale data, failures and reconnection requirements retain their visible
+meaning. No monetary rows are added to the account list, widget or tray.
 
 Widget status appears as a small icon in each account header: a rotating arc while checking
 when no existing failure or previous-data warning applies,
@@ -72,13 +75,14 @@ Production views with synthetic usage values; these images do not show a real ac
 ## At a glance
 
 - **Codex, Claude and Cursor together.** Connect an existing CLI login or sign in through the official browser flow. Connected Claude accounts appear immediately, with **Awaiting usage** until the first sample. Select an account for the detail card and tray; the widget compares accounts side by side and highlights the selection.
-- **Usage in the tray.** A Windows notification-area icon keeps the meter within reach. Click for the detailed card; pin it to keep it visible.
+- **Usage in the tray.** A Windows notification-area icon keeps the meter within reach. Click for the detailed card; choose **Window options (···) → Pin** to keep it visible. The account dropdown above the card selects the account displayed throughout CycleArc. This changes the display only; account cards retain their errors and connection-recovery notices.
 - **Clear quota windows.** See usage and remaining percentages, reset times and countdowns for each reported five-hour or weekly window. The ring, tray and widget share one display period: **Auto** uses a known five-hour percentage first, then weekly. Choose **Auto / 5 hours / Weekly** above the detail ring, or click the ring to switch when both values are known. The selection applies immediately to all three views and is saved across restarts. If the selected period has no known value, a known available period is shown with an explanation in the detail card. The detail and widget rings fill with what is left of the limit they show and are labeled **left**, for example **Weekly left 86%**; the exact used percentage stays in the quota rows and tooltips. An exhausted limit keeps an empty ring labeled **Limit reached** in red, and an unknown value stays **?** without a fill. Every ring is colored by the actual usage percentage of the limit it shows, never by another limit or the account's highest one: blue below 70%, amber from 70%, orange from 85% and red from 100%, the same for selected and other accounts. Tooltips and screen readers add **Caution**, **Near limit** or **Limit reached**. In the widget, detail popup and account summaries, quota numbers keep their normal text color even when a check fails; their rings still describe the last received usage. A yellow header status icon in the widget, and yellow status text in the popup, carry refresh failures or stale-data warnings separately. Unknown values remain unknown, and the selection marker keeps its color.
 - **Reset credits.** A folded one-line summary shows the available count and the nearest expiry; expand it to see each credit, its expiry and **Use reset**. The list is only as tall as its credits (up to three before it scrolls). Use an individual reset after confirmation. Missing expiry information stays explicitly unknown.
 - **Optional desktop widget.** A compact, draggable summary that compares every displayable Codex, Claude and Cursor account side by side: one fixed-width module each, with aligned account names and usage rings. Codex and Claude show the remaining amount and reset countdown for every reported period, and a period that is not in the ring gets a small remaining bar beside its countdown (or on its own thin row when no reset time is reported); Cursor uses the three-allowance summary described above, with the same bar for each percentage allowance outside the ring. Accounts keep their managed order and are never combined. One row holds as many modules as the widget's own monitor allows and the rest wrap to the next row; a list taller than the work area scrolls inside it. The opacity setting fades only the widget background, so names, numbers and rings stay fully legible; new installations start fully opaque. Always-on-top and click-through are unchanged. The selected account sits on a slightly lifted surface with a short blue marker at its left edge; blue stays reserved for usage rings and bars, and other accounts keep full contrast. Pointing at a module lifts it slightly. Click a module to select that account and open the usage popup; clicking the header or an empty part of the widget only gives it the keyboard, without opening the popup. The thin header carries its own size controls, refresh, settings and a hide button. Off-screen positions recover automatically.
 - **Usage alerts.** A Windows notification appears the first time in a period that an account's limit reaches 85% used, and again when it is used up. Each account and limit is announced once per period, across refreshes and restarts; it alerts again only in a new period or after usage falls below 70%. Stale, unknown or out-of-range values never alert. When several limits are found at once, one notification names them all and a click opens the most urgent account. Turn it off in **Settings → Connection → Usage alerts**.
 - **Your preferred appearance.** Dark, Light, or live System theme; English and Korean; keyboard zoom from 80% to 150% for the detail card and the widget, each kept separately.
 - **Honest refresh states.** Codex refreshes on its selectable 1, 2, 5, 10, 30 or 60-minute interval (default: five minutes). Claude actively checks the shared quota through the connected Desktop login during manual and configured scheduled refresh. Successful live data is **Updated** with a last-checked time; statusLine and Desktop history fallbacks are **Received** with source time. Failed checks keep previous values visibly stale.
+- **Observed usage.** The selected account's current allowance window shows actual received observations, its unit and last observed time. Percentage graphs show **used %**; the ring continues to show what is left. Provider-supplied used and remaining amounts keep their own units in the metric selector. Expand **Actual observations** for the values and separate source-observation and app-receipt timestamps. The widget shows a small graph for its selected account. An empty graph says **No observations yet**, and a single observation stays one point. Unknown intervals and unconfirmed reset boundaries are not connected; resets, reconnects and measurement-basis changes separate the data.
 
 ## Get started
 
@@ -267,7 +271,8 @@ Usage comes from the Desktop live profile/usage check when available, then the o
 | Refresh button | Check account limits immediately |
 | Auto / 5 hours / Weekly | Choose the period shared by the detail ring, tray and widget; saved across restarts |
 | Click the usage ring | Switch between five-hour and weekly usage when both values are known |
-| Pin button | Keep the detail card on top |
+| Account dropdown above the detail card | Select the account displayed in CycleArc |
+| Window options (···) | Pin/unpin or close the detail card |
 | `Ctrl` + `+` / `Ctrl` + `-` | Enlarge or reduce the focused window - the detail card or the widget |
 | `Ctrl` + `0` | Restore the focused window to 100% |
 | Zoom out / Zoom in (magnifying-glass −/+ icons) in either header | The same step as the shortcut, for that window only |
@@ -300,6 +305,10 @@ The widget uses a small account-header icon for status, with no status footer or
 
 Settings keeps **General**, **Widget** and **Connection** together in an icon sidebar. Choose System, Light or Dark from the visual theme picker; related preferences are grouped, and longer tray/connection instructions expand on demand. **Current version** shows the running app's version, with its full build identifier in the tooltip. **Apply** puts changes into effect and keeps Settings open, so you can check the widget, tray and popup; **Save** applies and closes. Apply is available only while something has changed, and **Cancel** afterwards keeps what was already applied. Dragging the widget **Opacity** slider previews it on the widget immediately; closing without applying returns the widget to its applied opacity.
 
+The popup briefly identifies the actual display period and any fallback. The full explanation
+of the period shared by the popup, tray and widget is centralized in **Settings → General →
+Display period & tray guide**.
+
 <p><img src="images/settings.png" alt="English settings with visual theme choices, grouped preferences and the current running version" width="780"></p>
 <p><img src="images/widget.png" alt="Compact desktop widget comparing three sample accounts side by side" width="740"></p>
 
@@ -313,6 +322,11 @@ Percentages come from the reported limit windows. CycleArc does not turn them in
 
 Countdowns and “last checked” ages update locally once a minute without another server request.
 
+Observed graphs reuse successful provider snapshots from these existing refresh paths. They
+add no remote requests, model calls or faster polling, and do not forecast depletion, calculate
+pace, recommend an account or switch accounts automatically. Stable graph data and geometry
+are reused; the display timer does not recalculate every account's graph each second.
+
 ### Privacy
 
 - No prompt, response, conversation, project, or rollout collection.
@@ -322,6 +336,15 @@ Countdowns and “last checked” ages update locally once a minute without anot
 
 Settings and quota cache remain under `%LOCALAPPDATA%\ProMeter` for upgrade compatibility. Settings use atomic replacement with a previous-good backup and recovery if the primary file is damaged.
 The account registry (`codex-accounts.json`) also uses atomic writes and a previous-good backup. The legacy default profile uses `codex-snapshot.json`; new profiles and profiles replaced through **Reconnect** have separate quota caches. Reconnection preserves the old home and cache. Existing preferences and historical files are preserved.
+
+Local quota-only history uses versioned `quota-observations.json` files isolated by profile,
+provider and connection identity, with atomic replacement and valid-backup recovery. It keeps
+up to seven days and 2,048 observations per logical limit/metric, capped at 32 series, 16,384
+points and 8 MiB per profile history file. It stores normalized quota values and necessary
+identity/window/source metadata, without credentials, email, prompts or conversations.
+Removal and reconnection isolate old records. A history save/restore problem shows an
+optional-history warning without blocking current quota checks or resetting accounts/settings.
+See [observed quota history](ARCHITECTURE.md#observed-quota-history) for details.
 
 CycleArc is an independent project and is not affiliated with or endorsed by OpenAI or Anthropic. Compatibility depends on the installed Codex App Server, Claude CLI/statusLine protocol, Desktop OAuth/history formats, first-party quota responses and the metadata available to your account.
 
