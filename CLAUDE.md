@@ -73,6 +73,12 @@ the installation being removed. Anything else (a replaced statusLine, another to
 installation's wrapper, an unrelated property) stays untouched, and "absent" and "explicitly null"
 remain different outcomes.
 
+## Verification output hygiene
+
+- Do not create a new directory per task or retry for verification, experiment, staging or capture output (e.g. `artifacts/<task>`, `.tmp/<task>-run2`). Reuse the default output location; if isolation is truly needed, overwrite one fixed directory.
+- Before reporting completion, delete the temporary build, staging and capture directories this task created. Never touch output owned by another task or a running process.
+- Reduce retained evidence to logs, summaries and minimal files. If more than 1 GB remains, report its path and size.
+
 ## Done means
 
 - Focused tests first, then the affected gate; state what actually ran.

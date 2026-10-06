@@ -184,6 +184,12 @@ CI is not where a change is first verified. Before every push:
   installers/releases. Use disposable environments and synthetic data only; never a working profile.
   See [manual validation commands](docs/README.en.md#build-from-source).
 
+## Verification output hygiene
+
+- Do not create a new directory per task or retry for verification, experiment, staging or capture output (e.g. `artifacts/<task>`, `.tmp/<task>-run2`). Reuse the default output location; if isolation is truly needed, overwrite one fixed directory.
+- Before reporting completion, delete the temporary build, staging and capture directories this task created. Never touch output owned by another task or a running process.
+- Reduce retained evidence to logs, summaries and minimal files. If more than 1 GB remains, report its path and size.
+
 ## Delivery
 
 - Commit and push intended changes to origin unless instructed otherwise; never force-push.
