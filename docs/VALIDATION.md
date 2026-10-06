@@ -2,6 +2,47 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Unified source-build prerequisites (2026-10-06, local only):
+  - Started from clean `97ea95c`, confirmed equal to remote `main` with read-only
+    `git ls-remote`. `global.json` and target frameworks remain unchanged.
+  - Actual host inventory contains only SDK `8.0.424`; the new checkout probe reports
+    stable SDK `>= 10.0.100` required, Selected `none`, Installed `8.0.424`, without
+    dumping the resolver's multiline error into the selected version. Official
+    release metadata was read successfully using Windows PowerShell 5.1.
+  - Focused SDK, outer bootstrap and coordinator regressions passed in PowerShell 7
+    and Windows PowerShell 5.1. Tests inject metadata, download, signature, process,
+    discovery and interaction boundaries: no real prerequisite installer is launched.
+    They cover stable/preview/incompatible/coexisting SDK selection, one approval,
+    missing-only installation order, post-install reprobes, off-PATH handoff, failures,
+    cancellation, policy/reboot outcomes, recursion and noninteractive suppression.
+    CMD also checks the actual stable PowerShell version: a legacy/preview host on
+    PATH routes through the Windows PowerShell bootstrap rather than the PS7-only gate.
+    Existing BuildLocal and VS prerequisite regressions passed; approved VS repair
+    can add missing components afterward without another prompt or duplicate instance.
+  - Release dependency/source guards inspect native PE imports and delay imports,
+    CLR/host exports, the app bundle's runtimeconfig/deps and runtime payloads, and
+    packaged app SHA-256. The vendor Velopack engine is legitimately x86; only its
+    embedded-engine check permits that, while the public wrapper and app stay x64.
+    Existing release guards passed. These component checks preserve the existing
+    managed-setup-install/disposable installed-update checks.
+  - System SDKs and the existing CycleArc installation were left unchanged. The
+    full build gate uses an isolated official SDK `10.0.401` ZIP under `.tmp/build-sdk`,
+    with its official SHA-512 checked, via process-local `DOTNET_ROOT_X64`,
+    `DOTNET_ROOT` and PATH. Initial full gate passed all 2,064 unit tests with zero
+    skips in 7m25.4s. Final gate uses `-Fast` only to reuse those unchanged unit tests
+    after the CMD version-routing correction. Evidence:
+    `artifacts/build-prerequisites-full-gate-first.log` and
+    `artifacts/build-prerequisites-full-gate.log`.
+    Final `dev-run.ps1 -NoLaunch -Fast` passed in 4m32.9s, including all script
+    regressions, WPF checks, test-flavour compile/publish and receiver/native dependency
+    checks, fresh single-file production publish, Native AOT Setup packaging and
+    isolated portable package/update recovery. This is component evidence, not a
+    real per-user managed installation/update on a disposable Windows profile.
+  - Not verified: actual developer-tool installation/UAC/company-policy/reboot behavior
+    or installation/execution on a clean Windows user/VM without SDKs and VS. This is
+    a working user profile, with no disposable VM/user supplied for destructive
+    `Verify-InstalledUpdate.ps1`; no remote run or publication was requested.
+
 - Observed quota history and window controls (2026-10-05):
   - Started from clean `684f20e` / `origin/main`. Window cleanup is `ff2ed7a`;
     actual-observation history and its tests are `31beeba`, with option-cache

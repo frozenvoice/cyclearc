@@ -188,7 +188,7 @@ $uacFlow.ProcessRunner = { throw [ComponentModel.Win32Exception]::new(1223) }
 Assert-Equal 'Cancelled' (Invoke-SetupUiPrerequisitePreflight @uacFlow).Status 'real UAC launch exception classification'
 $policyFlow = $baseFlow.Clone()
 $policyFlow.ProcessRunner = { throw [ComponentModel.Win32Exception]::new(1260) }
-Assert-Throws { Invoke-SetupUiPrerequisitePreflight @policyFlow } 'company IT approval'
+Assert-Equal 'PolicyBlocked' (Invoke-SetupUiPrerequisitePreflight @policyFlow).Status 'company policy classification'
 foreach ($failedCode in @(1603, 740, 5003, 1001, 1003, 1618, 8006)) {
     $failedFlow = $baseFlow.Clone()
     $failedFlow.ProcessRunner = { $failedCode }
@@ -298,3 +298,46 @@ Assert-Throws {
     } -PathEnabler { throw 'PATH must not hide the resolver diagnostic' }
 } 'vswhere.exe was not found after setup'
 Assert-True $postInstallReprobed 'post-install resolve precedes PATH setup even when vswhere is absent'
+
+# The integrated coordinator's approval covers modify/repair without another question.
+$script:approvedQuestions = 0
+$script:approvedActions = @()
+$approvedFlow = @{
+    RepoRoot = $repoRoot; Approved = $true; InteractiveProbe = { $true }
+    Interaction = { $script:approvedQuestions++; '3' }
+    ExistingInstallationResolver = { [pscustomobject]@{ InstallationPath='C:\VS2022'; ProductId='Microsoft.VisualStudio.Product.BuildTools'; ChannelId='VisualStudio.17.Release'; IsComplete=$true; IsRebootRequired=$false } }
+    InstallerPathResolver = { 'C:\Installer\setup.exe' }; SignatureValidator = { $true }
+    ProcessRunner = { param($path,$arguments) $script:approvedActions += $arguments[0]; 0 }
+    Downloader = { throw 'an existing instance must never download a second Build Tools installer' }
+    PathEnabler = { $true }; TemporaryDirectoryFactory = { New-TestTempDirectory }
+}
+$approvedFlow.Resolver = New-SequenceResolver @((New-MissingToolchain 'the MSVC linker (link.exe) is missing'), (New-ReadyToolchain))
+$approved = Invoke-SetupUiPrerequisitePreflight @approvedFlow
+Assert-Equal 'Ready' $approved.Status 'approved damaged linker repaired'
+Assert-Equal 'repair' ($approvedActions -join ',') 'repair exact instance'
+Assert-Equal 0 $approvedQuestions 'no duplicate prompt'
+$script:approvedActions = @()
+$approvedFlow.ExistingInstallationResolver = { [pscustomobject]@{ InstallationPath='C:\VS2022'; ProductId='Microsoft.VisualStudio.Product.BuildTools'; ChannelId='VisualStudio.17.Release'; IsComplete=$false; IsRebootRequired=$false } }
+$approvedFlow.Resolver = New-SequenceResolver @((New-MissingToolchain), (New-MissingToolchain 'C++ component still absent'), (New-ReadyToolchain))
+Assert-Equal 'Ready' (Invoke-SetupUiPrerequisitePreflight @approvedFlow).Status 'repair then add C++ components'
+Assert-Equal 'repair,modify' ($approvedActions -join ',') 'bounded repair then modify'
+foreach ($nativeCode in @(1223,1260)) {
+    $script:repairProcessCalls = 0; $script:repairNativeCode = $nativeCode
+    $secondStepFailure = $approvedFlow.Clone()
+    $secondStepFailure.Resolver = New-SequenceResolver @((New-MissingToolchain), (New-MissingToolchain))
+    $secondStepFailure.ProcessRunner = {
+        $script:repairProcessCalls++
+        if ($script:repairProcessCalls -eq 2) { throw [ComponentModel.Win32Exception]::new($script:repairNativeCode) }
+        0
+    }
+    $expected = if ($nativeCode -eq 1223) { 'Cancelled' } else { 'PolicyBlocked' }
+    Assert-Equal $expected (Invoke-SetupUiPrerequisitePreflight @secondStepFailure).Status 'post-repair modify failure classified'
+    Assert-Equal 2 $repairProcessCalls 'failed modification does not retry'
+}
+foreach ($flag in @(@{NoPrompt=$true}, @{SilentInstall=$true})) {
+    $script:approvedActions = @()
+    $approvedFlow.Resolver = New-SequenceResolver @((New-MissingToolchain))
+    Assert-Throws { Invoke-SetupUiPrerequisitePreflight @approvedFlow @flag } 'non-interactive invocation'
+    Assert-Equal 0 $approvedActions.Count 'approval never bypasses suppression'
+}
+Write-Host 'PASS: one integrated approval repairs/modifies the exact VS instance; suppression still wins.'

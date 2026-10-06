@@ -9,19 +9,14 @@ for %%A in (%*) do (
     if /I "%%~A"=="-NoPrerequisitePrompt" set "CYCLEARC_NO_PAUSE=1"
 )
 
-where pwsh >nul 2>&1
-if errorlevel 1 (
-    echo PowerShell 7 ^(pwsh^) is required. Install it from https://aka.ms/powershell
-    echo Then double-click build-local.cmd again. Nothing was built, stopped or installed.
-    echo.
-    rem Even this early failure must not wait for input on a redirected/CI console.
-    powershell.exe -NoProfile -NonInteractive -Command "if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected -and -not $env:CI -and -not $env:GITHUB_ACTIONS -and -not $env:TF_BUILD -and -not $env:CYCLEARC_NO_PAUSE) { exit 0 }; exit 1"
-    if not errorlevel 1 pause
-    exit /b 1
-)
-
 rem A marker left by an earlier run must never be read as this run's outcome.
 if exist "%FAILFILE%" del /q "%FAILFILE%"
+
+where pwsh >nul 2>&1
+if errorlevel 1 goto bootstrap_start
+rem A legacy or preview pwsh on PATH cannot enter the stable PowerShell 7 build flow.
+pwsh -NoProfile -NonInteractive -Command "if ($PSVersionTable.PSVersion.Major -ge 7 -and -not $PSVersionTable.PSVersion.PreReleaseLabel) { exit 0 }; exit 1" >nul 2>&1
+if errorlevel 1 goto bootstrap_start
 
 pwsh -NoProfile -File "%ROOT%scripts\Build-Local.ps1" %*
 set "ERR=%ERRORLEVEL%"
@@ -36,3 +31,14 @@ if not "%ERR%"=="0" (
 )
 endlocal
 exit /b 0
+
+:bootstrap_start
+rem Windows PowerShell can offer one approval for all missing prerequisites.
+rem The bootstrap finds a stable PowerShell outside this console's PATH too.
+powershell.exe -NoProfile -File "%ROOT%scripts\Bootstrap-BuildLocal.ps1" %*
+if errorlevel 1 goto bootstrap_failed
+exit /b 0
+
+:bootstrap_failed
+rem Bootstrap-BuildLocal.ps1 owns the interactive pause before handoff; Build-Local.ps1 owns it after.
+exit /b %ERRORLEVEL%

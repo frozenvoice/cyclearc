@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Checks and, with explicit approval, prepares the Native AOT setup prerequisites.
@@ -10,6 +10,7 @@
     installer.
 #>
 Set-StrictMode -Version Latest
+Add-Type -AssemblyName System.Net.Http
 
 $script:SetupUiBootstrapperUri = 'https://aka.ms/vs/17/release/vs_buildtools.exe'
 $script:SetupUiBootstrapperName = 'vs_buildtools.exe'
@@ -193,12 +194,18 @@ function Test-SetupUiOfficialUri {
     param([Parameter(Mandatory)][Uri]$Uri)
     if ($Uri.Scheme -ne 'https') { return $false }
     $hostName = $Uri.Host.ToLowerInvariant()
+    if ($Uri.UserInfo -or !$Uri.IsDefaultPort) { return $false }
+    if ($hostName -eq 'api.github.com') { return $Uri.AbsolutePath -eq '/repos/PowerShell/PowerShell/releases/latest' }
+    if ($hostName -eq 'github.com') { return $Uri.AbsolutePath -match '^/PowerShell/PowerShell/releases/download/v7\.\d+\.\d+/PowerShell-7\.\d+\.\d+-win-x64\.msi$' }
+    if ($hostName -eq 'release-assets.githubusercontent.com') { return $Uri.AbsolutePath -match '^/github-production-release-asset/\d+/' }
     @(
         'aka.ms',
         'go.microsoft.com',
         'visualstudio.microsoft.com',
         'download.visualstudio.microsoft.com',
-        'download.microsoft.com'
+        'download.microsoft.com',
+        'builds.dotnet.microsoft.com',
+        'dotnetcli.blob.core.windows.net'
     ) -contains $hostName -or $hostName.EndsWith('.visualstudio.microsoft.com')
 }
 
@@ -224,6 +231,7 @@ function Invoke-SetupUiOfficialDownload {
     if (!$Handler) { $Handler = [Net.Http.HttpClientHandler]::new() }
     if ($Handler -is [Net.Http.HttpClientHandler]) { $Handler.AllowAutoRedirect = $false }
     $client = [Net.Http.HttpClient]::new($Handler)
+    $client.DefaultRequestHeaders.UserAgent.ParseAdd('CycleArc-build-prerequisites')
     $client.Timeout = [TimeSpan]::FromMinutes(10)
     try {
         for ($redirect = 0; $redirect -le $MaximumRedirects; $redirect++) {
@@ -271,7 +279,7 @@ function Invoke-SetupUiOfficialDownload {
                     [IO.FileAccess]::Write,
                     [IO.FileShare]::None
                 )
-                $stream.CopyToAsync($file, $copyCancellation.Token).GetAwaiter().GetResult()
+                [void]$stream.CopyToAsync($file, 81920, $copyCancellation.Token).GetAwaiter().GetResult()
             }
             finally {
                 if ($file) { $file.Dispose() }
@@ -369,8 +377,15 @@ function New-SetupUiPrerequisiteProcessStartInfo {
     $startInfo.FileName = $FilePath
     $startInfo.UseShellExecute = $true
     $startInfo.WorkingDirectory = [IO.Path]::GetTempPath()
-    foreach ($argument in $ArgumentList) {
-        [void]$startInfo.ArgumentList.Add([string]$argument)
+    if ($startInfo.PSObject.Properties['ArgumentList']) {
+        foreach ($argument in $ArgumentList) { [void]$startInfo.ArgumentList.Add([string]$argument) }
+    }
+    else {
+        # .NET Framework (Windows PowerShell) has only the command-line string API.
+        # These are Windows argv quotes, including trailing backslashes before a quote.
+        $startInfo.Arguments = (@($ArgumentList | ForEach-Object {
+            '"' + ([string]$_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+        }) -join ' ')
     }
 
     $startInfo
@@ -431,6 +446,7 @@ function Invoke-SetupUiPrerequisitePreflight {
         [Parameter(Mandatory)][string]$RepoRoot,
         [switch]$NoPrompt,
         [switch]$SilentInstall,
+        [switch]$Approved,
         [scriptblock]$Resolver,
         [scriptblock]$Interaction,
         [scriptblock]$Downloader,
@@ -474,7 +490,7 @@ function Invoke-SetupUiPrerequisitePreflight {
         throw "Visual Studio 2022 build prerequisites are missing in a non-interactive invocation: $missing. Nothing was built, stopped or installed."
     }
 
-    $choice = Invoke-SetupUiPrerequisitePrompt -Missing $missing -Interaction $Interaction
+    $choice = if ($Approved) { 'Install' } else { Invoke-SetupUiPrerequisitePrompt -Missing $missing -Interaction $Interaction }
     if ($choice -eq 'Cancel') {
         Write-SetupUiPrerequisiteCancelledGuidance -Reason 'No Microsoft installer was started.'
         return [pscustomobject]@{
@@ -492,7 +508,7 @@ function Invoke-SetupUiPrerequisitePreflight {
 
     # A reported VC component with no actual linker is a damaged/incomplete installation.
     # Running --add against it would falsely suggest that a repair happened.
-    if ($missing -match '(?i)link\.exe') {
+    if (!$Approved -and $missing -match '(?i)link\.exe') {
         Write-SetupUiPrerequisiteManualGuidance -Missing $missing -Reason 'The C++ workload is reported, but the MSVC linker is absent. Repair or modify that exact Visual Studio 2022 installation.'
         return [pscustomobject]@{
             Status = 'Manual'; Toolchain = $initial; Missing = $missing
@@ -526,7 +542,11 @@ function Invoke-SetupUiPrerequisitePreflight {
             $channel = [string](Get-SetupUiProperty $existing 'ChannelId')
             $supported = @('Microsoft.VisualStudio.Product.BuildTools', 'Microsoft.VisualStudio.Product.Community',
                 'Microsoft.VisualStudio.Product.Professional', 'Microsoft.VisualStudio.Product.Enterprise')
-            if ((Get-SetupUiProperty $existing 'IsComplete') -ne $true -or
+            if ($Approved -and (Get-SetupUiProperty $existing 'IsRebootRequired') -eq $true) {
+                Write-SetupUiPrerequisiteRebootGuidance
+                return [pscustomobject]@{ Status = 'RebootRequired'; Toolchain = $initial; Reason = 'ExistingInstallationRequiresReboot' }
+            }
+            if ((!$Approved -and (Get-SetupUiProperty $existing 'IsComplete') -ne $true) -or
                 (Get-SetupUiProperty $existing 'IsRebootRequired') -eq $true -or $product -notin $supported -or !$channel) {
                 Write-SetupUiPrerequisiteManualGuidance -Missing $missing -Reason "Existing Visual Studio at $existingPath needs manual repair/reboot or its edition could not be verified. No installer was started."
                 return [pscustomobject]@{ Status = 'Manual'; Toolchain = $initial; Reason = 'ExistingInstallationNeedsAttention' }
@@ -541,6 +561,9 @@ function Invoke-SetupUiPrerequisitePreflight {
             } else { 'Microsoft.VisualStudio.Workload.NativeDesktop' }
             $arguments = @('modify', '--installPath', $existingPath, '--channelId', $channel, '--productId', $product, '--add', $workload,
                 '--add', $script:SetupUiSetupComponent, '--includeRecommended', '--passive', '--norestart')
+            if ($Approved -and ($missing -match '(?i)link\.exe' -or (Get-SetupUiProperty $existing 'IsComplete') -ne $true)) {
+                $arguments = @('repair', '--installPath', $existingPath, '--channelId', $channel, '--productId', $product, '--passive', '--norestart')
+            }
             Write-Host ("Modifying the existing Visual Studio 2022 installation at {0} ({1})." -f $existingPath, $workload)
         }
         else {
@@ -584,6 +607,9 @@ function Invoke-SetupUiPrerequisitePreflight {
                 Write-SetupUiPrerequisiteCancelledGuidance -Reason 'Windows UAC approval was cancelled.'
                 return [pscustomobject]@{ Status = 'Cancelled'; Toolchain = $initial; Reason = 'UacCancelled'; ExitCode = 1223 }
             }
+            if ($nativeCode -in @(5, 1260, 1625)) {
+                return [pscustomobject]@{ Status = 'PolicyBlocked'; Toolchain = $initial; Reason = 'Administrator or company IT approval is required.'; ExitCode = $nativeCode }
+            }
             throw "Could not launch the Visual Studio prerequisite installer: $($_.Exception.Message). Administrator or company IT approval may be required; no policy bypass was attempted."
         }
         $processValue = @($processResult) | Select-Object -Last 1
@@ -613,12 +639,39 @@ function Invoke-SetupUiPrerequisitePreflight {
                 Reason = 'InstallerRequestedReboot'; ExitCode = $exitCode
             }
         }
+        if ($exitCode -in @(5, 1260, 1625)) {
+            return [pscustomobject]@{ Status = 'PolicyBlocked'; Toolchain = $initial; Reason = 'Administrator or company IT approval is required.'; ExitCode = $exitCode }
+        }
         if ($exitCode -in @(1001, 1003, 1618, 8006)) {
             throw "Visual Studio prerequisite installer is busy because another installation is already running (exit code $exitCode). Wait for it to finish, then retry; company IT policy may also require approval."
         }
         if ($exitCode -eq 5003) { throw 'The Visual Studio installer could not download its payload (exit 5003). Check network access or company IT policy, then retry.' }
         if ($exitCode -ne 0) {
             throw "Visual Studio prerequisite installer failed with exit code $exitCode. Company IT approval or policy may be required."
+        }
+
+        if ($Approved -and $arguments[0] -eq 'repair') {
+            $repaired = & $Resolver
+            if (!$repaired.Ok) {
+                # Repair restores an incomplete instance; then add its missing C++
+                # components with the same approval, without creating a second instance.
+                $modifyArguments = @('modify', '--installPath', $existingPath, '--channelId', $channel, '--productId', $product,
+                    '--add', $workload, '--add', $script:SetupUiSetupComponent, '--includeRecommended', '--passive', '--norestart')
+                try { $modifyCode = & $ProcessRunner $installer $modifyArguments }
+                catch {
+                    $nativeCode = Get-SetupUiNativeErrorCode $_.Exception
+                    if ($nativeCode -eq 1223) { return [pscustomobject]@{Status='Cancelled';Toolchain=$repaired;ExitCode=$nativeCode} }
+                    if ($nativeCode -in @(5,1260,1625)) { return [pscustomobject]@{Status='PolicyBlocked';Toolchain=$repaired;ExitCode=$nativeCode} }
+                    throw
+                }
+                $modifyCode = @($modifyCode) | Select-Object -Last 1
+                if ($modifyCode -isnot [int] -and $modifyCode -isnot [long]) { $modifyCode = Get-SetupUiProperty $modifyCode 'ExitCode' }
+                if ($null -eq $modifyCode) { throw 'The Visual Studio modification returned no exit code.' }
+                if ($modifyCode -in @(3010, 1641)) { Write-SetupUiPrerequisiteRebootGuidance; return [pscustomobject]@{Status='RebootRequired';Toolchain=$repaired;ExitCode=$modifyCode} }
+                if ($modifyCode -in @(1223,1602,5004,-1073741510)) { return [pscustomobject]@{Status='Cancelled';Toolchain=$repaired;ExitCode=$modifyCode} }
+                if ($modifyCode -in @(5,1260,1625)) { return [pscustomobject]@{Status='PolicyBlocked';Toolchain=$repaired;ExitCode=$modifyCode} }
+                if ($modifyCode -ne 0) { throw "Visual Studio modification failed (exit $modifyCode). Company IT approval may be required." }
+            }
         }
 
         Write-Host 'Visual Studio prerequisite installation completed; rechecking the linker and Windows SDK.'

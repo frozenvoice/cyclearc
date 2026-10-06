@@ -15,7 +15,7 @@
     shows the installer and waits for the person to approve or cancel it.
 
 .PARAMETER NoPrerequisitePrompt
-    Fail immediately when the setup build tools are missing, without offering to install them.
+    Fail immediately when build prerequisites are missing, without offering to install them.
 
 .PARAMETER LoadOnly
     Dot-source the functions without running the default path.
@@ -36,6 +36,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'SetupUiToolchain.ps1')
 . (Join-Path $PSScriptRoot 'SetupUiPrerequisites.ps1')
 . (Join-Path $PSScriptRoot 'DotnetSdk.ps1')
+. (Join-Path $PSScriptRoot 'BuildPrerequisites.ps1')
 
 function Get-BuildLocalRepoRoot {
     [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -312,12 +313,12 @@ function Test-BuildLocalDotnetSdk([string[]]$SdkList) {
 }
 
 function Assert-BuildLocalTools([string]$RepoRoot) {
+    Assert-CycleArcDotnetSdk -RepoRoot $RepoRoot
     foreach ($name in @('pwsh', 'dotnet', 'git')) {
         if (!(Get-Command $name -ErrorAction SilentlyContinue)) {
             throw "Missing required tool '$name'. Install PowerShell 7 and the .NET 10 SDK, then retry. The current installation was not replaced."
         }
     }
-    Assert-CycleArcDotnetSdk -RepoRoot $RepoRoot
 }
 
 function New-BuildLocalLogDirectory([string]$RepoRoot) {
@@ -891,7 +892,6 @@ function Invoke-BuildLocal {
         $transcript = $logPath
         Start-Transcript -LiteralPath $logPath | Out-Null
         Assert-CycleArcTree -Root $RepoRoot
-        Assert-BuildLocalTools -RepoRoot $RepoRoot
         # Supplying a packaged fixture bypasses the source-build requirement. Production
         # runs probe first, and may offer installation only with interactive approval.
         if (!$PackagedSetup) {
@@ -899,7 +899,7 @@ function Invoke-BuildLocal {
                 & $PrerequisitePreflight $RepoRoot ([bool]$NoPrerequisitePrompt) ([bool]$SilentInstall)
             }
             else {
-                Invoke-SetupUiPrerequisitePreflight -RepoRoot $RepoRoot -NoPrompt:$NoPrerequisitePrompt -SilentInstall:$SilentInstall
+                Invoke-CycleArcBuildPrerequisites -RepoRoot $RepoRoot -NoPrompt:$NoPrerequisitePrompt -SilentInstall:$SilentInstall
             }
             if ($prerequisiteResult.Status -ne 'Ready') {
                 return [pscustomobject]@{
@@ -910,6 +910,7 @@ function Invoke-BuildLocal {
                 }
             }
         }
+        Assert-BuildLocalTools -RepoRoot $RepoRoot
         $layout = Resolve-InstallLayout -RepoRoot $RepoRoot
         $lease = New-InstallLease -InstallRoot $layout.InstallRoot -AllowedRoots @($layout.InstallRoot)
         $git = Get-BuildLocalGitState $RepoRoot

@@ -64,6 +64,8 @@ CycleArc makes no model requests to measure usage and collects no prompts, conve
 
 Use Windows, PowerShell 7 and the .NET 10 SDK selected by [`global.json`](global.json). Building the Native AOT Setup window also requires Visual Studio 2022 / Build Tools with **Desktop development with C++**, MSVC x64/x86 tools and a Windows SDK.
 
+`build-local.cmd` can start with only Windows PowerShell: it surveys PowerShell 7, the selected stable .NET 10 SDK and the VS2022 C++ toolchain together. One interactive approval prepares missing official Microsoft tools, verifies signatures and actual installed commands/files, then continues the build in the same run. CI, redirected consoles, `-NoPrerequisitePrompt` and `-SilentInstall` fail without installing prerequisites. The shipped self-contained `CycleArc-Setup.exe` needs none of these development tools.
+
 ```powershell
 git clone https://github.com/frozenvoice/cyclearc.git
 cd cyclearc

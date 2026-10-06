@@ -7,8 +7,12 @@ public class BuildLocalScriptGuardTests
     {
         Assert.True(File.Exists(CmdPath), $"build-local.cmd not found at {CmdPath}");
         Assert.True(File.Exists(ScriptPath), $"Build-Local.ps1 not found at {ScriptPath}");
+        Assert.True(File.Exists(BootstrapPath), $"Bootstrap-BuildLocal.ps1 not found at {BootstrapPath}");
         var cmd = File.ReadAllText(CmdPath);
         Assert.Contains("scripts\\Build-Local.ps1", cmd, StringComparison.Ordinal);
+        Assert.Contains("scripts\\Bootstrap-BuildLocal.ps1", cmd, StringComparison.Ordinal);
+        Assert.Contains("powershell.exe -NoProfile -File", cmd, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExecutionPolicy", cmd, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("%~dp0", cmd, StringComparison.Ordinal);
         Assert.Contains("pause", cmd, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("taskkill", cmd, StringComparison.OrdinalIgnoreCase);
@@ -68,6 +72,7 @@ public class BuildLocalScriptGuardTests
     private static readonly string RepoRoot = FindRepoRoot();
     private static string CmdPath => Path.Combine(RepoRoot, "build-local.cmd");
     private static string ScriptPath => Path.Combine(RepoRoot, "scripts", "Build-Local.ps1");
+    private static string BootstrapPath => Path.Combine(RepoRoot, "scripts", "Bootstrap-BuildLocal.ps1");
 
     private static string FindRepoRoot()
     {
