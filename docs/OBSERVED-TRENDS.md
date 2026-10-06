@@ -1,5 +1,15 @@
 # Observed quota history — 2026-10-05
 
+> **Historical evidence; feature removed from the current product in work completed
+> 2026-10-07 Asia/Seoul (started 2026-10-06).**
+> The graph, history recorder/store/worker and their dedicated views/tests were removed.
+> Current quotas and provider source/receipt/reset timestamps remain supported. Existing
+> quota-observation files are left untouched and inert for rollback. This dated record,
+> its measurements and screenshots are preserved; commands below require the recorded
+> earlier source revision and are not current-product test commands. See
+> [current architecture](ARCHITECTURE.md#current-quota-and-retired-observation-history)
+> and [removal validation](VALIDATION.md).
+
 This development change adds a small graph of actual quota observations and simplifies
 the detail window controls. It does not estimate depletion, consumption pace or time
 remaining, recommend accounts, switch another application's login, or call a model.

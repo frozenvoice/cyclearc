@@ -82,7 +82,6 @@ Production views with synthetic usage values; these images do not show a real ac
 - **Usage alerts.** A Windows notification appears the first time in a period that an account's limit reaches 85% used, and again when it is used up. Each account and limit is announced once per period, across refreshes and restarts; it alerts again only in a new period or after usage falls below 70%. Stale, unknown or out-of-range values never alert. When several limits are found at once, one notification names them all and a click opens the most urgent account. Turn it off in **Settings → Connection → Usage alerts**.
 - **Your preferred appearance.** Dark, Light, or live System theme; English and Korean; keyboard zoom from 80% to 150% for the detail card and the widget, each kept separately.
 - **Honest refresh states.** Codex refreshes on its selectable 1, 2, 5, 10, 30 or 60-minute interval (default: five minutes). Claude actively checks the shared quota through the connected Desktop login during manual and configured scheduled refresh. Successful live data is **Updated** with a last-checked time; statusLine and Desktop history fallbacks are **Received** with source time. Failed checks keep previous values visibly stale.
-- **Observed usage.** The selected account's current allowance window shows actual received observations, its unit and last observed time. Percentage graphs show **used %**; the ring continues to show what is left. Provider-supplied used and remaining amounts keep their own units in the metric selector. Expand **Actual observations** for the values and separate source-observation and app-receipt timestamps. The widget shows a small graph for its selected account. An empty graph says **No observations yet**, and a single observation stays one point. Unknown intervals and unconfirmed reset boundaries are not connected; resets, reconnects and measurement-basis changes separate the data.
 
 ## Get started
 
@@ -111,7 +110,7 @@ The installed desktop runs from `current\CycleArc.exe` under its managed install
 
 The first setup launch can close an older canonical legacy desktop after verifying its current-session IPC identity. A development build running from another path keeps the normal first-instance policy. The former `%LOCALAPPDATA%\CycleArc` installation is retained when it already exists, while development builds use `%LOCALAPPDATA%\Programs\CycleArc-dev` and are not updated by the GitHub release checker.
 
-Removing CycleArc through **Settings → Apps** (or `Update.exe --uninstall`) restores the Claude settings this installation changed before its files are deleted. Only callbacks that belong to the installation being removed are touched: the previous statusLine comes back exactly as it was, the CycleArc failure hook is removed, and a statusLine you replaced yourself, another tool's hooks and any wrapper belonging to a different CycleArc installation stay as they are. Accounts, preferences, quota history and Claude connection records under `%LOCALAPPDATA%\ProMeter` are never deleted or signed out, so reinstalling finds them again. The cleanup is time-boxed and cannot delay removal; when settings are locked, damaged or edited at the same moment, the file is left untouched and the outcome is recorded in `%LOCALAPPDATA%\ProMeter\claude-uninstall-cleanup.json`.
+Removing CycleArc through **Settings → Apps** (or `Update.exe --uninstall`) restores the Claude settings this installation changed before its files are deleted. Only callbacks that belong to the installation being removed are touched: the previous statusLine comes back exactly as it was, the CycleArc failure hook is removed, and a statusLine you replaced yourself, another tool's hooks and any wrapper belonging to a different CycleArc installation stay as they are. Accounts, preferences, quota caches and Claude connection records under `%LOCALAPPDATA%\ProMeter` are never deleted or signed out, so reinstalling finds them again. The cleanup is time-boxed and cannot delay removal; when settings are locked, damaged or edited at the same moment, the file is left untouched and the outcome is recorded in `%LOCALAPPDATA%\ProMeter\claude-uninstall-cleanup.json`.
 
 <details>
 <summary><strong>Update preview</strong></summary>
@@ -211,7 +210,7 @@ If authentication fails, the profile shows **Claude Desktop login required** and
 
 A Claude plan change keeps the same account when its email and organization match. After sign-in recovery, callbacks from an older connection generation cannot change the latest sample or its receipt time. Older saved bindings are upgraded only after their identity is verified; see [connection compatibility](CLAUDE-INTEGRATION.md#account-identity-compatibility).
 
-**CycleArc actively checks the shared quota through the connected Claude Desktop login.** StatusLine and Claude Desktop history remain fallback receipts. A connected account can show **Awaiting usage** until the live or fallback source returns a valid sample. When live data succeeds it is labeled **Updated** with its server-fetched time; fallback data is **Received** with its source time. When sources are available together, the newer observation wins. Repeating **Connect current login** reuses the same verified binding and preserves its name and usage history. Closing or cancelling a new connection before it succeeds removes its empty draft.
+**CycleArc actively checks the shared quota through the connected Claude Desktop login.** StatusLine and Claude Desktop history remain fallback receipts. A connected account can show **Awaiting usage** until the live or fallback source returns a valid sample. When live data succeeds it is labeled **Updated** with its server-fetched time; fallback data is **Received** with its source time. When sources are available together, the newer observation wins. Repeating **Connect current login** reuses the same verified binding and preserves its name and cached quota. Closing or cancelling a new connection before it succeeds removes its empty draft.
 
 <details>
 <summary><strong>Connected, awaiting usage · Dark and Light</strong></summary>
@@ -322,10 +321,10 @@ Percentages come from the reported limit windows. CycleArc does not turn them in
 
 Countdowns and “last checked” ages update locally once a minute without another server request.
 
-Observed graphs reuse successful provider snapshots from these existing refresh paths. They
-add no remote requests, model calls or faster polling, and do not forecast depletion, calculate
-pace, recommend an account or switch accounts automatically. Stable graph data and geometry
-are reused; the display timer does not recalculate every account's graph each second.
+The current popup and widget display current quotas, remaining allowance, reset times and
+check/receipt status. They do not contain a usage-history graph or selected-account sparkline,
+and CycleArc does not forecast depletion or consumption rate. Provider source timestamps,
+optional-amount observation times and cached last-good values retain their existing meaning.
 
 ### Privacy
 
@@ -337,14 +336,11 @@ are reused; the display timer does not recalculate every account's graph each se
 Settings and quota cache remain under `%LOCALAPPDATA%\ProMeter` for upgrade compatibility. Settings use atomic replacement with a previous-good backup and recovery if the primary file is damaged.
 The account registry (`codex-accounts.json`) also uses atomic writes and a previous-good backup. The legacy default profile uses `codex-snapshot.json`; new profiles and profiles replaced through **Reconnect** have separate quota caches. Reconnection preserves the old home and cache. Existing preferences and historical files are preserved.
 
-Local quota-only history uses versioned `quota-observations.json` files isolated by profile,
-provider and connection identity, with atomic replacement and valid-backup recovery. It keeps
-up to seven days and 2,048 observations per logical limit/metric, capped at 32 series, 16,384
-points and 8 MiB per profile history file. It stores normalized quota values and necessary
-identity/window/source metadata, without credentials, email, prompts or conversations.
-Removal and reconnection isolate old records. A history save/restore problem shows an
-optional-history warning without blocking current quota checks or resetting accounts/settings.
-See [observed quota history](ARCHITECTURE.md#observed-quota-history) for details.
+The current source no longer records separate quota-observation history. It does not read,
+write, create or delete `quota-observations.json`, `quota-observation-epoch.json` or their
+`.bak` files. Existing files stay untouched for rollback. This does not remove quota caches
+or Claude's bounded local `plan-usage-history.json` fallback reader. See
+[current quota and retired observation history](ARCHITECTURE.md#current-quota-and-retired-observation-history).
 
 CycleArc is an independent project and is not affiliated with or endorsed by OpenAI or Anthropic. Compatibility depends on the installed Codex App Server, Claude CLI/statusLine protocol, Desktop OAuth/history formats, first-party quota responses and the metadata available to your account.
 

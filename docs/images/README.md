@@ -8,8 +8,8 @@ reset times and credits illustrate the layout; they do not promise specific plan
 Current overview, account/Claude detail, Cursor popup/widget, ring-band detail/widget,
 `widget.png` and the two guide settings previews are generated from the **0.10.0
 development source**. The published stable release checked on **2026-10-05** is **0.9.1**;
-these previews do not describe a newly published release. These guide captures precede
-the visible zoom-percentage addition below. The window headers use
+these previews do not describe a newly published release. Current popup and widget captures
+show the visible zoom percentages described below. The window headers use
 magnifying-glass −/+ zoom buttons. Their tooltips, accessibility names, shortcuts and
 independently saved 80–150% zoom remain unchanged. Missing/unknown/zero/failure credit
 states remain visible according to the existing presentation rules.
@@ -27,13 +27,42 @@ dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -
 ![Zoom percentage in the Korean dark widget](zoom-percent-widget-ko-dark.png)
 ![Zoom percentage in the Korean dark detail popup](zoom-percent-detail-ko-dark.png)
 
-The observed-history update refreshes these same 38 current guide previews. The detail
-header now keeps zoom, refresh and settings beside Window options; multi-account details
-have a display-account dropdown. Healthy missing credits are folded auxiliary rows.
-The guide fixtures begin with no local observations, so their new graph area explicitly
-says **No observations yet**. Historical dated evidence below remains unchanged.
+The current source removes the usage-history graph, selected-widget sparkline, actual-value
+expander, metric selector and storage warning. The detail header keeps zoom, refresh and
+settings beside Window options; multi-account details have a display-account dropdown.
+Healthy missing credits remain folded auxiliary rows. The removal refresh, completed
+2026-10-07 Asia/Seoul, replaced 36 current popup/widget guide images plus eight zoom-percentage
+previews after EN/KO Dark/Light visual inspection, including individual mixed, wrapped and
+expanded examples. The two settings images and historical dated evidence below are unchanged.
+The exact 44 source paths/hashes remain in `artifacts/observed-removal/preview-manifest.csv`.
+[Validation](../VALIDATION.md) records the checks and the unresolved optional native-input failure.
 
-| Observed-history evidence (2026-10-05) | Meaning |
+Reproduce current production removal/layout checks after a Release build:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --observation-removal artifacts/observed-removal/after/layout
+```
+
+This runs 60 fixtures with 228 selection states in EN/KO, Dark/Light, 80/100/150%,
+one/three/five accounts, wrapped widgets and mixed provider states, collecting native HWND
+sizes and requiring no graph or selection-induced module/outer-height change. Legitimate
+quota content can still change module height. The 1,020 matched module rows in
+[the paired layout CSV](../measurements/observed-removal-2026-10-06-layout.csv) were captured
+on 2026-10-06 around 23:55 Asia/Seoul with the same synthetic source for both products.
+Ring dimensions, fonts, quota text and surfaces match; selected natural height is
+143→109 DIP at 100%. The one-account native widget is 254×199→254×165 pixels, and
+its popup is 440×589→440×539 in the 96-DPI context.
+
+The optional before comparison requires an **archived pre-removal binary** built with
+this same collector. Run that archived UiSmoke executable with
+`--observation-removal-baseline <output-directory>`; never use the current product as
+the before artifact. Baseline mode collects the old empty-history section without
+invented points. It is evidence collection, while the normal current check requires
+complete removal. These HWND/layout checks do not establish native gesture delivery:
+the separate optional flyout native zoom-click check failed at the same stage before
+and after removal, and its cause remains unknown.
+
+| Historical observed-history evidence (2026-10-05; feature removed) | Meaning |
 | --- | --- |
 | `observed-trends-{before,after}-{en-light,ko-dark}.png` | Same production two-account documentation fixture at baseline `684f20e` and after the update: header/account controls, concise period state, compact missing credits and the initial empty history. Percentages/accounts are unchanged; fixture-relative timestamps reflect each capture time. |
 | `observed-trends-populated-ko-dark.png` | Production detail with four actual synthetic used-percent observations and an explicit gap; the ring still shows remaining percentage. |
@@ -43,14 +72,17 @@ says **No observations yet**. Historical dated evidence below remains unchanged.
 
 The populated fixture uses a fixed synthetic clock starting at **2026-10-05 05:00 UTC**,
 four source observations over eight minutes and first app receipts seven seconds later.
-It contains no real account data. Reproduce the feature captures after a Release build:
+It contains no real account data. The following exporter belonged to that earlier source
+revision and was removed with the feature. Reproduce historical captures only from the
+recorded earlier source after a Release build:
 
 ```powershell
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --observed-trends artifacts/observed-trends/after/trends
 ```
 
-See [observed-history verification](../OBSERVED-TRENDS.md) for local checks, persistence
-limits and the separate same-fixture CPU/memory comparison.
+See [historical observed-history verification](../OBSERVED-TRENDS.md) for its original local
+checks, persistence limits and separate same-fixture CPU/memory comparison. These graphs
+and before/after images are preserved as evidence and are not current-product previews.
 
 The earlier 2026-10-01 common-status and monetary-card evidence uses the fixed synthetic time
 2035-06-07 and account names prefixed **Synthetic**. Only selected details gain monetary

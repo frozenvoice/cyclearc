@@ -362,45 +362,48 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
 - Cleanup audit: old WPF views/WebView2/companion are excluded from desktop build, but legacy
   Core logic, SQLite package, compatibility settings fields and regression tests remain.
   Removing that shared legacy layer requires a separate source/project split; none runs as
-  a legacy conversation collector. The quota-only observation store below is separate.
+  a legacy conversation collector. The removed quota-trend feature described below is separate
+  from these retained reconstruction types and their provider-independent regression tests.
 
-### Observed quota history
+<a id="observed-quota-history"></a>
 
-The observation recorder consumes accepted successful provider snapshots from existing refresh paths.
-It does not query providers, request models, shorten polling, forecast depletion or pace, score account
-switches or change another app's login. Re-rendering or receiving the same source observation again
-does not append a sample; stale/failure/cache rereads do not renew the record's freshness.
+### Current quota and retired observation history
 
-Each profile has an isolated connection context and versioned local `quota-observations.json`.
-Provider, logical limit ID/kind, duration, metric and unit remain separate; points retain reset-window
-identity, measurement basis, original observation time and app-receipt time. Used percentage is its
-own metric, not the detail ring's remaining percentage. Used and remaining amounts retain independent
-provider-supplied units; there is no conversion or addition across percentages, tokens, currencies,
-accounts or windows. Unknown intervals, resets, reconnection and basis changes break segments;
-unknown reset identity permits points only. No unobserved past samples or interpolated gaps are generated.
+The current product removed **Observed usage / 관측 추이** in work completed on
+2026-10-07 Asia/Seoul (started 2026-10-06). The popup and
+widget present current quota, remaining allowance, reset times and source/check/receipt state.
+The quota card connects directly to the existing selected-account spending, reset-credit and
+account sections, without a trend host, graph reserve or empty separator. Selection alone does
+not add height to a widget module; genuine quota rows or warnings may still affect its height.
+Rings, provider badges, selection surfaces, fonts and independent zoom retain their contracts.
 
-Retention uses source-observation times: at most seven days and 2,048 points per logical limit/metric,
-32 series and 16,384 total points per profile, with an 8 MiB serialized-file cap. The bounded JSON
-store reuses flushed temporary-file/atomic-replacement and valid-backup handling; it introduces no
-database framework. Only normalized quota values and necessary identity/window/source metadata are
-stored, without credentials, email, prompts or conversations. Account removal and connection epochs
-isolate old records from deleted or reconnected profiles. Unsupported/corrupt history or a save failure
-remains an optional-history warning and cannot block current quota checks or reset settings/accounts.
-Successful explicit Codex and Cursor reconnects await flushed history-generation markers before their
-follow-up quota read, within a two-second asynchronous budget. A timeout disables history for the
-session while queued invalidation can still finish. If the process is lost before any marker can be
-written, storage cannot prove that reconnect on the next start; this is a persistence-failure limit,
-not a reason to turn a successful quota connection into a failure. Claude's connection generation
-already rotates on explicit reauthentication.
+`ObservedTrendView`, `FlyoutObservedTrend`, `QuotaSparkline` and the dedicated
+`QuotaObservationRecorder`, `QuotaObservationStore`, `QuotaObservationHistory` and
+`QuotaObservationModels` implementations are removed. The account manager has no recorder,
+observation-history point collection, history worker, history `Changed` subscription or
+history-specific shutdown/reconnect wait. `CodexAccountView` no longer projects observation
+history, loading or storage warnings. Normal provider refresh, cancellation, login, account
+removal, cache persistence and shutdown still own their existing work.
 
-`ObservedTrendView` and `QuotaSparkline` display the represented current window, last observed time
-and unit; detail can expand actual values with both timestamps. Empty data has an explicit no-records
-state, and one point has no inferred line. Only the selected widget account displays the small graph;
-the native tray retains its existing icon/status contract. Stable history/current-window projections
-and geometry are reused, and the expanded values list is built when needed. Snapshot, account, metric
-or displayed-window changes update the view; the existing display timer does not recalculate every
-account's graph each second. EN/KO, theme resources, accessible descriptions and independent zoom
-continue to apply to production detail and widget views.
+The current source does not read, write, create or delete these retired per-profile files:
+
+- `quota-observations.json` and `quota-observations.json.bak`
+- `quota-observation-epoch.json` and `quota-observation-epoch.json.bak`
+
+Existing files remain inert for rollback; this change performs no destructive migration or
+storage cleanup. Provider identity checks, last-good quota caches, source observation and
+app-receipt times, `LastSuccessfulRefresh`, reset times, optional-amount observation times and
+stale/failure age remain in the active contracts. Claude still reads bounded local
+`plan-usage-history.json` as a fallback source through the two-second passive loop; that
+provider-owned source is separate from CycleArc's retired quota-history files. Manual and
+scheduled requests, retry/backoff, alert evaluation, tray output and account selection retain
+their existing behavior. No forecast, consumption rate, ETA or replacement analytics is added.
+
+Names such as legacy `Models/UsageObservation.cs` belong to retired ChatGPT reconstruction
+and are outside this removal. Historical design, screenshots and measurements remain in
+[Observed quota history — 2026-10-05](OBSERVED-TRENDS.md); those records describe the earlier
+implementation, not supported current behavior. Current removal evidence is in
+[validation](VALIDATION.md).
 
 ### Selected-account usage credits and additional spending
 

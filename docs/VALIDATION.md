@@ -2,6 +2,102 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Remove current observed usage/history (started 2026-10-06; completed 2026-10-07 Asia/Seoul):
+  - Started at `173c2b526ebcdbdb5860f602be8dd1c5958fb91d` on
+    `codex/remove-observed-usage`, preserving the preceding
+    zoom-test and CPU-boundary corrections. Removed current popup/widget trends and
+    their dedicated history recorder/store/models/worker, manager lifecycle wiring,
+    account-history projections and trend-only UI strings. Current quota acquisition,
+    provider identity/cache/retry, source/receipt/reset/optional-amount times, passive
+    Claude history reader, alerts, selection and refresh intervals retain their contracts.
+    No forecast or replacement analysis feature was added.
+  - Retired `quota-observations.json`, `quota-observation-epoch.json` and their `.bak`
+    files are not read, written, created or deleted. Existing files stay inert for rollback.
+    Legacy ChatGPT reconstruction `UsageObservation` types and associated tests are
+    separate and retained. The earlier observed-trend validation and measurements below
+    remain historical evidence; [their dedicated report](OBSERVED-TRENDS.md) is marked removed.
+  - Deleted seven feature-only production implementation files: `ObservedTrendView`,
+    `FlyoutObservedTrend`, `QuotaSparkline`, `QuotaObservationHistory`,
+    `QuotaObservationModels`, `QuotaObservationRecorder` and `QuotaObservationStore`.
+    Removed their dedicated model/interface adapters and account-manager construction,
+    observe/register/remove/change/stop wiring. Provider code changes remove only dead
+    observation-binding properties; current quota collection and receipt semantics remain.
+    Retained legacy model, ChatGPT, metering and observation-ledger files have no diff.
+  - Core compilation passed with zero warnings/errors. The integrated
+    `dev-run.ps1 -DevelopmentOnly` Release build and focused provider/account/quota/
+    usage/flyout/widget/removal/`PhaseBoundary` filter passed **1,142 unit cases**,
+    zero skips, including **13 observation-removal cases**. Release reported five
+    existing warnings: two xUnit1031 and three CS8602 in `UiReuseChecks`.
+    This was a filtered suite, not a full-unit-suite success.
+  - Removed three feature-only unit classes: `QuotaObservationHistoryTests` (15 cases),
+    `QuotaObservationStoreTests` (25) and `QuotaObservationManagerTests` (16),
+    **56 cases** total. Thirteen replacement runtime-removal cases give a net decrease
+    of **43** current unit cases. Provider identity, source timestamps, caches, restart,
+    retry and lifecycle regressions remain; only history assertions were removed from
+    shared tests. Legacy observation-ledger tests were retained.
+    Removed `ObservedTrendUiChecks`' 36 language/theme/zoom/account matrix combinations
+    and graph-only metric/state/geometry helpers, plus 24 graph-only Cursor layout cases.
+  - Replacement production WPF checks passed **60 fixtures / 228 selections** across
+    EN/KO, Dark/Light, 80/100/150%, one/three/five accounts, wrapped widgets and mixed
+    providers/states. They require no trend/sparkline section, unchanged natural module
+    height and outer HWND height when selection changes, correct selection and no clipping.
+    The matched native geometry report contains **1,020 module rows**, captured on
+    2026-10-06 around 23:55 Asia/Seoul:
+    [before/after layout](measurements/observed-removal-2026-10-06-layout.csv).
+    Baseline uses archived pre-removal product assemblies with the same collector and
+    synthetic fixture, including the old **empty-history** graph; no observations were invented.
+    Ring dimensions, fonts, current quota text and module surfaces match in all 1,020 rows.
+    The measured implementation and shared collector source was committed as
+    `068da233046bb9aa64ad53e6f332111ca046b204`. Checks ran before that commit, so the
+    assemblies' inherited informational versions identify build-time HEAD metadata,
+    not the exact compiled working-tree source. The archived baseline product source
+    is unchanged between `bbc7d6a` and the starting `173c2b5`.
+    [Assembly hashes and source identities](measurements/observed-removal-2026-10-06-artifacts.csv)
+    distinguish both products from the shared current collector.
+  - At English/Dark 100% zoom, the selected module's natural height is **143→109 DIP**.
+    Native widget/popup sizes are pixels in the 96-DPI capture context:
+
+    | Fixture | Widget before → after | Popup before → after |
+    | --- | --- | --- |
+    | One account | 254×199 → 254×165 | 440×589 → 440×539 |
+    | Three accounts | 720×199 → 720×165 | 440×886 → 440×836 |
+    | Five accounts | 1186×199 → 1186×165 | 440×1066 → 440×1016 |
+    | Wrapped | 720×309 → 720×275 | 440×1066 → 440×1016 |
+    | Mixed providers | 1186×199 → 1186×165 | 440×1128 → 440×1078 |
+
+    Equal-content modules retain their height across selection; legitimate provider rows
+    and warnings may still have different heights. The smaller popup/widget and upward
+    content shift are intentional; quota values, rings, badges and selection treatment remain.
+  - Other affected WPF checks passed: accounts (60 identity / 120 multi-account),
+    Codex windows (144), display periods (108), usage credits (180), widget status,
+    widget layout (151), zoom (967), Cursor summary (76), Cursor UI, ring bands (148),
+    simulated widget/flyout edge snapping, UI reuse including 40-cycle stress,
+    flyout activation (four scenarios) and shutdown (five fault/cancellation/timeout/
+    callback/log scenarios). Logs remain under `artifacts/observed-removal/checks`.
+  - **Native input gap:** optional `--edge-snap-native` failed at “flyout native + clicks
+    did not reach 150%” both before removal on the archived product and after removal
+    at the same stage. Cause is unknown; this is not attributed to the environment.
+    Original failures remain in `before-edge-native.log` and `edge-snap-native.log`.
+    Widget native checks passed within those processes, but the full hardware gesture
+    check did not pass. Production code and assertions were not weakened for the failure.
+    Successful native HWND-size collection above does not replace this input check.
+  - Refreshed and visually inspected **44 current PNGs**: 36 affected popup/widget guide
+    images and eight zoom-percentage images. EN/KO Dark/Light sheets and individual
+    mixed/wrapped/expanded examples were reviewed. Exact source paths/hashes remain in
+    `artifacts/observed-removal/preview-manifest.csv`; settings and historical graph/
+    before-after evidence were preserved. Current guides and architecture describe the quota-only UI.
+  - One short default-GC IdleMeasure run completed with zero warmup and eight five-second
+    phases, producing a schema-1 report and nine summary rows including warmup. It created
+    no retired quota-observation files and exported no recorder `Observation*` counters.
+    Counts: Codex starts/quota 4/4, Claude live 4, Cursor usage/HTTP 2/6, Claude auth 4,
+    history reads 54, passive ticks 23 and `Changed` 30. Automatic refresh/display ticks
+    were zero: this short run does not verify those timers. Their settings/regression
+    coverage and unchanged production intervals are separate evidence. No forced GC,
+    working-set trim, GC-setting change, long measurement batch or MiB-saving claim was used.
+  - Not run: current full unit/full WPF suites, remote CI, full installer/package gate,
+    installed E2E or real accounts. No main merge, version bump, tag/release,
+    installation or restart was performed. Optional flyout hardware input remains unverified.
+
 - Zoom header regression and corrected CPU boundaries (2026-10-06):
   - Starting source `bbc7d6a54bc8ea8934d563600cac0e6c6074897e`. The user's
     `build-local` unit stage passed 2,076 tests and failed one static header assertion:
