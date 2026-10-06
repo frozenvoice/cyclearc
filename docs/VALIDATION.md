@@ -269,6 +269,20 @@
     in **1m29s**; evidence is in `artifacts/observed-trends/test-results-ci-fix` and
     `ci-fix/full-unit.log`. The failed SHA was not retried unchanged.
 
+- UI reuse memory change (2026-10-06):
+  - Hidden popup no longer rebuilt on snapshot changes (bound before `Show()`, and
+    while hidden only for removed, other-email or newly protected accounts); account
+    rows, avatars and the tray icon reused for identical output; Claude history read
+    copy removed; finished spinner clocks stopped.
+    [Results](IDLE-MEMORY.md#ui-reuse-change-2026-10-06).
+  - Local checks on `2e04f57`: `dev-run.ps1 -DevelopmentOnly` 2,077/2,077 unit tests;
+    full default UiSmoke exit 0 including the new `--ui-reuse` check (EN/KO x
+    Dark/Light). Mutations that rebound hidden popups, dropped the withdrawn-account
+    rule or detached clocks without stopping them were each caught. 499/501 previews
+    pixel-identical before/after; two differed only in wall-clock digits.
+  - Not run: full `-NoLaunch` gate, publish/package/install, `--desktop-instance`
+    (startup and IPC untouched), installed-app or real-account measurement.
+
 - Isolated Windows idle measurements (2026-10-05):
   - Started from clean `b318ca6c376e1b2ec2e8ffb3a9c81d3bbf9e9ab8`, matching
     `origin/main` in `frozenvoice/cyclearc`. Added a dedicated self-contained WPF

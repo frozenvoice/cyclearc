@@ -71,10 +71,16 @@ work across GC variants; skipping refresh or omitting a provider is not a valid 
 Latest quota/source-time, account isolation and widget enabled/visible assertions must
 pass. Existing separate unit/WPF regressions retain input-cap and cancellation coverage.
 
-After warmup, the six measured phases are `tray-idle`, `flyout-visible`,
-`tray-after-flyout`, `widget-visible`, `post-refresh-widget`, and `tray-after-refresh`.
-The real tray stays registered, the flyout is pinned while shown, and the widget is
-enabled only for its two phases. Account/settings controls that could start external
+After warmup, the harness now measures eight phases: `tray-idle`, `widget-before-flyout`
+(widget shown before the popup has ever been created), `flyout-visible`,
+`tray-after-flyout`, `widget-visible`, `post-refresh-widget`, `tray-after-refresh` and
+`widget-after-churn` (after five popup open/close cycles and ten account switches that
+return to the first selection). The 2026-10-05 GC batch below used the earlier six
+phases without `widget-before-flyout` and `widget-after-churn`. Transitions record the
+synchronous action and time until `ApplicationIdle`, plus how many account rows, avatars,
+popup detail rows and tray icons were newly displayed, compared by reference after each
+fixture call into production presentation. The real tray stays registered, the flyout
+is pinned while shown, and the widget is enabled only for its widget phases. Account/settings controls that could start external
 login or configuration flows are disconnected in the fixture. The one-minute automatic
 refresh and display timers and two-second passive/visibility timer remain active.
 The fixture deliberately selects the supported **one-minute** automatic refresh interval
@@ -395,3 +401,92 @@ long-session retention and native heap ownership remain unmeasured. Destructive 
 update testing requires a disposable Windows user/VM and was not run on this working
 profile. Passive refresh, cancellation/input limits, visibility recovery, installer/update
 flow and production GC settings are unchanged. No tuning commit was adopted.
+
+## UI reuse change, 2026-10-06
+
+Code change, not a GC setting. Starting checkout `4159435dc4075b5a0d156ec1e4e00613470908b6`
+(clean `main`). Measured "before" production code is unchanged from it (artifact
+`0.10.0+51341f5`, the harness-only commit); "after" is `0.10.0+2e04f57`.
+
+What changed and why:
+
+| Cost found | Evidence (scratch allocation probe, 5 accounts, same-data rebind) | Change |
+| --- | --- | --- |
+| A hidden popup was fully rebound on every snapshot change | `BindAccounts` ~1.6 MiB and ~27-31 ms UI thread per call, hidden or shown | Bound once just before `Show()`; while hidden, rebound at once only when it would keep a removed account, another login's email or newly identity-protected quota |
+| Account rows were cleared and recreated on every bind | ~200 KiB per row; 5 rows ~1 MiB | Rows kept per account ID, re-rendered only when their displayed output changes; moved on reorder, dropped on removal |
+| Selected and widget avatars recreated each bind | widget update 378 to 284 KiB | Kept while initials, color, size and tooltip are equal |
+| Tray icon redrawn on every snapshot | ~1.0 to 0.26 ms per update | Redrawn only when a drawing input (style, size, digits, sweep, band color, exactness, taskbar theme) changes; tooltip always updated |
+| Claude Desktop history read copied through stream buffer, chunk, `MemoryStream` and `ToArray` | 61 to 29 KiB per read (13 KiB file, 2 accounts every 2 s) | One file-sized buffer, unbuffered stream, parse the read span; same byte limit and failure meanings |
+| Finished spinner clocks were only detached (`BeginAnimation(p, null)`) | ~120 KiB/s UI-thread allocation and CPU after a refresh with the widget shown, until a GC collected the clock | Clock kept, then stopped and removed when motion ends; found because fewer GCs made it last longer |
+
+Formal batch: Windows 10.0.26300 x64, 16 logical CPUs, .NET 10.0.12 workstation GC
+defaults (ConserveMem 0, concurrent on) in every child, identical `coreclr.dll`,
+English, Dark, harness 100% zoom on the existing desktop DPI. Six single-trial
+`Measure-Idle.ps1 -Configurations default` runs ordered before, after, after, before,
+before, after (11:14-11:41 UTC); pairs are (1,2), (4,3), (5,6). 20 s warmup and eight
+30 s phases each. No build/test/publish overlapped. An earlier batch on `78695ff`
+exposed the spinner-clock regression in `widget-visible` and is superseded.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| before `CycleArc.dll` | `DB036F8651E8D39C25AEC425BCDA37CB21177D0C8DEAEE6A844FB749B163FDFD` |
+| before `CycleArc.Core.dll` | `912C1F55BCC1318E8911A62F57C71E3FB06B66ACF7BEE18ADD6241AE496CD71F` |
+| after `CycleArc.dll` | `D4239F9B0BD470C3710C0728E449183F1A786024F0E5F534E3EA12F1D722D48E` |
+| after `CycleArc.Core.dll` | `80F8829F949E799138334191405DD0F7C4E33D31C76A498DE14029069CF619FE` |
+| `coreclr.dll` (both) | `128AEE8C62A673D64739E585E3876B61133571CEC83A46240A62581D5465639B` |
+
+Every run made the same external requests (Codex/Claude/Cursor usage/Cursor HTTP
+10/10/5/15), automatic (3) and display (4) ticks, and passed the latest-value,
+isolation, visibility and churn-return assertions. "After" completed 133 passive ticks
+versus 127-129, so it did slightly more local work, not less.
+
+Phase medians, per pair in MiB (before to after, or the pair difference):
+
+| Phase | Private Bytes | Private WS | Alloc KiB/s |
+| --- | --- | --- | --- |
+| tray-idle | 28.72 to 27.45, 28.45 to 30.55, 28.52 to 27.52 | 22.82 to 21.56, 22.58 to 24.38, 22.58 to 21.62 | 83 to 51 (all) |
+| widget-before-flyout | -6.45, +2.60, -3.94 | -8.30, -1.52, -8.20 | 296-302 to 166-172 |
+| flyout-visible | -8.05, +0.05, -9.24 | -9.86, -4.43, -12.24 | 200-218 to 68-105 |
+| tray-after-flyout | 189.18 to 152.20, 175.07 to 149.55, 188.70 to 151.85 | -29.26, -17.73, -30.36 | 628-633 to 119-120 |
+| widget-visible | -29.38, -20.62, -28.71 | -23.16, -10.02, -24.77 | 101-103 to 69 |
+| post-refresh-widget | -27.50, -15.28, -29.09 | -12.56, -0.06, -20.12 | 319-327 to 88-89 |
+| tray-after-refresh | -27.32, -16.46, -27.68 | -8.78, -1.57, -16.48 | 657-662 to 118-121 |
+| widget-after-churn | 251.37 to 202.28, 236.62 to 198.73, 237.14 to 204.12 | -10.92, -2.46, -15.13 | 167-168 to 80-81 |
+
+Whole run from ready to final: allocated 134.75-135.54 to 54.50-55.42 MiB; CPU
+7,219 / 7,859 / 7,094 to 6,859 / 7,453 / 6,813 ms; cumulative GC pause 26.81 / 23.96 /
+24.26 to 11.65 / 12.56 / 12.78 ms; gen0/gen1 collections 2/1 to 1/0. Explicit refresh
+184-188 to 165-169 ms. Account switch until `ApplicationIdle` (median of five per run):
+popup hidden 53.0 / 25.3 / 24.8 to 12.0 / 11.2 / 11.9 ms, popup shown 49.7 / 26.2 / 25.6
+to 22.6 / 24.2 / 22.5 ms; popup reopen 13.2 / 14.3 / 12.8 to 13.5 / 13.3 / 13.6 ms. Each
+churn reopen or switch used to create 5 rows and 11 avatars and redraw the tray; now no
+rows, and avatars only for a changed selected account. GDI medians were equal or lower
+(49 to 45 in `tray-after-flyout`) and USER 35-39 against 36-38. Kernel handle medians were
+about 10-20 higher in several phases after a window was shown (for example 708-729 to
+725-731 in `widget-visible`), with no growth across phases and 700-729 to 704-710 after
+churn; the cause, possibly later finalization with fewer collections, was not traced.
+Pair tables with CPU, GC, UI quantiles and transition maxima:
+[phase pairs](measurements/ui-reuse-2026-10-06-phases.csv) and
+[transition pairs](measurements/ui-reuse-2026-10-06-transitions.csv).
+
+Classification: **A** (resident reduction) for states after any window has been shown:
+Private Bytes and Private WS are lower in all three pairs from `tray-after-flyout`
+onward, and Private WS also in `widget-before-flyout` and `flyout-visible`. Initial
+`tray-idle`/warmup memory is inconclusive (pair 2 was 2-3 MiB higher from its first
+sample); only its allocation rate fell (B). Not explained: `widget-visible` CPU
+62 to 94-125 ms per 30 s (at most 0.21% of one core) with equal passive work in all three
+pairs. `flyout-visible` CPU was +0.36 to +1.09% of one core, but before skipped 1-3 of
+its 15 passive ticks there, so that pair is not equal-work. Entry-to-ready had one
+1,471 ms "after" outlier (others 543-743 ms against 536-587 ms) in startup code this
+change does not touch.
+
+Visual check: 501 production previews (accounts, mixed providers, Cursor, tray icons,
+widget accounts, usage credits, ring bands, tooltips, reopened popup; EN/KO, Dark/Light,
+80/100/150%) were rendered from before and after sources one mode after the other: 499
+were pixel-identical, and two Korean account-window previews differed only in clock
+digits (20:11 against 20:12) because fixture times follow the wall clock. No preview or
+README image was updated.
+
+Limits: one desktop session; synthetic harness including fixture and instrumentation;
+no installed-app, real-account, physical-display or long-session measurement. The
+user-observed 80 MB was not attributed to a metric or build and is not compared here.
