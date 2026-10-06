@@ -2,6 +2,51 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Zoom header regression and corrected CPU boundaries (2026-10-06):
+  - Starting source `bbc7d6a54bc8ea8934d563600cac0e6c6074897e`. The user's
+    `build-local` unit stage passed 2,076 tests and failed one static header assertion:
+    the new percentage label made eight header columns while the test expected seven.
+    The assertion now checks the eight-column structure and the zoom label without
+    weakening title/status safeguards. Product code, version and PR #49 behavior are unchanged.
+  - Split phase CPU boundaries from handle/thread inventory: inventories and the
+    memory sample precede start cycles; end cycles precede the sample and inventories.
+    Fake diagnostics pin the exact start/end ordering without timing assertions.
+    Cycle-query/bookkeeping overhead remains nonzero. Per-thread CPU is an auxiliary
+    diagnostic, not the precision-equivalent of corrected UI/process cycles.
+  - Passed locally: Release build and 34 scoped unit tests, including the repaired
+    header assertion and boundary-order checks; 59 deterministic measurement/parser/
+    summarizer script assertions. Actual earlier twelve reports with seven phases
+    produced 84 summary rows; an actual current report with nine phases produced
+    nine rows. The summarizer accepts both known phase lists without weakening schema checks.
+    Previous 967 WPF zoom checks and UI reuse checks on `bbc7d6a` are reused because
+    product code did not change. The failed user's full 2,077-test run is not represented
+    as passing; the current full unit suite and full WPF suite were not rerun.
+  - Six corrected default-GC runs completed in O/F/F/O/O/F order, once each, with
+    20-second warmup/eight 30-second phases, 23:06–23:33 Asia/Seoul. Optimized product
+    `50484a0` and fixed `e24fe9e` (production source identical to `e83c6e2`) used the
+    same corrected harness DLL hash. Its inherited `50484a0` `HarnessVersion` is build
+    metadata, not the correction's source SHA. Measured harness correction source was
+    later committed as `50dc143`; source HEAD stayed `bbc7d6a` during timing.
+    All raw runs remain available.
+    The user explicitly continued using the PC; the session was not controlled idle.
+  - Corrected `widget-visible` UI cycles, M, O→F: 33.555→32.801,
+    33.913→32.281, 33.422→32.732; process cycles: 842.557→739.334,
+    734.481→690.608, 735.367→702.476. Active counts matched at paired boundaries;
+    each run had 133 passive ticks and 280 history reads. Dispatcher queue metrics
+    were mixed. **A: no repeatable UI-thread CPU regression was observed in this
+    corrected synthetic session; product changes retained.** Desktop use limits
+    causal attribution, and this does not exclude regressions in other conditions.
+  - After-churn resident Private WS was lower in three pairs, Private Bytes mixed,
+    whole-run allocation higher in three fixed runs. Pooled reopen-until-idle timing
+    improved, but prebind shifts work and does not establish reduced overall work.
+    Handle counts fell during each after-churn phase; the prior 50-cycle evidence is
+    retained, not rerun, without claiming thread-pool ownership or a universal no-leak result.
+    [Detailed results and all five CSV summaries](IDLE-MEMORY.md#corrected-cpu-boundaries-2026-10-06).
+  - Not run: current full unit/full WPF suite, full installer gate, package, installed
+    E2E or real accounts. No remote CI, main merge, version bump, tag/release,
+    installation or restart was performed. Old burst causes, quiet-session causality,
+    installed footprint, long-session retention and real-account latency remain unresolved.
+
 - Visible window zoom percentages (2026-10-06):
   - Widget and detail headers reserve a compact muted percentage between −/+,
     showing each window's own size relative to 100%. Buttons, keyboard shortcuts,
@@ -286,9 +331,24 @@
     `ci-fix/full-unit.log`. The failed SHA was not retried unchanged.
 
 - UI reuse residual questions (2026-10-06):
-  - Widget-visible CPU was not a UI-thread regression (cycle counts); handles were
-    temporary thread-pool threads that plateau over 50 cycles. Reopen after a hidden
-    selection change now binds once at idle; a hidden widget stops its activity rotation.
+  - Fact: measured reopen latency improved and the 50-cycle handle counts plateaued;
+    no sustained handle growth was observed in that window. Reopen after a hidden
+    selection change now has a coalesced prebind at WPF Dispatcher `ApplicationIdle`;
+    a hidden widget stops its activity rotation. Prebind shifts bind/layout work to
+    before opening, so it does not establish reduced overall work or allocations.
+  - Previous cycle measurements included start-side boundary inventory work. UI versus
+    worker CPU attribution in the historical runs remains unverified. Three alternating
+    corrected pairs are recorded above; their limited conclusion does not repair old data.
+    Per-thread CPU snapshots include enumeration/query overhead and are auxiliary
+    diagnostics; corrected `QueryThreadCycleTime` deltas are the primary UI CPU evidence.
+  - Inference: transient worker/runtime activity may explain the extra handle types;
+    their thread-pool ownership was not established. The two fixed-run bursts may
+    involve environmental interaction, but their source is unresolved. Both runs remain
+    in the results. Tooltip/UI Automation causation is a hypothesis, not a finding.
+  - Earlier reuse mechanisms remain enabled. Residual after-churn Private WS was lower
+    in all three pairs (-4.69 / -2.11 / -7.63 MiB), while Private Bytes changes were
+    -11.98 / +18.22 / +14.49 MiB and whole-run allocations were 54.37→63.44,
+    58.34→56.88, 56.13→58.92 MiB. Preservation of every memory metric is not established.
     [Results](IDLE-MEMORY.md#residual-performance-questions-2026-10-06).
   - Local checks on `e83c6e2`: `dev-run.ps1 -DevelopmentOnly` 2,077/2,077; full default
     UiSmoke exit 0 on the second run (the first failed once in widget recovery when the
@@ -297,7 +357,9 @@
     reopen/switch stress; mutations removing the visibility condition or the idle bind
     were each caught. 767/805 previews identical, the rest differ only in clock digits.
   - Not run: full `-NoLaunch` gate, packaging/install, `--desktop-instance`, installed-app
-    or real-account measurement.
+    or real-account measurement. Historical checks above belong to `e83c6e2`; corrected
+    harness checks/results are recorded separately above. Installed footprint, long-session retention
+    and real-account latency remain unresolved.
 
 - UI reuse memory change (2026-10-06):
   - Hidden popup no longer rebuilt on snapshot changes (bound before `Show()`, and

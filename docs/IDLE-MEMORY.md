@@ -79,10 +79,18 @@ return to the first selection). The 2026-10-05 GC batch below used the earlier s
 phases without `widget-before-flyout` and `widget-after-churn`. Transitions record the
 synchronous action and time until `ApplicationIdle`, plus how many account rows, avatars,
 popup detail rows and tray icons were newly displayed, compared by reference after each
-fixture call into production presentation. Outside each sampled phase window the harness
-also records process and UI-thread CPU cycles (`QueryProcessCycleTime` /
-`QueryThreadCycleTime`, not quantized to the 15.6 ms tick), `RefreshSnapshot` calls,
-kernel handles by object type and the busiest threads' CPU. The real tray stays
+fixture call into production presentation. Phase boundaries record process and UI-thread
+CPU cycles (`QueryProcessCycleTime` / `QueryThreadCycleTime`, not quantized to the
+15.6 ms tick), `RefreshSnapshot` calls, kernel handles by object type and the busiest
+threads' CPU. The original boundary routine read cycles before enumerating handles and
+threads, so start-side inventory work entered the cycle delta even though it was outside
+the memory sampling window. Historical cycle attribution below is therefore provisional.
+The corrected boundary performs expensive inventory before capturing start cycles, and
+captures end cycles before expensive inventory. Cycle queries themselves have a small,
+nonzero cost. `Process.Threads` / `TotalProcessorTime` snapshots span a different interval
+and include enumeration/query overhead; they are auxiliary worker-activity diagnostics,
+not evidence with the precision of the process/UI cycle interval. Use corrected
+`QueryThreadCycleTime` deltas first when assessing UI-thread CPU regression. The real tray stays
 registered, the flyout is pinned while shown, and the widget is enabled only for its
 widget phases. Account/settings controls that could start external
 login or configuration flows are disconnected in the fixture. The one-minute automatic
@@ -505,9 +513,9 @@ Questions and findings:
 
 | Question | Finding | Action |
 | --- | --- | --- |
-| `widget-visible` CPU 0.21% to 0.31-0.42% of one core | With cycle counts, original/optimized UI-thread work in that phase was 52-93 / 51-61 M cycles and process totals 557-759 / 755-842 M cycles with equal passive work and no `RefreshSnapshot`: the difference was off the UI thread and within run-to-run spread. In the final batch fixed measured 0.26% in all three runs versus 0.42 / 0.52 / 1.93% | No CPU-specific change. A widget hidden mid-refresh kept its activity rotation clock ticking because a hidden widget is not rebound; the rotation now also requires `IsVisible` |
-| Popup reopen maximum | A 50-cycle probe split reopen into bind/show/layout. After an unchanged or quota-only hidden period, optimized reopened faster than original (6.0 / 8.5-8.9 ms against 12.3-13.5 ms). After the **selected account** changed while hidden, laying out the new detail section at `Show()` made it slower (median 14 to 16 ms, p90 22-26 to 28 ms) | A selection change while hidden queues one coalesced bind at `ApplicationIdle`, after visible windows render. Quota changes still wait for the show; the pre-show bind stays |
-| Kernel handles 10-20 higher | Grouped by type, the extra handles were Thread +5, Key +5 and Event ~+10 (temporary thread-pool threads after an automatic refresh); they matched again after churn. 50 popup open/hide and switch cycles: 727/729 to 722/718 (optimized), 728/728 to 723/721 (fixed); forced collection in a separate probe changed nothing | Not a leak; no change |
+| `widget-visible` CPU 0.21% to 0.31-0.42% of one core | Historical original/optimized UI cycles were 52-93 / 51-61 M and process cycles 557-759 / 755-842 M, with equal passive work and no `RefreshSnapshot`. The previous cycle boundary included part of the diagnostic inventory work, so historical attribution to UI versus other threads remains unverified. The residual batch measured fixed 0.26% in all three runs versus optimized 0.42 / 0.52 / 1.93%; these are observations, not proof of no regression | Retain product behavior; corrected paired results are recorded below. A widget hidden mid-refresh kept its activity rotation clock ticking because it is not rebound; the rotation now also requires `IsVisible` |
+| Popup reopen maximum | A 50-cycle probe split reopen into bind/show/layout. After an unchanged or quota-only hidden period, optimized reopened faster than original (6.0 / 8.5-8.9 ms against 12.3-13.5 ms). After the **selected account** changed while hidden, laying out the new detail section at `Show()` made it slower (median 14 to 16 ms, p90 22-26 to 28 ms) | A selection change while hidden queues one coalesced bind at WPF Dispatcher priority `ApplicationIdle`. This shifts bind/layout work to before reopening; it does not establish less overall work. Quota-only hidden refresh does not rebuild the popup; the latest-state pre-show bind stays |
+| Kernel handles 10-20 higher | Extra types observed near automatic refresh were Thread +5, Key +5 and Event about +10. They matched again after churn. In 50 popup open/hide and switch cycles, counts were 727/729 to 722/718 (optimized), 728/728 to 723/721 (fixed); a separate forced-collection probe changed nothing. Handle types and timing do not identify their creator | No sustained handle growth was observed in this stress window. Transient worker/runtime activity is a possible explanation; thread-pool ownership was not established |
 
 Final batch: six single-trial default-GC runs ordered optimized, fixed, fixed, optimized,
 optimized, fixed (21:53-22:20 local); pairs (1,2), (4,3), (5,6). Every run made Codex/
@@ -529,7 +537,12 @@ happened before churn in either build.
 | Churn popup reopen max, ms | 20.2 to 14.4 | 32.4 to 11.8 | 36.1 to 14.6 |
 | Hidden switch median, ms (until its own idle marker) | 11.5 to 11.2 | 11.0 to 11.2 | 11.7 to 11.5 |
 | `widget-visible` CPU, % of one core | 0.42 to 0.26 | 0.52 to 0.26 | 1.93 to 0.26 |
+| `widget-visible` process cycles, M (old boundary) | 810.81 to 704.95 | 754.59 to 784.62 | 2,736.93 to 691.21 |
+| `widget-visible` UI cycles, M (old boundary) | 52.68 to 65.66 | 56.57 to 48.23 | 637.65 to 60.56 |
 | `widget-visible` UI dispatcher p95 / max, ms | 0.53/0.70 to 0.54/0.67 | 0.59/0.71 to 0.39/0.68 | 0.73/1.14 to 0.77/0.86 |
+| After-churn Private WS, MiB | 107.77 to 103.08 | 110.41 to 108.29 | 111.60 to 103.97 |
+| After-churn Private Bytes, MiB | 207.42 to 195.44 | 200.70 to 218.93 | 203.58 to 218.07 |
+| After-churn Working Set, MiB | 239.22 to 238.16 | 240.18 to 240.42 | 244.08 to 237.61 |
 | Whole-run allocated, MiB | 54.37 to 63.44 | 58.34 to 56.88 | 56.13 to 58.92 |
 | Whole-run CPU, ms | 6,969 to 7,547 | 7,391 to 6,578 | 6,828 to 6,953 |
 | Whole-run GC pause, ms | 11.18 to 11.92 | 12.38 to 13.99 | 13.54 to 12.76 |
@@ -538,27 +551,182 @@ The fixed runs of pairs 1 and 3 each had one burst in `widget-before-flyout` (be
 exists, identical code path): about 4-5 MiB allocated within two seconds, GDI +6 and
 USER +12 objects, ALPC +5, ETW +13, Key +5 and wait-packet +6 handles, which then
 stayed. It occurred at different times (2 s and 20 s into the phase) while the desktop
-was in use; it resembles a first tooltip or UI Automation client attaching and is
-treated as environmental. It accounts for their higher whole-run allocation and CPU,
-the 18 ms dispatcher maximum in that phase and about 25 extra handles afterwards; the
-clean pair 2 differs by 2 handles. Private Bytes were lower in most phases; Private WS
-in the clean pair was 2-4 MiB higher in several pre-churn phases where both builds did
+was in use. An external/environmental interaction is plausible; tooltip or UI Automation
+activity is a hypothesis only, and the source was not identified. These bursts coincided
+with higher whole-run allocation/CPU, an 18 ms dispatcher maximum in that phase and
+about 25 extra subsequent handles. Their causal contribution is unverified. Both runs
+remain in the evidence and paired results; they were not discarded or replaced.
+Pair 2 had no such observed burst and differs by 2 handles. Private Bytes were lower
+in most phases; Private WS in pair 2 was 2-4 MiB higher in several pre-churn phases where both builds did
 identical work, and every fixed value there lies inside the range the same optimized
 binary showed in the previous batch (for example `tray-after-refresh` 92.09-95.26
 against 90.16-100.09 MiB). After churn, Private WS was lower in all three pairs
 (-4.69 / -2.11 / -7.63 MiB) and Private Bytes mixed (-11.98 / +18.22 / +14.49 MiB, no
-collection in the phase). The idle selection bind adds a popup bind per hidden
-selection change (6 detail rows and 3 avatars after the last churn switch).
+collection in the phase). The earlier row/avatar/tray reuse mechanisms remain enabled
+in the code. Resident Private WS after churn was lower in all three residual pairs,
+while Private Bytes, total Working Set and whole-run allocations were mixed. This
+follow-up does not establish preservation of every memory metric. These metrics
+describe residency, private commit and cumulative allocation separately.
+
+The hidden-selection prebind performs extra bind/detail work before reopening
+(6 detail rows and 3 avatars after the last churn switch). Multiple hidden selection
+changes coalesce into one pending bind. Reopen latency improved in the measured fixed
+build, but work was shifted from opening to an earlier dispatcher callback; whole-run
+allocations are therefore not guaranteed to decrease. `ApplicationIdle` is a WPF
+Dispatcher priority, not a guarantee of OS idle or free CPU time.
 
 50-cycle probe (two runs each, popup open, visible switch, hide, hidden switch):
 reopen until `ApplicationIdle` median 14.3 / 15.2 to 5.1 / 5.0 ms, p95 18.9 / 21.6 to
 7.5 / 7.1 ms, max 20.7 / 30.0 to 16.1 / 15.2 ms; no rows recreated in either; handles
-plateaued. Per-phase pairs: [phases](measurements/ui-residual-2026-10-06-phases.csv),
+plateaued; no sustained handle growth was observed in this 50-cycle scenario. That
+does not establish handle ownership or rule out longer-session leaks. Per-phase pairs: [phases](measurements/ui-residual-2026-10-06-phases.csv),
 [transitions](measurements/ui-residual-2026-10-06-transitions.csv).
 
 Visual check: 805 production previews (the earlier set plus widget status rows) rendered
 from optimized and fixed one mode after the other: 767 identical; the other 38 differ only
 in wall-clock minute digits (21:50 against 21:51, 09:51 against 09:52).
 
-Limits: one desktop session in use during measurement; synthetic harness; the cause of the
-environmental burst was not identified; no installed-app or real-account measurement.
+### Evidence status and corrected CPU follow-up
+
+- **Fact:** the historical 50-cycle probe did not show sustained handle growth;
+  measured reopen latency improved; hidden-selection prebind does bind/detail work;
+  after-churn Private WS was lower in three pairs, while private commit and whole-run
+  allocations were mixed. Exact historical measurements remain in the linked CSVs.
+- **Inference:** handle types and their timing are consistent with transient
+  worker/runtime activity. An environmental interaction is plausible for the two
+  fixed-run bursts; neither thread-pool ownership nor tooltip/UI Automation causation
+  was established.
+- **Unresolved:** CPU attribution under the old boundary, the two burst sources,
+  installed-app absolute footprint, long-session retention and real-account latency.
+
+## Corrected CPU boundaries, 2026-10-06
+
+**A. Corrected measurement found no repeatable UI-thread CPU regression in this
+synthetic session; product changes retained.** This is a bounded observation, not
+proof that a CPU regression cannot occur. The user explicitly continued using the
+PC throughout measurement, departing from the preferred quiet-session condition.
+Input and background interactions therefore limit causal attribution. Product code
+was not changed in this correction; it corrects measurement, tests and documentation.
+
+### Boundary and artifact identity
+
+Previously, start cycles were read before expensive handle/thread inventory, so that
+inventory's cost entered the cycle delta. The corrected `PhaseBoundary` separates
+`PhaseCpuBoundary` from `BoundaryInventory` and owns these explicit orders:
+
+```text
+START: handles -> threads -> sample -> refresh-call count -> process cycles -> UI cycles
+       ---------------- measured phase ----------------
+END:   process cycles -> UI cycles -> refresh-call count -> sample -> handles -> threads
+```
+
+Handle/thread enumeration and phase sample capture are outside the cycle interval.
+Cycle queries and boundary bookkeeping still have nonzero cost; process and UI cycle
+queries are sequential, not simultaneous. Per-thread `TotalProcessorTime` snapshots
+span the inventories and remain auxiliary diagnostics. No forced GC, sleep, working-set
+trim, phase-duration change, timer suppression or synthetic-request change was added.
+Fake diagnostics deterministically assert start/end ordering and would fail if an
+inventory entered the cycle interval; these checks do not measure elapsed time.
+The serialized schema remains compatible with saved reports, and the summarizer accepts
+the known earlier seven-phase and current nine-phase lists (including warmup).
+
+Starting checkout and source HEAD throughout timing:
+`bbc7d6a54bc8ea8934d563600cac0e6c6074897e`. Both archived product sources received the
+same corrected harness source before publication: optimized
+`50484a0847216e874a9515c0b399c600f2cd0415` and fixed
+`e24fe9eae86795fbe8380664622bfafce2a52af4`. Fixed production source is identical
+to `e83c6e2`; the later zoom-label addition is excluded from these artifacts to isolate
+PR #49. Product informational versions identify the respective archived source.
+
+Both processes used the exact same corrected `CycleArc.IdleMeasure.dll`, SHA-256
+`3520DE899953AA0D7AF17A9AFCB9CB93BAEAD8813B014CA364019757EF820AAA`, copied from the
+optimized publication to the fixed publication. Its `HarnessVersion` inherited the
+optimized archive's `50484a0` build metadata; that string is **not** the correction's
+source identity. The measured correction came from working-tree harness files later
+committed as `50dc143`; source HEAD stayed `bbc7d6a` during timing. The shared binary
+hash identifies the actual measured harness. Product/runtime
+hashes are retained in [artifact evidence](measurements/ui-cpu-boundary-2026-10-06-artifacts.csv).
+
+### Conditions and work equivalence
+
+All six runs completed once, without reruns, replacements or discarded observations,
+in optimized, fixed, fixed, optimized, optimized, fixed order. Pairs are (1,2), (4,3),
+(5,6). Timing was 2026-10-06 14:06:32–14:33:17 UTC, **23:06–23:33 Asia/Seoul**,
+about 26m45s. Each run used default GC, 20-second warmup and eight 30-second phases.
+Builds, tests and publishes did not overlap timing. The desktop remained in use.
+
+Conditions: Windows 10.0.26300 x64, actual CLR .NET 10.0.12 x64, 16 logical processors,
+English/Dark, 100% application zoom, 96-DPI harness context, High Performance power mode
+and display 3840×2160 at 59 Hz. Display, DPI and power records matched at the batch
+endpoints; they were not continuously monitored. Accounts and bounded synthetic
+adapters were the same.
+
+Every paired phase boundary had matching active-work counts; no unequal-work pair
+required exclusion. Synthetic request durations vary and are not counts. Each run
+finished with Codex starts/quota requests 10/10, Claude live requests 10, Cursor usage/
+HTTP requests 5/15, Claude auth calls 4, passive ticks 133, history reads 280,
+automatic refreshes 3, display ticks 4 and `Changed` 60. `widget-visible` history
+reads were 148→178 in all six runs and `RefreshSnapshotCallsDelta` was zero.
+Passive ticks are whole-run counts; no phase-specific passive-tick count is exported.
+Equal counts do not establish identical timer scheduling or external desktop activity.
+
+### Corrected observations
+
+Values below run from optimized to fixed; cycles are millions, CPU is one-core
+utilization, and both dispatcher metrics are milliseconds. Queue delay starts at
+enqueue; due delay starts at the intended probe deadline. Neither is click-to-pixel
+latency. Sampler CPU percentages use quantized process CPU time and are separate from
+the corrected cycle interval.
+
+| `widget-visible` metric | Pair 1 | Pair 2 | Pair 3 |
+| --- | --- | --- | --- |
+| Process cycles, M | 842.557 → 739.334 | 734.481 → 690.608 | 735.367 → 702.476 |
+| UI cycles, M | 33.555 → 32.801 | 33.913 → 32.281 | 33.422 → 32.732 |
+| CPU, % of one core | 0.521 → 0.417 | 0.417 → 0.313 | 0.417 → 0.417 |
+| Queue p95 / max, ms | 0.063/0.086 → 0.076/0.209 | 0.166/0.302 → 0.227/0.365 | 0.173/0.596 → 0.087/0.241 |
+| Due p95 / max, ms | 0.797/0.941 → 0.554/0.808 | 0.492/0.767 → 0.533/0.810 | 0.757/0.923 → 0.737/0.888 |
+
+Fixed UI cycles were slightly lower in each corrected pair, with both builds near
+32–34 M cycles. Process cycles were also lower in each pair, but that does not
+identify which callbacks or workers produced the difference. Dispatcher queue p95/max
+were mixed; the corrected batch does not support a blanket latency improvement claim.
+
+| Memory/handle observation | Pair 1 | Pair 2 | Pair 3 |
+| --- | --- | --- | --- |
+| After-churn Private WS, MiB | 108.62 → 101.83 | 104.75 → 103.48 | 108.38 → 102.99 |
+| After-churn Private Bytes, MiB | 200.09 → 191.81 | 206.44 → 208.18 | 210.91 → 193.95 |
+| Whole-run allocated, MiB | 60.73 → 63.15 | 60.75 → 63.30 | 60.65 → 63.26 |
+| Optimized after-churn handles, start → end | 751 → 746 | 750 → 743 | 746 → 741 |
+| Fixed after-churn handles, start → end | 748 → 743 | 750 → 745 | 750 → 745 |
+
+Private WS was lower in all three corrected pairs, Private Bytes were mixed and
+whole-run allocation was higher in all three fixed runs. The existing reuse mechanisms
+remain enabled, but neither preservation of every memory metric nor less overall
+work is established. These runs contain five popup open/close cycles and ten selection
+switches; their after-churn handle observations supplement the earlier 50-cycle probe,
+which was not rerun. The corrected after-churn start/end handle counts did not increase;
+the retained 50-cycle probe showed no sustained growth in that window. Neither
+identifies handle owners or establishes long-session retention behavior.
+
+Across the 15 reopen observations per artifact, pooled time until `ApplicationIdle`
+was median **14.609→7.031 ms**, p95 **25.039→13.761 ms**, max **27.763→14.757 ms**.
+Hidden-selection prebind performs work before opening; the lower reopen timing does
+not mean that work disappeared. `ApplicationIdle` remains a dispatcher milestone,
+not OS idle or a physical-presentation timestamp.
+
+Checked-in evidence: [54 phase rows](measurements/ui-cpu-boundary-2026-10-06-phases.csv),
+[paired rows](measurements/ui-cpu-boundary-2026-10-06-pairs.csv),
+[six runs and request counts](measurements/ui-cpu-boundary-2026-10-06-runs.csv),
+[transitions](measurements/ui-cpu-boundary-2026-10-06-transitions.csv) and
+[artifact hashes](measurements/ui-cpu-boundary-2026-10-06-artifacts.csv).
+All raw reports, logs and markers remain under
+`artifacts/corrected-cpu/runs-20261006T140632Z`; the derived full comparison is
+`artifacts/corrected-cpu/comparison/comparison.json` with its CSVs.
+
+**Fact:** corrected UI cycles showed no repeatable increase in this session; the
+recorded paired counts matched, memory outcomes were mixed and reopen timing fell.
+**Inference:** worker/runtime/background variation may contribute to process-cycle
+differences; no particular owner or cause was established. **Unresolved:** the old
+bursts' source, quiet-session causality, installed-app footprint, long-session retention,
+real-account compatibility/latency and other-machine behavior. No installed-app or
+real-account measurement was performed.
