@@ -228,11 +228,16 @@ $logRoot = New-BootstrapTestDirectory
 try {
     try { throw 'fake import/probe diagnostic' }
     catch { $record = $_ }
-    $diagnostic = Write-CycleArcBootstrapFailure -RepoRoot $logRoot -Reason 'Preparation failed.' -ErrorRecord $record
+    $diagnostic = Write-CycleArcBootstrapFailure -RepoRoot $logRoot -Reason 'Preparation failed.' -ErrorRecord $record -PrerequisiteStatus 'PolicyBlocked'
     Assert-True ((Get-Content -LiteralPath $diagnostic -Raw) -match 'fake import/probe diagnostic') 'full bootstrap diagnostic recorded'
     $summary = Get-Content -LiteralPath (Join-Path $logRoot 'artifacts/build-local/last-failure.txt') -Raw
     Assert-True ($summary -match 'Failed at: prerequisite bootstrap' -and $summary -match 'Preparation failed\.') 'short bootstrap failure summary recorded'
     Assert-True ($summary -notmatch 'fake import/probe diagnostic') 'short summary does not print raw full error'
+    Assert-True ($summary -match 'Prerequisite status: PolicyBlocked') 'bootstrap marker preserves typed policy status'
+    $result = Invoke-CycleArcBuildLocalBootstrap -RepoRoot $logRoot -PowerShellResolver { $null } -PrerequisiteRunner { [pscustomobject]@{ Status = 'RebootRequired' } } -BuildRunner { throw 'reboot outcome must not build' }
+    Assert-Equal 1 $result 'default reboot failure recorder stops the build'
+    $summary = Get-Content -LiteralPath (Join-Path $logRoot 'artifacts/build-local/last-failure.txt') -Raw
+    Assert-True ($summary -match 'Prerequisite status: RebootRequired') 'default bootstrap recorder forwards typed reboot status'
 }
 finally { Remove-SetupUiPrerequisiteTempDirectory $logRoot }
 Write-Host 'PASS: bootstrap diagnostics and concise last-failure summary are recorded separately.'

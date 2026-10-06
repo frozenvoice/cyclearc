@@ -178,13 +178,14 @@ function Invoke-CycleArcPowerShellInstall {
 }
 
 function Write-CycleArcBootstrapFailure {
-    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Reason, [object]$ErrorRecord)
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Reason, [object]$ErrorRecord, [string]$PrerequisiteStatus)
     try {
         $directory = Join-Path $RepoRoot 'artifacts/build-local'
         New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop | Out-Null
         $log = Join-Path $directory 'bootstrap.log'
         $safeReason = $Reason -replace '[\x00-\x1f\x7f]', ' '
         $summary = "Failed at: prerequisite bootstrap`r`nReason: $safeReason`r`nDiagnostic log: $log`r`nCycleArc was not built, stopped or installed by this bootstrap."
+        if ($PrerequisiteStatus) { $summary += "`r`nPrerequisite status: $PrerequisiteStatus" }
         $details = @((Get-Date).ToUniversalTime().ToString('o'), $summary)
         if ($ErrorRecord) { $details += ($ErrorRecord | Out-String); $details += $ErrorRecord.Exception.ToString() }
         $details | Add-Content -LiteralPath $log -Encoding UTF8 -ErrorAction Stop
@@ -211,7 +212,7 @@ function Invoke-CycleArcBuildLocalBootstrap {
     if (!$PowerShellResolver) { $PowerShellResolver = { Find-CycleArcPowerShell } }
     if (!$PrerequisiteRunner) { $PrerequisiteRunner = { param($root, $noPrompt, $silent, $manual) Invoke-CycleArcBuildPrerequisites -RepoRoot $root -NoPrompt:$noPrompt -SilentInstall:$silent -ManualPrerequisites:$manual } }
     if (!$BuildRunner) { $BuildRunner = { param($path, $scriptPath, $arguments) & $path -NoProfile -File $scriptPath @arguments | ForEach-Object { Write-Host $_ }; $LASTEXITCODE } }
-    if (!$FailureRecorder) { $FailureRecorder = { param($root, $reason) Write-CycleArcBootstrapFailure -RepoRoot $root -Reason $reason | Out-Null } }
+    if (!$FailureRecorder) { $FailureRecorder = { param($root, $reason, $status) Write-CycleArcBootstrapFailure -RepoRoot $root -Reason $reason -PrerequisiteStatus $status | Out-Null } }
     if ($ManualPrerequisites -and $BuildArguments -notcontains '-ManualPrerequisites') { $BuildArguments += '-ManualPrerequisites' }
     $previousMarker = [Environment]::GetEnvironmentVariable('CYCLEARC_BUILD_LOCAL_BOOTSTRAP')
     try {
@@ -222,7 +223,7 @@ function Invoke-CycleArcBuildLocalBootstrap {
             if ($ManualPrerequisites -and $prerequisites -and $prerequisites.Status -eq 'Manual') { return 0 }
             if (!$prerequisites -or $prerequisites.Status -ne 'Ready') {
                 $status = if ($prerequisites) { $prerequisites.Status } else { 'Unknown' }
-                & $FailureRecorder $RepoRoot ("Prerequisite preparation stopped: $status. Manual installation or company IT approval may be required.")
+                & $FailureRecorder $RepoRoot ("Prerequisite preparation stopped: $status. Manual installation or company IT approval may be required.") $status
                 return 1
             }
             $powerShell = & $PowerShellResolver

@@ -244,6 +244,25 @@ $fakeSignature.Status = 'Valid'
 $fakeSigner.Subject = 'CN=Microsoft Corporation Impostor'
 $fakeSigner.SimpleName = 'Microsoft Corporation Impostor'
 Assert-True (!(Test-SetupUiMicrosoftAuthenticode -Path 'fake.exe' -SignatureReader { $fakeSignature })) 'reject wrong signer'
+$fakeSigner.Subject = 'CN=.NET, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'
+$fakeSigner.SimpleName = '.NET'
+Assert-True (!(Test-SetupUiMicrosoftAuthenticode -Path 'fake.exe' -SignatureReader { $fakeSignature })) 'do not broaden PowerShell or Visual Studio publisher policy'
+Assert-True (Test-SetupUiMicrosoftAuthenticode -Path 'fake.exe' -SignatureReader { $fakeSignature } -AllowDotnetPublisher) 'valid Microsoft .NET SDK certificate accepted'
+foreach ($invalidStatus in @('NotSigned', 'HashMismatch', 'NotTrusted', 'UnknownError')) {
+    $fakeSignature.Status = $invalidStatus
+    Assert-True (!(Test-SetupUiMicrosoftAuthenticode -Path 'fake.exe' -SignatureReader { $fakeSignature } -AllowDotnetPublisher)) "reject .NET signer with $invalidStatus"
+}
+$fakeSignature.Status = 'Valid'
+foreach ($wrongSubject in @(
+    'CN=.NET, O=Other Corporation, L=Redmond, S=Washington, C=US',
+    'CN=.NET, O=Microsoft Corporation Impostor, L=Redmond, S=Washington, C=US',
+    'CN=.NET, OU="O=Microsoft Corporation", O=Other Corporation, L=Redmond, S=Washington, C=US',
+    'CN=.NET DAC, O=Microsoft Corporation, L=Redmond, S=Washington, C=US',
+    'CN=.NET, O=Microsoft Corporation, L=Redmond, S=Washington, C=US, OU=Unexpected'
+)) {
+    $fakeSigner.Subject = $wrongSubject
+    Assert-True (!(Test-SetupUiMicrosoftAuthenticode -Path 'fake.exe' -SignatureReader { $fakeSignature } -AllowDotnetPublisher)) "reject unexpected .NET subject $wrongSubject"
+}
 Write-Host 'PASS: real signature policy rejects unsigned, altered, untrusted and wrong-publisher files.'
 
 # A fake HttpMessageHandler exercises redirect and destination checks without a socket.

@@ -205,6 +205,13 @@ try {
             (Get-BuildLocalStage) -ne 'preflight') {
             throw "Prerequisite outcome $preflightStatus did not stop before the build"
         }
+        $statusMarker = Join-Path $preflightTree 'artifacts/build-local/last-failure.txt'
+        if ($preflightStatus -in @('RebootRequired', 'PolicyBlocked')) {
+            $statusText = Get-Content -LiteralPath $statusMarker -Raw
+            if ($statusText -notmatch 'Failed at: preflight' -or !$statusText.Contains("Prerequisite status: $preflightStatus") -or !$statusText.Contains($earlyResult.LogPath)) {
+                throw "$preflightStatus lost its failure marker or diagnostic log path"
+            }
+        }
     }
     Write-Host 'PASS: prerequisite cancellation, manual guidance, policy block and reboot never build, stop or install CycleArc.'
 

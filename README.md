@@ -66,6 +66,8 @@ Use Windows, PowerShell 7 and the .NET 10 SDK selected by [`global.json`](global
 
 `build-local.cmd` can start with only Windows PowerShell: it surveys PowerShell 7, the selected stable .NET 10 SDK and the VS2022 C++ toolchain together. Direct interactive execution automatically prepares missing official Microsoft tools without a prerequisite selection menu, verifies signatures and actual installed commands/files after each installation, then continues the build in the same run. Windows UAC and company policy still apply; a required reboot stops the run. Use `build-local.cmd -ManualPrerequisites` to show the environment state and official manual instructions without preparing tools or building. CI, redirected/noninteractive consoles, `-NoPrerequisitePrompt` and `-SilentInstall` fail without installing prerequisites. The shipped self-contained `CycleArc-Setup.exe` needs none of these development tools.
 
+The SDK signature check accepts Microsoft's documented `.NET` certificate subject as well as its `Microsoft Corporation` signer, and still requires a valid Windows Authenticode result and the official SHA-512. Policy blocks and required reboots from an interactive `build-local.cmd` show a Windows error acknowledgement with the cause and log location before the console closes. Other prerequisite failures record their cause in the console and failure log without requesting input.
+
 ```powershell
 git clone https://github.com/frozenvoice/cyclearc.git
 cd cyclearc

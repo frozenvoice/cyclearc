@@ -202,7 +202,7 @@ function Invoke-CycleArcDotnetSdkInstall {
     )
     if (!$Resolver) { $Resolver = { param($root) Get-CycleArcDotnetSdkState -RepoRoot $root } }
     if (!$Downloader) { $Downloader = { param($uri, $destination) Invoke-SetupUiOfficialDownload -Uri $uri -Destination $destination } }
-    if (!$SignatureValidator) { $SignatureValidator = { param($path) Test-SetupUiMicrosoftAuthenticode -Path $path } }
+    if (!$SignatureValidator) { $SignatureValidator = { param($path) Test-SetupUiMicrosoftAuthenticode -Path $path -AllowDotnetPublisher } }
     if (!$ProcessRunner) { $ProcessRunner = { param($path, $arguments) Invoke-SetupUiPrerequisiteInstaller -FilePath $path -ArgumentList $arguments } }
     if (!$MetadataReader) { $MetadataReader = { param($uri) Read-CycleArcDotnetReleaseMetadata -Uri $uri } }
     if (!$TemporaryDirectoryFactory) { $TemporaryDirectoryFactory = { New-SetupUiPrerequisiteTempDirectory } }

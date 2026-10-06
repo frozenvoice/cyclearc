@@ -193,6 +193,33 @@ exit /b 145
     Assert-SdkTest ($result.Status -eq 'Ready' -and $script:InstallResolverCalls -eq 2) 'SDK installation was not re-probed'
     Assert-SdkTest (($script:InstallTrace -join ',') -eq 'Download,Signature,Process') 'download/signature/launch order changed'
 
+    # Exercise the production default validator, not a boolean signature adapter:
+    # the official SDK certificate's CN is .NET and its publisher is Microsoft.
+    $sdkSigner = [pscustomobject]@{ Subject = 'CN=.NET, O=Microsoft Corporation, L=Redmond, S=Washington, C=US' }
+    $sdkSigner | Add-Member -MemberType ScriptMethod -Name GetNameInfo -Value { param($type, $issuer) '.NET' }
+    $script:SdkSignature = [pscustomobject]@{ Status = 'Valid'; SignerCertificate = $sdkSigner }
+    function Get-AuthenticodeSignature {
+        param($LiteralPath, $ErrorAction)
+        $script:InstallTrace += 'Signature'
+        $script:SdkSignature
+    }
+    try {
+        $defaultSignatureArguments = $installArguments.Clone()
+        $defaultSignatureArguments.Remove('SignatureValidator')
+        $script:InstallResolverCalls = 0
+        $script:InstallTrace = @()
+        $result = Invoke-CycleArcDotnetSdkInstall @defaultSignatureArguments
+        Assert-SdkTest ($result.Status -eq 'Ready' -and $script:InstallResolverCalls -eq 2) 'official .NET signer did not install and re-probe through default validator'
+        Assert-SdkTest (($script:InstallTrace -join ',') -eq 'Download,Signature,Process') 'default validator skipped signature before installation'
+        $script:SdkSignature.Status = 'NotTrusted'
+        $script:InstallResolverCalls = 0
+        $script:InstallTrace = @()
+        $rejected = $false
+        try { Invoke-CycleArcDotnetSdkInstall @defaultSignatureArguments | Out-Null } catch { $rejected = $_.Exception.Message -like '*Authenticode*not executed*' }
+        Assert-SdkTest ($rejected -and $script:InstallTrace -notcontains 'Process') 'untrusted .NET signer launched installer'
+    }
+    finally { Remove-Item Function:\Get-AuthenticodeSignature }
+
     foreach ($scenario in @(
         @{ Code = 1223; Status = 'Cancelled' }, @{ Code = 1602; Status = 'Cancelled' },
         @{ Code = 2147944002; Status = 'Cancelled' }, @{ Code = 3010; Status = 'RebootRequired' },
