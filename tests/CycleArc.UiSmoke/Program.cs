@@ -243,6 +243,11 @@ internal static class Program
                 FlyoutActivationChecks.Run(app, args.Length == 2 ? args[1] : null);
                 return 0;
             }
+            if (args is ["--ui-reuse"])
+            {
+                UiReuseChecks.Run(app);
+                return 0;
+            }
             if (args is ["--tooltips", var toolTipDirectory])
             {
                 ToolTipUiChecks.Run(toolTipDirectory);
@@ -268,6 +273,7 @@ internal static class Program
             MixedProviderUiChecks.Run();
             ToolTipUiChecks.Run();
             FlyoutActivationChecks.Run(app);
+            UiReuseChecks.Run(app);
             CheckEnvironmentCallbacks(app);
             CheckWidgetRecovery();
             CheckWidgetRestart();
