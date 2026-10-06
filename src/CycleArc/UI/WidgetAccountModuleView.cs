@@ -155,6 +155,8 @@ public sealed class WidgetAccountModuleView : Border
         StatusInfoIcon.SetResourceReference(Shape.StrokeProperty, "MutedBrush");
         StatusActivityIcon.RenderTransform = _statusRotation;
         Loaded += (_, _) => UpdateStatusAnimation();
+        // A hidden widget is not rebound, so its rotation stops here and resumes when shown.
+        IsVisibleChanged += (_, _) => UpdateStatusAnimation();
         Unloaded += (_, _) =>
         {
             UpdateStatusAnimation();
@@ -300,7 +302,7 @@ public sealed class WidgetAccountModuleView : Border
 
     private void UpdateStatusAnimation()
     {
-        if (IsLoaded && StatusActivityIcon.Visibility == Visibility.Visible)
+        if (IsLoaded && IsVisible && StatusActivityIcon.Visibility == Visibility.Visible)
         {
             if (_statusClock is null)
             {

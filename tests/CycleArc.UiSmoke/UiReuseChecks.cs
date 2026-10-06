@@ -33,6 +33,7 @@ internal static class UiReuseChecks
             CheckAnimationClocks();
             CheckHiddenPopup(app);
         }
+        CheckReopenStress(app);
         UiText.SetLanguage(UiLanguage.English);
         applyTheme.Invoke(null, [AppTheme.Dark]);
         Console.WriteLine("PASS: popup rows, avatars and tray icons are reused only for identical output; a hidden popup is rebuilt before it shows, and at once for withdrawn accounts.");
@@ -169,6 +170,10 @@ internal static class UiReuseChecks
             var running = (System.Windows.Media.Animation.AnimationClock?)spinner.GetValue(flyout);
             Require(running is { CurrentState: System.Windows.Media.Animation.ClockState.Active } && flyout.RefreshIndicator.IsAnimating,
                 "The popup refresh spinner did not run while refreshing.");
+            for (var bind = 0; bind < 3; bind++) flyout.SetRefreshPresentation(new FlyoutRefreshPresentation(false, true, "refreshing"));
+            Pump();
+            Require(ReferenceEquals(spinner.GetValue(flyout), running) && running.CurrentState == System.Windows.Media.Animation.ClockState.Active,
+                "Repeating the refreshing state replaced the running spinner clock.");
             flyout.SetRefreshPresentation(new FlyoutRefreshPresentation(true, false, "")); Pump();
             Require(running.CurrentState == System.Windows.Media.Animation.ClockState.Stopped && spinner.GetValue(flyout) is null,
                 "The popup refresh spinner kept its clock running after refresh.");
@@ -177,6 +182,12 @@ internal static class UiReuseChecks
             flyout.Hide(); Pump();
             Require(running!.CurrentState == System.Windows.Media.Animation.ClockState.Stopped,
                 "Hiding the popup kept its refresh spinner clock running.");
+            flyout.Show(); Pump();
+            var resumed = (System.Windows.Media.Animation.AnimationClock?)spinner.GetValue(flyout);
+            Require(resumed is { CurrentState: System.Windows.Media.Animation.ClockState.Active } && !ReferenceEquals(resumed, running),
+                "Showing the still-refreshing popup did not resume exactly one spinner clock.");
+            flyout.SetRefreshPresentation(new FlyoutRefreshPresentation(true, false, "")); Pump();
+            Require(resumed.CurrentState == System.Windows.Media.Animation.ClockState.Stopped, "The resumed spinner clock kept running.");
 
             widget.Show();
             var status = typeof(WidgetAccountModuleView).GetField("_statusClock", PrivateInstance)!;
@@ -190,6 +201,20 @@ internal static class UiReuseChecks
             Require(widget.Modules[0].StatusActivityIcon.Visibility != Visibility.Visible
                 || active is { CurrentState: System.Windows.Media.Animation.ClockState.Active },
                 "The widget activity icon is shown without its rotation.");
+            if (active is not null)
+            {
+                for (var bind = 0; bind < 3; bind++) widget.BindAccounts(Copies(accounts), accounts[0].Profile.Id);
+                Pump();
+                Require(ReferenceEquals(status.GetValue(widget.Modules[0]), active), "Rebinding the same refreshing state replaced its clock.");
+                // A hidden widget is not rebound; its rotation stops and resumes with the window.
+                widget.Hide(); Pump();
+                Require(active.CurrentState == System.Windows.Media.Animation.ClockState.Stopped && status.GetValue(widget.Modules[0]) is null,
+                    "A hidden widget kept its activity rotation running.");
+                widget.Show(); Pump();
+                active = (System.Windows.Media.Animation.AnimationClock?)status.GetValue(widget.Modules[0]);
+                Require(active is { CurrentState: System.Windows.Media.Animation.ClockState.Active },
+                    "Showing the widget while refreshing did not resume its rotation.");
+            }
             accounts[0] = accounts[0] with { Snapshot = Snapshot(12) };
             widget.BindAccounts(accounts, accounts[0].Profile.Id);
             Pump();
@@ -312,6 +337,21 @@ internal static class UiReuseChecks
             Require(flyout.IsVisible && flyout.WindowState == WindowState.Normal, "A minimized popup was not restored.");
             flyout.Hide();
 
+            // A different selected account while hidden is bound once at idle, after visible
+            // updates, so a later reopen only rebinds in place. Quota alone waits for the show.
+            manager.Select(profiles[1].Id);
+            Call("RefreshSnapshot");
+            Require(flyout.SelectedProfileId == profiles[0].Id, "The hidden selection bind ran before visible updates.");
+            Pump();
+            Require(!flyout.IsVisible && flyout.SelectedProfileId == profiles[1].Id && Rows(flyout).SequenceEqual(rows),
+                "A hidden popup was not prepared once for the new selection.");
+            contents = rows.Select(row => row.Content).ToArray();
+            provider.Services[profiles[1].Id].Snapshot = Snapshot(61);
+            Call("RefreshSnapshot"); Pump();
+            Require(rows.Select(row => row.Content).SequenceEqual(contents), "A hidden quota change rebuilt popup rows.");
+            manager.Select(profiles[0].Id);
+            Call("RefreshSnapshot"); Pump();
+
             // Withdrawn data is dropped at once, even while hidden.
             manager.Remove(profiles[2].Id);
             Call("RefreshSnapshot");
@@ -335,6 +375,77 @@ internal static class UiReuseChecks
         {
             Get<FlyoutWindow?>("_flyout")?.Close();
             Get<FloatingWidgetController?>("_widgetController")?.Dispose();
+            tray.Dispose();
+            for (var index = 0; index < fields.Length; index++) fields[index].SetValue(app, original[index]);
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    // Repeated popup reopen and account switching through the App paths: every first frame is
+    // the selected account, rows are never recreated, replaced tray icons are released and a
+    // row click still selects exactly once.
+    private static void CheckReopenStress(App app)
+    {
+        var names = new[] { "_settings", "_settingsStore", "_log", "_tray", "_codex", "_refresh", "_flyout", "_widgetController" };
+        var fields = names.Select(name => typeof(App).GetField(name, PrivateInstance)!).ToArray();
+        var original = fields.Select(field => field.GetValue(app)).ToArray();
+        void Set(string name, object? value) => fields[Array.IndexOf(names, name)].SetValue(app, value);
+        void Call(string method) => typeof(App).GetMethod(method, PrivateInstance)!.Invoke(app, null);
+        var root = Path.Combine(Path.GetTempPath(), "CycleArc-ui-stress-" + Guid.NewGuid().ToString("N"));
+        var provider = new MutableProvider();
+        var profiles = Enumerable.Range(0, 5).Select(index => new CodexAccountProfile(
+            (index + 1).ToString("D32"), Path.Combine(root, "home" + index), "Stress " + (index + 1))).ToArray();
+        var store = new CodexAccountStore(root);
+        store.Save(new(1, profiles[0].Id, profiles));
+        var manager = new CodexAccountManager(store, Path.Combine(root, "default-home"), [provider]);
+        var tray = new TrayController();
+        var current = typeof(TrayController).GetField("_current", PrivateInstance)!;
+        try
+        {
+            Set("_settings", new AppSettings { UsageAlertsEnabled = false, FloatingWidgetEnabled = true, WidgetLeft = 20,
+                WidgetTop = 20, FlyoutPositionConfigured = true, FlyoutLeft = 120, FlyoutTop = 80 });
+            Set("_settingsStore", new SettingsStore(Path.Combine(root, "settings.json")));
+            Set("_log", new AppLog(Path.Combine(root, "logs"))); Set("_tray", tray); Set("_codex", manager);
+            Set("_refresh", manager.Refresh); Set("_flyout", null); Set("_widgetController", null);
+            Call("ApplyWidget");
+            Call("ToggleFlyout");
+            var flyout = (FlyoutWindow)fields[Array.IndexOf(names, "_flyout")].GetValue(app)!;
+            var ring = (TextBlock)flyout.FindName("CodexRingValueText");
+            var rows = Rows(flyout);
+            var icons = new List<System.Drawing.Icon>();
+            void Next()
+            {
+                manager.Select(profiles[(Array.FindIndex(profiles, profile => profile.Id == manager.SelectedId) + 1) % profiles.Length].Id);
+                Call("RefreshSnapshot");
+                if (current.GetValue(tray) is System.Drawing.Icon icon && !icons.Contains(icon)) icons.Add(icon);
+            }
+            for (var cycle = 0; cycle < 40; cycle++)
+            {
+                if (!flyout.IsVisible) Call("ToggleFlyout");
+                var expected = CodexRingPresentation.FromDetail(provider.Services[manager.SelectedId].Snapshot, UsagePeriodPreference.Auto).RemainingValueText;
+                Require(flyout.IsVisible && flyout.SelectedProfileId == manager.SelectedId && ring.Text == expected,
+                    $"Reopen {cycle} did not show the selected account.");
+                Next();
+                Require(flyout.SelectedProfileId == manager.SelectedId, $"Visible switch {cycle} did not follow the selection.");
+                Call("ToggleFlyout");
+                Next();
+                Pump(20);
+            }
+            Require(Rows(flyout).SequenceEqual(rows), "Repeated reopen and switching recreated account rows.");
+            Require(icons.Count > 1 && icons.Take(icons.Count - 1).All(icon => !ReferenceEquals(icon, current.GetValue(tray)) && Disposed(icon)),
+                "Replaced tray icons were not released.");
+            var clicks = 0;
+            flyout.AccountSelected += _ => clicks++;
+            Call("ToggleFlyout");
+            var target = Rows(flyout).First(row => !Equals(row.Tag, manager.SelectedId));
+            target.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Require(clicks == 1 && manager.SelectedId == (string)target.Tag, "A row click after the stress selected more or less than once.");
+        }
+        finally
+        {
+            (fields[Array.IndexOf(names, "_flyout")].GetValue(app) as FlyoutWindow)?.Close();
+            (fields[Array.IndexOf(names, "_widgetController")].GetValue(app) as FloatingWidgetController)?.Dispose();
             tray.Dispose();
             for (var index = 0; index < fields.Length; index++) fields[index].SetValue(app, original[index]);
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
