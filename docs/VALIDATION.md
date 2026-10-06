@@ -2,6 +2,48 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- SDK prerequisite signature and failure visibility repair (2026-10-06):
+  - Actual interactive executions stopped before installer launch in Authenticode
+    validation (`artifacts/build-local/build-local-20261006-110811.log`). The
+    downloaded official SDK `10.0.401` matches its release metadata SHA-512.
+    Windows PowerShell 5.1, PowerShell 7.6.5 and Store PowerShell 7.6.6 each report
+    `Valid`, with signer subject
+    `CN=.NET, O=Microsoft Corporation, L=Redmond, S=Washington, C=US`.
+    The former common-name-only policy incorrectly rejected this Microsoft signer.
+  - The SDK caller now opts into this exact subject and `.NET` simple name while
+    still requiring a valid Windows signature. This subject is documented in
+    [Microsoft's signing guidance](https://github.com/dotnet/arcade/blob/main/Documentation/Signing.md#9-certificate-subjects).
+    PowerShell and Visual Studio caller policy, official HTTPS/SHA-512 checks,
+    mandatory re-probe and side-by-side installation remain unchanged.
+  - Focused SDK tests pass on PowerShell 7 and Windows PowerShell 5.1, including
+    the production default signature adapter, installation/re-probe ordering and
+    no process launch for an untrusted `.NET` signer. Shared signature tests pass
+    on PowerShell 7, rejecting other publishers, misleading organization fields,
+    unexpected subject variants and invalid signatures. That shared test script
+    requires PowerShell 7 and cannot run on 5.1; the SDK test and actual signed-file
+    probes cover the changed path on 5.1. All three installed PowerShell hosts
+    accept the real file through the fixed SDK-specific policy and its unchanged
+    default policy continues to reject it for other prerequisite tools.
+  - The CMD wrapper preserves failure exit codes and uses a native acknowledgement
+    only for typed `PolicyBlocked` or `RebootRequired` prerequisite outcomes.
+    Generic signature failures and cancellation remain input-free. CI, redirected
+    consoles, manual mode and suppression switches never show the acknowledgement;
+    explicit switch values are retained by the acknowledgement suppression guard.
+    Focused visibility tests pass on both PowerShell hosts. Real CMD forwarding
+    fixtures with fake build/presenter boundaries exercise the `pwsh` route;
+    the existing PS5.1 `-File` handoff still requires bare switch arguments and
+    cannot accept explicit Boolean switch values. BuildLocal and bootstrap record
+    typed status plus the existing
+    cause/log paths before any app build, shutdown or installation.
+  - Final `dev-run.ps1 -NoLaunch -Fast` passed in 5m04.0s, including script
+    regressions, Release/desktop-instance/full WPF checks, single-file production
+    publish, Native AOT setup packaging and package/update component checks.
+    Evidence: `artifacts/sdk-publisher-final-gate.log`. It uses the isolated
+    official SDK `10.0.401`; unchanged C# unit-test sources reuse the 2,064 tests
+    already passed by the preceding main Windows CI at `4353e87`.
+  - Actual developer-tool installation/UAC and destructive installed-app testing
+    have not been performed; the system SDK and running CycleArc remain unchanged.
+
 - Automatic source-build prerequisite preparation (2026-10-06, local only):
   - Started from merged `fb3f017` on `codex/automatic-build-prerequisites`.
     Direct interactive `build-local.cmd` now prepares missing/repair-required

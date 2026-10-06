@@ -181,7 +181,10 @@ Invoke-DevRunStep 'ui-smoke-desktop-instance' {
     Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--desktop-instance')
 }
 Invoke-DevRunStep 'local-install-regression' { & (Join-Path $RepoRoot 'tests/LocalInstall.Tests.ps1') }
-Invoke-DevRunStep 'build-local-regression' { & (Join-Path $RepoRoot 'tests/BuildLocal.Tests.ps1') }
+Invoke-DevRunStep 'build-local-regression' {
+    & (Join-Path $RepoRoot 'tests/BuildLocal.Tests.ps1')
+    & (Join-Path $RepoRoot 'tests/BuildLocalFailure.Tests.ps1')
+}
 Invoke-DevRunStep 'installed-update-regression' { & (Join-Path $RepoRoot 'tests/InstalledUpdateScript.Tests.ps1') }
 Invoke-DevRunStep 'unit-test' {
     if ($Fast) {

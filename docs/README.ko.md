@@ -332,6 +332,8 @@ Windows, PowerShell 7, .NET 10 SDK(`global.json`으로 선택)가 필요합니�
 
 `build-local.cmd`는 Windows 기본 PowerShell만 있는 PC에서도 시작합니다. PowerShell 7, 현재 체크아웃의 `global.json`이 실제 선택하는 stable Windows x64 .NET 10 SDK, VS2022, MSVC/link.exe와 Windows SDK import library를 함께 조사합니다. 직접 대화형으로 실행한 것을 공식 빌드 도구 준비 의도로 보고, 누락되거나 복구가 필요한 도구는 별도 선택 메뉴 없이 즉시 순서대로 설치·복구합니다. 각 설치 뒤 실제 명령·파일을 재검사한 다음, 같은 실행에서 기존 빌드·테스트·패키지 게이트를 계속하므로 다시 실행할 필요가 없습니다. 수동 설치 안내가 필요하면 `build-local.cmd -ManualPrerequisites`를 사용합니다. 이 옵션은 환경 상태와 공식 안내만 표시하고 도구 준비나 빌드를 시작하지 않습니다. PowerShell은 공식 winget 소스를 우선 사용하고, 없거나 다운로드할 수 없으면 공식 PowerShell 릴리스 MSI를 사용합니다. .NET은 Microsoft stable 릴리스 메타데이터에 따른 x64 SDK 설치기를 사용하며 Runtime으로 대체하지 않습니다. 모든 다운로드는 승인된 HTTPS 출처만 따르고 Microsoft Authenticode 검증 후 실행하며, SDK는 공식 SHA-512도 검사합니다. 기존 VS2022는 해당 설치를 수정·복구하고 다른 SDK는 제거하지 않습니다.
 
+SDK 서명 검사는 `Microsoft Corporation` 이름과 Microsoft가 공식 문서에 명시한 `.NET` 인증서 subject를 허용하며, Windows Authenticode 유효성과 공식 SHA-512 검증을 계속 요구합니다. 대화형 `build-local.cmd`에서 정책 차단이나 실제 재부팅 필요 상태가 발생하면, 콘솔이 닫히기 전에 Windows 오류 확인 창에서 원인과 로그 위치를 보여줍니다. 그 밖의 prerequisite 실패는 입력을 요구하지 않고 콘솔과 실패 로그에 원인을 기록합니다.
+
 회사 관리 PC에서는 Windows UAC나 IT 승인이 필요할 수 있으며 우회하지 않습니다. 취소·정책 차단·실패 시 CycleArc 빌드와 설치 전에 멈춥니다. 설치기가 재부팅을 요구하면 명확히 안내하고 종료하며, 다음 실행에서는 이미 설치된 도구를 인정합니다. 진단은 `artifacts/build-local`에 남깁니다. `-NoPrerequisitePrompt`, `-SilentInstall`, CI, 콘솔 리디렉션에서는 프롬프트와 도구 자동 설치 없이 빠르게 실패합니다. 직접 실행하는 `dev-run.ps1`은 기존 fail-fast 검증 게이트로 유지합니다. 배포 앱은 self-contained이고 Setup 창은 Native AOT이므로, 일반 사용자가 `CycleArc-Setup.exe`를 실행할 때 개발 SDK, PowerShell 7, Visual Studio, Windows SDK를 설치하거나 조사하지 않습니다.
 
 제품명과 배포 파일, 솔루션 `CycleArc.sln`, 프로젝트·폴더·네임스페이스는 모두 `CycleArc`로 통일합니다.

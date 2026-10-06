@@ -297,7 +297,7 @@ function Invoke-SetupUiOfficialDownload {
 }
 
 function Test-SetupUiMicrosoftAuthenticode {
-    param([Parameter(Mandatory)][string]$Path, [scriptblock]$SignatureReader)
+    param([Parameter(Mandatory)][string]$Path, [scriptblock]$SignatureReader, [switch]$AllowDotnetPublisher)
     if (!$SignatureReader) { $SignatureReader = { param($file) Get-AuthenticodeSignature -LiteralPath $file -ErrorAction Stop } }
     try {
         $signature = & $SignatureReader $Path
@@ -308,8 +308,14 @@ function Test-SetupUiMicrosoftAuthenticode {
             [Security.Cryptography.X509Certificates.X509NameType]::SimpleName,
             $false
         )
-        return $subject -match '(?i)(^|,\s*)CN=Microsoft Corporation(,|$)' -or
-            $simpleName -eq 'Microsoft Corporation'
+        if ($subject -match '(?i)(^|,\s*)CN=Microsoft Corporation(,|$)' -or
+            $simpleName -eq 'Microsoft Corporation') { return $true }
+        # Microsoft signs current SDK installers with its .NET-specific certificate.
+        # Permit the documented exact subject only for the SDK caller, after Windows
+        # has validated the signature; a .NET name alone is not publisher validation.
+        # https://github.com/dotnet/arcade/blob/main/Documentation/Signing.md#9-certificate-subjects
+        return $AllowDotnetPublisher -and $simpleName -eq '.NET' -and
+            $subject -eq 'CN=.NET, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'
     }
     catch {
         return $false

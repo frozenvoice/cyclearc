@@ -256,7 +256,8 @@ function Write-BuildLocalFailure {
         [string]$Message = '',
         [string]$LogDirectory,
         [string]$LogPath,
-        [string]$Elapsed = ''
+        [string]$Elapsed = '',
+        [string]$PrerequisiteStatus = ''
     )
     # Never let reporting a failure fail: an empty stage or message still has to
     # produce a readable line rather than a parameter binding error.
@@ -268,6 +269,7 @@ function Write-BuildLocalFailure {
         "Stage: $Stage"
     )
     if ($Elapsed) { $lines += "Elapsed: $Elapsed" }
+    if ($PrerequisiteStatus) { $lines += "Prerequisite status: $PrerequisiteStatus" }
     $lines += @(
         "Cause: $Message",
         (Get-BuildLocalStageGuidance $Stage)
@@ -907,6 +909,16 @@ function Invoke-BuildLocal {
                 Invoke-CycleArcBuildPrerequisites -RepoRoot $RepoRoot -NoPrompt:$NoPrerequisitePrompt -SilentInstall:$SilentInstall -ManualPrerequisites:$ManualPrerequisites
             }
             if ($prerequisiteResult.Status -ne 'Ready') {
+                if ($prerequisiteResult.Status -notin @('Manual', 'Cancelled')) {
+                    $prerequisiteCause = switch ($prerequisiteResult.Status) {
+                        'RebootRequired' { 'Microsoft prerequisite installation requires a Windows reboot. Reboot, then run build-local.cmd again.' }
+                        'PolicyBlocked' { 'Microsoft prerequisite installation was blocked by Windows policy or permissions. Company IT approval may be required.' }
+                        default { "Prerequisite preparation stopped: $($prerequisiteResult.Status). Read the prerequisite diagnostic log before retrying." }
+                    }
+                    Write-Host (Write-BuildLocalFailure -Stage 'preflight' -Message $prerequisiteCause `
+                        -LogDirectory $logDirectory -LogPath $logPath -Elapsed (Format-BuildLocalElapsed $script:BuildLocalStarted) `
+                        -PrerequisiteStatus $prerequisiteResult.Status)
+                }
                 return [pscustomobject]@{
                     PrerequisiteStatus = $prerequisiteResult.Status
                     Cancelled = $prerequisiteResult.Status -eq 'Cancelled'
