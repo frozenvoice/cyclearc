@@ -179,6 +179,9 @@ internal static class Program
                 measurements.Phase = phase;
                 WriteJson(options.Output + ".progress.json", new { phase, ProcessId = Environment.ProcessId, ElapsedSeconds = clock.Elapsed.TotalSeconds });
                 app.AssertVisibility(flyout, widget);
+                // Boundary diagnostics are taken outside the sampled window so they do not
+                // add their own allocation or CPU to the phase.
+                var diagnostics = Diagnostics(app);
                 var start = sampler.Capture(phase, clock.Elapsed.TotalSeconds);
                 var counters = fixture.CaptureCounters();
                 var ui = app.UiCounts;
@@ -186,10 +189,12 @@ internal static class Program
                 var end = sampler.Capture(phase, clock.Elapsed.TotalSeconds);
                 var countersAfter = fixture.CaptureCounters();
                 var uiAfter = app.UiCounts;
+                var diagnosticsAfter = Diagnostics(app);
                 measurements.Phase = "boundary-inventory";
                 app.AssertVisibility(flyout, widget);
                 await app.AssertDataWhenIdleAsync();
-                phases.Add(new PhaseResult(phase, start, end, counters, countersAfter, ui, uiAfter));
+                phases.Add(new PhaseResult(phase, start, end, counters, countersAfter, ui, uiAfter,
+                    diagnostics, diagnosticsAfter, ProcessInventory.CpuDelta(diagnostics.Threads, diagnosticsAfter.Threads)));
                 inventories.Add(sampler.CaptureVirtualMemoryInventory(phase));
             }
         }
@@ -290,7 +295,16 @@ internal static class Program
     private readonly record struct UiProbe(string Phase, double DueMilliseconds, double QueuedMilliseconds,
         double ExecutedMilliseconds, double DueToExecutionMilliseconds, double QueueToExecutionMilliseconds);
     private sealed record PhaseResult(string Name, ProcessSample Start, ProcessSample End,
-        FixtureCounters CountersBefore, FixtureCounters CountersAfter, UiCreationCounts UiBefore, UiCreationCounts UiAfter);
+        FixtureCounters CountersBefore, FixtureCounters CountersAfter, UiCreationCounts UiBefore, UiCreationCounts UiAfter,
+        BoundaryDiagnostics DiagnosticsBefore, BoundaryDiagnostics DiagnosticsAfter, IReadOnlyDictionary<string, double> ThreadCpuMilliseconds);
+
+    /// <summary>Precise CPU cycles (process and UI thread), presentation refreshes, kernel handles by type and per-thread CPU.</summary>
+    private sealed record BoundaryDiagnostics(ulong ProcessCycles, ulong UiThreadCycles, long RefreshSnapshotCalls,
+        HandleTypeCounts Handles, [property: System.Text.Json.Serialization.JsonIgnore] ThreadCpuSnapshot Threads);
+
+    private static BoundaryDiagnostics Diagnostics(AppHarness app) => new(ProcessInventory.ProcessCycles(),
+        ProcessInventory.CurrentThreadCycles(), app.RefreshSnapshotCalls, ProcessInventory.CaptureHandles(),
+        ProcessInventory.CaptureThreads(ProcessInventory.GetCurrentThreadId()));
     private sealed record TransitionResult(string Name, double StartMilliseconds,
         double SynchronousActionMilliseconds, double UntilDispatcherIdleMilliseconds, UiCreationCounts UiCreated);
 }
