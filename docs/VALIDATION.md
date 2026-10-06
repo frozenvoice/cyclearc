@@ -2,6 +2,42 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Approved local-install desktop handoff (2026-10-06):
+  - The actual `build-local-20261006-130156.log` shows official SDK `10.0.401`
+    installation and the complete local gate succeeding, followed by managed
+    `0.10.0` installation with matching SHA-256. Its desktop-status response was
+    nevertheless PID `41396`, version `0.6.6+b129c51`, under `CycleArc-dev`.
+    The interactive tail incorrectly accepted that existing development instance
+    as the newly installed build running.
+  - `321eab3` moved default desktop shutdown into `-SilentInstall` on 2026-09-19
+    to preserve the app until installer approval, assuming the installer would
+    stop it afterward. Velopack stops processes in its managed root; the separate
+    development root sharing desktop IPC was omitted from that path.
+  - Source-build interactive Setup now reports approved desktop preparation and
+    waits for a fresh, bounded acknowledgement from its parent. The parent reuses
+    verified desktop IPC shutdown and atomically publishes success or failure;
+    only success permits the installation engine to start. Cancellation, failed
+    shutdown and missing/invalid/timed-out acknowledgement do not start the engine.
+    Direct Setup launches without this source-build boundary retain their existing
+    behavior. The acknowledgement environment is consumed before child launch.
+  - Both build-local running-status paths now verify responder path, full build
+    version and installed hash. Run unchecked retains its no-launch behavior.
+    Focused PowerShell fixtures reject old-development and stale-version responses,
+    accept the managed response and preserve Run unchecked. A real fake child
+    verifies approval-before-shutdown and ACK-before-engine ordering, cancellation
+    and failed shutdown without stopping or installing a real app.
+  - Four deterministic ACK tests cover direct launch, ordered readiness,
+    cancellation/failure/read errors/timeouts and exact bounded file tokens.
+    Native AOT Setup Release compilation passed without warnings/errors.
+  - Final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed in 7m54s,
+    including all 2,068 unit tests, desktop-instance and full WPF checks,
+    installer/build-local regressions, test-flavour and single-file development
+    publishes, packaging and isolated package apply/rollback verification.
+    The source dependency guard initially rejected the tool name in an error
+    string; the string was corrected, the unchanged guard passed, and the full
+    gate then passed on the final code.
+    No working-profile installation/update/removal experiment was performed.
+
 - SDK prerequisite signature and failure visibility repair (2026-10-06):
   - Actual interactive executions stopped before installer launch in Authenticode
     validation (`artifacts/build-local/build-local-20261006-110811.log`). The

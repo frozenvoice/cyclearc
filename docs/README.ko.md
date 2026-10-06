@@ -350,6 +350,8 @@ SDK 서명 검사는 `Microsoft Corporation` 이름과 Microsoft가 공식 문�
 
 실행 중인 데스크톱은 검증 게이트가 통과하고 이번 실행의 Setup.exe가 준비된 뒤에만 종료합니다. 종료는 현재 사용자 세션에서 신원이 확인된 데스크톱 IPC 요청으로만 하며 이름 기반 일괄 종료는 쓰지 않습니다. 따라서 빌드가 실패하면 설치된 앱은 그대로 실행 중으로 남습니다. 실패하면 `artifacts\build-local\last-failure.txt`에 기록된 실제 실패 단계(`Failed at:`와 `ui-smoke-desktop-instance` 같은 하위 단계. `Stage: build`로 뭉개지 않음)를 창에 출력하므로, Setup.exe가 이미 시작된 뒤의 실패를 "기존 설치는 그대로"라고 잘못 안내하지 않으며 0이 아닌 종료 코드가 CMD까지 전달됩니다. `dev-run.ps1`의 표준 출력과 오류는 `artifacts\build-local\dev-run.out.log`와 `dev-run.err.log`에 남고, 게이트가 실패하면 그 파일의 끝부분을 같은 창에 출력하므로 UiSmoke 오류를 바로 볼 수 있습니다. 성공 시에는 각 단계 소요 시간만 출력하고 그 로그를 전부 덤프하지는 않습니다.
 
+기본 대화형 경로는 설치 창에서 승인한 뒤, 관리형 설치와 별도 `CycleArc-dev`를 포함한 기존 데스크톱의 IPC 종료를 확인하고 설치 엔진을 시작합니다. 취소하거나 종료 확인에 실패하면 설치 엔진을 실행하지 않습니다. 완료 화면의 실행 선택을 해제하면 새 앱을 임의로 실행하지 않으며, 실행 상태를 보고할 때는 설치 경로·빌드 버전·SHA-256을 확인하므로 구버전 개발용 앱의 응답을 새 설치의 실행 성공으로 인정하지 않습니다.
+
 `.\dev-run.ps1`은 기존 개발용 게시 경로입니다. 실패를 빨리 보도록 restore와 Release 컴파일 다음에 데스크톱 인스턴스 프로세스 검사, 설치/build-local 스크립트 회귀, 단위 테스트, 나머지 WPF 검사, 그다음 게시·패키지·패키지 검증 순으로 실행한 뒤 디버그 심볼을 제외한 개발용 Windows x64 단일 파일을 게시·실행합니다. 개발용은 각 PC의 `%LOCALAPPDATA%\Programs\CycleArc-dev\CycleArc.exe`를 사용하며, 새 안정 Velopack 설치 `%LOCALAPPDATA%\Programs\CycleArc`(기존 설치는 기존 위치)와 분리되어 GitHub 업데이트 대상이 아닙니다. 빌드 임시 파일은 현재 작업 폴더에 남으며 `-NoLaunch`는 설치된 앱을 교체하지 않습니다. 파일 교체가 실패하면 이전 파일을 복원할 수 있지만, 파일 롤백이 새 앱의 시작 상태까지 보장하지는 않습니다.
 CI는 개발용 단일 파일을 검사하고 안정 배포용 Velopack 설치 자산을 패키징합니다.
 `dev-run.ps1 -NoLaunch` 동일 게이트를 로컬과 pull request 및 `main` push 검증에서 공통으로 실행합니다. 수동 릴리즈 스크립트는 CI 자산의 버전과 SHA-256을 확인한 뒤 게시합니다.

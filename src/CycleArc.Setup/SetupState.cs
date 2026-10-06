@@ -11,6 +11,7 @@ internal static class SetupState
     public const string Variable = "CYCLEARC_SETUP_STATE_FILE";
 
     public const string AwaitingApproval = "awaiting-approval";
+    public const string PreparingDesktop = "preparing-desktop";
     public const string Installing = "installing";
     public const string Done = "done";
     public const string Failed = "failed";

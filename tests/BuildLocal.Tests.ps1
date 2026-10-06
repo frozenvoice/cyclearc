@@ -693,6 +693,91 @@ function Invoke-BuildLocal {
     }
     Write-Host 'PASS: cancelling before install changes nothing and is reported as cancelled, not failed.'
 
+    # The real interactive tail must validate the responder, not treat an old
+    # development desktop's successful IPC response as this installation running.
+    $interactiveTree = Join-Path $testRoot 'interactive responder'
+    New-GitCycleArcTree $interactiveTree
+    $interactiveRoot = Join-Path $testRoot 'interactive managed root'
+    $interactiveArguments = @{
+        RepoRoot = $interactiveTree
+        ManagedRoot = $interactiveRoot
+        PrerequisitePreflight = { [pscustomobject]@{ Status = 'Ready' } }
+        DevRun = { }
+        PackagedSetup = { New-FakePublished $interactiveTree 'interactive-published' 'interactive-setup' }
+        StopDesktop = { throw 'Interactive caller must not stop before installer approval' }
+        RunSetup = {
+            New-Item -ItemType Directory -Path (Join-Path $interactiveRoot 'current') -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $interactiveTree 'publish/.dev-staging/CycleArc.exe') -Destination (Join-Path $interactiveRoot 'current/CycleArc.exe')
+            Set-Content -LiteralPath (Join-Path $interactiveRoot 'CycleArc.exe') -Value 'launcher'
+            0
+        }
+    }
+    Assert-Throws {
+        Invoke-BuildLocal @interactiveArguments -InteractiveStatusProbe {
+            [pscustomobject]@{ Succeeded = $true; ProcessId = 41396; ExecutablePath = (Join-Path $testRoot 'CycleArc-dev/CycleArc.exe'); Version = '0.6.6+old' }
+        }
+    } 'not the managed install'
+    if ((Get-BuildLocalStage) -ne 'start') { throw 'Wrong desktop responder lost its post-install failure stage' }
+    $interactiveReady = Invoke-BuildLocal @interactiveArguments -InteractiveStatusProbe {
+        [pscustomobject]@{ Succeeded = $true; ProcessId = 123; ExecutablePath = (Join-Path $interactiveRoot 'current/CycleArc.exe'); Version = '0.10.0+current' }
+    }
+    if (!$interactiveReady.Running -or $interactiveReady.ProcessId -ne 123) { throw 'Verified interactive desktop was not reported running' }
+    $uncheckedRun = Invoke-BuildLocal @interactiveArguments -InteractiveStatusProbe { [pscustomobject]@{ Succeeded = $false } }
+    if ($uncheckedRun.Running) { throw 'Unchecked Run choice was reported running or relaunched' }
+    $currentStatus = [pscustomobject]@{ ExecutablePath = (Join-Path $interactiveRoot 'current/CycleArc.exe'); Version = '0.6.6+old' }
+    Assert-Throws {
+        Assert-BuildLocalRunningDesktop -Status $currentStatus -InstalledExe $currentStatus.ExecutablePath -Launcher (Join-Path $interactiveRoot 'CycleArc.exe') `
+            -PublishedHash (Get-BuildLocalSha256 $currentStatus.ExecutablePath) -PublishedVersion '0.10.0+current'
+    } 'not this build'
+    Write-Host 'PASS: real interactive tail rejects development and stale-version responders, verifies the managed desktop, and preserves Run unchecked.'
+
+    # Run a real child through the interactive approval wait without an installer
+    # or desktop. It cannot mark the engine started until the parent's ACK arrives.
+    $preparationScript = Join-Path $testRoot 'approval-handshake.ps1'
+    [IO.File]::WriteAllText($preparationScript, @'
+param($StateFile, $AckFile, $EngineMarker, $Mode)
+[IO.File]::WriteAllText($StateFile, 'awaiting-approval')
+Start-Sleep -Milliseconds 150
+if ($Mode -eq 'cancel') { [IO.File]::WriteAllText($StateFile, 'cancelled'); exit 2 }
+[IO.File]::WriteAllText($StateFile, 'preparing-desktop')
+$waited = [Diagnostics.Stopwatch]::StartNew()
+while (!(Test-Path -LiteralPath $AckFile) -and $waited.Elapsed.TotalSeconds -lt 5) { Start-Sleep -Milliseconds 10 }
+if (!(Test-Path -LiteralPath $AckFile) -or [IO.File]::ReadAllText($AckFile) -cne 'ready') {
+    [IO.File]::WriteAllText($StateFile, 'failed'); exit 1
+}
+[IO.File]::WriteAllText($EngineMarker, 'started-after-ack')
+[IO.File]::WriteAllText($StateFile, 'done')
+exit 0
+'@)
+    foreach ($mode in @('approved', 'cancel', 'shutdown-failure')) {
+        $statePath = Join-Path $testRoot ("approval-$mode.state")
+        $ackPath = Join-Path $testRoot ("approval-$mode.ack")
+        $engineMarker = Join-Path $testRoot ("approval-$mode.engine")
+        $script:approvedStops = 0
+        $invokeApproval = {
+            Invoke-SetupProcess -FilePath $pwshPath -ArgumentList @('-NoProfile', '-File', $preparationScript, $statePath, $ackPath, $engineMarker, $mode) `
+                -StateFile $statePath -DesktopAckFile $ackPath -PollMilliseconds 10 -PrepareDesktop {
+                    if ([IO.File]::ReadAllText($statePath) -cne 'preparing-desktop' -or (Test-Path -LiteralPath $engineMarker)) {
+                        throw 'Desktop stop happened before approval or after installation'
+                    }
+                    $script:approvedStops++
+                    if ($mode -eq 'shutdown-failure') { throw 'Synthetic verified shutdown failure' }
+                }
+        }
+        if ($mode -eq 'shutdown-failure') {
+            Assert-Throws $invokeApproval 'Synthetic verified shutdown failure'
+        }
+        else {
+            $exit = & $invokeApproval
+            if ($exit -ne $(if ($mode -eq 'cancel') { 2 } else { 0 })) { throw "Approval child returned wrong exit for $mode" }
+        }
+        if ($approvedStops -ne $(if ($mode -eq 'cancel') { 0 } else { 1 }) -or
+            (Test-Path -LiteralPath $engineMarker) -ne ($mode -eq 'approved')) {
+            throw "Approval/stop/install ordering was violated for $mode"
+        }
+    }
+    Write-Host 'PASS: actual child waits for approved verified shutdown; cancellation and shutdown failure never start the engine.'
+
     # A real installer failure is still a failure, and is not confused with cancelling.
     # Model an arbitrary delay after cancellation without making the suite sleep.
     (Get-Item -LiteralPath (Join-Path $cancelTree 'publish/.dev-velopack/CycleArc-Setup.exe')).LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-2)
