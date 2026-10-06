@@ -2,6 +2,22 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Visible window zoom percentages (2026-10-06):
+  - Widget and detail headers reserve a compact muted percentage between −/+,
+    showing each window's own size relative to 100%. Buttons, keyboard shortcuts,
+    Ctrl 0, saved restoration and rebind keep the label and localized accessible
+    description current. Fixed label dimensions retain room at fractional DPI.
+  - Passed: .NET 10.0.401 Release solution build; 30 targeted zoom/account-identity unit tests;
+    967 production WPF zoom checks in EN/KO, Dark/Light, 80/100/150%, 1/3/5 accounts,
+    and injected 100/125/150/175/200% DPI. Inspected synthetic production captures
+    including the minimum-size single-account widget and full detail popup.
+    Evidence: `artifacts/zoom-percent`; eight current zoom previews in `docs/images`.
+    Integrated upstream UI reuse improvements through `e24fe9e`; final Release,
+    zoom checks and popup/row/avatar/tray reuse checks passed on the combined source.
+  - SDK/NuGet cache access and isolated temporary-file replacement required the
+    scoped checks outside the restricted sandbox. No installation, restart,
+    packaging, release or remote workflow was performed.
+
 - Manual full validation and release preparation policy (2026-10-06):
   - Removed push/PR events from `windows.yml`; all three Windows workflows are
     manual-only, with no indirect/scheduled/replacement CI. The full job body is

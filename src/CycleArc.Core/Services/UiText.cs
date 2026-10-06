@@ -311,6 +311,9 @@ public static class UiText
         T($"Zoom in · now {percent}% · Ctrl +", $"확대 · 현재 {percent}% · Ctrl +");
     public static string ZoomOutHint(int percent) =>
         T($"Zoom out · now {percent}% · Ctrl -", $"축소 · 현재 {percent}% · Ctrl -");
+    public static string ZoomSizeHint(int percent) =>
+        T($"{percent}% of original size · Ctrl + / Ctrl - · Ctrl 0 to reset",
+            $"원본 크기의 {percent}% · Ctrl + / Ctrl - · Ctrl 0으로 초기화");
     public static string ResetWindowSize => T("Reset size (100%)", "크기 초기화 (100%)");
     public static string ResetWidgetSize => T("Reset widget size (100%)", "위젯 크기 초기화 (100%)");
     public static string RefreshAllProgress => T("Refreshing...", "동기화 중...");

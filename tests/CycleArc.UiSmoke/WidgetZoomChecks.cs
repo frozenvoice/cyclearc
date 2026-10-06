@@ -67,7 +67,7 @@ internal static class WidgetZoomChecks
         }
 
         Console.WriteLine($"PASS: {count} independent window zoom checks; separate widget/flyout scales, "
-            + "buttons matching the keyboard, limits, header fit at 80/100/150% for 1/3/5 accounts, "
+            + "buttons matching the keyboard, visible original-size percentages, limits, header fit at 80/100/150% for 1/3/5 accounts, "
             + "magnifier recognition and clipping at injected 100/125/150/175/200% DPI, "
             + "real-window focus separation between a header click and an account click, and a "
             + "saved size surviving reload and recreation without being written back.");
@@ -85,6 +85,9 @@ internal static class WidgetZoomChecks
         var flyout = new FlyoutWindow { ShowActivated = false };
         try
         {
+            CheckZoomPercent(widget, FlyoutZoom.DefaultPercent);
+            CheckZoomPercent(flyout, FlyoutZoom.DefaultPercent);
+            checks++;
             var widgetChanges = new List<int>();
             var flyoutChanges = new List<int>();
             widget.ZoomChanged += percent => widgetChanges.Add(percent);
@@ -101,17 +104,23 @@ internal static class WidgetZoomChecks
             flyout.ApplyWindowSettings(new AppSettings { FlyoutZoomPercent = 130, WidgetZoomPercent = 90 });
             Check(widget.ZoomPercent == 90 && flyout.ZoomPercent == 130,
                 $"Restored sizes were not kept ({widget.ZoomPercent}/{flyout.ZoomPercent}).");
+            CheckZoomPercent(widget, 90);
+            CheckZoomPercent(flyout, 130);
             checks++;
 
             // A shortcut handled by one window moves that window only.
             Check(widget.TryHandleZoomShortcut(Key.OemPlus, ModifierKeys.Control), "The widget refused Ctrl +.");
             Check(widget.ZoomPercent == 100 && flyout.ZoomPercent == 130,
                 $"Zooming the widget moved the flyout ({widget.ZoomPercent}/{flyout.ZoomPercent}).");
+            CheckZoomPercent(widget, 100);
+            CheckZoomPercent(flyout, 130);
             checks++;
 
             Check(flyout.TryHandleZoomShortcut(Key.OemMinus, ModifierKeys.Control), "The flyout refused Ctrl -.");
             Check(flyout.ZoomPercent == 120 && widget.ZoomPercent == 100,
                 $"Zooming the flyout moved the widget ({widget.ZoomPercent}/{flyout.ZoomPercent}).");
+            CheckZoomPercent(flyout, 120);
+            CheckZoomPercent(widget, 100);
             checks++;
 
             // Each window reported only its own change.
@@ -123,16 +132,20 @@ internal static class WidgetZoomChecks
             // Numeric keypad, and Ctrl 0 resetting one window without touching the other.
             Check(widget.TryHandleZoomShortcut(Key.Add, ModifierKeys.Control) && widget.ZoomPercent == 110,
                 "The widget ignored the numeric-keypad plus.");
+            CheckZoomPercent(widget, 110);
             Check(widget.TryHandleZoomShortcut(Key.Subtract, ModifierKeys.Control) && widget.ZoomPercent == 100,
                 "The widget ignored the numeric-keypad minus.");
+            CheckZoomPercent(widget, 100);
             Check(flyout.TryHandleZoomShortcut(Key.NumPad0, ModifierKeys.Control)
                 && flyout.ZoomPercent == FlyoutZoom.DefaultPercent && widget.ZoomPercent == 100,
                 "Ctrl 0 on the flyout did not reset it alone.");
+            CheckZoomPercent(flyout, 100);
             checks++;
 
             // Shift is how '+' is typed on most layouts; the key is still OemPlus.
             Check(widget.TryHandleZoomShortcut(Key.OemPlus, ModifierKeys.Control | ModifierKeys.Shift)
                 && widget.ZoomPercent == 110, "Ctrl+Shift+'=' did not zoom the widget in.");
+            CheckZoomPercent(widget, 110);
             checks++;
 
             // Keystrokes that are not this shortcut are declined by both windows and change nothing.
@@ -167,13 +180,17 @@ internal static class WidgetZoomChecks
                 zoom(FlyoutZoom.MaxPercent);
                 shortcut(Key.OemPlus);
                 Check(get() == FlyoutZoom.MaxPercent, $"The {name} went past its maximum.");
+                CheckZoomPercent(name == "widget" ? widget : flyout, FlyoutZoom.MaxPercent);
                 shortcut(Key.D0);
                 Check(get() == FlyoutZoom.DefaultPercent, $"Ctrl 0 could not return the {name} from its maximum.");
+                CheckZoomPercent(name == "widget" ? widget : flyout, FlyoutZoom.DefaultPercent);
                 zoom(FlyoutZoom.MinPercent);
                 shortcut(Key.OemMinus);
                 Check(get() == FlyoutZoom.MinPercent, $"The {name} went past its minimum.");
+                CheckZoomPercent(name == "widget" ? widget : flyout, FlyoutZoom.MinPercent);
                 shortcut(Key.D0);
                 Check(get() == FlyoutZoom.DefaultPercent, $"Ctrl 0 could not return the {name} from its minimum.");
+                CheckZoomPercent(name == "widget" ? widget : flyout, FlyoutZoom.DefaultPercent);
                 checks++;
             }
 
@@ -192,8 +209,10 @@ internal static class WidgetZoomChecks
                 zoom(100);
                 zoomIn.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 Check(get() == 110, $"The {name} zoom-in button produced {get()}.");
+                CheckZoomPercent(host, 110);
                 zoomOut.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 Check(get() == 100, $"The {name} zoom-out button produced {get()}.");
+                CheckZoomPercent(host, 100);
                 checks++;
 
                 // Button and keyboard must land on the same value from the same start.
@@ -205,6 +224,7 @@ internal static class WidgetZoomChecks
                     ? widget.TryHandleZoomShortcut(Key.OemPlus, ModifierKeys.Control)
                     : flyout.TryHandleZoomShortcut(Key.OemPlus, ModifierKeys.Control), $"The {name} refused Ctrl +.");
                 Check(get() == byButton, $"The {name} button and keyboard disagree ({byButton} vs {get()}).");
+                CheckZoomPercent(host, byButton);
                 checks++;
 
                 zoom(FlyoutZoom.MaxPercent);
@@ -214,6 +234,7 @@ internal static class WidgetZoomChecks
                     $"The disabled {name} zoom-in button still accepts pointer input.");
                 zoom(FlyoutZoom.MinPercent);
                 Check(zoomIn.IsEnabled && !zoomOut.IsEnabled, $"The {name} zoom-out button stayed enabled at the minimum.");
+                CheckZoomPercent(host, FlyoutZoom.MinPercent);
                 Check(!zoomOut.IsHitTestVisible || !zoomOut.IsEnabled,
                     $"The disabled {name} zoom-out button still accepts pointer input.");
                 checks++;
@@ -268,6 +289,9 @@ internal static class WidgetZoomChecks
                     widget.SetZoom(percent, notify: false);
                     Layout(widget);
                     WidgetFixture.RenderWidget(widget, Path.Combine(directory, $"widget-zoom-{percent}-{suffix}.png"));
+                    flyout.ApplyWindowSettings(new AppSettings { FlyoutZoomPercent = percent });
+                    AccountUiChecks.Render(flyout, 440 * percent / 100.0, null,
+                        Path.Combine(directory, $"flyout-zoom-{percent}-{suffix}.png"));
                 }
             }
         }
@@ -289,7 +313,7 @@ internal static class WidgetZoomChecks
         var checks = 0;
         string[] order =
         [
-            "WidgetZoomOutButton", "WidgetZoomInButton", "WidgetRefreshButton",
+            "WidgetZoomOutButton", "WidgetZoomPercentText", "WidgetZoomInButton", "WidgetRefreshButton",
             "WidgetSettingsButton", "WidgetCloseButton",
         ];
         foreach (var accountCount in new[] { 1, 3, 5 })
@@ -303,20 +327,21 @@ internal static class WidgetZoomChecks
                 widget.SetZoom(percent, notify: false);
                 widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, Wide, Now);
                 Layout(widget);
+                CheckZoomPercent(widget, percent);
 
                 WidgetMultiAccountChecks.CheckAlignment(widget, $"{suffix}: {where}");
 
                 var header = (FrameworkElement)widget.FindName("WidgetHeader");
                 var boxes = order.Select(name =>
                 {
-                    var button = (Button)widget.FindName(name);
-                    return (name, button, box: button.TransformToAncestor(header)
-                        .TransformBounds(new Rect(button.RenderSize)));
+                    var control = (FrameworkElement)widget.FindName(name);
+                    return (name, control, box: control.TransformToAncestor(header)
+                        .TransformBounds(new Rect(control.RenderSize)));
                 }).ToArray();
 
-                foreach (var (name, button, box) in boxes)
+                foreach (var (name, control, box) in boxes)
                 {
-                    Check(button.Visibility == Visibility.Visible, $"{name} is not shown with {where}.");
+                    Check(control.Visibility == Visibility.Visible, $"{name} is not shown with {where}.");
                     Check(box.Width > 0 && box.Height > 0, $"{name} collapsed to nothing with {where}.");
                     Check(box.Left >= -0.1 && box.Top >= -0.1
                         && box.Right <= header.ActualWidth + 0.1 && box.Bottom <= header.ActualHeight + 0.1,
@@ -371,6 +396,7 @@ internal static class WidgetZoomChecks
             {
                 widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, Wide, Now);
                 flyout.BindAccounts(accounts, accounts[0].Profile.Id, false);
+                var percentWidths = new Dictionary<string, double>();
                 foreach (var percent in new[] { FlyoutZoom.MinPercent, 100, FlyoutZoom.MaxPercent })
                 {
                     widget.SetZoom(percent, notify: false);
@@ -391,6 +417,49 @@ internal static class WidgetZoomChecks
                     })
                     {
                         var header = (FrameworkElement)host.FindName(headerName);
+                        CheckZoomPercent(host, percent);
+                        var percentText = (TextBlock)host.FindName(prefix + "ZoomPercentText");
+                        var percentBox = percentText.TransformToAncestor(header)
+                            .TransformBounds(new Rect(percentText.RenderSize));
+                        var outButton = (Button)host.FindName(prefix + "ZoomOutButton");
+                        var inButton = (Button)host.FindName(prefix + "ZoomInButton");
+                        var outBox = outButton.TransformToAncestor(header)
+                            .TransformBounds(new Rect(outButton.RenderSize));
+                        var inBox = inButton.TransformToAncestor(header)
+                            .TransformBounds(new Rect(inButton.RenderSize));
+                        var percentContext = $"{suffix}/{prefix}/{percent}% zoom/{dpi * 100:0}% DPI";
+                        Check(Contains(new Rect(header.RenderSize), percentBox)
+                            && outBox.Right <= percentBox.Left + 0.1
+                            && percentBox.Right <= inBox.Left + 0.1,
+                            $"The zoom percentage is clipped or overlaps its controls ({percentContext}).");
+                        var formattingMode = TextOptions.GetTextFormattingMode(percentText);
+                        var textSize = new FormattedText(percentText.Text,
+                            System.Globalization.CultureInfo.CurrentUICulture, percentText.FlowDirection,
+                            new Typeface(percentText.FontFamily, percentText.FontStyle,
+                                percentText.FontWeight, percentText.FontStretch),
+                            percentText.FontSize, percentText.Foreground, null, formattingMode, dpi);
+                        Check(textSize.WidthIncludingTrailingWhitespace <= percentText.ActualWidth + 0.5
+                            && textSize.Height <= percentText.ActualHeight + 0.5,
+                            $"The zoom percentage text is clipped ({percentContext}); "
+                            + $"text={textSize.WidthIncludingTrailingWhitespace:0.###}x{textSize.Height:0.###}, "
+                            + $"label={percentText.ActualWidth:0.###}x{percentText.ActualHeight:0.###}, "
+                            + $"formatting={formattingMode}.");
+                        if (percentWidths.TryGetValue(prefix, out var previousWidth))
+                            Check(percentText.Width == previousWidth,
+                                $"The zoom percentage changed its reserved width ({percentContext}); "
+                                + $"declared={percentText.Width:0.###}, previous={previousWidth:0.###}, "
+                                + $"actual={percentText.ActualWidth:0.###}.");
+                        else percentWidths.Add(prefix, percentText.Width);
+                        // Layout rounding operates in physical pixels after app zoom and monitor DPI.
+                        // Compare the arrangement with its fixed reservation in child DIP, allowing
+                        // only one physical pixel of rounding rather than a constant DIP tolerance.
+                        var roundingDip = 1 / (dpi * percent / 100.0);
+                        Check(double.IsFinite(percentText.Width) && percentText.Width > 0
+                            && Math.Abs(percentText.ActualWidth - percentText.Width) <= roundingDip + 0.001,
+                            $"The zoom percentage arrangement differs from its reserved width ({percentContext}); "
+                            + $"declared={percentText.Width:0.###}, actual={percentText.ActualWidth:0.###}, "
+                            + $"one physical pixel={roundingDip:0.###} DIP.");
+                        checks++;
                         foreach (var zoomIn in new[] { false, true })
                         {
                             var action = zoomIn ? "In" : "Out";
@@ -595,6 +664,7 @@ internal static class WidgetZoomChecks
                 "Rebinding or a refresh pulled the keyboard to the widget.");
             Check(widget.ZoomPercent == chosen,
                 $"Rebinding changed the widget size from {chosen} to {widget.ZoomPercent}.");
+            CheckZoomPercent(widget, chosen);
             checks++;
         }
         finally
@@ -650,6 +720,7 @@ internal static class WidgetZoomChecks
             Pump();
             Check(controller.CurrentWindow?.ZoomPercent == 90,
                 $"The widget opened at {controller.CurrentWindow?.ZoomPercent} instead of the saved 90.");
+            CheckZoomPercent(controller.CurrentWindow!, 90);
             Check(reported.Count == 0, "Restoring a saved size was reported as a change.");
             checks++;
 
@@ -667,6 +738,7 @@ internal static class WidgetZoomChecks
             Pump();
             Check(controller.CurrentWindow?.ZoomPercent == 100,
                 $"A recreated widget opened at {controller.CurrentWindow?.ZoomPercent} instead of 100.");
+            CheckZoomPercent(controller.CurrentWindow!, 100);
             Check(reported.Count == 0, "Recreation reported a size change.");
             checks++;
 
@@ -679,6 +751,7 @@ internal static class WidgetZoomChecks
             Pump();
             Check(controller.CurrentWindow?.ZoomPercent == FlyoutZoom.DefaultPercent,
                 $"Older settings opened the widget at {controller.CurrentWindow?.ZoomPercent}.");
+            CheckZoomPercent(controller.CurrentWindow!, FlyoutZoom.DefaultPercent);
             Check(reported.Count == 0, "Opening older settings reported a size change.");
             checks++;
 
@@ -688,6 +761,7 @@ internal static class WidgetZoomChecks
             Pump();
             Check(controller.CurrentWindow?.ZoomPercent == FlyoutZoom.MaxPercent,
                 $"An out-of-range saved size opened at {controller.CurrentWindow?.ZoomPercent}.");
+            CheckZoomPercent(controller.CurrentWindow!, FlyoutZoom.MaxPercent);
             Check(reported.Count == 0, "Clamping a stored size reported it as a change.");
             checks++;
         }
@@ -773,6 +847,17 @@ internal static class WidgetZoomChecks
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static void CheckZoomPercent(Window host, int expected)
+    {
+        var prefix = host is FloatingWidget ? "Widget" : "Flyout";
+        var label = (TextBlock)host.FindName(prefix + "ZoomPercentText");
+        Check(label.Visibility == Visibility.Visible && label.Text == $"{expected}%",
+            $"The {prefix} zoom percentage does not show its current original-size ratio ({expected}%).");
+        var hint = UiText.ZoomSizeHint(expected);
+        Check(Equals(label.ToolTip, hint) && AutomationProperties.GetName(label) == hint,
+            $"The {prefix} zoom percentage hint/accessibility name is stale or not localized ({expected}%).");
     }
 
     private static CodexQuotaSnapshot Both(double fiveHourUsed, double weeklyUsed) =>

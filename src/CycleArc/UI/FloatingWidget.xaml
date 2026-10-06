@@ -81,6 +81,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Viewbox Width="15" Height="15" Stretch="Uniform" Margin="1,0,7,0">
@@ -103,24 +104,27 @@
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                           Data="M10.5,6 A4.5,4.5 0 1 1 1.5,6 A4.5,4.5 0 1 1 10.5,6 M9.3,9.3 L14,14 M3.75,6 L8.25,6"/>
                 </Button>
-                <Button x:Name="WidgetZoomInButton" Grid.Column="3" Style="{StaticResource WidgetIconButton}"
+                <TextBlock x:Name="WidgetZoomPercentText" Grid.Column="3" Text="100%" Width="34" Height="16" Margin="0,0,2,0"
+                           FontSize="10.5" TextAlignment="Center" VerticalAlignment="Center"
+                           Foreground="{DynamicResource MutedBrush}" Typography.NumeralAlignment="Tabular"/>
+                <Button x:Name="WidgetZoomInButton" Grid.Column="4" Style="{StaticResource WidgetIconButton}"
                         Click="OnZoomInClick" Margin="0,0,2,0">
                     <Path x:Name="WidgetZoomInIcon" Width="16" Height="16"
                           Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.4"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                           Data="M10.5,6 A4.5,4.5 0 1 1 1.5,6 A4.5,4.5 0 1 1 10.5,6 M9.3,9.3 L14,14 M3.75,6 L8.25,6 M6,3.75 L6,8.25"/>
                 </Button>
-                <Button x:Name="WidgetRefreshButton" Grid.Column="4" Style="{StaticResource WidgetIconButton}"
+                <Button x:Name="WidgetRefreshButton" Grid.Column="5" Style="{StaticResource WidgetIconButton}"
                         Click="OnRefreshClick" Margin="0,0,2,0">
                     <TextBlock x:Name="WidgetRefreshGlyph" Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="12"
                                Foreground="{DynamicResource MutedBrush}"/>
                 </Button>
-                <Button x:Name="WidgetSettingsButton" Grid.Column="5" Style="{StaticResource WidgetIconButton}"
+                <Button x:Name="WidgetSettingsButton" Grid.Column="6" Style="{StaticResource WidgetIconButton}"
                         Click="OnSettingsClick" Margin="0,0,2,0">
                     <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="12"
                                Foreground="{DynamicResource MutedBrush}"/>
                 </Button>
-                <Button x:Name="WidgetCloseButton" Grid.Column="6" Style="{StaticResource WidgetIconButton}"
+                <Button x:Name="WidgetCloseButton" Grid.Column="7" Style="{StaticResource WidgetIconButton}"
                         Click="OnCloseClick">
                     <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="12"
                                Foreground="{DynamicResource MutedBrush}"/>

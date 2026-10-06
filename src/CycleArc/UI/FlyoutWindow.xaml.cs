@@ -539,6 +539,7 @@ public partial class FlyoutWindow : Window
         ApplyPinGlyph();
         CloseFlyoutMenuItem.Header = UiText.Close;
         System.Windows.Automation.AutomationProperties.SetName(CloseFlyoutMenuItem, UiText.Close);
+        UpdateZoomPresentation();
     }
 
     public void PlaceNearTaskbar()
@@ -892,13 +893,16 @@ One credit will be consumed.",
 
     private void UpdateZoomPresentation()
     {
-        TitleText.ToolTip = UiText.T($"Size {ZoomPercent}% · Ctrl + / Ctrl - · Ctrl 0 to reset",
-            $"크기 {ZoomPercent}% · Ctrl + / Ctrl - · Ctrl 0으로 초기화");
+        TitleText.ToolTip = UiText.ZoomSizeHint(ZoomPercent);
         UpdateZoomControls();
     }
 
     private void UpdateZoomControls()
     {
+        FlyoutZoomPercentText.Text = $"{ZoomPercent}%";
+        var sizeHint = UiText.ZoomSizeHint(ZoomPercent);
+        FlyoutZoomPercentText.ToolTip = sizeHint;
+        System.Windows.Automation.AutomationProperties.SetName(FlyoutZoomPercentText, sizeHint);
         FlyoutZoomOutButton.IsEnabled = ZoomPercent > FlyoutZoom.MinPercent;
         FlyoutZoomInButton.IsEnabled = ZoomPercent < FlyoutZoom.MaxPercent;
         var zoomIn = UiText.ZoomInHint(ZoomPercent);

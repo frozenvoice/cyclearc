@@ -8,10 +8,24 @@ reset times and credits illustrate the layout; they do not promise specific plan
 Current overview, account/Claude detail, Cursor popup/widget, ring-band detail/widget,
 `widget.png` and the two guide settings previews are generated from the **0.10.0
 development source**. The published stable release checked on **2026-10-05** is **0.9.1**;
-these previews do not describe a newly published release. The window headers use
+these previews do not describe a newly published release. These guide captures precede
+the visible zoom-percentage addition below. The window headers use
 magnifying-glass −/+ zoom buttons. Their tooltips, accessibility names, shortcuts and
 independently saved 80–150% zoom remain unchanged. Missing/unknown/zero/failure credit
 states remain visible according to the existing presentation rules.
+
+The `zoom-percent-{widget,detail}-{en,ko}-{dark,light}.png` previews show the updated
+production headers at 100% with synthetic accounts. A muted, fixed-width percentage
+between −/+ shows each window's saved size relative to the original 100%; buttons,
+shortcuts and reset update it immediately. The localized tooltip explains the ratio.
+Reproduce the full 80/100/150% and DPI evidence after a Release build:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --widget-zoom artifacts/zoom-percent
+```
+
+![Zoom percentage in the Korean dark widget](zoom-percent-widget-ko-dark.png)
+![Zoom percentage in the Korean dark detail popup](zoom-percent-detail-ko-dark.png)
 
 The observed-history update refreshes these same 38 current guide previews. The detail
 header now keeps zoom, refresh and settings beside Window options; multi-account details

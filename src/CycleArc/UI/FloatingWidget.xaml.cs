@@ -42,6 +42,7 @@ public partial class FloatingWidget : Window
     public FloatingWidget()
     {
         InitializeComponent();
+        UpdateZoomControls();
         ShowActivated = false;
         ContentRendered += (_, _) =>
         {
@@ -121,6 +122,7 @@ public partial class FloatingWidget : Window
         IReadOnlyList<ScreenRect>? workAreas = null, DateTimeOffset? now = null)
     {
         Title = UiText.WidgetTitle;
+        UpdateZoomControls();
         var models = WidgetAccountModel.All(accounts, selectedId, preference, now);
         AccountCountText.Text = UiText.WidgetAccountsConnected(models.Count);
         ToolTip = UiText.ProductName + " · " + AccountCountText.Text;
@@ -482,6 +484,10 @@ public partial class FloatingWidget : Window
 
     private void UpdateZoomControls()
     {
+        WidgetZoomPercentText.Text = $"{ZoomPercent}%";
+        var sizeHint = UiText.ZoomSizeHint(ZoomPercent);
+        WidgetZoomPercentText.ToolTip = sizeHint;
+        System.Windows.Automation.AutomationProperties.SetName(WidgetZoomPercentText, sizeHint);
         WidgetZoomOutButton.IsEnabled = ZoomPercent > FlyoutZoom.MinPercent;
         WidgetZoomInButton.IsEnabled = ZoomPercent < FlyoutZoom.MaxPercent;
         var zoomIn = UiText.ZoomInHint(ZoomPercent);
