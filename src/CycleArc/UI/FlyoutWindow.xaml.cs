@@ -34,6 +34,7 @@ public partial class FlyoutWindow : Window
     public int ZoomPercent { get; private set; } = FlyoutZoom.DefaultPercent;
     public bool Pinned { get; private set; }
     private readonly RefreshIndicatorController _refreshIndicator = new();
+    private AnimationClock? _spinnerClock;
     private bool _refreshActive;
     private bool _bindingUsagePeriod;
     private bool _bindingAccountSelector;
@@ -480,14 +481,29 @@ public partial class FlyoutWindow : Window
             Duration = TimeSpan.FromSeconds(RefreshIndicatorController.DurationSeconds),
             RepeatBehavior = RepeatBehavior.Forever
         };
-        spinner.BeginAnimation(RotateTransform.AngleProperty, spin, HandoffBehavior.SnapshotAndReplace);
+        StopClock(ref _spinnerClock);
+        _spinnerClock = spin.CreateClock();
+        spinner.ApplyAnimationClock(RotateTransform.AngleProperty, _spinnerClock, HandoffBehavior.SnapshotAndReplace);
     }
 
     private void StopRefreshAnimations()
     {
         var spinner = LiveSpinnerRotate();
-        spinner.BeginAnimation(RotateTransform.AngleProperty, null);
+        StopClock(ref _spinnerClock);
+        spinner.ApplyAnimationClock(RotateTransform.AngleProperty, null);
         spinner.Angle = 0;
+    }
+
+    // Detaching a repeating clock from its property alone leaves it ticking every frame until
+    // a garbage collection; stopping and removing it ends that work as soon as motion ends.
+    internal static void StopClock(ref AnimationClock? clock)
+    {
+        if (clock?.Controller is { } controller)
+        {
+            controller.Stop();
+            controller.Remove();
+        }
+        clock = null;
     }
 
     private RotateTransform LiveSpinnerRotate()

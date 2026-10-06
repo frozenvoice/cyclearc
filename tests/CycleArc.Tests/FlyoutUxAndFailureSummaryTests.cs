@@ -186,7 +186,7 @@ public class FlyoutUxAndFailureSummaryTests
         Assert.DoesNotContain("PersistPosition", pin, StringComparison.Ordinal);
         Assert.DoesNotContain("CloseOnDeactivate", pin, StringComparison.Ordinal);
         Assert.Contains("Topmost = FlyoutWindowState.IsTopmost(Pinned)", Slice(code, "public void ApplyWindowSettings", "public void RestorePosition"), StringComparison.Ordinal);
-        Assert.Contains("BeginAnimation", code, StringComparison.Ordinal);
+        Assert.Contains("ApplyAnimationClock", code, StringComparison.Ordinal);
         Assert.Contains("RotateTransform.AngleProperty", code, StringComparison.Ordinal);
         Assert.DoesNotContain("TranslateTransform.XProperty", code, StringComparison.Ordinal);
         Assert.Contains("HandoffBehavior.SnapshotAndReplace", code, StringComparison.Ordinal);

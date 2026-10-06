@@ -30,6 +30,7 @@ internal static class UiReuseChecks
             CheckAccountRows(theme => applyTheme.Invoke(null, [theme]), theme);
             CheckWidgetAvatars();
             CheckTrayIcons();
+            CheckAnimationClocks();
             CheckHiddenPopup(app);
         }
         UiText.SetLanguage(UiLanguage.English);
@@ -152,6 +153,61 @@ internal static class UiReuseChecks
                 && ((TextBlock)((Border)next[1]).Child).Text == "OM", "The widget did not redraw only the renamed avatar.");
         }
         finally { widget.Close(); }
+    }
+
+    // A finished spinner must stop its repeating clock, not only detach it: a detached clock
+    // keeps ticking every frame until a garbage collection happens to collect it.
+    private static void CheckAnimationClocks()
+    {
+        var flyout = new FlyoutWindow { ShowActivated = false, Left = 40, Top = 40 };
+        var widget = new FloatingWidget { ShowActivated = false, Left = 40, Top = 40 };
+        try
+        {
+            flyout.Show();
+            var spinner = typeof(FlyoutWindow).GetField("_spinnerClock", PrivateInstance)!;
+            flyout.SetRefreshPresentation(new FlyoutRefreshPresentation(false, true, "refreshing")); Pump();
+            var running = (System.Windows.Media.Animation.AnimationClock?)spinner.GetValue(flyout);
+            Require(running is { CurrentState: System.Windows.Media.Animation.ClockState.Active } && flyout.RefreshIndicator.IsAnimating,
+                "The popup refresh spinner did not run while refreshing.");
+            flyout.SetRefreshPresentation(new FlyoutRefreshPresentation(true, false, "")); Pump();
+            Require(running.CurrentState == System.Windows.Media.Animation.ClockState.Stopped && spinner.GetValue(flyout) is null,
+                "The popup refresh spinner kept its clock running after refresh.");
+            flyout.SetRefreshPresentation(new FlyoutRefreshPresentation(false, true, "refreshing")); Pump();
+            running = (System.Windows.Media.Animation.AnimationClock?)spinner.GetValue(flyout);
+            flyout.Hide(); Pump();
+            Require(running!.CurrentState == System.Windows.Media.Animation.ClockState.Stopped,
+                "Hiding the popup kept its refresh spinner clock running.");
+
+            widget.Show();
+            var status = typeof(WidgetAccountModuleView).GetField("_statusClock", PrivateInstance)!;
+            var accounts = Accounts(2);
+            accounts[0] = accounts[0] with { Snapshot = accounts[0].Snapshot with { Status = CodexQuotaStatus.Refreshing } };
+            widget.BindAccounts(accounts, accounts[0].Profile.Id);
+            Pump();
+            widget.BindAccounts(accounts, accounts[0].Profile.Id);
+            Pump();
+            var active = (System.Windows.Media.Animation.AnimationClock?)status.GetValue(widget.Modules[0]);
+            Require(widget.Modules[0].StatusActivityIcon.Visibility != Visibility.Visible
+                || active is { CurrentState: System.Windows.Media.Animation.ClockState.Active },
+                "The widget activity icon is shown without its rotation.");
+            accounts[0] = accounts[0] with { Snapshot = Snapshot(12) };
+            widget.BindAccounts(accounts, accounts[0].Profile.Id);
+            Pump();
+            Require(status.GetValue(widget.Modules[0]) is null
+                && (active is null || active.CurrentState == System.Windows.Media.Animation.ClockState.Stopped),
+                "The widget activity rotation kept its clock running after refresh.");
+        }
+        finally { flyout.Close(); widget.Close(); }
+    }
+
+    // Lets WPF lay out, render and advance animation clocks for a few frames.
+    private static void Pump(int milliseconds = 150)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(milliseconds) };
+        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
     }
 
     private static void CheckTrayIcons()

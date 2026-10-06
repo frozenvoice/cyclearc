@@ -47,7 +47,9 @@ public class FlyoutRefreshAndLocalizationTests
         Assert.Contains("RefreshIndicatorController", flyoutCode, StringComparison.Ordinal);
         Assert.Contains("RepeatBehavior.Forever", flyoutCode, StringComparison.Ordinal);
         Assert.Contains("RefreshSpinnerRotate", flyoutCode, StringComparison.Ordinal);
-        Assert.Contains("BeginAnimation", flyoutCode, StringComparison.Ordinal);
+        Assert.Contains("ApplyAnimationClock", flyoutCode, StringComparison.Ordinal);
+        // A finished spinner stops its repeating clock instead of leaving it to tick until a GC.
+        Assert.Contains("controller.Stop();", flyoutCode, StringComparison.Ordinal);
         Assert.Contains("HandoffBehavior.SnapshotAndReplace", flyoutCode, StringComparison.Ordinal);
         Assert.DoesNotContain("Storyboard.SetTarget", flyoutCode, StringComparison.Ordinal);
         Assert.DoesNotContain("EnsureRefreshStoryboard", flyoutCode, StringComparison.Ordinal);
