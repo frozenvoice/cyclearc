@@ -196,7 +196,7 @@ try {
     $preflightTree = Join-Path $testRoot 'prerequisite integration'
     New-GitCycleArcTree $preflightTree
     $forbiddenOperation = { throw 'Unexpected build, desktop stop or CycleArc Setup invocation' }
-    foreach ($preflightStatus in @('Cancelled', 'Manual', 'RebootRequired')) {
+    foreach ($preflightStatus in @('Cancelled', 'Manual', 'RebootRequired', 'PolicyBlocked')) {
         $earlyResult = Invoke-BuildLocal -RepoRoot $preflightTree -PrerequisitePreflight {
             param($root, $noPrompt, $silent)
             [pscustomobject]@{ Status = $preflightStatus }
@@ -206,7 +206,14 @@ try {
             throw "Prerequisite outcome $preflightStatus did not stop before the build"
         }
     }
-    Write-Host 'PASS: prerequisite cancellation, manual guidance and reboot never build, stop or install CycleArc.'
+    Write-Host 'PASS: prerequisite cancellation, manual guidance, policy block and reboot never build, stop or install CycleArc.'
+
+    $manualResult = Invoke-BuildLocal -RepoRoot $preflightTree -ManualPrerequisites -PrerequisitePreflight {
+        param($root, $noPrompt, $silent, $manual)
+        if (!$manual) { throw 'The build entry point lost explicit manual prerequisite mode' }
+        [pscustomobject]@{ Status = 'Manual' }
+    } -DevRun $forbiddenOperation -StopDesktop $forbiddenOperation -RunSetup $forbiddenOperation -StartLauncher $forbiddenOperation
+    if ($manualResult.PrerequisiteStatus -ne 'Manual' -or $manualResult.Built) { throw 'Manual prerequisite guidance must return before building' }
 
     foreach ($suppression in @(@{ NoPrerequisitePrompt = $true }, @{ SilentInstall = $true })) {
         $script:observedSuppression = $null
@@ -240,6 +247,35 @@ try {
     }
     if (Test-Path -LiteralPath $preflightMarker) { throw 'A successful run retained a stale preflight failure marker' }
     Write-Host 'PASS: a ready toolchain continues the build and clears a previous failure marker.'
+
+    # Real coordinator -> real build entry, with isolated tools and package adapters.
+    # Model SDK 8 only, both with ready C++ tools and with missing C++ tools.
+    foreach ($missingVc in @($false, $true)) {
+        $script:automaticSdkReady = $false; $script:automaticVcReady = !$missingVc; $script:automaticInstalls = @()
+        $automaticResult = Invoke-BuildLocal -RepoRoot $preflightTree -NoInstall -PrerequisitePreflight {
+            param($root, $noPrompt, $silent, $manual)
+            Invoke-CycleArcBuildPrerequisites -RepoRoot $root -NoPrompt:$noPrompt -SilentInstall:$silent -ManualPrerequisites:$manual `
+                -InteractiveProbe { $true } -PathEnabler { $true } -StateResolver {
+                    [pscustomobject]@{
+                        Status = $(if ($script:automaticSdkReady -and $script:automaticVcReady) { 'Ready' } else { 'Missing' })
+                        Components = @([pscustomobject]@{ Name='DotNetSdk'; Label='.NET 10 SDK'; Status=$(if ($script:automaticSdkReady) {'Ready'} else {'Missing'}) })
+                        DotNetSdk = [pscustomobject]@{ Status=$(if ($script:automaticSdkReady) {'Ready'} else {'Missing'}); MinimumVersion='10.0.100'; Selected=$(if ($script:automaticSdkReady) {'10.0.401'} else {$null}); Installed=@('8.0.424') }
+                        Toolchain = [pscustomobject]@{ Ok=$script:automaticVcReady }
+                    }
+                } -PowerShellInstaller { throw 'PowerShell is already ready' } -SdkInstaller {
+                    $script:automaticInstalls += 'SDK'; $script:automaticSdkReady = $true; [pscustomobject]@{Status='Ready'}
+                } -ToolchainInstaller {
+                    if (!$script:automaticSdkReady) { throw 'C++ started before SDK readiness' }
+                    $script:automaticInstalls += 'C++'; $script:automaticVcReady = $true; [pscustomobject]@{Status='Ready'}
+                }
+        } -DevRun {
+            if (!$script:automaticSdkReady -or !$script:automaticVcReady) { throw 'Build started before prerequisites were ready' }
+            New-FakePublished $preflightTree 'automatic-publish' 'automatic-setup' | Out-Null
+        } -StopDesktop $forbiddenOperation -RunSetup $forbiddenOperation -StartLauncher $forbiddenOperation
+        $expectedInstalls = if ($missingVc) { 'SDK,C++' } else { 'SDK' }
+        if (!$automaticResult.SetupPath -or ($automaticInstalls -join ',') -ne $expectedInstalls) { throw 'Automatic preparation did not continue building in the same invocation' }
+    }
+    Write-Host 'PASS: SDK8-only with ready/missing C++ prepares sequentially and continues the same build invocation without a prerequisite menu.'
 
     # Drive the actual CMD wrapper with a synthetic entry point and the real reporter.
     if ($IsWindows) {
@@ -292,6 +328,53 @@ exit 0
         finally { $cmdChild.Dispose() }
         Write-Host 'PASS: real CMD failure records preflight once, preserves exit 1 and never waits on redirected stdin.'
     }
+
+    # Execute the production CLI tail with a fake preflight even when its console
+    # probe says interactive. Errors must exit, never request an extra closing input.
+    $cliTree = Join-Path $testRoot 'cli prerequisite outcomes'
+    New-Item -ItemType Directory -Path $cliTree | Out-Null
+    Set-Content -LiteralPath (Join-Path $cliTree 'LocalInstall.ps1') -Value '# isolated CLI fixture'
+    $cliHeader = @'
+param([string]$Outcome, [switch]$ManualPrerequisites)
+$Fast=$false; $NoInstall=$false; $SilentInstall=$false; $NoPrerequisitePrompt=$false; $LoadOnly=$false
+function Get-BuildLocalRepoRoot { $PSScriptRoot }
+function Get-BuildLocalStage { 'preflight' }
+function Test-SetupUiPrerequisiteInteractive { $true }
+function Read-Host { Set-Content -LiteralPath (Join-Path $PSScriptRoot 'unexpected-input') -Value 'input attempted'; throw 'Unexpected input' }
+function Invoke-BuildLocal {
+    if ($Outcome -eq 'Throw') { throw 'isolated prerequisite probe failure' }
+    [pscustomobject]@{ PrerequisiteStatus=$Outcome; Built=$false }
+}
+'@
+    $cliTailStart = $scriptText.LastIndexOf('if (!$LoadOnly -and $MyInvocation.InvocationName -ne ''.'') {', [StringComparison]::Ordinal)
+    if ($cliTailStart -lt 0) { throw 'Could not locate the production build-local CLI entry point' }
+    $cliPath = Join-Path $cliTree 'Build-Local.ps1'
+    Set-Content -LiteralPath $cliPath -Value ($cliHeader + "`n" + $scriptText.Substring($cliTailStart)) -Encoding utf8
+    foreach ($cliCase in @(
+        @{Outcome='Cancelled';Manual=$false;Exit=1}, @{Outcome='PolicyBlocked';Manual=$false;Exit=1},
+        @{Outcome='RebootRequired';Manual=$false;Exit=1}, @{Outcome='Throw';Manual=$false;Exit=1},
+        @{Outcome='Manual';Manual=$true;Exit=0}, @{Outcome='Throw';Manual=$true;Exit=1}
+    )) {
+        $cliStart = [Diagnostics.ProcessStartInfo]::new((Get-Command pwsh).Source)
+        $cliStart.ArgumentList.Add('-NoProfile'); $cliStart.ArgumentList.Add('-File'); $cliStart.ArgumentList.Add($cliPath)
+        $cliStart.ArgumentList.Add('-Outcome'); $cliStart.ArgumentList.Add($cliCase.Outcome)
+        if ($cliCase.Manual) { $cliStart.ArgumentList.Add('-ManualPrerequisites') }
+        $cliStart.Environment['CYCLEARC_BUILD_LOCAL_CMD']='1'
+        $cliStart.UseShellExecute=$false; $cliStart.CreateNoWindow=$true
+        $cliStart.RedirectStandardInput=$true; $cliStart.RedirectStandardOutput=$true; $cliStart.RedirectStandardError=$true
+        $cliChild=[Diagnostics.Process]::Start($cliStart)
+        try {
+            $cliChild.StandardInput.Close()
+            $cliOut=$cliChild.StandardOutput.ReadToEndAsync(); $cliErr=$cliChild.StandardError.ReadToEndAsync()
+            if (!$cliChild.WaitForExit(15000)) { $cliChild.Kill($true); throw 'Prerequisite CLI waited for input' }
+            $cliOutput=$cliOut.GetAwaiter().GetResult() + $cliErr.GetAwaiter().GetResult()
+            if ($cliChild.ExitCode -ne $cliCase.Exit -or (Test-Path -LiteralPath (Join-Path $cliTree 'unexpected-input'))) {
+                throw "Prerequisite CLI outcome $($cliCase.Outcome) exit/input mismatch: $cliOutput"
+            }
+        }
+        finally { $cliChild.Dispose() }
+    }
+    Write-Host 'PASS: production CLI prerequisite/manual outcomes and probe failures preserve exit codes without closing-input prompts.'
 
 
     # PowerShell variable names are case-insensitive, so a local spelled like a

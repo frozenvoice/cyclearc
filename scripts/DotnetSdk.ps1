@@ -188,8 +188,8 @@ function Resolve-CycleArcDotnetSdkInstaller {
 }
 
 function Invoke-CycleArcDotnetSdkInstall {
-    # The coordinator owns consent. This function never prompts, bypasses policy or
-    # removes an existing SDK; Microsoft's installer adds the stable SDK alongside it.
+    # The coordinator owns prerequisite preparation. This function never prompts,
+    # bypasses policy or removes an existing SDK; Microsoft's installer adds alongside it.
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [scriptblock]$Resolver,
@@ -223,12 +223,15 @@ function Invoke-CycleArcDotnetSdkInstall {
         if (!$temporaryDirectory -or !(Test-Path -LiteralPath $temporaryDirectory -PathType Container)) { throw 'Could not create a unique temporary directory for the .NET SDK installer.' }
         $installer = Join-Path $temporaryDirectory ("dotnet-sdk-{0}-win-x64.exe" -f $release.Version)
         if (!(Test-SetupUiTempChildPath -Root $temporaryDirectory -Path $installer) -or (Test-Path -LiteralPath $installer)) { throw 'Refusing to reuse an existing .NET SDK installer.' }
+        Write-Host 'Downloading official Microsoft .NET SDK installer...'
         try { & $Downloader $release.Uri $installer }
         catch { throw 'The official .NET SDK installer download failed. Check network access or company IT policy, then retry.' }
         if (!(Test-Path -LiteralPath $installer -PathType Leaf) -or (Get-FileHash -LiteralPath $installer -Algorithm SHA512).Hash -ne $release.Hash) {
             throw 'The .NET SDK installer failed its official SHA-512 check. It was not executed.'
         }
         if (!(& $SignatureValidator $installer)) { throw 'The .NET SDK installer failed Microsoft Corporation Authenticode validation. It was not executed.' }
+        Write-Host 'Signature verified: Microsoft Corporation'
+        Write-Host 'Installing .NET SDK...'
         try { $result = & $ProcessRunner $installer @('/install', '/passive', '/norestart') }
         catch {
             $nativeCode = Get-SetupUiNativeErrorCode $_.Exception
@@ -247,8 +250,9 @@ function Invoke-CycleArcDotnetSdkInstall {
         if ($code -in @(5, 1260, 1625)) { return [pscustomobject]@{ Status = 'PolicyBlocked'; State = $initial; Reason = 'Administrator or company IT approval is required.'; ExitCode = $exit } }
         if ($exit -ne 0) { throw "The .NET SDK installer failed (exit $exit). Check network access, other running installers or company IT policy." }
         Enable-CycleArcDotnetHost -Path (Resolve-CycleArcDotnetHost)
+        Write-Host 'Rechecking .NET SDK...'
         $verified = & $Resolver $RepoRoot
-        if (!$verified -or $verified.Status -ne 'Ready') { throw 'The installer completed, but this checkout still cannot select a stable .NET 10 SDK. Restart the console or ask company IT to repair the SDK installation.' }
+        if (!$verified -or $verified.Status -ne 'Ready') { throw 'The installer completed, but this checkout still cannot select a stable .NET 10 SDK. No build was started. Ask company IT to repair the SDK installation.' }
         Enable-CycleArcDotnetHost -Path (Get-CycleArcSdkProperty $verified 'DotnetPath')
         [pscustomobject]@{ Status = 'Ready'; State = $verified; Reason = $null; ExitCode = 0 }
     }

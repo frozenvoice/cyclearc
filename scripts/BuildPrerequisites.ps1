@@ -63,12 +63,12 @@ function Write-CycleArcBuildManualInstructions {
 function Invoke-CycleArcBuildPrerequisites {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [switch]$NoPrompt, [switch]$SilentInstall,
-        [scriptblock]$StateResolver, [scriptblock]$InteractiveProbe, [scriptblock]$Interaction,
+        [switch]$ManualPrerequisites,
+        [scriptblock]$StateResolver, [scriptblock]$InteractiveProbe,
         [scriptblock]$PowerShellInstaller, [scriptblock]$SdkInstaller, [scriptblock]$ToolchainInstaller,
         [scriptblock]$PathEnabler)
     if (!$StateResolver) { $StateResolver = { param($root) Get-CycleArcBuildPrerequisiteState -RepoRoot $root } }
     if (!$InteractiveProbe) { $InteractiveProbe = { Test-SetupUiPrerequisiteInteractive } }
-    if (!$Interaction) { $Interaction = { Read-Host 'Choose 1, 2 or 3' } }
     if (!$PowerShellInstaller) { $PowerShellInstaller = { Invoke-CycleArcPowerShellInstall } }
     if (!$SdkInstaller) { $SdkInstaller = { param($root) Invoke-CycleArcDotnetSdkInstall -RepoRoot $root } }
     if (!$ToolchainInstaller) { $ToolchainInstaller = { param($root) Invoke-SetupUiPrerequisitePreflight -RepoRoot $root -Approved } }
@@ -80,17 +80,22 @@ function Invoke-CycleArcBuildPrerequisites {
     if (!$state) { throw 'Build prerequisite probe returned no state.' }
     Write-CycleArcBuildPrerequisiteState $state
     $state | ConvertTo-Json -Depth 8 | Add-Content -LiteralPath $diagnosticPath -Encoding UTF8
+    if ($ManualPrerequisites) {
+        Write-CycleArcBuildManualInstructions
+        return [pscustomobject]@{ Status = 'Manual'; State = $state }
+    }
     if ($state.Status -ne 'Ready') {
         if ($NoPrompt -or $SilentInstall -or !(& $InteractiveProbe)) {
             Write-CycleArcBuildManualInstructions
             throw 'Build prerequisites are missing in a non-interactive invocation. Automatic installation is disabled.'
         }
-        Write-Host '[1] Install/repair all missing prerequisites automatically'
-        Write-Host '[2] Show manual instructions'
-        Write-Host '[3] Cancel'
-        $choice = ([string](& $Interaction $state)).Trim()
-        if ($choice -eq '2') { Write-CycleArcBuildManualInstructions; return [pscustomobject]@{ Status = 'Manual'; State = $state } }
-        if ($choice -ne '1') { return [pscustomobject]@{ Status = 'Cancelled'; State = $state } }
+        # Direct interactive build-local execution authorizes preparing official tools.
+        # A pending reboot cannot be repaired by starting another installer.
+        if (@($state.Components | Where-Object Status -eq 'RebootRequired').Count -gt 0) {
+            Write-Host 'The build environment requires a Windows reboot. Reboot, then run build-local.cmd again.'
+            Write-Host 'CycleArc was not built, stopped or installed. Existing CycleArc installation is unchanged.'
+            return [pscustomobject]@{ Status = 'RebootRequired'; State = $state }
+        }
         foreach ($step in @(
             [pscustomobject]@{ Name = 'PowerShell'; Label = 'PowerShell 7'; Install = $PowerShellInstaller },
             [pscustomobject]@{ Name = 'DotNetSdk'; Label = '.NET 10 SDK'; Install = $SdkInstaller },
@@ -101,11 +106,13 @@ function Invoke-CycleArcBuildPrerequisites {
             }
             if (!$needed) { continue }
             try {
-                Write-Host ('Preparing {0}...' -f $step.Label)
+                Write-Host ('Installing/repairing missing prerequisite: {0}...' -f $step.Label)
                 $result = & $step.Install $RepoRoot
                 [pscustomobject]@{ Tool = $step.Label; Result = $result } | ConvertTo-Json -Depth 8 | Add-Content -LiteralPath $diagnosticPath -Encoding UTF8
                 # Installer exit alone never establishes readiness. Reprobe after every tool.
+                Write-Host 'Rechecking build prerequisites...'
                 $state = & $StateResolver $RepoRoot
+                if (!$state) { throw 'Build prerequisite probe returned no state after installation.' }
                 $state | ConvertTo-Json -Depth 8 | Add-Content -LiteralPath $diagnosticPath -Encoding UTF8
                 if (!$result -or $result.Status -ne 'Ready') {
                     $status = if ($result) { $result.Status } else { 'Unknown' }
@@ -123,6 +130,8 @@ function Invoke-CycleArcBuildPrerequisites {
                     @($state.Components | Where-Object { $_.Name -eq $step.Name -and $_.Status -ne 'Ready' }).Count -gt 0
                 }
                 if ($stillMissing) { throw 'The installer completed but actual prerequisite files/commands are still missing.' }
+                $version = if ($step.Name -eq 'DotNetSdk') { ' ' + $state.DotNetSdk.Selected } else { '' }
+                Write-Host ('  [OK] {0}{1}' -f $step.Label, $version)
             }
             catch {
                 $_ | Out-String | Add-Content -LiteralPath $diagnosticPath -Encoding UTF8
@@ -138,7 +147,7 @@ function Invoke-CycleArcBuildPrerequisites {
     if ($powerShellPath) { $env:PATH = (Split-Path -Parent $powerShellPath) + [IO.Path]::PathSeparator + $env:PATH }
     Enable-CycleArcDotnetHost -Path ([string](Get-SetupUiProperty $state.DotNetSdk 'DotnetPath'))
     if (!(& $PathEnabler)) { throw 'vswhere.exe could not be enabled for the Native AOT build.' }
-    Write-CycleArcBuildPrerequisiteState $state
-    Write-Host 'Build environment is ready. Continuing CycleArc build...'
+    Write-Host 'Build environment is ready.'
+    Write-Host 'Continuing CycleArc build...'
     [pscustomobject]@{ Status = 'Ready'; State = $state }
 }
