@@ -269,6 +269,20 @@
     in **1m29s**; evidence is in `artifacts/observed-trends/test-results-ci-fix` and
     `ci-fix/full-unit.log`. The failed SHA was not retried unchanged.
 
+- UI reuse residual questions (2026-10-06):
+  - Widget-visible CPU was not a UI-thread regression (cycle counts); handles were
+    temporary thread-pool threads that plateau over 50 cycles. Reopen after a hidden
+    selection change now binds once at idle; a hidden widget stops its activity rotation.
+    [Results](IDLE-MEMORY.md#residual-performance-questions-2026-10-06).
+  - Local checks on `e83c6e2`: `dev-run.ps1 -DevelopmentOnly` 2,077/2,077; full default
+    UiSmoke exit 0 on the second run (the first failed once in widget recovery when the
+    foreground window changed to another app; `--widget-recovery` then passed twice).
+    New `--ui-reuse` checks: clock reuse/stop/resume, idle selection bind and a 40-cycle
+    reopen/switch stress; mutations removing the visibility condition or the idle bind
+    were each caught. 767/805 previews identical, the rest differ only in clock digits.
+  - Not run: full `-NoLaunch` gate, packaging/install, `--desktop-instance`, installed-app
+    or real-account measurement.
+
 - UI reuse memory change (2026-10-06):
   - Hidden popup no longer rebuilt on snapshot changes (bound before `Show()`, and
     while hidden only for removed, other-email or newly protected accounts); account
