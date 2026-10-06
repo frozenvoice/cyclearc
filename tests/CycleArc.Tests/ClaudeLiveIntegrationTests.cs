@@ -343,10 +343,11 @@ public sealed class ClaudeLiveIntegrationTests
             return manager;
         }
 
-        public async ValueTask DisposeAsync()
+        public ValueTask DisposeAsync()
         {
-            foreach (var manager in _managers) await AccountTestDirectory.StopManagerAsync(manager);
+            Assert.All(_managers, manager => Assert.False(manager.Refresh.IsRefreshing));
             if (Directory.Exists(Root)) Directory.Delete(Root, true);
+            return ValueTask.CompletedTask;
         }
     }
 }

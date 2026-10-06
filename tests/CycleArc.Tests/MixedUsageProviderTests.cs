@@ -82,7 +82,6 @@ public class MixedUsageProviderTests
         manager.Select(second.Id);
         Assert.True(manager.Move(second.Id, -1));
         Assert.Equal(second.Id, manager.SelectedId);
-        await AccountTestDirectory.StopManagerAsync(manager);
         var restarted = data.TrackManager(new CodexAccountManager(store, data.Root, Providers()));
         Assert.Equal(second.Id, restarted.SelectedId);
         Assert.Equal(new[] { "default", second.Id, first.Id }, restarted.Accounts.Select(a => a.Profile.Id));

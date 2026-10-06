@@ -100,12 +100,17 @@ internal static class Program
                 return 0;
             }
             if (args is ["--updates"]) { UpdateUiChecks.Run(); return 0; }
-            if (args is ["--observed-trends"] or ["--observed-trends", _])
+            if (args is ["--observation-removal"] or ["--observation-removal", _])
             {
-                ObservedTrendUiChecks.Run(args.Length == 2 ? args[1] : null);
+                ObservationRemovalUiChecks.Run(args.Length == 2 ? args[1] : null);
                 return 0;
             }
-            if (args.Length == 0) ObservedTrendUiChecks.Run();
+            if (args is ["--observation-removal-baseline", var baselineDirectory])
+            {
+                ObservationRemovalUiChecks.Run(baselineDirectory, baseline: true);
+                return 0;
+            }
+            if (args.Length == 0) ObservationRemovalUiChecks.Run();
             if (args.Length == 0) DesktopInstanceProcessChecks.RunUiChecks();
             if (args is ["--tray-icons", var trayDirectory])
             {

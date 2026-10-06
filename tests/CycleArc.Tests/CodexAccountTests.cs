@@ -234,20 +234,11 @@ internal sealed class AccountTestDirectory : IDisposable, IAsyncDisposable
         return manager;
     }
 
-    public static async Task StopManagerAsync(CodexAccountManager manager)
+    public ValueTask DisposeAsync()
     {
-        await manager.StopObservationsAsync(TimeSpan.FromSeconds(5));
-        // Stop preserves quota behavior on optional-storage failure. A fixture may
-        // delete its root only after its background writer has actually finished.
-        var idle = manager.WaitForObservationsIdleAsync();
-        Assert.True(idle.IsCompletedSuccessfully, "Observation writer did not stop before fixture cleanup.");
-        await idle;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        foreach (var manager in _managers) await StopManagerAsync(manager);
+        Assert.All(_managers, manager => Assert.False(manager.Refresh.IsRefreshing));
         Directory.Delete(Root, true);
+        return ValueTask.CompletedTask;
     }
 
     public void Dispose()

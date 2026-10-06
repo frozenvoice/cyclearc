@@ -406,7 +406,7 @@ internal static class WidgetStatusRowChecks
         Check(module.Periods.All(line => line.RemainingText.Text.Length > 0),
             label + " lost a visible quota value.");
         var content = (FrameworkElement)widget.Content;
-        CursorWidgetSummaryChecks.CheckTrend(module, snapshot, label);
+        ObservationRemovalUiChecks.AssertNoTrend(module, label);
         var moduleBounds = module.TransformToAncestor(content).TransformBounds(new Rect(module.RenderSize));
         Check(moduleBounds.Right <= content.ActualWidth + 1 && moduleBounds.Bottom <= content.ActualHeight + 1,
             label + " is clipped by the widget layout.");
@@ -420,9 +420,7 @@ internal static class WidgetStatusRowChecks
         content.UpdateLayout();
         widget.Relayout(WidgetFixture.Desktop);
         WidgetFixture.RenderWidget(widget, null);
-        // Status compactness applies to the original identity/quota body. The selected
-        // account's separate observed row has its own measured size and clipping checks.
-        return module.DesiredSize.Height - CursorWidgetSummaryChecks.VisibleTrendContribution(module);
+        return module.DesiredSize.Height;
     }
 
     private static double MeasureWithStatusVisible(FloatingWidget widget, WidgetAccountModuleView module)

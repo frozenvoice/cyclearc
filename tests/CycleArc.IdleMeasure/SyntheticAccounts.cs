@@ -117,19 +117,12 @@ internal sealed class SyntheticAccounts : IAsyncDisposable
         AssertLatestAndIsolation();
     }
 
-    public FixtureCounters CaptureCounters()
-    {
-        var observations = Manager.ObservationStatistics;
-        return new(
+    public FixtureCounters CaptureCounters() => new(
         Interlocked.Read(ref _codexStarts), Interlocked.Read(ref _codexQuotaRequests),
         Interlocked.Read(ref _claudeLiveRequests), Interlocked.Read(ref _cursorUsageRequests),
         Interlocked.Read(ref _cursorHttpRequests), Interlocked.Read(ref _claudeAuthCalls),
         Interlocked.Read(ref _claudeHistoryReadCalls), Interlocked.Read(ref _changed),
-        Interlocked.Read(ref _syntheticRequestTicks) * 1000.0 / Stopwatch.Frequency,
-        observations.AcceptedSnapshots, observations.IgnoredSnapshots, observations.LoadAttempts,
-        observations.SaveAttempts, observations.SavedFiles, observations.EpochWrites,
-        observations.Failures, observations.PublishedRevisions);
-    }
+        Interlocked.Read(ref _syntheticRequestTicks) * 1000.0 / Stopwatch.Frequency);
 
     public async Task PublishPassiveUpdateAsync(CancellationToken token = default)
     {
@@ -371,7 +364,4 @@ internal sealed class SyntheticAccounts : IAsyncDisposable
 
 internal sealed record FixtureCounters(long CodexStarts, long CodexQuotaRequests, long ClaudeLiveRequests,
     long CursorUsageRequests, long CursorHttpRequests, long ClaudeAuthCalls, long ClaudeHistoryReadCalls,
-    long Changed, double SyntheticRequestMilliseconds,
-    long ObservationAcceptedSnapshots, long ObservationIgnoredSnapshots, long ObservationLoadAttempts,
-    long ObservationSaveAttempts, long ObservationSavedFiles, long ObservationEpochWrites,
-    long ObservationFailures, long ObservationPublishedRevisions);
+    long Changed, double SyntheticRequestMilliseconds);

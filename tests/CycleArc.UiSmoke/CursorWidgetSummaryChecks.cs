@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -6,7 +5,6 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using CycleArc.Codex;
 using CycleArc.Models;
-using CycleArc.Observations;
 using CycleArc.Providers.Claude;
 using CycleArc.Providers.Cursor;
 using CycleArc.Providers.Usage;
@@ -42,9 +40,6 @@ internal static class CursorWidgetSummaryChecks
             {
                 count += Render(directory, $"cursor-widget-{prefix}-{zoom}", CursorOnly(), "cursor-fixture", zoom);
                 count += Render(directory, $"cursor-widget-mixed-{prefix}-{zoom}", Mixed(), "cursor-fixture", zoom);
-                var observed = Mixed().Select(WithObservations).ToArray();
-                count += Render(directory, $"cursor-widget-observed-{prefix}-{zoom}", observed, "cursor-fixture", zoom);
-                count += Render(directory, $"cursor-widget-observed-codex-selected-{prefix}-{zoom}", observed, "codex-fixture", zoom);
             }
 
             count += Render(directory, $"cursor-widget-mixed-wrapped-{prefix}-100", MixedWrapped(),
@@ -121,12 +116,7 @@ internal static class CursorWidgetSummaryChecks
             && accounts.All(account => account.Snapshot.Windows.All(window => window.RemainingAmount is null));
         if (compactStandard)
         {
-            // A selected account adds a separate observed-usage row. Reconstruct the original
-            // row footprint from the tallest summary body, which need not be the selected module.
-            // Grid cells stretch peers to the tallest module; DesiredSize retains each
-            // module's natural body footprint instead of counting that stretch as content.
-            var bodyHeight = content.ActualHeight - widget.Modules.Max(module => module.DesiredSize.Height)
-                + widget.Modules.Max(module => module.DesiredSize.Height - VisibleTrendContribution(module));
+            var bodyHeight = content.ActualHeight;
             Check(bodyHeight <= 192 + tolerance,
                 $"{name}: standard Cursor summary body grew beyond 192 DIP ({bodyHeight:0.##}).");
         }
@@ -135,10 +125,7 @@ internal static class CursorWidgetSummaryChecks
         {
             var module = widget.Modules[index];
             var model = module.Model ?? throw new InvalidOperationException($"{name}: module {index} has no model.");
-            CheckTrend(module, accounts[index].Snapshot, name + $" module {index}");
-            if (model.IsSelected && accounts[index].Observations is not null)
-                Check(module.Trend?.Chart.Data?.Points.Length == 2,
-                    $"{name}: selected module {index} lost its actual observations.");
+            ObservationRemovalUiChecks.AssertNoTrend(module, name);
             Check(Math.Abs(module.ActualWidth - WidgetGridLayout.ModuleWidth) <= 0.51,
                 $"{name}: module {index} changed width from {WidgetGridLayout.ModuleWidth}.");
 
@@ -265,7 +252,7 @@ internal static class CursorWidgetSummaryChecks
                 $"{name}: unknown Cursor values were hidden or replaced with zero.");
         if (source.Status == CodexQuotaStatus.Available
             && source.Windows.All(window => window.RemainingAmount is null))
-            Check(module.DesiredSize.Height - VisibleTrendContribution(module) <= 150,
+            Check(module.DesiredSize.Height <= 150,
                 $"{name}: Cursor summary body expanded beyond its compact module height.");
         if (model.IsStale)
             Check(module.StatusText.Visibility == Visibility.Visible
@@ -344,60 +331,12 @@ internal static class CursorWidgetSummaryChecks
     private static Rect Bounds(FrameworkElement element, FrameworkElement ancestor) =>
         element.TransformToAncestor(ancestor).TransformBounds(new Rect(element.RenderSize));
 
-    internal static double VisibleTrendContribution(WidgetAccountModuleView module) =>
-        module.Trend is { Visibility: Visibility.Visible } trend
-            ? trend.ActualHeight + trend.Margin.Top + trend.Margin.Bottom : 0;
-
-    internal static void CheckTrend(WidgetAccountModuleView module, CodexQuotaSnapshot snapshot, string name)
-    {
-        var expected = module.Model!.IsSelected && !WidgetStatusPresentation.HidesQuota(snapshot);
-        Check((module.Trend?.Visibility == Visibility.Visible) == expected,
-            $"{name}: observed usage is not isolated to the selected, displayable account.");
-        if (!expected) return;
-        var trend = module.Trend!;
-        var bounds = Bounds(trend, module);
-        var contribution = VisibleTrendContribution(module);
-        Check(contribution > 0 && contribution <= (trend.Chart.Visibility == Visibility.Visible ? 80 : 44),
-            $"{name}: compact observed row exceeds its independent height budget ({contribution:0.##}).");
-        Check(bounds.Left >= module.BorderThickness.Left + module.Padding.Left - 0.51
-            && bounds.Right <= module.ActualWidth - module.BorderThickness.Right - module.Padding.Right + 0.51
-            && bounds.Bottom <= module.ActualHeight - module.BorderThickness.Bottom - module.Padding.Bottom + 0.51,
-            $"{name}: compact observed row leaves the module's content bounds.");
-        var quotaBottom = Math.Max(Bounds(RingHost(module), module).Bottom,
-            module.Periods.Count == 0 ? 0 : module.Periods.Max(period => Bounds(period, module).Bottom));
-        Check(bounds.Top >= quotaBottom + trend.Margin.Top - 0.51,
-            $"{name}: observed row overlaps the quota summary or loses its measured margin.");
-        Check(trend.TitleText.FontSize >= 10 && trend.LastObservationText.FontSize >= 9,
-            $"{name}: compact observed row shrank its labels.");
-        if (trend.Chart.Visibility == Visibility.Visible)
-        {
-            var chartBounds = Bounds(trend.Chart, trend);
-            Check(Math.Abs(trend.Chart.ActualHeight - 26) <= 0.51
-                && chartBounds.Left >= -0.51 && chartBounds.Right <= trend.ActualWidth + 0.51
-                && chartBounds.Top >= -0.51 && chartBounds.Bottom <= trend.ActualHeight + 0.51,
-                $"{name}: compact observation chart is clipped or changed its 26-DIP height.");
-        }
-    }
-
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
     }
 
     private static IReadOnlyList<CodexAccountView> CursorOnly() => [CursorAccount(CursorSnapshot())];
-
-    private static CodexAccountView WithObservations(CodexAccountView account) => account with
-    {
-        Observations = new(new(account.Profile.Id, account.Profile.Provider, new string('a', 64)), 1,
-            Now.AddMinutes(-4), account.Snapshot.Windows.Where(window => window.UsedPercent is not null)
-                .Select(window => new QuotaObservationSeries(window.LimitId, window.Kind, window.WindowDurationMinutes,
-                    QuotaObservationMetric.UsedPercent, "%", Now.AddMinutes(-4), false,
-                    [new(Now.AddMinutes(-8), Now.AddMinutes(-8).AddSeconds(3), (decimal)window.UsedPercent!.Value - 2,
-                        1, window.ResetsAt, window.WindowDurationMinutes, window.Kind, window.LimitAmount, window.Unit),
-                     new(Now.AddMinutes(-4), Now.AddMinutes(-4).AddSeconds(3), (decimal)window.UsedPercent!.Value,
-                        1, window.ResetsAt, window.WindowDurationMinutes, window.Kind, window.LimitAmount, window.Unit)]))
-                .ToImmutableArray())
-    };
 
     private static IReadOnlyList<CodexAccountView> Mixed() =>
     [

@@ -38,7 +38,7 @@ public sealed class CursorUsageProvider : IUsageProvider
     }
 }
 
-public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccountService, ICursorAccountOperations, IUsageObservationBinding
+public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccountService, ICursorAccountOperations
 {
     private readonly CodexAccountStore _accounts;
     private readonly CodexAccountProfile _profile;
@@ -76,7 +76,6 @@ public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccount
     public string? Email => IsConnected ? _email : null;
     public string? IdentityFingerprint => BoundIdentityFingerprint;
     public string? BoundIdentityFingerprint => _binding?.IdentityFingerprint;
-    public string? ObservationBindingKey => _binding is { } binding ? binding.Generation + ":" + binding.IdentityFingerprint : null;
     public bool IsConnected => _binding is { Disconnected: false };
     public bool IsRefreshing { get; private set; }
     public bool ReceivesPassiveUpdates => false;

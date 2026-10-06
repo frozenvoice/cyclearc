@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -135,14 +135,6 @@ internal static class FlyoutActivationChecks
         {
             focusWindow.Close();
             for (var i = 0; i < fields.Length; i++) fields[i].SetValue(app, original[i]);
-            var failuresBeforeStop = manager.ObservationStatistics.Failures;
-            var stop = manager.StopObservationsAsync(TimeSpan.FromSeconds(3));
-            AccountUiChecks.PumpUntil(stop);
-            var idle = manager.WaitForObservationsIdleAsync().WaitAsync(TimeSpan.FromSeconds(3));
-            AccountUiChecks.PumpUntil(idle);
-            Require(stop.IsCompletedSuccessfully && idle.IsCompletedSuccessfully
-                && manager.ObservationStatistics.Failures == failuresBeforeStop,
-                "Flyout fixture observation shutdown did not finish successfully before cleanup.");
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
         Console.WriteLine($"PASS: {count} production widget/popup interaction scenarios; covered unpinned popup activates on first account click, minimized restoration, repeated/pinned inspection, header click focusing the widget without touching the popup, close/tray toggle, stable account choices across quota/refresh binds with rename/order/membership/provider invalidation, no quota calls.");

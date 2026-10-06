@@ -41,15 +41,6 @@ public interface IUsageAccountService
 }
 
 /// <summary>
-/// Optional, memory-only binding scope for observed quota records. Reading this must
-/// never inspect credentials, binding files or provider data, or issue a request.
-/// </summary>
-public interface IUsageObservationBinding
-{
-    string? ObservationBindingKey { get; }
-}
-
-/// <summary>
 /// Optional active-refresh capability. Passive providers keep <see cref="IUsageAccountService.RefreshAsync"/>
 /// local-only; an implementation exposes its explicitly requested live/remote read here.
 /// </summary>

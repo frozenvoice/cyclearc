@@ -71,7 +71,6 @@ public class CursorAccountRegistryTests
         Assert.False(cursor.IsManaged);
         Assert.True(manager.Move(cursor.Id, -1));
         var secondClaude = manager.AddClaude("Another Claude");
-        await AccountTestDirectory.StopManagerAsync(manager);
         var restored = data.TrackManager(new CodexAccountManager(store, data.Home("unused"), providers));
         Assert.Equal(claude.Id, restored.SelectedId);
         Assert.Equal(new[] { "default", cursor.Id, claude.Id, secondClaude.Id }, restored.Accounts.Select(a => a.Profile.Id));

@@ -199,7 +199,6 @@ public sealed class CodexIdentityRecoveryTests
         await scenario.Manager.RefreshManuallyAsync(CancellationToken.None);
         Assert.Equal("codex-identity-conflict", scenario.Manager.Accounts[0].Snapshot.TechnicalDetail);
         Assert.True(scenario.Manager.Remove(scenario.Managed.Id));
-        await AccountTestDirectory.StopManagerAsync(scenario.Manager);
         var restarted = scenario.Data.TrackManager(new CodexAccountManager(scenario.Store, scenario.Data.Root,
             profile => scenario.Data.Service(profile, scenario.ImportedFactory), () => AccountTestDirectory.Executable));
         Assert.Equal("codex-identity-conflict", restarted.Accounts.Single().Snapshot.TechnicalDetail);

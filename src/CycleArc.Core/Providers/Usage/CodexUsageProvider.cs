@@ -15,12 +15,11 @@ public sealed class CodexUsageProvider(
     }
 
     private sealed class AccountService(CodexQuotaService service, Func<string?> configuredPath)
-        : IUsageAccountService, ICodexAccountOperations, IUsageObservationBinding
+        : IUsageAccountService, ICodexAccountOperations
     {
         public CodexQuotaSnapshot Snapshot => service.Snapshot;
         public string? Email => service.Identity?.Email;
         public string? IdentityFingerprint => service.ValidatedIdentityFingerprint;
-        public string? ObservationBindingKey => service.ValidatedIdentityFingerprint ?? service.Snapshot.IdentityFingerprint;
         public bool IsRefreshing => service.IsRefreshing;
         public bool ReceivesPassiveUpdates => false;
         public bool ShouldRefresh(DateTimeOffset now, TimeSpan interval) =>

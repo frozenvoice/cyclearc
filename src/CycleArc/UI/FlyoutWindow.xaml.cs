@@ -275,7 +275,6 @@ public partial class FlyoutWindow : Window
 
     public void Bind(CodexQuotaSnapshot snapshot, bool refreshing = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
-        _observationAccount = null;
         BindSnapshot(snapshot, refreshing, preference);
     }
 
@@ -312,7 +311,6 @@ public partial class FlyoutWindow : Window
         selectedId = overview.SelectedId;
         SelectedProfileId = selectedId.Length == 0 ? null : selectedId;
         var selected = overview.Selected;
-        _observationAccount = selected;
         BindSnapshot(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing, overview.Preference);
         _displayedIdentities.Record(accounts);
         AccountSection.Visibility = Visibility.Visible;
@@ -633,7 +631,6 @@ public partial class FlyoutWindow : Window
         CodexSecondaryRowsHost.Visibility = secondary.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         ApplyCodexRing(snapshot);
-        BindObservedTrend(snapshot);
     }
 
     // One detail row: label and value, with the value's detail (reset countdown, time) below it.

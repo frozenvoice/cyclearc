@@ -31,7 +31,6 @@ public sealed class WidgetAccountModuleView : Border
     private readonly Grid _ringHost = new() { Width = RingDiameter, Height = RingDiameter, VerticalAlignment = VerticalAlignment.Top };
     private readonly RotateTransform _statusRotation = new();
     private AnimationClock? _statusClock;
-    private readonly StackPanel _content = new() { VerticalAlignment = VerticalAlignment.Top };
 
     // Selection is a short accent pill on a slightly lifted surface. The surface and its neutral
     // border mark the area; the accent stays this small so it never reads as a divider or as
@@ -125,7 +124,6 @@ public sealed class WidgetAccountModuleView : Border
     public UsageProviderBadge Badge => _badge;
     public string ProfileId { get; private set; } = "";
     public WidgetAccountModel? Model { get; private set; }
-    public ObservedTrendView? Trend { get; private set; }
 
     /// The period lines currently shown. Cursor keeps its named allowance priority order.
     public IReadOnlyList<WidgetPeriodLineView> Periods { get; private set; } = [];
@@ -193,7 +191,7 @@ public sealed class WidgetAccountModuleView : Border
         Grid.SetColumn(_periodPanel, 1);
         body.Children.Add(_periodPanel);
 
-        var content = _content;
+        var content = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
         content.Children.Add(identity);
         content.Children.Add(body);
         StatusArea.Children.Add(StatusWarningIcon);
@@ -283,12 +281,6 @@ public sealed class WidgetAccountModuleView : Border
         if (!model.ShowStatusRow) StatusTooltip.IsOpen = false;
 
         IsSelected = model.IsSelected;
-        if (IsSelected)
-        {
-            if (Trend is null) { Trend = new(compact: true); _content.Children.Add(Trend); }
-            Trend.Bind(account, model.Ring.Window, WidgetStatusPresentation.HidesQuota(account.Snapshot));
-        }
-        else Trend?.Bind(null, null, hidden: true);
         ApplySurface();
 
         ToolTip = model.Tooltip;

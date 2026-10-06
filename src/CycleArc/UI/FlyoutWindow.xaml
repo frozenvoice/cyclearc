@@ -363,7 +363,6 @@
                                     <ItemsControl x:Name="CodexSecondaryRows"/>
                                 </Border>
                             </Grid>
-                            <ContentControl x:Name="ObservedTrendHost" Focusable="False"/>
                         </StackPanel>
                     </Border>
                     <Border x:Name="UsageCreditsCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12,8" Margin="0,10,0,0" Visibility="Collapsed">

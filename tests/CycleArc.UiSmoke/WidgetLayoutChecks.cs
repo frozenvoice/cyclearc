@@ -1090,12 +1090,6 @@ internal static class WidgetLayoutChecks
         var bounds = target.TransformToAncestor(scroller).TransformBounds(new Rect(target.RenderSize));
         Check(bounds.Bottom <= scroller.ViewportHeight + 2,
             $"{name}: scrolling cannot reach the last period of the last account ({bounds.Bottom} > {scroller.ViewportHeight}).");
-        if (last.Trend is { Visibility: Visibility.Visible } trend)
-        {
-            var trendBounds = trend.TransformToAncestor(scroller).TransformBounds(new Rect(trend.RenderSize));
-            Check(trendBounds.Bottom <= scroller.ViewportHeight + 2,
-                $"{name}: scrolling cannot reach the selected account's observed row.");
-        }
         foreach (var line in last.Periods)
         {
             Check(line.RemainingText.ActualWidth + 0.5 >= line.RemainingText.DesiredSize.Width

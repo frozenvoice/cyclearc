@@ -137,7 +137,6 @@ internal sealed class AppHarness : App
 
         // Real initial active and passive paths, using only synthetic external adapters.
         await _fixture.InitializeAsync(_lifetime.Token);
-        await _fixture.Manager.WaitForObservationsIdleAsync();
         _refreshSnapshot();
         AssertVisibility(flyout: false, widget: false);
     }
@@ -228,7 +227,6 @@ internal sealed class AppHarness : App
         Dispatcher.VerifyAccess();
         if (_stopped) return;
         _stopped = true;
-        var shutdownTime = System.Diagnostics.Stopwatch.StartNew();
         _setExiting(true);
         _accountTimer.Stop();
         _displayTimer.Stop();
@@ -244,8 +242,6 @@ internal sealed class AppHarness : App
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         finally
         {
-            await _fixture.Manager.StopObservationsAsync(TimeSpan.FromMilliseconds(
-                Math.Max(1, 15_000 - shutdownTime.Elapsed.TotalMilliseconds)));
             Widget?.Dispose();
             _fixtureEnvironment?.Dispose();
             Flyout?.Close();

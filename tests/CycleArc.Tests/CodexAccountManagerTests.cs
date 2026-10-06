@@ -70,7 +70,6 @@ public class CodexAccountManagerTests
         Assert.Equal(CodexQuotaStatus.SignedOut, manager.Selected!.Snapshot.Status);
         Assert.All(manager.Accounts, account => Assert.False(account.HasMatchingIdentity));
         Assert.Empty(manager.Selected.Snapshot.Windows);
-        await AccountTestDirectory.StopManagerAsync(manager);
         var restarted = data.TrackManager(new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable));
         Assert.Equal(second.Id, restarted.SelectedId);
         Assert.All(restarted.Accounts, account => Assert.Empty(account.Snapshot.Windows));
@@ -225,7 +224,6 @@ public class CodexAccountManagerTests
         Assert.Same(selectedSnapshot, manager.Snapshot);
         Assert.Equal(completedRequests, requests);
         Assert.All(profiles, profile => Assert.Equal(caches[profile.Id], File.ReadAllText(store.SnapshotPath(profile))));
-        await AccountTestDirectory.StopManagerAsync(manager);
         var restarted = data.TrackManager(new CodexAccountManager(store, data.Root, Service, () => AccountTestDirectory.Executable));
         Assert.Equal(expected, restarted.Accounts.Select(a => a.Profile.Id));
         Assert.Equal(profiles[1].Id, restarted.SelectedId);
