@@ -310,14 +310,19 @@ public partial class App : Application
         catch (Exception ex) { _log.Error("Codex refresh failed", ex); }
     }
 
-    private void RefreshSnapshot()
+    private void RefreshSnapshot() => RefreshSnapshotCore(bindHiddenFlyout: false);
+
+    private void RefreshSnapshotCore(bool bindHiddenFlyout)
     {
         if (IsExiting || _codex is null || _refresh is null) return;
         var accounts = _codex.Accounts;
         var overview = UsageAccountOverview.Create(accounts, _codex.SelectedId, _settings.UsagePeriod);
         _tray.Update(overview, _settings.TrayIconStyle);
         NotifyUsageAlerts(accounts);
-        _flyout?.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing, overview.Preference);
+        // A hidden popup is rebuilt just before it is shown, so quota changes do not rebuild it
+        // in the background. It still drops a removed or identity-protected account at once.
+        if (_flyout is { } flyout && (bindHiddenFlyout || flyout.IsVisible || flyout.RetainsWithdrawnAccount(overview.Accounts)))
+            flyout.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing, overview.Preference);
         _accountsWindow?.Bind(accounts, overview.SelectedId);
         _widgetController?.Update(_settings, overview, refreshing: _refresh.IsRefreshing);
     }
@@ -349,7 +354,8 @@ public partial class App : Application
         EnsureFlyout();
         if (_flyout!.IsVisible) { _flyout.Hide(); return; }
         _flyout.ApplyWindowSettings(_settings);
-        RefreshSnapshot();
+        // The only bind before showing: the first frame has the current accounts and state.
+        RefreshSnapshotCore(bindHiddenFlyout: true);
         _flyout.Show();
         PlaceFlyout(_flyout);
         _flyout.Activate();

@@ -244,7 +244,8 @@ public sealed class WidgetAccountModuleView : Border
     {
         Model = model;
         ProfileId = model.ProfileId;
-        _avatarHost.Child = AccountSummary.Avatar(account, 22);
+        var avatar = AccountSummary.AvatarFor(account, 22, _avatarHost.Child);
+        if (!ReferenceEquals(_avatarHost.Child, avatar)) _avatarHost.Child = avatar;
         _badge.Provider = model.Provider;
         NameText.Text = model.DisplayName;
         // The module width is fixed, so a long nickname is trimmed here and stays whole in the tooltip.
