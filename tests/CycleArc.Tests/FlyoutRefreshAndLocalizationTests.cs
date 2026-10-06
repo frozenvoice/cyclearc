@@ -154,8 +154,8 @@ public class FlyoutRefreshAndLocalizationTests
         // The title keeps its own width and the status takes what is left; every control to
         // their right sizes to itself, so adding one cannot squeeze the title.
         Assert.All(columns.Skip(2), width => Assert.Equal("Auto", width));
-        // Zoom out, zoom in, refresh, settings, window options.
-        Assert.Equal(7, columns.Length);
+        // Zoom out, current percentage, zoom in, refresh, settings, window options.
+        Assert.Equal(8, columns.Length);
         var title = header.Descendants(ns + "TextBlock")
             .Single(element => (string?)element.Attribute(x + "Name") == "TitleText");
         var titleHost = title.Ancestors().Single(element => element.Parent == header);
@@ -172,19 +172,23 @@ public class FlyoutRefreshAndLocalizationTests
         Assert.Equal("NoWrap", (string?)status.Attribute("TextWrapping"));
         var button = header.Descendants(ns + "Button")
             .Single(element => (string?)element.Attribute(x + "Name") == "RefreshAllButton");
-        Assert.Equal("4", (string?)button.Attribute("Grid.Column"));
+        Assert.Equal("5", (string?)button.Attribute("Grid.Column"));
         // This window's own size controls, left of the rest of the header.
         var zoomOut = header.Descendants(ns + "Button")
             .Single(element => (string?)element.Attribute(x + "Name") == "FlyoutZoomOutButton");
         var zoomIn = header.Descendants(ns + "Button")
             .Single(element => (string?)element.Attribute(x + "Name") == "FlyoutZoomInButton");
         Assert.Equal("2", (string?)zoomOut.Attribute("Grid.Column"));
-        Assert.Equal("3", (string?)zoomIn.Attribute("Grid.Column"));
+        var zoomPercent = header.Elements(ns + "TextBlock")
+            .Single(element => (string?)element.Attribute(x + "Name") == "FlyoutZoomPercentText");
+        Assert.Equal("3", (string?)zoomPercent.Attribute("Grid.Column"));
+        Assert.Equal("100%", (string?)zoomPercent.Attribute("Text"));
+        Assert.Equal("4", (string?)zoomIn.Attribute("Grid.Column"));
         Assert.Equal("OnZoomOutClick", (string?)zoomOut.Attribute("Click"));
         Assert.Equal("OnZoomInClick", (string?)zoomIn.Attribute("Click"));
         var options = header.Descendants(ns + "Button")
             .Single(element => (string?)element.Attribute(x + "Name") == "WindowOptionsButton");
-        Assert.Equal("6", (string?)options.Attribute("Grid.Column"));
+        Assert.Equal("7", (string?)options.Attribute("Grid.Column"));
         var menu = options.Descendants(ns + "ContextMenu").Single();
         var pin = menu.Descendants(ns + "MenuItem")
             .Single(element => (string?)element.Attribute(x + "Name") == "PinMenuItem");
@@ -194,7 +198,7 @@ public class FlyoutRefreshAndLocalizationTests
         Assert.Equal("OnPinClick", (string?)pin.Attribute("Click"));
         Assert.Equal("OnCloseClick", (string?)close.Attribute("Click"));
         var settings = header.Descendants(ns + "Button").Single(element => (string?)element.Attribute(x + "Name") == "SettingsButton");
-        Assert.Equal("5", (string?)settings.Attribute("Grid.Column"));
+        Assert.Equal("6", (string?)settings.Attribute("Grid.Column"));
         Assert.Equal("OnSettingsClick", (string?)settings.Attribute("Click"));
         Assert.NotEqual((string?)title.Attribute("Grid.Column"), (string?)statusHost.Attribute("Grid.Column"));
         Assert.NotEqual((string?)button.Attribute("Grid.Column"), (string?)statusHost.Attribute("Grid.Column"));
