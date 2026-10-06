@@ -145,7 +145,11 @@ Invoke-DevRunStep 'preflight' {
 }
 
 Invoke-DevRunStep 'workflow-contract' { & (Join-Path $RepoRoot 'tests/VerificationWorkflow.Tests.ps1') }
-Invoke-DevRunStep 'sdk-regression' { & (Join-Path $RepoRoot 'tests/DotnetSdk.Tests.ps1') }
+Invoke-DevRunStep 'sdk-regression' {
+    & (Join-Path $RepoRoot 'tests/DotnetSdk.Tests.ps1')
+    & (Join-Path $RepoRoot 'tests/BuildPrerequisites.Tests.ps1')
+    & (Join-Path $RepoRoot 'tests/BootstrapBuildLocal.Tests.ps1')
+}
 Invoke-DevRunStep 'setup-ui-toolchain' {
     try {
         Assert-SetupUiToolchain -RepoRoot $RepoRoot | Out-Null
@@ -157,7 +161,10 @@ Invoke-DevRunStep 'setup-ui-toolchain' {
         throw
     }
 }
-Invoke-DevRunStep 'release-guard' { & (Join-Path $RepoRoot 'tests/Release.Tests.ps1') }
+Invoke-DevRunStep 'release-guard' {
+    & (Join-Path $RepoRoot 'tests/Release.Tests.ps1')
+    & (Join-Path $RepoRoot 'tests/ReleaseDependencies.Tests.ps1')
+}
 Invoke-DevRunStep 'restore' {
     if (Test-Path -LiteralPath $StagingDir) {
         Assert-DevRunPath $StagingDir

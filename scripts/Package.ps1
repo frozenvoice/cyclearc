@@ -31,6 +31,7 @@ $ErrorActionPreference = 'Stop'
 # Shared with Build-Local.ps1 so both demand the same Native AOT prerequisites.
 . (Join-Path $PSScriptRoot 'SetupUiToolchain.ps1')
 . (Join-Path $PSScriptRoot 'DotnetSdk.ps1')
+. (Join-Path $PSScriptRoot 'ReleaseDependencies.ps1')
 
 function Assert-PackageVersion {
     param([Parameter(Mandatory)][string]$Value)
@@ -259,6 +260,9 @@ function New-SetupUiInstaller {
     if (!(Test-Path -LiteralPath $engineFull -PathType Leaf)) {
         throw "The Velopack engine installer is missing at $engineFull"
     }
+    # Velopack's embedded engine is x86 and runs under Windows x64; the shipped
+    # Native AOT wrapper and application remain strictly x64.
+    Assert-NativeReleaseExecutable -Path $engineFull -AllowX86 | Out-Null
     Assert-SetupUiToolchain | Out-Null
 
     $projectDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($ProjectPath))
@@ -290,6 +294,9 @@ function New-SetupUiInstaller {
         if ($builtSize -lt $engineSize) {
             throw "The setup UI ($builtSize bytes) is smaller than the engine it must contain ($engineSize bytes); the engine was not embedded."
         }
+
+        # The download must run on Windows without the tools used to build it.
+        Assert-NativeReleaseExecutable -Path $built | Out-Null
 
         Copy-Item -LiteralPath $built -Destination $OutputPath -Force
         [pscustomobject]@{
@@ -380,6 +387,7 @@ function Invoke-Package {
     $IconFile = Join-Path $PSScriptRoot '..\src\CycleArc\Assets\cyclearc.ico'
     $version = Assert-PackageVersion $PackageVersion
     $published = Resolve-PublishExecutable -Directory $PublishedDirectory -ExecutableName $EntryPoint
+    Assert-SelfContainedReleaseApp -Path $published | Out-Null
     $publishedVersion = ([Diagnostics.FileVersionInfo]::GetVersionInfo($published).FileVersion ?? '').Trim()
     if (!$publishedVersion) {
         throw "$EntryPoint has no FileVersion metadata; refusing to package an unversioned executable"
@@ -407,7 +415,10 @@ function Invoke-Package {
             New-SetupUiInstaller -EnginePath $enginePath -OutputPath $enginePath -ProjectPath $SetupUiProject -Command $Command
         }
     }
-    Assert-PackageOutput -Directory $output -PackageVersion $version -PackageId $PackageIdValue -ChannelName $ChannelName -WrapSetup $wrap
+    $result = Assert-PackageOutput -Directory $output -PackageVersion $version -PackageId $PackageIdValue -ChannelName $ChannelName -WrapSetup $wrap
+    Assert-NativeReleaseExecutable -Path $result.Setup -AllowX86:$NoSetupUi | Out-Null
+    Assert-PackagedReleaseApp -PackagePath $result.FullPackage -PublishedAppPath $published
+    $result
 }
 
 if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
