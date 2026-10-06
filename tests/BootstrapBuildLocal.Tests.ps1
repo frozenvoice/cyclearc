@@ -29,6 +29,17 @@ function Get-TestPowerShellRelease {
     }
 }
 
+$bootstrapParseErrors = $null
+$bootstrapAst = [Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $repoRoot 'scripts/Bootstrap-BuildLocal.ps1'), [ref]$null, [ref]$bootstrapParseErrors)
+Assert-Equal 0 $bootstrapParseErrors.Count 'bootstrap parses without errors'
+$bootstrapInputCommands = @($bootstrapAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Read-Host'
+}, $true))
+Assert-Equal 0 $bootstrapInputCommands.Count 'bootstrap success and failure tails never ask for console input'
+Write-Host 'PASS: bootstrap has no Read-Host command in any success or failure path.'
+
 # Evaluate the actual CMD version predicate with synthetic host metadata. The probe
 # itself is silent, so the existing redirected CMD failure summary remains single.
 $cmdText = Get-Content -LiteralPath (Join-Path $repoRoot 'build-local.cmd') -Raw
@@ -48,9 +59,9 @@ Assert-True (Test-CmdSyntheticHost 7 '') 'stable PowerShell 7 can directly enter
 Write-Host 'PASS: CMD validates stable PowerShell 7 before handoff; missing, legacy and preview hosts bootstrap.'
 
 # Dot-sourcing helpers must not replace build switches in their caller.
-$Fast = $true; $NoInstall = $true; $SilentInstall = $true; $NoPrerequisitePrompt = $true; $LoadOnly = $false
+$Fast = $true; $NoInstall = $true; $SilentInstall = $true; $NoPrerequisitePrompt = $true; $ManualPrerequisites = $true; $LoadOnly = $false
 . (Join-Path $repoRoot 'scripts/Bootstrap-BuildLocal.ps1') -LoadOnly
-Assert-True ($Fast -and $NoInstall -and $SilentInstall -and $NoPrerequisitePrompt -and !$LoadOnly) 'helper loading preserves caller switches'
+Assert-True ($Fast -and $NoInstall -and $SilentInstall -and $NoPrerequisitePrompt -and $ManualPrerequisites -and !$LoadOnly) 'helper loading preserves caller switches'
 
 $root = New-BootstrapTestDirectory
 try {
@@ -150,7 +161,7 @@ try {
     $script:bootstrapProbes = 0; $script:bootstrapPrerequisites = 0; $script:bootstrapBuilds = 0
     $result = Invoke-CycleArcBuildLocalBootstrap -RepoRoot $repoRoot -BuildArguments @('-Fast', '-NoInstall') -PowerShellResolver {
         $script:bootstrapProbes++; if ($script:bootstrapProbes -gt 1) { 'verified-pwsh' }
-    } -PrerequisiteRunner { param($root, $noPrompt, $silent) $script:bootstrapPrerequisites++; [pscustomobject]@{ Status = 'Ready' } } -BuildRunner {
+    } -PrerequisiteRunner { param($root, $noPrompt, $silent, $manual) Assert-True (!$noPrompt -and !$silent -and !$manual) 'default interactive build delegates automatic preparation'; $script:bootstrapPrerequisites++; [pscustomobject]@{ Status = 'Ready' } } -BuildRunner {
         param($path, $scriptPath, $arguments) $script:bootstrapBuilds++; Assert-Equal 'verified-pwsh' $path 'verified executable handoff'; Assert-Equal '-Fast,-NoInstall' ($arguments -join ',') 'original build switches forwarded'; 0
     }
     Assert-Equal 0 $result 'bootstrap continuation exit'
@@ -164,16 +175,54 @@ try {
         Assert-True (!$env:CYCLEARC_BUILD_LOCAL_BOOTSTRAP) 'bootstrap marker reset after stopped setup'
     }
     $result = Invoke-CycleArcBuildLocalBootstrap -RepoRoot $repoRoot -NoPrompt -SilentInstall -PowerShellResolver { $null } -PrerequisiteRunner {
-        param($root, $noPrompt, $silent) Assert-True ($noPrompt -and $silent) 'noninteractive switches forwarded to coordinator'; [pscustomobject]@{ Status = 'Manual' }
+        param($root, $noPrompt, $silent, $manual) Assert-True ($noPrompt -and $silent -and !$manual) 'noninteractive switches forwarded to coordinator'; [pscustomobject]@{ Status = 'Manual' }
     } -BuildRunner { throw 'noninteractive setup cannot build when prerequisites are absent' } -FailureRecorder { }
     Assert-Equal 1 $result 'noninteractive setup failure'
+    $result = Invoke-CycleArcBuildLocalBootstrap -RepoRoot $repoRoot -ManualPrerequisites -PowerShellResolver { $null } -PrerequisiteRunner {
+        param($root, $noPrompt, $silent, $manual) Assert-True $manual 'manual preparation forwarded to coordinator'; [pscustomobject]@{ Status = 'Manual' }
+    } -BuildRunner { throw 'manual instructions cannot launch a build with missing prerequisites' } -FailureRecorder { throw 'manual instructions must not record a failure or pause' }
+    Assert-Equal 0 $result 'explicit manual guidance returns success without a build or pause'
+    $result = Invoke-CycleArcBuildLocalBootstrap -RepoRoot $repoRoot -ManualPrerequisites -BuildArguments @('-Fast') -PowerShellResolver { 'verified-pwsh' } -PrerequisiteRunner {
+        throw 'existing host goes directly to the build coordinator'
+    } -BuildRunner {
+        param($path, $scriptPath, $arguments) Assert-Equal '-Fast,-ManualPrerequisites' ($arguments -join ',') 'manual option survives existing-host handoff'; 0
+    }
+    Assert-Equal 0 $result 'manual option forwarded to existing PowerShell host'
+    # Exercise the real default adapter against a fake coordinator. No external
+    # installer or interactive input participates in this boundary check.
+    function Invoke-CycleArcBuildPrerequisites {
+        param($RepoRoot, [switch]$NoPrompt, [switch]$SilentInstall, [switch]$ManualPrerequisites)
+        Assert-True ($NoPrompt -and $SilentInstall -and $ManualPrerequisites) 'default adapter preserves every suppression/manual switch'
+        [pscustomobject]@{ Status = 'Manual' }
+    }
+    $result = Invoke-CycleArcBuildLocalBootstrap -RepoRoot $repoRoot -ManualPrerequisites -NoPrompt -SilentInstall -PowerShellResolver { $null } -BuildRunner {
+        throw 'default manual adapter cannot build with missing prerequisites'
+    } -FailureRecorder { throw 'explicit manual adapter must not record a failure or pause' }
+    Assert-Equal 0 $result 'default adapter delegates manual instructions without pausing'
     Assert-Throws { Invoke-CycleArcBuildLocalBootstrap -RepoRoot $repoRoot -PowerShellResolver { $null } -PrerequisiteRunner { throw 'fake failure' } } 'fake failure'
     Assert-True (!$env:CYCLEARC_BUILD_LOCAL_BOOTSTRAP) 'bootstrap marker reset after exception'
     $env:CYCLEARC_BUILD_LOCAL_BOOTSTRAP = '1'
     Assert-Throws { Invoke-CycleArcBuildLocalBootstrap -RepoRoot $repoRoot -PowerShellResolver { throw 'resolver must not run' } -PrerequisiteRunner { throw 'installation must not run' } } 're-entry'
 }
 finally { [Environment]::SetEnvironmentVariable('CYCLEARC_BUILD_LOCAL_BOOTSTRAP', $previousMarker) }
-Write-Host 'PASS: one coordinator approval hands off once; failure, cancellation and recursion never build.'
+Write-Host 'PASS: automatic preparation hands off once; manual/suppression switches survive bootstrap and failures never build.'
+
+$childRoot = New-BootstrapTestDirectory
+try {
+    $childScripts = Join-Path $childRoot 'scripts'
+    New-Item -ItemType Directory -Path $childScripts | Out-Null
+    Set-Content -LiteralPath (Join-Path $childScripts 'Build-Local.ps1') -Value "Write-Output 'CycleArc bootstrap child progress fixture'; exit 7" -Encoding UTF8
+    $childPowerShell = Find-CycleArcPowerShell
+    Assert-True ([bool]$childPowerShell) 'external handoff fixture uses a verified PowerShell 7 host'
+    $childInformation = @()
+    $result = Invoke-CycleArcBuildLocalBootstrap -RepoRoot $childRoot -PowerShellResolver { $childPowerShell } -PrerequisiteRunner {
+        throw 'verified external host must not prepare prerequisites'
+    } -InformationVariable childInformation -InformationAction Continue
+    Assert-Equal 7 $result 'external child exit code survives streamed stdout'
+    Assert-True (($childInformation -join [Environment]::NewLine) -match 'CycleArc bootstrap child progress fixture') 'external child stdout streams to the caller information/host output'
+}
+finally { Remove-SetupUiPrerequisiteTempDirectory $childRoot }
+Write-Host 'PASS: external PowerShell handoff streams progress and preserves its numeric exit code.'
 
 $logRoot = New-BootstrapTestDirectory
 try {

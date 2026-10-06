@@ -186,7 +186,10 @@ exit /b 145
             $script:InstallExit
         }
     }
-    $result = Invoke-CycleArcDotnetSdkInstall @installArguments
+    $installationOutput = @(& { Invoke-CycleArcDotnetSdkInstall @installArguments } 6>&1)
+    $result = $installationOutput | Where-Object { $_ -isnot [System.Management.Automation.InformationRecord] } | Select-Object -Last 1
+    $progressMessages = @($installationOutput | Where-Object { $_ -is [System.Management.Automation.InformationRecord] } | ForEach-Object { $_.MessageData.ToString() })
+    Assert-SdkTest (($progressMessages -join '|') -eq 'Downloading official Microsoft .NET SDK installer...|Signature verified: Microsoft Corporation|Installing .NET SDK...|Rechecking .NET SDK...') 'SDK progress did not match actual preparation stages'
     Assert-SdkTest ($result.Status -eq 'Ready' -and $script:InstallResolverCalls -eq 2) 'SDK installation was not re-probed'
     Assert-SdkTest (($script:InstallTrace -join ',') -eq 'Download,Signature,Process') 'download/signature/launch order changed'
 
@@ -222,9 +225,13 @@ exit /b 145
         $script:InstallTrace = @()
         $script:SignatureValid = $failure -ne 'Signature'
         $script:TamperedDownload = $failure -eq 'Hash'
-        $rejected = $false
-        try { Invoke-CycleArcDotnetSdkInstall @installArguments | Out-Null } catch { $rejected = $_.Exception.Message -like '*not executed*' }
-        Assert-SdkTest ($rejected -and $script:InstallTrace -notcontains 'Process') "$failure failure launched the SDK installer"
+        $script:RejectedInstallFailure = $false
+        $failureOutput = @(& {
+            try { Invoke-CycleArcDotnetSdkInstall @installArguments | Out-Null } catch { $script:RejectedInstallFailure = $_.Exception.Message -like '*not executed*' }
+        } 6>&1)
+        $failureMessages = @($failureOutput | ForEach-Object { $_.MessageData.ToString() })
+        Assert-SdkTest (($failureMessages -join '|') -eq 'Downloading official Microsoft .NET SDK installer...') "$failure failure falsely reported verification or installation progress"
+        Assert-SdkTest ($script:RejectedInstallFailure -and $script:InstallTrace -notcontains 'Process') "$failure failure launched the SDK installer"
     }
     $script:SignatureValid = $true
     $script:TamperedDownload = $false

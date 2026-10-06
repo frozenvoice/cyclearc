@@ -15,7 +15,10 @@
     shows the installer and waits for the person to approve or cancel it.
 
 .PARAMETER NoPrerequisitePrompt
-    Fail immediately when build prerequisites are missing, without offering to install them.
+    Fail immediately when build prerequisites are missing, without installing them.
+
+.PARAMETER ManualPrerequisites
+    Show prerequisite state and official manual instructions without building or installing.
 
 .PARAMETER LoadOnly
     Dot-source the functions without running the default path.
@@ -26,6 +29,7 @@ param(
     [switch]$NoInstall,
     [switch]$SilentInstall,
     [switch]$NoPrerequisitePrompt,
+    [switch]$ManualPrerequisites,
     [switch]$LoadOnly
 )
 
@@ -864,6 +868,7 @@ function Invoke-BuildLocal {
         [switch]$NoInstall,
         [switch]$SilentInstall,
         [switch]$NoPrerequisitePrompt,
+        [switch]$ManualPrerequisites,
         [string]$ManagedRoot,
         [scriptblock]$PrerequisitePreflight,
         [scriptblock]$DevRun,
@@ -893,13 +898,13 @@ function Invoke-BuildLocal {
         Start-Transcript -LiteralPath $logPath | Out-Null
         Assert-CycleArcTree -Root $RepoRoot
         # Supplying a packaged fixture bypasses the source-build requirement. Production
-        # runs probe first, and may offer installation only with interactive approval.
+        # runs probe first; direct interactive execution authorizes preparing official tools.
         if (!$PackagedSetup) {
             $prerequisiteResult = if ($PrerequisitePreflight) {
-                & $PrerequisitePreflight $RepoRoot ([bool]$NoPrerequisitePrompt) ([bool]$SilentInstall)
+                & $PrerequisitePreflight $RepoRoot ([bool]$NoPrerequisitePrompt) ([bool]$SilentInstall) ([bool]$ManualPrerequisites)
             }
             else {
-                Invoke-CycleArcBuildPrerequisites -RepoRoot $RepoRoot -NoPrompt:$NoPrerequisitePrompt -SilentInstall:$SilentInstall
+                Invoke-CycleArcBuildPrerequisites -RepoRoot $RepoRoot -NoPrompt:$NoPrerequisitePrompt -SilentInstall:$SilentInstall -ManualPrerequisites:$ManualPrerequisites
             }
             if ($prerequisiteResult.Status -ne 'Ready') {
                 return [pscustomobject]@{
@@ -1180,14 +1185,15 @@ if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
     $root = Get-BuildLocalRepoRoot
     Set-Location -LiteralPath $root
     # Invoke-BuildLocal owns the one failure summary, including failures during preflight.
-    # Keep a double-clicked window readable, but never wait for input in automation.
+    # Build/install failures may keep a double-clicked window readable. Prerequisite
+    # preparation and explicit manual guidance never ask for CycleArc console input.
     $runExitCode = 0
     $pauseAfterRun = $false
     try {
-        $result = Invoke-BuildLocal -RepoRoot $root -Fast:$Fast -NoInstall:$NoInstall -SilentInstall:$SilentInstall -NoPrerequisitePrompt:$NoPrerequisitePrompt
-        $pauseAfterRun = $null -ne $result -and $null -ne $result.PSObject.Properties['PrerequisiteStatus']
+        $result = Invoke-BuildLocal -RepoRoot $root -Fast:$Fast -NoInstall:$NoInstall -SilentInstall:$SilentInstall -NoPrerequisitePrompt:$NoPrerequisitePrompt -ManualPrerequisites:$ManualPrerequisites
+        if ($null -ne $result -and $null -ne $result.PSObject.Properties['PrerequisiteStatus'] -and $result.PrerequisiteStatus -ne 'Manual') { $runExitCode = 1 }
     }
-    catch { $runExitCode = 1; $pauseAfterRun = $true }
+    catch { $runExitCode = 1; $pauseAfterRun = !$ManualPrerequisites -and (Get-BuildLocalStage) -ne 'preflight' }
     if ($pauseAfterRun -and $env:CYCLEARC_BUILD_LOCAL_CMD -eq '1' -and
         (Test-SetupUiPrerequisiteInteractive -NoPrompt:$NoPrerequisitePrompt -SilentInstall:$SilentInstall)) {
         try { Read-Host 'Press Enter to close this window' | Out-Null } catch { }

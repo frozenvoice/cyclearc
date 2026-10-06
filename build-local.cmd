@@ -33,12 +33,13 @@ endlocal
 exit /b 0
 
 :bootstrap_start
-rem Windows PowerShell can offer one approval for all missing prerequisites.
+rem Windows PowerShell prepares missing prerequisites for this interactive build.
+rem -ManualPrerequisites and all suppression switches pass through unchanged.
 rem The bootstrap finds a stable PowerShell outside this console's PATH too.
 powershell.exe -NoProfile -File "%ROOT%scripts\Bootstrap-BuildLocal.ps1" %*
 if errorlevel 1 goto bootstrap_failed
 exit /b 0
 
 :bootstrap_failed
-rem Bootstrap-BuildLocal.ps1 owns the interactive pause before handoff; Build-Local.ps1 owns it after.
+rem The bootstrap reports prerequisite failures without input; Build-Local.ps1 owns build-stage pauses.
 exit /b %ERRORLEVEL%

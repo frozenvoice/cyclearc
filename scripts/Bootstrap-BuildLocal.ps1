@@ -3,8 +3,9 @@
 .SYNOPSIS
     Windows PowerShell entry point when PowerShell 7 is not on PATH.
 .DESCRIPTION
-    The shared coordinator owns the single prerequisite approval. This script never
-    treats a re-entry marker as approval and never changes execution policy.
+    The shared coordinator prepares prerequisites for an interactive local build.
+    ManualPrerequisites opts out of automatic preparation. This script never treats
+    a re-entry marker as installation permission and never changes execution policy.
 #>
 [CmdletBinding()]
 param(
@@ -12,6 +13,7 @@ param(
     [Alias('NoInstall')][switch]$BootstrapNoInstall,
     [Alias('SilentInstall')][switch]$BootstrapSilentInstall,
     [Alias('NoPrerequisitePrompt')][switch]$BootstrapNoPrerequisitePrompt,
+    [Alias('ManualPrerequisites')][switch]$BootstrapManualPrerequisites,
     [Alias('LoadOnly')][switch]$BootstrapLoadOnly
 )
 
@@ -103,7 +105,7 @@ function Test-CycleArcWingetOfficialSource {
 }
 
 function Invoke-CycleArcPowerShellInstall {
-    <# Called only after the coordinator has received explicit interactive approval. #>
+    <# Called only after the coordinator permits interactive automatic preparation. #>
     [CmdletBinding()]
     param(
         [scriptblock]$PowerShellResolver,
@@ -199,6 +201,7 @@ function Invoke-CycleArcBuildLocalBootstrap {
         [string[]]$BuildArguments = @(),
         [switch]$NoPrompt,
         [switch]$SilentInstall,
+        [switch]$ManualPrerequisites,
         [scriptblock]$PowerShellResolver,
         [scriptblock]$PrerequisiteRunner,
         [scriptblock]$BuildRunner,
@@ -206,15 +209,17 @@ function Invoke-CycleArcBuildLocalBootstrap {
     )
     if ($env:CYCLEARC_BUILD_LOCAL_BOOTSTRAP) { throw 'CycleArc prerequisite bootstrap re-entry was blocked. No additional prerequisite installation was attempted.' }
     if (!$PowerShellResolver) { $PowerShellResolver = { Find-CycleArcPowerShell } }
-    if (!$PrerequisiteRunner) { $PrerequisiteRunner = { param($root, $noPrompt, $silent) Invoke-CycleArcBuildPrerequisites -RepoRoot $root -NoPrompt:$noPrompt -SilentInstall:$silent } }
-    if (!$BuildRunner) { $BuildRunner = { param($path, $scriptPath, $arguments) & $path -NoProfile -File $scriptPath @arguments; $LASTEXITCODE } }
+    if (!$PrerequisiteRunner) { $PrerequisiteRunner = { param($root, $noPrompt, $silent, $manual) Invoke-CycleArcBuildPrerequisites -RepoRoot $root -NoPrompt:$noPrompt -SilentInstall:$silent -ManualPrerequisites:$manual } }
+    if (!$BuildRunner) { $BuildRunner = { param($path, $scriptPath, $arguments) & $path -NoProfile -File $scriptPath @arguments | ForEach-Object { Write-Host $_ }; $LASTEXITCODE } }
     if (!$FailureRecorder) { $FailureRecorder = { param($root, $reason) Write-CycleArcBootstrapFailure -RepoRoot $root -Reason $reason | Out-Null } }
+    if ($ManualPrerequisites -and $BuildArguments -notcontains '-ManualPrerequisites') { $BuildArguments += '-ManualPrerequisites' }
     $previousMarker = [Environment]::GetEnvironmentVariable('CYCLEARC_BUILD_LOCAL_BOOTSTRAP')
     try {
         $env:CYCLEARC_BUILD_LOCAL_BOOTSTRAP = '1'
         $powerShell = & $PowerShellResolver
         if (!$powerShell) {
-            $prerequisites = & $PrerequisiteRunner $RepoRoot ([bool]$NoPrompt) ([bool]$SilentInstall)
+            $prerequisites = & $PrerequisiteRunner $RepoRoot ([bool]$NoPrompt) ([bool]$SilentInstall) ([bool]$ManualPrerequisites)
+            if ($ManualPrerequisites -and $prerequisites -and $prerequisites.Status -eq 'Manual') { return 0 }
             if (!$prerequisites -or $prerequisites.Status -ne 'Ready') {
                 $status = if ($prerequisites) { $prerequisites.Status } else { 'Unknown' }
                 & $FailureRecorder $RepoRoot ("Prerequisite preparation stopped: $status. Manual installation or company IT approval may be required.")
@@ -235,16 +240,17 @@ if (!$BootstrapLoadOnly) {
     $bootstrapRepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
     try {
         $buildArguments = @()
-        foreach ($name in @('Fast', 'NoInstall', 'SilentInstall', 'NoPrerequisitePrompt')) {
+        foreach ($name in @('Fast', 'NoInstall', 'SilentInstall', 'NoPrerequisitePrompt', 'ManualPrerequisites')) {
             if (Get-Variable -Name ('Bootstrap' + $name) -ValueOnly) { $buildArguments += '-' + $name }
         }
         $bootstrapNoPrompt = [bool]$BootstrapNoPrerequisitePrompt
         $bootstrapSilent = [bool]$BootstrapSilentInstall
+        $bootstrapManual = [bool]$BootstrapManualPrerequisites
         . (Join-Path $PSScriptRoot 'BuildPrerequisites.ps1')
-        $result = Invoke-CycleArcBuildLocalBootstrap -RepoRoot $bootstrapRepoRoot -BuildArguments $buildArguments -NoPrompt:$bootstrapNoPrompt -SilentInstall:$bootstrapSilent -BuildRunner {
+        $result = Invoke-CycleArcBuildLocalBootstrap -RepoRoot $bootstrapRepoRoot -BuildArguments $buildArguments -NoPrompt:$bootstrapNoPrompt -SilentInstall:$bootstrapSilent -ManualPrerequisites:$bootstrapManual -BuildRunner {
             param($path, $scriptPath, $arguments)
             $script:CycleArcBootstrapHandedOff = $true
-            & $path -NoProfile -File $scriptPath @arguments
+            & $path -NoProfile -File $scriptPath @arguments | ForEach-Object { Write-Host $_ }
             $LASTEXITCODE
         }
         $bootstrapExitCode = [int](@($result) | Select-Object -Last 1)
@@ -264,12 +270,7 @@ if (!$BootstrapLoadOnly) {
             Write-Host 'The bootstrap did not build, stop or install CycleArc.'
         }
     }
-    # Once handed off, Build-Local.ps1 owns its failure summary and console pause.
-    if ($bootstrapExitCode -ne 0 -and !$script:CycleArcBootstrapHandedOff -and
-        $env:CYCLEARC_BUILD_LOCAL_CMD -eq '1' -and
-        (Get-Command Test-SetupUiPrerequisiteInteractive -ErrorAction SilentlyContinue) -and
-        (Test-SetupUiPrerequisiteInteractive -NoPrompt:$bootstrapNoPrompt -SilentInstall:$bootstrapSilent)) {
-        try { Read-Host 'Press Enter to close this window' | Out-Null } catch { }
-    }
+    # Prerequisite preparation never asks for console input. After handoff,
+    # Build-Local.ps1 owns its failure summary and any build-stage console pause.
     exit $bootstrapExitCode
 }

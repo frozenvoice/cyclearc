@@ -2,6 +2,72 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Automatic source-build prerequisite preparation (2026-10-06, local only):
+  - Started from merged `fb3f017` on `codex/automatic-build-prerequisites`.
+    Direct interactive `build-local.cmd` now prepares missing/repair-required
+    official prerequisites without a CycleArc selection menu, reprobes after each
+    tool and continues the same build invocation. No version/global.json change.
+    CI, redirected/noninteractive consoles, `-NoPrerequisitePrompt` and
+    `-SilentInstall` retain their automatic-install prohibition.
+  - `-ManualPrerequisites` prints state and official instructions only. Both
+    PowerShell entry points avoid console input during prerequisite outcomes and
+    probe failures; cancellation, policy/reboot outcomes and failed probes stop
+    before building, stopping or replacing the existing app. A pending reboot is
+    detected before starting another installer. SDK progress reflects download,
+    verified publisher, installation and actual post-install probe boundaries.
+  - Focused coordinator, SDK and bootstrap tests pass in PowerShell 7 and Windows
+    PowerShell 5.1 using fake installers. Coverage includes SDK8-only, SDK plus C++
+    missing, repair-required, ready/zero-installer, ordered probes, UAC cancellation,
+    policy/signature/hash/reboot failures, unsuccessful detection after exit 0,
+    CI and explicit suppression, and manual option forwarding. BuildLocal fixtures
+    exercise the real coordinator through the real build entry and production CLI
+    tail, including input-attempt detection and nonzero failure exit codes.
+  - Actual redirected `cmd /c build-local.cmd -ManualPrerequisites` reports system
+    SDK `8.0.424`, selected `none`, shows official guidance and exits 0 without
+    building, installing tools or waiting for input. Evidence:
+    `artifacts/automatic-prerequisites-manual-cmd.log`.
+    Actual Windows PowerShell bootstrap manual execution also displays the guidance
+    and exits 0. Bootstrap streams child progress without mixing stdout into its
+    numeric result; a real fake child printing progress and exiting 7 verifies both
+    properties in PowerShell 7 and 5.1.
+  - `dev-run.ps1 -NoLaunch -Fast` passed in 4m44.4s after the closing-input fix,
+    including script, WPF, publish, Native AOT package and package/update component
+    checks (`artifacts/automatic-prerequisites-final-gate.log`). It uses the isolated
+    official SDK `10.0.401` and reuses the unchanged 2,064 C# unit tests from the
+    preceding prerequisite change. The final stdout bridge then passed focused
+    bootstrap tests on both PowerShell hosts and actual manual execution.
+  - The full gate attempted again on final code stopped at desktop-instance smoke
+    after 15.5s (`artifacts/automatic-prerequisites-confirmed-gate.log`). The existing
+    `DesktopInstanceProcessChecks.ReadReports` uses `File.ReadLines` with an
+    incompatible sharing mode; its repeated reads can exhaust the child's bounded
+    shutdown-report append retries, yielding IOException and child exit 6.
+    The standalone `--desktop-instance` reproduction passed
+    (`artifacts/automatic-prerequisites-desktop-repro.log`). That initial prerequisite
+    commit left the unrelated race unchanged; this records a failed gate attempt.
+    During the subsequently requested push/merge delivery, the smoke reader was
+    changed to the existing `ChildReportFile.ReadCompleteLines` helper, releasing a
+    read/write-shared handle before JSON parsing and excluding incomplete records.
+    Append retry limits and wait timeouts remain unchanged. Production app code and
+    C# unit-test sources remain unchanged. UiSmoke Release build, seven existing
+    `ChildReportFileTests` and the desktop-instance smoke check passed after repair.
+    A subsequent full-gate attempt reached WPF recovery but an external Windows
+    Terminal replaced Explorer as foreground during the focus assertion, while
+    fixture activation counts and its thread-active window were unchanged
+    (`artifacts/automatic-prerequisites-delivery-gate.log`). Standalone widget
+    recovery then passed all EN/KO Dark/Light cases on both monitors
+    (`artifacts/automatic-prerequisites-widget-repro.log`); its assertion and timeout
+    were not changed. The next gate runs without additional console launches during
+    the UI checks.
+    Final `dev-run.ps1 -NoLaunch -Fast` passed in 4m41.9s on the repaired source,
+    including the full WPF suite, test-flavour build/publish, production single-file
+    publish, Native AOT Setup packaging and package/update component checks
+    (`artifacts/automatic-prerequisites-push-gate.log`). The unchanged 2,064 C# unit
+    tests are reused; the seven report-helper tests also passed during this delivery.
+  - No real developer-tool installation/UAC/policy/reboot experiment was performed.
+    System SDKs and the existing CycleArc installation remain unchanged. No disposable
+    Windows VM/user is available for destructive installed-update verification.
+    At initial validation, no push, merge, release or additional remote run was performed.
+
 - Unified source-build prerequisites (2026-10-06, local only):
   - Started from clean `97ea95c`, confirmed equal to remote `main` with read-only
     `git ls-remote`. `global.json` and target frameworks remain unchanged.
