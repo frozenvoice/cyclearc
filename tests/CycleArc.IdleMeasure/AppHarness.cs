@@ -42,6 +42,7 @@ internal sealed class AppHarness : App
     public long AutomaticTicks { get; private set; }
     public long DisplayTicks { get; private set; }
     public UiCreationCounts UiCounts => _ui.Counts;
+    public long RefreshSnapshotCalls { get; private set; }
 
     public AppHarness(SyntheticAccounts fixture, Func<AppHarness, Task> run)
     {
@@ -69,7 +70,8 @@ internal sealed class AppHarness : App
         };
         _fixtureSettingsStore = new SettingsStore(fixture.SettingsPath);
         _ui = new UiCreationObserver(() => Flyout, () => Widget, () => _fixtureTray);
-        _refreshSnapshot = Observed(Method<Action>("RefreshSnapshot"));
+        var refreshSnapshot = Method<Action>("RefreshSnapshot");
+        _refreshSnapshot = Observed(() => { RefreshSnapshotCalls++; refreshSnapshot(); });
         _applyRefreshSchedule = Method<Action>("ApplyRefreshSchedule");
         _applyWidget = Observed(Method<Action>("ApplyWidget"));
         _toggleFlyout = Observed(Method<Action>("ToggleFlyout"));

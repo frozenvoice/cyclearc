@@ -36,6 +36,7 @@ public partial class App : Application
     private Task _passiveTask = Task.CompletedTask;
     private Task _creditUseTask = Task.CompletedTask;
     private FlyoutWindow? _flyout;
+    private bool _hiddenFlyoutSelectionBindQueued;
     private AccountsWindow? _accountsWindow;
     private Task _discoveryTask = Task.CompletedTask;
     private Task _claudeIdentityTask = Task.CompletedTask;
@@ -323,8 +324,27 @@ public partial class App : Application
         // in the background. It still drops a removed or identity-protected account at once.
         if (_flyout is { } flyout && (bindHiddenFlyout || flyout.IsVisible || flyout.RetainsWithdrawnAccount(overview.Accounts)))
             flyout.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing, overview.Preference);
+        else if (_flyout is not null && overview.SelectedId != (_flyout.SelectedProfileId ?? ""))
+            QueueHiddenFlyoutSelectionBind();
         _accountsWindow?.Bind(accounts, overview.SelectedId);
         _widgetController?.Update(_settings, overview, refreshing: _refresh.IsRefreshing);
+    }
+
+    // A different selected account replaces the whole detail section, and laying that out
+    // when the popup is next shown made reopening slower than before. One coalesced bind
+    // runs once the visible windows have rendered, so the next show only rebinds in place.
+    private void QueueHiddenFlyoutSelectionBind()
+    {
+        if (_hiddenFlyoutSelectionBindQueued) return;
+        _hiddenFlyoutSelectionBindQueued = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+        {
+            _hiddenFlyoutSelectionBindQueued = false;
+            if (IsExiting || _codex is null || _refresh is null || _flyout is not { IsVisible: false } flyout) return;
+            var overview = UsageAccountOverview.Create(_codex.Accounts, _codex.SelectedId, _settings.UsagePeriod);
+            if (overview.SelectedId != (flyout.SelectedProfileId ?? ""))
+                flyout.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing, overview.Preference);
+        }));
     }
 
     // Near-limit and limit-reached notices. Marks are saved only when they change, so the frequent

@@ -79,8 +79,12 @@ return to the first selection). The 2026-10-05 GC batch below used the earlier s
 phases without `widget-before-flyout` and `widget-after-churn`. Transitions record the
 synchronous action and time until `ApplicationIdle`, plus how many account rows, avatars,
 popup detail rows and tray icons were newly displayed, compared by reference after each
-fixture call into production presentation. The real tray stays registered, the flyout
-is pinned while shown, and the widget is enabled only for its widget phases. Account/settings controls that could start external
+fixture call into production presentation. Outside each sampled phase window the harness
+also records process and UI-thread CPU cycles (`QueryProcessCycleTime` /
+`QueryThreadCycleTime`, not quantized to the 15.6 ms tick), `RefreshSnapshot` calls,
+kernel handles by object type and the busiest threads' CPU. The real tray stays
+registered, the flyout is pinned while shown, and the widget is enabled only for its
+widget phases. Account/settings controls that could start external
 login or configuration flows are disconnected in the fixture. The one-minute automatic
 refresh and display timers and two-second passive/visibility timer remain active.
 The fixture deliberately selects the supported **one-minute** automatic refresh interval
@@ -490,3 +494,71 @@ README image was updated.
 Limits: one desktop session; synthetic harness including fixture and instrumentation;
 no installed-app, real-account, physical-display or long-session measurement. The
 user-observed 80 MB was not attributed to a metric or build and is not compared here.
+
+## Residual performance questions, 2026-10-06
+
+Follow-up to the UI reuse change. Start `50484a0847216e874a9515c0b399c600f2cd0415`
+("optimized"); measured fix `e83c6e2` ("fixed"). Same machine, runtime, default GC and
+harness as above; the harness gained the boundary diagnostics described earlier.
+
+Questions and findings:
+
+| Question | Finding | Action |
+| --- | --- | --- |
+| `widget-visible` CPU 0.21% to 0.31-0.42% of one core | With cycle counts, original/optimized UI-thread work in that phase was 52-93 / 51-61 M cycles and process totals 557-759 / 755-842 M cycles with equal passive work and no `RefreshSnapshot`: the difference was off the UI thread and within run-to-run spread. In the final batch fixed measured 0.26% in all three runs versus 0.42 / 0.52 / 1.93% | No CPU-specific change. A widget hidden mid-refresh kept its activity rotation clock ticking because a hidden widget is not rebound; the rotation now also requires `IsVisible` |
+| Popup reopen maximum | A 50-cycle probe split reopen into bind/show/layout. After an unchanged or quota-only hidden period, optimized reopened faster than original (6.0 / 8.5-8.9 ms against 12.3-13.5 ms). After the **selected account** changed while hidden, laying out the new detail section at `Show()` made it slower (median 14 to 16 ms, p90 22-26 to 28 ms) | A selection change while hidden queues one coalesced bind at `ApplicationIdle`, after visible windows render. Quota changes still wait for the show; the pre-show bind stays |
+| Kernel handles 10-20 higher | Grouped by type, the extra handles were Thread +5, Key +5 and Event ~+10 (temporary thread-pool threads after an automatic refresh); they matched again after churn. 50 popup open/hide and switch cycles: 727/729 to 722/718 (optimized), 728/728 to 723/721 (fixed); forced collection in a separate probe changed nothing | Not a leak; no change |
+
+Final batch: six single-trial default-GC runs ordered optimized, fixed, fixed, optimized,
+optimized, fixed (21:53-22:20 local); pairs (1,2), (4,3), (5,6). Every run made Codex/
+Claude/Cursor usage/Cursor HTTP requests 10/10/5/15, 133 passive ticks, 280 history reads
+and the same `RefreshSnapshot` counts per phase (12 / 12 / 0 / 1 / 11 / 1). No popup bind
+happened before churn in either build.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| optimized `CycleArc.dll` | `1B95E8B67546D76773F9CF6032C72CCCF0F81457ECE3D3A0C6FD05E022F26BD2` |
+| optimized `CycleArc.Core.dll` | `7F7BF0E14B84FB148D210547ECD990A28C112867FA0F2B201377F40FAB2606A7` |
+| fixed `CycleArc.dll` | `84BABC081697CF829947CDEC49C6803C31332EC9DC8D2623E183F48181050CE4` |
+| fixed `CycleArc.Core.dll` | `220942F8448DC8E525EB1396CEAE671FA5C9540754A9F7D6AA461ABEC401F378` |
+| `coreclr.dll` (both) | `128AEE8C62A673D64739E585E3876B61133571CEC83A46240A62581D5465639B` |
+
+| Observation (optimized to fixed) | Pair 1 | Pair 2 | Pair 3 |
+| --- | --- | --- | --- |
+| Churn popup reopen median, ms | 12.3 to 7.8 | 18.7 to 7.5 | 14.3 to 6.6 |
+| Churn popup reopen max, ms | 20.2 to 14.4 | 32.4 to 11.8 | 36.1 to 14.6 |
+| Hidden switch median, ms (until its own idle marker) | 11.5 to 11.2 | 11.0 to 11.2 | 11.7 to 11.5 |
+| `widget-visible` CPU, % of one core | 0.42 to 0.26 | 0.52 to 0.26 | 1.93 to 0.26 |
+| `widget-visible` UI dispatcher p95 / max, ms | 0.53/0.70 to 0.54/0.67 | 0.59/0.71 to 0.39/0.68 | 0.73/1.14 to 0.77/0.86 |
+| Whole-run allocated, MiB | 54.37 to 63.44 | 58.34 to 56.88 | 56.13 to 58.92 |
+| Whole-run CPU, ms | 6,969 to 7,547 | 7,391 to 6,578 | 6,828 to 6,953 |
+| Whole-run GC pause, ms | 11.18 to 11.92 | 12.38 to 13.99 | 13.54 to 12.76 |
+
+The fixed runs of pairs 1 and 3 each had one burst in `widget-before-flyout` (before any popup
+exists, identical code path): about 4-5 MiB allocated within two seconds, GDI +6 and
+USER +12 objects, ALPC +5, ETW +13, Key +5 and wait-packet +6 handles, which then
+stayed. It occurred at different times (2 s and 20 s into the phase) while the desktop
+was in use; it resembles a first tooltip or UI Automation client attaching and is
+treated as environmental. It accounts for their higher whole-run allocation and CPU,
+the 18 ms dispatcher maximum in that phase and about 25 extra handles afterwards; the
+clean pair 2 differs by 2 handles. Private Bytes were lower in most phases; Private WS
+in the clean pair was 2-4 MiB higher in several pre-churn phases where both builds did
+identical work, and every fixed value there lies inside the range the same optimized
+binary showed in the previous batch (for example `tray-after-refresh` 92.09-95.26
+against 90.16-100.09 MiB). After churn, Private WS was lower in all three pairs
+(-4.69 / -2.11 / -7.63 MiB) and Private Bytes mixed (-11.98 / +18.22 / +14.49 MiB, no
+collection in the phase). The idle selection bind adds a popup bind per hidden
+selection change (6 detail rows and 3 avatars after the last churn switch).
+
+50-cycle probe (two runs each, popup open, visible switch, hide, hidden switch):
+reopen until `ApplicationIdle` median 14.3 / 15.2 to 5.1 / 5.0 ms, p95 18.9 / 21.6 to
+7.5 / 7.1 ms, max 20.7 / 30.0 to 16.1 / 15.2 ms; no rows recreated in either; handles
+plateaued. Per-phase pairs: [phases](measurements/ui-residual-2026-10-06-phases.csv),
+[transitions](measurements/ui-residual-2026-10-06-transitions.csv).
+
+Visual check: 805 production previews (the earlier set plus widget status rows) rendered
+from optimized and fixed one mode after the other: 767 identical; the other 38 differ only
+in wall-clock minute digits (21:50 against 21:51, 09:51 against 09:52).
+
+Limits: one desktop session in use during measurement; synthetic harness; the cause of the
+environmental burst was not identified; no installed-app or real-account measurement.
