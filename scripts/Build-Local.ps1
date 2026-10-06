@@ -96,7 +96,7 @@ function Test-BuildLocalVerificationStage([string]$Stage) {
 function Get-BuildLocalStageGuidance([string]$Stage) {
     switch ($Stage) {
         'preflight' { 'CycleArc was not built, stopped or installed. Its existing installation is unchanged.' }
-        'stop-desktop' { 'The running CycleArc could not be stopped over desktop IPC. Setup.exe was not started and the installed version is unchanged; that desktop may still be running. Close it from its tray and retry.' }
+        'stop-desktop' { 'The running CycleArc could not be stopped over desktop IPC. The installation engine was not started and the installed version is unchanged; that desktop may still be running. Close it from its tray and retry.' }
         'install' { 'CycleArc-Setup.exe was already started, so the installation may be partially replaced. Read the Setup log before assuming the previous version is intact.' }
         'verify-install' { 'CycleArc-Setup.exe already ran and changed the installation, but the result is not this build. Do not assume the previous version is intact.' }
         'start' { 'This build is installed. Only starting it or confirming readiness failed, so the previous version is already gone.' }
@@ -750,12 +750,24 @@ function Get-SetupStateValue([string]$StateFile) {
     Without a state file - an older installer, or a stub in a test - the whole run falls back
     to the approval budget rather than being cut short.
 #>
+function Write-BuildLocalDesktopAcknowledgement {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][ValidateSet('ready', 'failed')][string]$Value)
+    $temporary = $Path + '.writing'
+    try {
+        [IO.File]::WriteAllText($temporary, $Value)
+        [IO.File]::Move($temporary, $Path)
+    }
+    finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+}
+
 function Invoke-SetupProcess {
     param(
         [Parameter(Mandatory)][string]$FilePath,
         [string[]]$ArgumentList = @(),
         [string]$WorkingDirectory,
         [string]$StateFile,
+        [string]$DesktopAckFile,
+        [scriptblock]$PrepareDesktop,
         [int]$ApprovalTimeoutSeconds = 3600,
         [int]$InstallTimeoutSeconds = 1200,
         [int]$CompletionTimeoutSeconds = 3600,
@@ -774,6 +786,7 @@ function Invoke-SetupProcess {
     $installStarted = $null
     $finishedAt = $null
     $lastState = $null
+    $preparationFailure = $null
     try {
         while (!$process.WaitForExit($PollMilliseconds)) {
             $state = Get-SetupStateValue $StateFile
@@ -781,6 +794,22 @@ function Invoke-SetupProcess {
                 $lastState = $state
                 switch ($state) {
                     'awaiting-approval' { Write-BuildLocalTiming 'waiting for you to approve or cancel the installer' }
+                    'preparing-desktop' {
+                        $installStarted = [Diagnostics.Stopwatch]::StartNew()
+                        if (!$DesktopAckFile -or !$PrepareDesktop) {
+                            throw 'The installer requested desktop preparation without an acknowledgement boundary.'
+                        }
+                        Set-BuildLocalStage 'stop-desktop'
+                        try {
+                            & $PrepareDesktop | Out-Null
+                            Write-BuildLocalDesktopAcknowledgement -Path $DesktopAckFile -Value 'ready'
+                        }
+                        catch {
+                            try { Write-BuildLocalDesktopAcknowledgement -Path $DesktopAckFile -Value 'failed' } catch { }
+                            $preparationFailure = $_
+                        }
+                        if (!$preparationFailure) { Set-BuildLocalStage 'install' }
+                    }
                     'installing' {
                         $installStarted = [Diagnostics.Stopwatch]::StartNew()
                         Write-BuildLocalTiming 'install approved; installing'
@@ -825,6 +854,7 @@ function Invoke-SetupProcess {
             }
         }
 
+        if ($preparationFailure) { throw $preparationFailure }
         [int]$process.ExitCode
     }
     finally { $process.Dispose() }
@@ -863,6 +893,29 @@ function Wait-DesktopReady {
     throw "The installed CycleArc did not report desktop readiness within $TimeoutSeconds seconds."
 }
 
+function Assert-BuildLocalRunningDesktop {
+    param(
+        [Parameter(Mandatory)][object]$Status,
+        [Parameter(Mandatory)][string]$InstalledExe,
+        [Parameter(Mandatory)][string]$Launcher,
+        [Parameter(Mandatory)][string]$PublishedHash,
+        [string]$PublishedVersion
+    )
+    $runningPath = ConvertTo-InstallAbsolutePath ([string]$Status.ExecutablePath)
+    $currentFull = ConvertTo-InstallAbsolutePath $InstalledExe
+    if (!$runningPath.Equals($currentFull, [StringComparison]::OrdinalIgnoreCase) -and
+        !$runningPath.Equals((ConvertTo-InstallAbsolutePath $Launcher), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The running CycleArc is $runningPath, not the managed install at $currentFull. The previously running desktop still owns the instance."
+    }
+    if ($PublishedVersion -and [string]$Status.Version -cne $PublishedVersion) {
+        throw "The running CycleArc version is $($Status.Version), not this build $PublishedVersion."
+    }
+    $runningHash = Get-BuildLocalSha256 $currentFull
+    if ($runningHash -cne $PublishedHash) {
+        throw "The running desktop is not this build (installed $runningHash vs published $PublishedHash)."
+    }
+}
+
 function Invoke-BuildLocal {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
@@ -878,7 +931,8 @@ function Invoke-BuildLocal {
         [scriptblock]$StopDesktop,
         [scriptblock]$RunSetup,
         [scriptblock]$StartLauncher,
-        [scriptblock]$ProbeStatus
+        [scriptblock]$ProbeStatus,
+        [scriptblock]$InteractiveStatusProbe
     )
     $script:BuildLocalStarted = [Diagnostics.Stopwatch]::StartNew()
     Set-BuildLocalStage 'preflight'
@@ -995,6 +1049,7 @@ function Invoke-BuildLocal {
         }
         $publishedHash = Get-BuildLocalSha256 $stagingExe
         $publishedVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($stagingExe).FileVersion
+        $publishedProductVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($stagingExe).ProductVersion
         Write-Host "Packaged Setup: $setupPath"
         Write-Host "Published CycleArc.exe SHA-256: $publishedHash"
         Write-Host "Published FileVersion: $publishedVersion"
@@ -1028,9 +1083,8 @@ function Invoke-BuildLocal {
             (Join-Path $installRoot 'current/CycleArc.exe'),
             (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs/CycleArc-dev/CycleArc.exe')
         )
-        # An unattended run still stops the desktop itself. The interactive path must not:
-        # the person approves the installation first, and the installer stops the app after
-        # that, so cancelling leaves a running CycleArc exactly as it was.
+        # The interactive installer waits for the caller to stop the desktop only after
+        # approval. This also covers the separate development installation sharing IPC.
         if ($SilentInstall) {
             # Only now, after a green gate and a packaged Setup.exe, is the running
             # installation touched. A failed build above leaves it running.
@@ -1048,7 +1102,14 @@ function Invoke-BuildLocal {
         $setupArgs = Get-SetupArguments -SetupLog $setupLog -ExistingRoot $existingRoot -DefaultRoot $defaultRoot `
             -Silent:$SilentInstall
         $previousSetupState = $env:CYCLEARC_SETUP_STATE_FILE
+        $previousDesktopAck = $env:CYCLEARC_SETUP_DESKTOP_ACK_FILE
         $env:CYCLEARC_SETUP_STATE_FILE = $setupStateFile
+        $desktopAck = $null
+        if (!$SilentInstall) {
+            $desktopAck = Join-Path $logDirectory ('desktop-preparation-' + [Guid]::NewGuid().ToString('N') + '.ack')
+            $env:CYCLEARC_SETUP_DESKTOP_ACK_FILE = $desktopAck
+        }
+        else { Remove-Item Env:CYCLEARC_SETUP_DESKTOP_ACK_FILE -ErrorAction SilentlyContinue }
         try {
             $setupExit = if ($RunSetup) {
                 & $RunSetup $setupPath $setupArgs
@@ -1062,12 +1123,18 @@ function Invoke-BuildLocal {
             else {
                 Invoke-SetupProcess -FilePath $setupPath -ArgumentList $setupArgs `
                     -WorkingDirectory (Split-Path -Parent (ConvertTo-InstallAbsolutePath $setupPath)) `
-                    -StateFile $setupStateFile
+                    -StateFile $setupStateFile -DesktopAckFile $desktopAck -PrepareDesktop {
+                        if ($StopDesktop) { & $StopDesktop }
+                        else { Stop-VerifiedCycleArcDesktop -ProbeExecutable $stagingExe -LogDirectory $logDirectory -KnownExecutablePaths $known }
+                    }
             }
         }
         finally {
             if ($null -eq $previousSetupState) { Remove-Item Env:CYCLEARC_SETUP_STATE_FILE -ErrorAction SilentlyContinue }
             else { $env:CYCLEARC_SETUP_STATE_FILE = $previousSetupState }
+            if ($null -eq $previousDesktopAck) { Remove-Item Env:CYCLEARC_SETUP_DESKTOP_ACK_FILE -ErrorAction SilentlyContinue }
+            else { $env:CYCLEARC_SETUP_DESKTOP_ACK_FILE = $previousDesktopAck }
+            if ($desktopAck) { Remove-Item -LiteralPath $desktopAck -Force -ErrorAction SilentlyContinue }
         }
 
         # Cancelling is neither success nor failure: nothing was installed and the previous
@@ -1111,8 +1178,13 @@ function Invoke-BuildLocal {
         # checkbox. Starting it again here would ignore a person who cleared that box, and
         # requiring a readiness answer would turn their choice into a build failure.
         if (!$SilentInstall -and !$StartLauncher -and !$ProbeStatus) {
-            $status = Invoke-DesktopStatus -Executable $installedExe -LogDirectory $logDirectory
+            $status = if ($InteractiveStatusProbe) { & $InteractiveStatusProbe }
+                else { Invoke-DesktopStatus -Executable $installedExe -LogDirectory $logDirectory }
             $running = $status -and [bool]$status.Succeeded
+            if ($running) {
+                Assert-BuildLocalRunningDesktop -Status $status -InstalledExe $installedExe -Launcher $launcher `
+                    -PublishedHash $publishedHash -PublishedVersion $publishedProductVersion
+            }
             Write-Host ''
             Write-Host 'CycleArc is installed.'
             Write-Host "Branch: $($git.Branch)"
@@ -1145,16 +1217,8 @@ function Invoke-BuildLocal {
             throw "The installed CycleArc did not report desktop readiness. Log: $logPath"
         }
 
-        $runningPath = ConvertTo-InstallAbsolutePath ([string]$status.ExecutablePath)
-        $currentFull = ConvertTo-InstallAbsolutePath $installedExe
-        $runningHash = Get-BuildLocalSha256 $currentFull
-        if ($runningHash -cne $publishedHash) {
-            throw "The running desktop is not this build (installed $runningHash vs published $publishedHash)."
-        }
-        if (!$runningPath.Equals($currentFull, [StringComparison]::OrdinalIgnoreCase) -and
-            !$runningPath.Equals((ConvertTo-InstallAbsolutePath $launcher), [StringComparison]::OrdinalIgnoreCase)) {
-            throw "The running CycleArc is $runningPath, not the managed install at $currentFull."
-        }
+        Assert-BuildLocalRunningDesktop -Status $status -InstalledExe $installedExe -Launcher $launcher `
+            -PublishedHash $publishedHash -PublishedVersion $publishedProductVersion
 
         Write-Host ""
         Write-Host "CycleArc local install is running."

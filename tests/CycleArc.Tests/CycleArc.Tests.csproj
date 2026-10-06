@@ -24,6 +24,8 @@
     <!-- The installer's log-location choice, so production and these tests run the same code. -->
     <Compile Include="..\..\src\CycleArc.Setup\SetupLogPaths.cs" Link="SetupLogPaths.cs" />
     <Compile Include="..\..\src\CycleArc.Setup\DesktopShortcuts.cs" Link="DesktopShortcuts.cs" />
+    <Compile Include="..\..\src\CycleArc.Setup\SetupDesktopPreparation.cs" Link="SetupDesktopPreparation.cs" />
+    <Compile Include="..\..\src\CycleArc.Setup\SetupState.cs" Link="SetupState.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />

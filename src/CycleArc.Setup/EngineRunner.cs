@@ -43,6 +43,24 @@ internal static class EngineRunner
     public static EngineResult Install(string directory, CancellationToken token, string? logPath = null,
         bool? createDesktopShortcut = null)
     {
+        // The build-local acknowledgement is for this installer process only. Capture it
+        // before clearing the process environment so the embedded engine and the app launched
+        // from the completion page can never inherit a stale parent-wait path.
+        var desktopAcknowledgementPath = Environment.GetEnvironmentVariable(
+            SetupDesktopPreparation.AcknowledgementVariable);
+        Environment.SetEnvironmentVariable(SetupDesktopPreparation.AcknowledgementVariable, null);
+
+        // In the build-local interactive path, the parent stops any existing desktop only
+        // after the person presses Install. Do not extract or start the engine until that
+        // parent has acknowledged the handoff. A direct Setup.exe launch has no ACK path and
+        // proceeds exactly as it did before this boundary existed.
+        var preparation = SetupDesktopPreparation.WaitForParent(
+            acknowledgementPath: desktopAcknowledgementPath ?? string.Empty,
+            cancellationToken: token);
+        if (!preparation.Ready)
+            return new EngineResult(EngineOutcome.Failed, -1, "", preparation.Detail);
+        SetupState.Report(SetupState.Installing);
+
         var work = Path.Combine(Path.GetTempPath(), "CycleArc-setup-" + Guid.NewGuid().ToString("N"));
         string? logError = null;
         try
