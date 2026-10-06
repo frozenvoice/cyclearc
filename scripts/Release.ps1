@@ -9,7 +9,8 @@
     for an exact match and is never edited or overwritten.
 
     GitHub CLI and Git are the only external tools used.  CI is selected by the
-    exact commit SHA, push event, and Windows workflow; a failed or in-progress
+    explicit -FullRunId, exact commit SHA, workflow_dispatch event and Windows
+    full workflow, including every required job; a failed or in-progress
     run is an error and is never rerun by this script.
 
     -Preflight runs local, package and remote verification without creating tags,
@@ -17,13 +18,13 @@
     never starts a new build, test or packaging run.
 
 .EXAMPLE
-    pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7 -NotesPath ./release-notes/0.5.7.md
+    pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7 -FullRunId 123456 -NotesPath ./release-notes/0.5.7.md
 
     Commit defaults to HEAD. An explicit -Commit must resolve to the checked-out
     HEAD; check out an older version before releasing it.
 
 .EXAMPLE
-    pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7 -NotesPath ./release-notes/0.5.7.md -Preflight
+    pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.5.7 -FullRunId 123456 -NotesPath ./release-notes/0.5.7.md -Preflight
 #>
 [CmdletBinding()]
 param(
@@ -33,6 +34,7 @@ param(
     [string]$Repository = 'frozenvoice/cyclearc',
     [string]$Remote = 'origin',
     [string]$Workflow = '.github/workflows/windows.yml',
+    [long]$FullRunId,
     [switch]$DraftOnly,
     [switch]$Preflight,
     [switch]$LoadOnly
@@ -206,41 +208,96 @@ function Assert-TagTargets {
     }
 }
 
-function Select-SuccessfulWindowsPushRun {
+function Assert-SuccessfulWindowsFullRun {
     param(
-        [object[]]$Runs,
+        [Parameter(Mandatory)][object]$Run,
+        [Parameter(Mandatory)][long]$RunId,
+        [Parameter(Mandatory)][string]$RepositoryName,
         [Parameter(Mandatory)][string]$CommitSha
     )
+    if ($RunId -le 0 -or [long]$Run.id -ne $RunId) {
+        throw 'An explicit positive -FullRunId matching the returned run is required'
+    }
+    if ([string]$Run.head_sha -ine $CommitSha -or [string]$Run.head_repository.full_name -ine $RepositoryName) {
+        throw "Windows full run $RunId does not match repository $RepositoryName and target SHA $CommitSha"
+    }
+    if ([string]$Run.event -cne 'workflow_dispatch' -or [string]$Run.path -cne '.github/workflows/windows.yml') {
+        throw "Windows full run $RunId must be a windows.yml workflow_dispatch run"
+    }
+    if ([string]$Run.status -cne 'completed' -or [string]$Run.conclusion -cne 'success' -or [int]$Run.run_attempt -lt 1) {
+        throw "Windows full run $RunId is not a completed success; it will not be rerun or waited for"
+    }
+    $Run
+}
 
-    $matching = @($Runs | Where-Object {
-        ([string]$_.headSha -ieq $CommitSha) -and ([string]$_.event -ieq 'push')
-    })
-    if ($matching.Count -eq 0) {
-        throw "No Windows push CI run was found for commit $CommitSha"
-    }
+function Get-RunApiItems {
+    param([Parameter(Mandatory)][string]$Endpoint, [Parameter(Mandatory)][string]$Property)
+    $items = @()
+    $page = 1
+    do {
+        $response = Invoke-GhJson -Arguments @('api', "${Endpoint}?per_page=100&page=$page")
+        $batch = @($response.$Property)
+        if ($batch.Count -eq 0 -and $items.Count -lt [int]$response.total_count) {
+            throw "Incomplete GitHub $Property response for $Endpoint"
+        }
+        $items += $batch
+        $page++
+    } while ($items.Count -lt [int]$response.total_count)
+    $items
+}
 
-    # A successful branch run must not hide a failure of the same commit on main.
-    $incomplete = @($matching | Where-Object { $_.status -ine 'completed' -or $_.conclusion -ine 'success' })
-    if ($incomplete.Count -gt 0) {
-        $states = ($incomplete | ForEach-Object { "$($_.databaseId):$($_.status)/$($_.conclusion)" }) -join ', '
-        throw "Windows push CI for $CommitSha is not a completed success across all matching runs ($states); it will not be rerun"
+function Assert-WindowsFullJobs {
+    param([object[]]$Jobs, [Parameter(Mandatory)][long]$RunId, [Parameter(Mandatory)][int]$Attempt)
+    foreach ($name in @('build', 'managed-setup-install', 'setup-shortcut-choices')) {
+        $matching = @($Jobs | Where-Object { [string]$_.name -ceq $name })
+        if ($matching.Count -ne 1) { throw "Windows full run $RunId must contain exactly one required job '$name'" }
     }
+    foreach ($job in $Jobs) {
+        if ([long]$job.run_id -ne $RunId -or [int]$job.run_attempt -ne $Attempt -or
+            [string]$job.status -cne 'completed' -or [string]$job.conclusion -cne 'success') {
+            throw "Windows full run $RunId job '$($job.name)' is not a completed success for attempt $Attempt"
+        }
+    }
+}
 
-    $ordered = @($matching | Sort-Object {
-        try { [DateTimeOffset]::Parse([string]$_.createdAt) }
-        catch { [DateTimeOffset]::MinValue }
-    } -Descending)
-    $run = $ordered[0]
-    $status = [string]$run.status
-    $conclusion = [string]$run.conclusion
-    if ($status -ine 'completed' -or $conclusion -ine 'success') {
-        $state = if ($status -ine 'completed') { $status } else { $conclusion }
-        throw "Latest Windows push CI run for $CommitSha is not a completed success ($state); it will not be rerun"
+function Select-WindowsFullArtifact {
+    param([object[]]$Artifacts, [Parameter(Mandatory)][object]$Run, [Parameter(Mandatory)][object[]]$Jobs)
+    $matching = @($Artifacts | Where-Object { [string]$_.name -ceq 'CycleArc-win-x64' })
+    if ($matching.Count -ne 1) { throw 'Expected exactly one CycleArc-win-x64 artifact in the selected full run' }
+    $artifact = $matching[0]
+    if ([long]$artifact.id -le 0 -or [bool]$artifact.expired -or [long]$artifact.size_in_bytes -le 0 -or
+        [long]$artifact.workflow_run.id -ne [long]$Run.id -or
+        [string]$artifact.workflow_run.head_sha -ine [string]$Run.head_sha -or
+        [long]$artifact.workflow_run.head_repository_id -ne [long]$Run.head_repository.id) {
+        throw 'Selected CycleArc-win-x64 artifact is expired, empty or does not match the full run and target SHA'
     }
-    if ([string]::IsNullOrWhiteSpace([string]$run.databaseId)) {
-        throw 'Successful CI run did not include a databaseId'
+    # Artifacts belong to a run ID, not an attempt. Refuse an earlier attempt's
+    # surviving artifact even if the run ID and commit are still identical.
+    $build = @($Jobs | Where-Object { [string]$_.name -ceq 'build' })
+    if ($build.Count -ne 1) { throw 'Artifact requires exactly one successful build job' }
+    try {
+        $created = [DateTimeOffset]::Parse([string]$artifact.created_at)
+        $started = [DateTimeOffset]::Parse([string]$build[0].started_at)
+        $completed = [DateTimeOffset]::Parse([string]$build[0].completed_at)
     }
-    $run
+    catch { throw 'Artifact/build timestamps are missing or invalid; cannot verify the full run attempt' }
+    if ($created -lt $started -or $created -gt $completed) {
+        throw 'Selected artifact was not created by the successful build in the selected full run attempt'
+    }
+    $artifact
+}
+
+function Get-VerifiedWindowsFullRun {
+    param([Parameter(Mandatory)][string]$RepositoryName, [Parameter(Mandatory)][long]$RunId,
+        [Parameter(Mandatory)][string]$CommitSha)
+    $endpoint = "repos/$RepositoryName/actions/runs/$RunId"
+    $run = Invoke-GhJson -Arguments @('api', $endpoint)
+    Assert-SuccessfulWindowsFullRun -Run $run -RunId $RunId -RepositoryName $RepositoryName -CommitSha $CommitSha | Out-Null
+    $jobs = @(Get-RunApiItems -Endpoint "$endpoint/attempts/$($run.run_attempt)/jobs" -Property 'jobs')
+    Assert-WindowsFullJobs -Jobs $jobs -RunId $RunId -Attempt $run.run_attempt
+    $artifacts = @(Get-RunApiItems -Endpoint "$endpoint/artifacts" -Property 'artifacts')
+    $artifact = Select-WindowsFullArtifact -Artifacts $artifacts -Run $run -Jobs $jobs
+    [pscustomobject]@{ Run = $run; Artifact = $artifact }
 }
 
 function Assert-OwnedDirectory {
@@ -646,11 +703,14 @@ function Invoke-Release {
         [string]$RepositoryName = 'frozenvoice/cyclearc',
         [string]$RemoteName = 'origin',
         [string]$WorkflowFile = '.github/workflows/windows.yml',
+        [long]$FullRunId,
         [switch]$DraftOnly,
         [switch]$Preflight,
         [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot)
     )
 
+    if ($FullRunId -le 0) { throw 'An explicit positive -FullRunId is required; no latest successful artifact is selected' }
+    if ($WorkflowFile -cne '.github/workflows/windows.yml') { throw 'Release requires the full .github/workflows/windows.yml workflow' }
     $version = Assert-ReleaseVersion $VersionValue
     $tag = Get-ReleaseTagName $version
     $expectedFileVersion = "$version.0"
@@ -708,12 +768,10 @@ function Invoke-Release {
         $allowedAssetNames = @(Get-AllowedReleaseAssetNames -VersionValue $version)
         if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssetNames }
 
-        $runJson = Invoke-GhJson -Arguments @(
-            'run', 'list', '--repo', $RepositoryName, '--workflow', $WorkflowFile,
-            '--commit', $commitSha, '--event', 'push', '--limit', '20',
-            '--json', 'databaseId,status,conclusion,headSha,event,workflowName,createdAt,url'
-        )
-        $run = Select-SuccessfulWindowsPushRun -Runs @($runJson) -CommitSha $commitSha
+        $full = Get-VerifiedWindowsFullRun -RepositoryName $RepositoryName -RunId $FullRunId -CommitSha $commitSha
+        $run = $full.Run
+        $artifact = $full.Artifact
+        Write-Host "Selected full run $FullRunId attempt $($run.run_attempt), SHA $commitSha, artifact $($artifact.id) ($($artifact.name))."
         Write-ReleasePhase 'release-preflight' 'passed'
 
         Write-ReleasePhase 'package-verify' 'start'
@@ -724,8 +782,8 @@ function Invoke-Release {
         Assert-OwnedDirectory -RepoRoot $root -Target $staging
         New-Item -ItemType Directory -Path $staging | Out-Null
         Invoke-NativeCommand -FilePath 'gh' -Arguments @(
-            'run', 'download', [string]$run.databaseId, '--repo', $RepositoryName,
-            '--name', 'CycleArc-win-x64', '--dir', $staging
+            'run', 'download', [string]$FullRunId, '--repo', $RepositoryName,
+            '--name', [string]$artifact.name, '--dir', $staging
         ) | Out-Null
         $assets = Get-PackagedArtifact -StagingDirectory $staging -VersionValue $version -ExpectedFileVersion $expectedFileVersion
         $assetPaths = @($assets.Values | ForEach-Object { $_.Path })
@@ -737,6 +795,14 @@ function Invoke-Release {
         Write-ReleasePhase 'package-verify' 'passed'
 
         Write-ReleasePhase 'remote-state-verify' 'start'
+        # gh downloads by exact run/name, after the API proved that name has one
+        # artifact ID. Re-read all gates after download; a rerun or replacement
+        # artifact must never silently change the reviewed release source.
+        $rechecked = Get-VerifiedWindowsFullRun -RepositoryName $RepositoryName -RunId $FullRunId -CommitSha $commitSha
+        if ([int]$rechecked.Run.run_attempt -ne [int]$run.run_attempt -or
+            [long]$rechecked.Artifact.id -ne [long]$artifact.id) {
+            throw 'Selected Windows full run attempt or artifact identity changed during release verification'
+        }
         if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets }
 
         if ($isPublic) {
@@ -747,13 +813,13 @@ function Invoke-Release {
             }
             Write-ReleasePhase 'remote-state-verify' 'passed'
             Write-Host "Already complete: public release $tag matches commit $commitSha and uploaded asset digests."
-            return [pscustomobject]@{ Status = 'AlreadyComplete'; Tag = $tag; Commit = $commitSha; Staging = $staging }
+            return [pscustomobject]@{ Status = 'AlreadyComplete'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; Staging = $staging }
         }
         Write-ReleasePhase 'remote-state-verify' 'passed'
 
         if ($Preflight) {
             Write-Host "Preflight passed: $tag for $commitSha. No GitHub tags, drafts, uploads or publishes were performed."
-            return [pscustomobject]@{ Status = 'Preflight'; Tag = $tag; Commit = $commitSha; Staging = $staging }
+            return [pscustomobject]@{ Status = 'Preflight'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; Staging = $staging }
         }
 
         # Publish uses the already-verified SHA and CI artifacts. It does not
@@ -796,11 +862,16 @@ function Invoke-Release {
         if ($DraftOnly) {
             Write-ReleasePhase 'publish' 'passed'
             Write-Host "Draft ready: $tag for $commitSha with verified installer assets."
-            return [pscustomobject]@{ Status = 'DraftReady'; Tag = $tag; Commit = $commitSha; Staging = $staging }
+            return [pscustomobject]@{ Status = 'DraftReady'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; Staging = $staging }
         }
 
         # Publishing remains the final mutation, after exact GitHub digests are
         # verified. Callers that need review time can pass -DraftOnly.
+        $beforePublish = Get-VerifiedWindowsFullRun -RepositoryName $RepositoryName -RunId $FullRunId -CommitSha $commitSha
+        if ([int]$beforePublish.Run.run_attempt -ne [int]$run.run_attempt -or
+            [long]$beforePublish.Artifact.id -ne [long]$artifact.id) {
+            throw 'Selected Windows full run attempt or artifact identity changed before publication'
+        }
         Invoke-NativeCommand -FilePath 'gh' -Arguments @(
             'release', 'edit', $tag, '--repo', $RepositoryName, '--draft=false', '--latest', '--verify-tag'
         ) | Out-Null
@@ -813,7 +884,7 @@ function Invoke-Release {
         }
         Write-ReleasePhase 'publish' 'passed'
         Write-Host "Published $tag for $commitSha with verified installer assets."
-        [pscustomobject]@{ Status = 'Published'; Tag = $tag; Commit = $commitSha; Staging = $staging }
+        [pscustomobject]@{ Status = 'Published'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; Staging = $staging }
     }
     catch {
         Write-Host ("Failed at: {0}" -f $script:ReleaseCurrentPhase)
@@ -827,7 +898,7 @@ function Invoke-Release {
 
 if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
     if ([string]::IsNullOrWhiteSpace($Version)) {
-        throw 'Usage: pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> [-Commit <sha-or-ref>] [-NotesPath <file>] [-DraftOnly] [-Preflight]'
+        throw 'Usage: pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -FullRunId <run-id> [-Commit <sha-or-ref>] [-NotesPath <file>] [-DraftOnly] [-Preflight]'
     }
-    Invoke-Release -VersionValue $Version -Commitish $Commit -NotesFile $NotesPath -RepositoryName $Repository -RemoteName $Remote -WorkflowFile $Workflow -DraftOnly:$DraftOnly -Preflight:$Preflight
+    Invoke-Release -VersionValue $Version -Commitish $Commit -NotesFile $NotesPath -RepositoryName $Repository -RemoteName $Remote -WorkflowFile $Workflow -FullRunId $FullRunId -DraftOnly:$DraftOnly -Preflight:$Preflight
 }

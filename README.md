@@ -73,10 +73,10 @@ The SDK signature check accepts Microsoft's documented `.NET` certificate subjec
 ```powershell
 git clone https://github.com/frozenvoice/cyclearc.git
 cd cyclearc
-pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+pwsh -NoProfile -File ./dev-run.ps1 -DevelopmentOnly
 ```
 
-This runs the shared build, tests, WPF smoke and packaging gate without replacing the installed app. Drop `-NoLaunch` to publish and run the separate development installation. Double-click `build-local.cmd` to build and install the stable package from the current checkout. See [developer workflow and disposable installer checks](docs/README.en.md#build-from-source) and [agent instructions](AGENTS.md).
+This runs the shared Release build and unit tests without publishing, packaging, installing or launching the app. Add `-TestFilter "<matching-filter>"` for relevant tests or `-BuildOnly` for compile only. Run affected WPF checks explicitly. `dev-run.ps1 -NoLaunch` remains the full publish/package gate; dropping `-NoLaunch` also installs/runs the separate development installation. Double-click `build-local.cmd` to build and install the stable package from the current checkout. All Windows Actions workflows are manual-only; ordinary push/PR work requires relevant local checks and no remote CI wait. Releases select an explicit successful full run with `Release.ps1 -FullRunId <id>`. See [developer workflow and disposable installer checks](docs/README.en.md#build-from-source) and [agent instructions](AGENTS.md).
 
 ## License
 

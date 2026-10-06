@@ -1,41 +1,16 @@
 name: Windows
 
-# Documentation that no build step reads is excluded: a change to it cannot alter the
-# executable, the installer or the packaged assets, so re-running the whole Windows gate
-# would only re-prove code the change did not touch.
-#
-# release-notes/**/*.md is deliberately NOT excluded: Package.ps1 receives that file as
-# ReleaseNotesPath, so it does affect the packaged output.
-# The two lists are kept identical by hand: GitHub Actions does not expand YAML anchors.
+# Full build/package/install verification is an explicit manual or release-preparation
+# action. Ordinary pushes and pull requests use the relevant local checks.
+# Select this run's ID and exact SHA when consuming its release artifact; dispatching
+# verification alone never publishes a release.
 on:
-  # Feature branch commits are validated by pull_request only. Keep the main push as a
-  # separate post-merge clean-run check because release tooling consumes its artifact.
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'AGENTS.md'
-      - 'CLAUDE.md'
-      - 'README.md'
-      - 'docs/**/*.md'
-      - 'docs/images/**'
-      - '.cursor/**'
-      - '.github/**/*.md'
-  pull_request:
-    paths-ignore:
-      - 'AGENTS.md'
-      - 'CLAUDE.md'
-      - 'README.md'
-      - 'docs/**/*.md'
-      - 'docs/images/**'
-      - '.cursor/**'
-      - '.github/**/*.md'
+  workflow_dispatch:
 
-# A newer commit supersedes an in-flight PR verification. Main pushes are retained
-# independently so the post-merge clean-run remains observable.
+# Retain an explicitly selected full run when another verification is requested.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:

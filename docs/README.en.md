@@ -359,7 +359,7 @@ Company-managed PCs may require Windows UAC or IT approval; these controls are n
 ```powershell
 git clone https://github.com/frozenvoice/cyclearc.git
 cd cyclearc
-.\dev-run.ps1
+pwsh -NoProfile -File ./dev-run.ps1 -DevelopmentOnly
 ```
 
 Double-click **`build-local.cmd`** in the repository root to build the current checkout, package `CycleArc-Setup.exe`, install that package into the managed Velopack location (new installs use `%LOCALAPPDATA%\Programs\CycleArc`; existing installs keep their registered `InstallLocation`), and start the root `CycleArc.exe` launcher from that location. It runs `dev-run.ps1 -NoLaunch` in a separate process, then uses Setup.exe. It does not copy the development EXE to the managed install.
@@ -374,13 +374,33 @@ Preflight reports existing desktop PIDs and executable paths. After validation, 
 - `-Fast`: skip the unit suite only when it has already passed for the same changes.
 - CI builds and checks the development single-file executable and packages the Velopack installer assets for the stable release workflow.
 
-The same `dev-run.ps1 -NoLaunch` gate runs locally and for both pull requests and pushes to `main`.
+For ordinary development, `dev-run.ps1 -DevelopmentOnly` reuses SDK/process preflight, restore, Release build and unit tests. Add `-TestFilter "<matching-filter>"` to run only relevant tests, or `-BuildOnly` to compile only. It never publishes, packages, installs or launches the app/UiSmoke, and does not need the packaging AOT tools. Run affected WPF checks explicitly. A local partial check is not full validation.
+
+All three Windows workflows use only `workflow_dispatch`; push/PR work has no remote CI-completion wait. The `Windows` workflow runs the full `dev-run.ps1 -NoLaunch` gate on `windows-2022` with the existing VS2022 Native AOT tool contract. Its install/repair and shortcut-choice jobs consume `CycleArc-win-x64` from that same run, including installed executable hash checks and evidence. A manual run does not publish a release.
 
 `scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment` drives the real `build-local.cmd` entry point end to end with nothing injected: build A through the real `dev-run.ps1` gate and the real `CycleArc-Setup.exe`, build B installed over it with the same version number but different executable content, and a deliberately broken build to check that the cause and a nonzero exit code reach CMD while the running installation is left alone. It installs and replaces a real installation for the current Windows user, so run it only on a disposable Windows VM or throwaway user; the `Windows build-local entry point` workflow runs it on a discarded GitHub-hosted runner.
 
 `scripts/Verify-InstalledUpdate.ps1` verifies the installed application end to end: it builds three test executables with different versions and hashes, installs the first with its real `Setup.exe`, updates to the second through the production update window, coordinator, updater and recovery supervisor, forces a build that fails to start so the supervisor restores and restarts the previous version, and finally removes the installation and checks the Claude cleanup and data preservation. It installs, updates and removes CycleArc for the current Windows user and cannot isolate the data root, uninstall registry entry, shortcuts, single-instance mutex or desktop IPC, so run it only on a disposable Windows VM or a throwaway user account, with `-ConfirmDisposableEnvironment`. Its update feed is a local directory read by a test-only build flavour; HTTPS enforcement and package verification are unchanged, and its Claude accounts are synthetic rather than a live subscription check.
 
-For a GitHub release, first pass the local `-NoLaunch` gate on the final versioned changes, then commit and push them. After Windows push CI passes, run `pwsh -NoProfile -File ./scripts/Release.ps1 -Version 0.6.1 -NotesPath "./release-notes/0.6.1.md"` (use the version and notes file being released). `-Preflight` verifies source metadata, remote commit/CI state and the downloaded package without creating tags, drafts, uploads or public releases; it does not run the local build/test gate.
+Manual commands below are examples to run when full validation or delivery is explicitly needed. Choose a branch containing the final target commit and record its SHA; a moving branch can dispatch a different commit, which release preflight rejects.
+
+```powershell
+# Full local validation, including publish/package; no installation
+pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch
+# General full remote validation; choose the intended branch
+gh workflow run windows.yml --repo frozenvoice/cyclearc --ref <branch>
+# Inspect the selected run ID, SHA, attempt and all job results
+gh run view <run-id> --repo frozenvoice/cyclearc --json databaseId,headSha,event,attempt,status,conclusion,jobs
+# Additional independent manual checks, only when their entry points change
+gh workflow run windows-build-local.yml --repo frozenvoice/cyclearc --ref <branch>
+gh workflow run windows-e2e.yml --repo frozenvoice/cyclearc --ref <branch>
+```
+
+For installer delivery, require the full local gate and a successful full remote run for the delivered SHA. Changes to build-local/CMD/prerequisite/install entry points additionally require `windows-build-local.yml`; setup/update/recovery/removal/runtime migration changes additionally require `windows-e2e.yml`. Run both when both scopes apply. These workflows stay separate and are not automatically chained to a full run. The E2E workflow retains its default .NET 8 baseline; pass `-f baseline_ref=` only when intentionally checking current-runtime fixtures alone. Local equivalents require `-ConfirmDisposableEnvironment` on a disposable VM or throwaway user. Never perform these installations on a working profile, and keep account/update fixtures synthetic.
+
+For a GitHub release, pass the local full gate on the final versioned changes, commit/push, then explicitly dispatch `Windows` for that SHA. Select its run ID and run `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -Commit <target-sha> -FullRunId <run-id> -NotesPath <notes-file> -Preflight`. After successful preflight, the same command without `-Preflight` publishes when requested. Preflight checks source metadata, remote run/commit/job/artifact state and the downloaded package without creating tags, drafts, uploads or public releases; it does not run a local build/test gate.
+
+`-FullRunId` is required: the tool checks the exact `windows.yml` manual run, target SHA, completed success of `build`, `managed-setup-install` and `setup-shortcut-choices`, and one exact unexpired `CycleArc-win-x64` artifact. Failed, cancelled, skipped, missing or in-progress validation cannot authorize publication. There is no fallback to a latest successful artifact, no automatic dispatch and no automatic deployment from validation. The app's updater still consumes published GitHub Releases, not Actions artifacts.
 
 The script downloads that commit's tested executable and installer assets, checks their
 versions and uploaded SHA-256 values, and publishes the draft only after verification.

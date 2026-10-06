@@ -2,6 +2,37 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Manual full validation and release preparation policy (2026-10-06):
+  - Removed push/PR events from `windows.yml`; all three Windows workflows are
+    manual-only, with no indirect/scheduled/replacement CI. The full job body is
+    identical to its previous version: VS2022/windows-2022 AOT source build,
+    build-dependent packaged install/repair and shortcut choices, hashes and evidence.
+    Separate build-local/E2E workflows and their disposable/synthetic boundaries are unchanged.
+  - `dev-run.ps1 -DevelopmentOnly` shares SDK/process preflight, Release restore/build
+    and unit tests, with explicit `-TestFilter` or `-BuildOnly`. It does not publish,
+    package, install or launch the app/UiSmoke. Default and `-NoLaunch` full stages remain;
+    build-local/CMD/environment preparation and user installation preservation are unchanged.
+  - Release tooling requires `-FullRunId`: exact workflow_dispatch/SHA/repository/attempt,
+    successful required jobs, unique live artifact identity and creation during that build.
+    It rechecks identity after download and before public visibility; package/version/checksum
+    and uploaded digest checks remain. Validation does not create a release.
+  - Passed: all three YAML parses and parsed job/artifact graph; changed PowerShell parses;
+    workflow, development-boundary/fail-fast and release-selection synthetic regressions;
+    `git diff --check`. The real `-DevelopmentOnly` Release build passed with zero errors
+    and two existing xUnit1031 warnings; **19/19** relevant script/install-path unit checks
+    passed, zero skips, in `TestResults/manual-ci-policy-integrated`. Restricted restore initially
+    failed; the same scoped command passed with SDK/NuGet cache access. This is partial
+    local validation, not a full-gate success. Before push, integrated new upstream prerequisite
+    and desktop-handoff commits through `25fa0dd`; retained all four newly added full-mode
+    script regressions and rechecked the changed synthetic adapters plus the affected local gate.
+  - Read-only GitHub checks: main branch protection returned `Branch not protected` (404),
+    repository rulesets and effective main rules both returned empty lists. No required
+    check needed adjustment and no protection was changed.
+  - Not run by request: remote workflow dispatch/rerun/wait, local full publish/package gate,
+    real installation/update/removal E2E, and release preflight against a real manual artifact.
+    No product version, tag or release was created; real artifact/API end-to-end validation
+    remains for an explicitly requested future full run and release preflight.
+
 - Approved local-install desktop handoff (2026-10-06):
   - The actual `build-local-20261006-130156.log` shows official SDK `10.0.401`
     installation and the complete local gate succeeding, followed by managed

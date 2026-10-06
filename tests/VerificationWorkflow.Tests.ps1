@@ -28,19 +28,31 @@ function Get-Block([string]$Text, [string]$Start, [string]$End) {
     $match.Groups['body'].Value
 }
 
-$push = Get-Block $workflow '  push:' '  pull_request:'
-$pullRequest = Get-Block $workflow '  pull_request:' '# A newer commit supersedes'
-$jobs = Get-Block $workflow 'jobs:' '  # Disposable GitHub-hosted runner only.'
+function Assert-ManualWorkflow([string]$Text, [string]$Name) {
+    $events = [regex]::Match($Text, '(?ms)^on:\s*\r?\n(?<body>.*?)(?=^[^\s#]|\z)')
+    Assert-Contract $events.Success "$Name must declare its workflow events"
+    $eventNames = @([regex]::Matches($events.Groups['body'].Value, '(?m)^  (?<name>[a-zA-Z][\w-]*):') |
+        ForEach-Object { $_.Groups['name'].Value })
+    Assert-Contract ($eventNames.Count -eq 1 -and $eventNames[0] -ceq 'workflow_dispatch') "$Name must be manual-only, with no push, PR, schedule or indirect event"
+}
+
+Assert-ManualWorkflow $workflow 'Windows full verification'
+foreach ($forbiddenEvent in @('push', 'pull_request', 'schedule', 'workflow_run', 'workflow_call', 'repository_dispatch')) {
+    $rejected = $false
+    try { Assert-ManualWorkflow ($workflow.Replace('  workflow_dispatch:', "  workflow_dispatch:`n  ${forbiddenEvent}:")) 'synthetic trigger' }
+    catch { $rejected = $true }
+    Assert-Contract $rejected "manual trigger guard must reject $forbiddenEvent"
+}
+$jobNames = @([regex]::Matches((Get-Block $workflow 'jobs:' '__end_of_jobs__'), '(?m)^  (?<name>[a-zA-Z][\w-]*):') |
+    ForEach-Object { $_.Groups['name'].Value })
+Assert-Contract (($jobNames -join ',') -ceq 'build,managed-setup-install,setup-shortcut-choices') 'full verification must retain exactly its build and two independent install jobs'
 $managed = [regex]::Match($workflow, '(?ms)^  managed-setup-install:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
 $shortcutChoices = [regex]::Match($workflow, '(?ms)^  setup-shortcut-choices:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
 $build = [regex]::Match($workflow, '(?ms)^  build:.*?(?=^  # Disposable GitHub-hosted runner only.)').Value
 
-Assert-Contract ($push -match '(?ms)^\s+branches:\s*\r?\n\s+-\s+main\s*$') 'push must be restricted to main'
-Assert-Contract (!$push.Contains('branches-ignore:')) 'push must not use a broad branch trigger'
-Assert-Contract ($pullRequest.Contains('paths-ignore:')) 'pull_request must retain documentation path filtering'
-Assert-Contract ($push.Contains("      - '.github/**/*.md'") -and $pullRequest.Contains("      - '.github/**/*.md'")) 'push and pull_request path filters must include workflow documentation'
-Assert-Contract ($workflow.Contains('group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}')) 'concurrency group must use workflow plus PR number/ref fallback'
-Assert-Contract ($workflow.Contains('cancel-in-progress: ${{ github.event_name == ''pull_request'' }}')) 'only pull_request runs may be cancelled'
+Assert-Contract ($workflow.Contains('group: ${{ github.workflow }}-${{ github.ref }}')) 'manual verification concurrency must use workflow and selected ref'
+Assert-Contract ($workflow.Contains('cancel-in-progress: false')) 'another request must not cancel the selected full run'
+Assert-Contract ($workflow -notmatch '(?mi)^\s+continue-on-error:\s*true\s*$') 'full verification must not convert validation failures to success'
 Assert-Contract ($build -match '(?m)^\s+runs-on:\s+windows-2022\s*$') 'source build must use the VS2022 runner image'
 Assert-Contract ($managed -match '(?m)^\s+runs-on:\s+windows-latest\s*$') 'managed install must retain its disposable current-image runner'
 Assert-Contract ($build -match 'actions/setup-dotnet@v5') 'source build must set up the .NET SDK'
@@ -57,12 +69,19 @@ Assert-Contract ($installerUpload -match '(?m)^\s+include-hidden-files:\s+true\s
 Assert-Contract ($installerUpload -match '(?m)^\s+if-no-files-found:\s+error\s*$') 'missing installer assets must fail their upload step'
 Assert-Contract ($build.Contains('path: artifacts/widget-previews/*')) 'CI must upload optional preview evidence'
 Assert-Contract ($managed.Contains('actions/download-artifact@v6')) 'managed install must consume the packaged artifact'
+Assert-Contract ($managed -match '(?m)^\s+needs:\s+build\s*$') 'managed install must depend on successful build'
+Assert-Contract ($managed.Contains('name: CycleArc-win-x64')) 'managed install must download the exact packaged artifact name'
+Assert-Contract ($managed.Contains("Get-FileHash -LiteralPath (Join-Path `$extract 'CycleArc.exe') -Algorithm SHA256") -and $managed.Contains('Get-FileHash -LiteralPath $current -Algorithm SHA256')) 'managed install must compare the installed executable with the packed executable'
+Assert-Contract ($managed.Contains('if ($actual -cne $expected)') -and $managed.Contains('if ($repaired -cne $expected)')) 'installation and same-version repair must both enforce the packed hash'
+Assert-Contract ($managed.Contains('Wait-InstallDesktopReleased') -and $managed.Contains('Same-version Setup.exe exited')) 'repair must retain desktop release and installer exit checks'
+Assert-Contract ($managed.Contains('name: setup-install-logs') -and $managed.Contains('if: always()')) 'managed install must collect diagnostic evidence on failures as well'
 Assert-Contract ($managed -notmatch '(?mi)dev-run\.ps1') 'managed install must not rebuild source'
 Assert-Contract (!$managed.Contains('Verify-SetupUi.ps1')) 'fresh-user shortcut checks must not reuse the managed install runner'
 Assert-Contract ($shortcutChoices -match '(?m)^\s+needs:\s+build\s*$') 'shortcut choices must consume the verified build'
 Assert-Contract ($shortcutChoices -match '(?m)^\s+runs-on:\s+windows-latest\s*$') 'shortcut choices must run on a separate disposable Windows runner'
 Assert-Contract ($shortcutChoices.Contains('actions/download-artifact@v6') -and $shortcutChoices.Contains('name: CycleArc-win-x64')) 'shortcut choices must download the existing installer artifact'
 Assert-Contract ($shortcutChoices.Contains('./scripts/Verify-SetupUi.ps1') -and $shortcutChoices.Contains('-ConfirmDisposableEnvironment')) 'shortcut choices must run the guarded installer UI verification'
+Assert-Contract ($shortcutChoices.Contains('name: setup-shortcut-choices') -and $shortcutChoices.Contains('if: always()')) 'shortcut choices must retain evidence collection'
 Assert-Contract ($shortcutChoices -notmatch '(?mi)dev-run\.ps1') 'shortcut choices must not rebuild source'
 Assert-Contract ($workflow -notmatch '(?mi)vs_buildtools|vswhere.*install|Workload\.VCTools') 'CI must not download/install Visual Studio'
 Assert-Contract ($build -notmatch '(?mi)^\s+run:\s+.*dotnet\s+(restore|build|test|publish)\b') 'workflow must not duplicate the shared dotnet gate commands'
@@ -81,6 +100,8 @@ Assert-Contract ($devRun.Contains('Assert-SetupUiToolchain -RepoRoot $RepoRoot')
 Assert-Contract ($devRun.Contains('Assert-CycleArcDotnetSdk -RepoRoot $RepoRoot')) 'the shared gate must verify the selected SDK before build cleanup'
 foreach ($sourceWorkflow in @('windows-e2e.yml', 'windows-build-local.yml')) {
     $sourceText = Get-Content -LiteralPath (Join-Path $RepoRoot ".github/workflows/$sourceWorkflow") -Raw
+    Assert-ManualWorkflow $sourceText $sourceWorkflow
+    Assert-Contract ($sourceText -notmatch '(?mi)^\s+uses:\s+.*windows\.yml') "$sourceWorkflow must not indirectly invoke full verification"
     Assert-Contract ($sourceText -match '(?m)^\s+runs-on:\s+windows-2022\s*$') "$sourceWorkflow must use the VS2022 AOT image"
     Assert-Contract ($sourceText -match '(?m)^\s+dotnet-version:\s+["'']10\.0\.x["'']\s*$') "$sourceWorkflow must install the 10.0.x SDK channel"
 }
@@ -108,7 +129,7 @@ Assert-Contract ($restoreIndex -ge 0 -and $restoreIndex -lt $buildIndex) 'the ma
 $flavourIndex = $devRun.IndexOf("Invoke-DevRunStep 'test-flavour-build'")
 $publishIndex = $devRun.IndexOf("Invoke-DevRunStep 'publish'")
 Assert-Contract ($flavourIndex -ge 0 -and $flavourIndex -lt $publishIndex) 'test-only build must precede publish'
-Write-Host 'PASS: Windows workflow uses one shared gate, a VS2022 source runner, PR-only cancellation, and explicit evidence paths.'
+Write-Host 'PASS: Windows workflows remain manual-only; full verification retains its shared gate, VS2022 source runner, exact artifacts, install/repair hashes and evidence.'
 # Execute only the evidence path resolver, never the build gate, against real path guards.
 # A caller must not be able to target source files or delete the checkout via an option.
 . (Join-Path $RepoRoot 'scripts/LocalInstall.ps1')

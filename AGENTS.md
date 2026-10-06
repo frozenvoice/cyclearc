@@ -106,16 +106,20 @@ Run commands from the repository root. Use `--no-build` only for code already bu
 | Core/provider correctness | Relevant regression tests, including malformed/unknown input and state transitions. Use official protocol-shaped fixtures. |
 | Login/cache/concurrency/account lifecycle | Deterministic failure/cancellation/restart tests with isolated data and fake adapters. |
 | WPF state/layout/localization/theme/interaction | Release build and affected UiSmoke checks; visually inspect affected production views in EN/KO and relevant themes/sizes. |
-| Installer/startup/routing/distribution or executable delivery | Full gate below, including installer assets, rollback, single-file development publish and built/published receiver checks. Setup/update/removal behavior of the installed app also needs `scripts/Verify-InstalledUpdate.ps1` on a disposable Windows VM or throwaway user. |
+| Installer/startup/routing/distribution development | Relevant synthetic script/unit regressions and Release build; use the explicit development path below. Installer delivery and releases have the separate full-gate criteria below. |
 
 - Targeted tests: `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "<matching-filter>"`.
   Use an existing test name/category for the filter. WPF checks: `dotnet build CycleArc.sln -c Release`, then
   `dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build`.
   Desktop-instance process checks: add `-- --desktop-instance` to that `dotnet run`.
-- During development, run the smallest existing regression that covers the change. Run the shared
-  `dev-run.ps1` gate once after changes converge for executable, installer, startup or distribution changes;
-  local and CI use this same gate. Use `-Fast` only for unchanged unit-test code whose tests already passed.
-- Full gate: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` on final executable changes.
+- During ordinary development, run only relevant local checks. The shared build/test path is
+  `pwsh -NoProfile -File ./dev-run.ps1 -DevelopmentOnly -TestFilter "<matching-filter>"`;
+  omit `-TestFilter` for the unit suite or use `-BuildOnly` for a Release build alone.
+  This path reuses SDK/process preflight and restore/build/test implementation, does not require
+  the packaging AOT toolchain, and never publishes, packages, installs or launches the app/UiSmoke.
+  Run affected WPF checks explicitly when needed. A partial local check is not a full-gate success.
+- Full gate: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` for explicit full validation,
+  installer delivery or release preparation. `-NoLaunch` is not a lightweight build/test mode.
   It is fail-fast: environment/toolchain and workflow/release guards, restore, Release compile,
   `--desktop-instance`, installer/build-local script regressions, the unit suite, remaining WPF
   checks, test-flavour compile, then publish/package/package-verify.
@@ -127,30 +131,30 @@ Run commands from the repository root. Use `--no-build` only for code already bu
   working profile. Packaging `Setup.exe`, rewriting a fixture's `sq.version` or calling `Update.exe` directly
   is not an installed-app update; report those as component checks.
   The full gate satisfies the build/test requirements above; `-Fast` skips only unit tests already passed for unchanged code.
+  The remote release gate never uses `-Fast` or `-DevelopmentOnly`.
 - Synthetic fixtures do not establish real-account receipt/compatibility; Awaiting usage is not received usage.
 
 ### Local first
 
-Windows PR and main-push verification use the same `dev-run.ps1 -NoLaunch` gate.
-Feature-branch pushes do not also trigger a full run; newer PR commits cancel obsolete PR runs.
-Main push validation remains the source of release artifacts, and disposable installed-app
-checks consume those packaged artifacts without rebuilding.
+All three Windows workflows are manual-only (`workflow_dispatch`). There is no push/PR,
+indirect automatic, scheduled, replacement lightweight or fake-success CI. Ordinary work
+does not dispatch or wait for remote CI. The `Windows` full workflow shares the unchanged
+`dev-run.ps1 -NoLaunch` gate and passes its exact packaged artifact to its install/repair and
+shortcut-choice jobs on disposable hosted runners. Manual validation does not publish a release.
 
 CI is not where a change is first verified. Before every push:
 
-- Run every check in the table above that applies to the current change, and no more: a small change
-  runs the smallest relevant test first, a final executable/installer/distribution change is not
-  pushed until the full gate passes on the final code, and a documentation-only change needs only
-  the documentation checks.
+- Run only the applicable local checks in the table. Ordinary executable development does not
+  require publishing/packaging or a remote full run before commit/push. Documentation-only changes
+  need only documentation checks. CI/script policy changes need syntax, wiring and synthetic regressions.
 - On any failure, local or remote, read the log, reproduce it locally, fix it, then rerun the
   relevant local checks. Never re-run GitHub Actions against a failure whose cause is not yet
   established, and never raise a timeout to make one pass.
-- Before starting a remote run, answer both questions: is any applicable local check still unrun,
+- Before an explicitly requested remote run, answer both questions: is any applicable local check still unrun,
   and would this run show something local checks cannot? Start it only when the answers are no and
   yes.
-- Do not run push, pull_request and workflow_dispatch over one SHA for reassurance, and do not
-  repeat a Windows run to re-prove executable code that a documentation or comment change did not
-  touch; reuse the evidence already recorded for that SHA and add only what the change needs.
+- Do not repeat a manual Windows run for reassurance or to re-prove executable code that a
+  documentation/comment change did not touch. Reuse exact-SHA evidence and add only what is needed.
 - GitHub-hosted runners are for what only they provide: a clean Windows image, Actions events,
   permissions and the runner environment, artifact upload/download, disposable install/update
   verification that cannot be isolated safely here, and environments absent from the local machine.
@@ -163,13 +167,32 @@ CI is not where a change is first verified. Before every push:
 - This holds regardless of cost. Actions being free on a public repository does not justify
   repeating a run.
 
+### Completion criteria
+
+- Ordinary development: applicable local build/tests, syntax or documentation checks, with actual
+  scope and gaps reported; commit/push and verify the remote ref, without a CI-completion wait.
+- Installer delivery: the full local gate and an explicitly selected successful `Windows` full
+  run for the delivered SHA, including `build`, `managed-setup-install`, `setup-shortcut-choices`,
+  packaged/installed hashes and evidence. Do not claim a source build alone validates delivery.
+- Formal release: installer-delivery criteria plus `Release.ps1 -FullRunId <id>` preflight/package/
+  uploaded-asset checks before public visibility. Run ID, target SHA, successful required jobs and
+  exact unexpired artifact must agree; never select a latest artifact from another commit.
+- Additional install E2E: dispatch `windows-build-local.yml` only for build-local/CMD/prerequisite/
+  user-install entry-point changes; dispatch `windows-e2e.yml` for setup/update/recovery/removal/
+  runtime migration changes. Run both when both scopes apply. They remain independent manual
+  workflows, not dependencies of every full run. Record exact-SHA evidence before delivering affected
+  installers/releases. Use disposable environments and synthetic data only; never a working profile.
+  See [manual validation commands](docs/README.en.md#build-from-source).
+
 ## Delivery
 
 - Commit and push intended changes to origin unless instructed otherwise; never force-push.
-  Configure upstream (`git push -u origin <branch>` on first push), verify remote HEAD/tracking and check CI for that SHA.
-- Publish with `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -NotesPath <file>` after
-  the final local gate and successful Windows push CI; new drafts require the notes file.
-  `-Preflight` runs local/package/remote verification without creating tags or uploading.
+  Configure upstream (`git push -u origin <branch>` on first push) and verify remote HEAD/tracking.
+  Ordinary delivery does not require a remote CI run or completion wait.
+- Publish only when requested with `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version>
+  -FullRunId <id> -NotesPath <file>` after the final local gate and successful explicit full run;
+  new drafts require the notes file. `-Preflight` verifies source/package/remote state without
+  creating tags or uploading and does not run a local build/test gate.
   Verify all CI executable/installer assets, their versions, commit/tag and uploaded SHA-256 before publication.
   Versions are centralized in `Directory.Build.props`.
 - Install/restart only when requested. Use the Velopack installer/update path, verify the target

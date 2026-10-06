@@ -25,11 +25,13 @@ them; everything else stays in AGENTS.md and the scoped documents.
 Windows, PowerShell 7 and the .NET 10 SDK selected by `global.json` are required; the desktop and UiSmoke projects do not
 build on other platforms. Building `CycleArc-Setup.exe` from source also needs Visual Studio 2022
 with the **Desktop development with C++** workload, because the setup window is published with
-Native AOT; `dev-run.ps1` and `Package.ps1` check for the MSVC linker and a Windows SDK before
-they build anything. People who run the finished `CycleArc-Setup.exe` need none of that.
+Native AOT; the full `dev-run.ps1` gate and `Package.ps1` check for the MSVC linker and a Windows SDK before
+they build anything. `dev-run.ps1 -DevelopmentOnly` needs the SDK but no packaging AOT tools.
+People who run the finished `CycleArc-Setup.exe` need none of that.
 
 ```powershell
 dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter "<test-name>"
+pwsh -NoProfile -File ./dev-run.ps1 -DevelopmentOnly -TestFilter "<test-name>"
 dotnet build CycleArc.sln -c Release
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build
 pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch    # full gate; drop -NoLaunch to also install and run
@@ -74,6 +76,10 @@ remain different outcomes.
 ## Done means
 
 - Focused tests first, then the affected gate; state what actually ran.
+- Ordinary development requires relevant local checks, with no remote CI wait. All Windows
+  workflows are manual-only. Installer delivery, formal releases and additional disposable
+  install E2E have separate completion criteria in AGENTS.md; releases require an explicit
+  successful full run selected with `Release.ps1 -FullRunId <id>`.
 - Separate real verification from synthetic verification. A packaged `Setup.exe`, a fixture that
   rewrites `sq.version`, or a direct `Update.exe` call is not an installed-app update; synthetic
   Claude accounts are not evidence of live subscription usage; a file that did not change is not

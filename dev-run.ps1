@@ -5,7 +5,14 @@ Build, test, publish and run the single-file CycleArc desktop app.
 .PARAMETER Fast
 Skip tests only after they have already been run for these changes.
 .PARAMETER NoLaunch
-Validate the staged artifact without stopping or replacing the installed local build.
+Run the full publish/package gate without stopping or replacing the installed local build.
+.PARAMETER DevelopmentOnly
+Restore and build Release, then run unit tests only. Does not run the app, UI smoke,
+publish, package or install. This is partial local validation, not the full gate.
+.PARAMETER BuildOnly
+With DevelopmentOnly, stop after the Release build.
+.PARAMETER TestFilter
+With DevelopmentOnly, run only the matching unit tests (dotnet test --filter syntax).
 .PARAMETER TestResultsDirectory
 Write TRX evidence under TestResults or a subdirectory of artifacts (optional).
 .PARAMETER PreviewDirectory
@@ -15,11 +22,26 @@ Render synthetic widget previews under TestResults or a subdirectory of artifact
 param(
     [switch]$Fast,
     [switch]$NoLaunch,
+    [switch]$DevelopmentOnly,
+    [switch]$BuildOnly,
+    [string]$TestFilter,
     [string]$TestResultsDirectory,
     [string]$PreviewDirectory
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if (($BuildOnly -or $PSBoundParameters.ContainsKey('TestFilter')) -and !$DevelopmentOnly) {
+    throw '-BuildOnly and -TestFilter require -DevelopmentOnly; full validation cannot silently omit tests.'
+}
+if ($DevelopmentOnly -and ($Fast -or $PreviewDirectory)) {
+    throw '-DevelopmentOnly cannot use -Fast or -PreviewDirectory. Use -BuildOnly or -TestFilter for explicit local scope.'
+}
+if ($PSBoundParameters.ContainsKey('TestFilter') -and [string]::IsNullOrWhiteSpace($TestFilter)) {
+    throw '-TestFilter must contain a nonempty unit-test filter.'
+}
+if ($BuildOnly -and ($TestFilter -or $TestResultsDirectory)) {
+    throw '-BuildOnly cannot request test filters or test evidence.'
+}
 $RepoRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 Set-Location -LiteralPath $RepoRoot
 $localInstallScript = Join-Path $RepoRoot 'scripts/LocalInstall.ps1'
@@ -57,6 +79,15 @@ function Invoke-Dotnet([string[]]$Arguments) {
     Write-Host "Running: dotnet $($Arguments -join ' ')"
     & dotnet @Arguments
     if ($LASTEXITCODE -ne 0) { throw "dotnet $($Arguments[0]) failed (exit $LASTEXITCODE). See the command output above." }
+}
+function Invoke-DevRunUnitTests([string]$Target = 'CycleArc.sln') {
+    $testArguments = @('test', $Target, '-c', 'Release', '--no-build')
+    if ($DevelopmentOnly -and $TestFilter) { $testArguments += @('--filter', $TestFilter) }
+    if ($TestResultsPath) {
+        New-Item -ItemType Directory -Path $TestResultsPath -Force | Out-Null
+        $testArguments += @('--logger', 'trx', '--results-directory', $TestResultsPath)
+    }
+    Invoke-Dotnet -Arguments $testArguments
 }
 foreach ($target in @($StagingDir, $CurrentLocalDir)) { Assert-DevRunPath $target }
 $TestResultsPath = Resolve-DevRunPath $TestResultsDirectory
@@ -144,6 +175,7 @@ Invoke-DevRunStep 'preflight' {
     finally { foreach ($processRecord in $earlyDesktopProcesses) { $processRecord.Process.Dispose() } }
 }
 
+if (!$DevelopmentOnly) {
 Invoke-DevRunStep 'workflow-contract' { & (Join-Path $RepoRoot 'tests/VerificationWorkflow.Tests.ps1') }
 Invoke-DevRunStep 'sdk-regression' {
     & (Join-Path $RepoRoot 'tests/DotnetSdk.Tests.ps1')
@@ -165,15 +197,27 @@ Invoke-DevRunStep 'release-guard' {
     & (Join-Path $RepoRoot 'tests/Release.Tests.ps1')
     & (Join-Path $RepoRoot 'tests/ReleaseDependencies.Tests.ps1')
 }
+}
 Invoke-DevRunStep 'restore' {
-    if (Test-Path -LiteralPath $StagingDir) {
+    if (!$DevelopmentOnly -and (Test-Path -LiteralPath $StagingDir)) {
         Assert-DevRunPath $StagingDir
         Remove-Item -LiteralPath $StagingDir -Recurse -Force
     }
     Invoke-Dotnet -Arguments @('restore', 'CycleArc.sln', '-p:Configuration=Release')
 }
-Invoke-DevRunStep 'tool-restore' { Invoke-Dotnet -Arguments @('tool', 'restore') }
+if (!$DevelopmentOnly) {
+    Invoke-DevRunStep 'tool-restore' { Invoke-Dotnet -Arguments @('tool', 'restore') }
+}
 Invoke-DevRunStep 'build' { Invoke-Dotnet -Arguments @('build', 'CycleArc.sln', '-c', 'Release', '--no-restore') }
+if ($DevelopmentOnly) {
+    if (!$BuildOnly) {
+        Invoke-DevRunStep -Stage 'development-unit-test' -Action {
+            Invoke-DevRunUnitTests -Target 'tests/CycleArc.Tests/CycleArc.Tests.csproj'
+        }
+    }
+    Write-Host 'Partial local validation passed (DevelopmentOnly). Full publish/package/install validation was not run.'
+    exit 0
+}
 # Process/IPC checks are load-sensitive and used to fail after the unit suite and
 # the rest of UiSmoke. Run them immediately after compile; empty-args UiSmoke
 # no longer repeats this same check.
@@ -191,12 +235,7 @@ Invoke-DevRunStep 'unit-test' {
         Write-Host 'unit-test skipped (-Fast)'
         return
     }
-    $testArguments = @('test', 'CycleArc.sln', '-c', 'Release', '--no-build')
-    if ($TestResultsPath) {
-        New-Item -ItemType Directory -Path $TestResultsPath -Force | Out-Null
-        $testArguments += @('--logger', 'trx', '--results-directory', $TestResultsPath)
-    }
-    Invoke-Dotnet -Arguments $testArguments
+    Invoke-DevRunUnitTests
 }
 Invoke-DevRunStep 'ui-smoke-full' {
     Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build')

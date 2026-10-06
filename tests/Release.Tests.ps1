@@ -68,32 +68,66 @@ Assert-Equal $shaA (Get-TagTargetFromRecords -Records $tagRecords -TagName 'v0.5
 Assert-Throws { Assert-TagTargets -TagName 'v0.5.7' -ExpectedSha $shaA -RemoteSha $shaB } 'expected'
 
 $successfulRun = [pscustomobject]@{
-    databaseId = 101; headSha = $shaA; event = 'push'; status = 'completed'; conclusion = 'success'
-    createdAt = '2026-09-15T10:00:00Z'; workflowName = 'Windows'
+    id = 101; head_sha = $shaA; event = 'workflow_dispatch'; status = 'completed'; conclusion = 'success'
+    path = '.github/workflows/windows.yml'; run_attempt = 1
+    head_repository = [pscustomobject]@{ id = 17; full_name = 'frozenvoice/cyclearc' }
 }
-Assert-Equal 101 (Select-SuccessfulWindowsPushRun -Runs @($successfulRun) -CommitSha $shaA).databaseId 'completed successful push CI is selected'
-$failedRun = $successfulRun.PSObject.Copy()
-$failedRun.status = 'completed'
-$failedRun.conclusion = 'failure'
-Assert-Throws { Select-SuccessfulWindowsPushRun -Runs @($failedRun) -CommitSha $shaA } 'not a completed success'
+function Assert-FixtureRun([object]$Run = $successfulRun, [long]$RunId = 101, [string]$Sha = $shaA) {
+    Assert-SuccessfulWindowsFullRun -Run $Run -RunId $RunId -RepositoryName 'frozenvoice/cyclearc' -CommitSha $Sha
+}
+Assert-Equal 101 (Assert-FixtureRun).id 'only the explicitly selected successful manual full run is accepted'
+Assert-Throws { Assert-FixtureRun -RunId 0 } 'explicit positive'
+Assert-Throws { Assert-FixtureRun -RunId 102 } 'matching the returned run'
+Assert-Throws { Assert-FixtureRun -Sha $shaB } 'target SHA'
+Assert-Throws { Invoke-Release -VersionValue '0.6.0' -Preflight } 'explicit positive -FullRunId'
+Assert-Throws { Invoke-Release -VersionValue '0.6.0' -FullRunId 101 -WorkflowFile '.github/workflows/windows-e2e.yml' -Preflight } 'requires the full'
+foreach ($state in @('failure', 'cancelled', 'skipped', 'neutral', 'timed_out', 'action_required')) {
+    $badRun = $successfulRun.PSObject.Copy()
+    $badRun.conclusion = $state
+    Assert-Throws { Assert-FixtureRun -Run $badRun } 'not a completed success'
+}
 $pendingRun = $successfulRun.PSObject.Copy()
 $pendingRun.status = 'in_progress'
-$pendingRun.conclusion = ''
-Assert-Throws { Select-SuccessfulWindowsPushRun -Runs @($pendingRun) -CommitSha $shaA } 'not a completed success'
-$newerFailed = $failedRun.PSObject.Copy()
-$newerFailed.createdAt = '2026-09-15T11:00:00Z'
-Assert-Throws {
-    Select-SuccessfulWindowsPushRun -Runs @($successfulRun, $newerFailed) -CommitSha $shaA
-} 'not a completed success'
-$olderFailed = $failedRun.PSObject.Copy()
-$olderFailed.createdAt = '2026-09-15T09:00:00Z'
-Assert-Throws {
-    Select-SuccessfulWindowsPushRun -Runs @($olderFailed, $successfulRun) -CommitSha $shaA
-} 'not a completed success'
-Assert-Throws {
-    Select-SuccessfulWindowsPushRun -Runs @($pendingRun, $successfulRun) -CommitSha $shaA
-} 'not a completed success'
-Assert-Throws { Select-SuccessfulWindowsPushRun -Runs @($successfulRun) -CommitSha $shaB } 'No Windows push CI run'
+Assert-Throws { Assert-FixtureRun -Run $pendingRun } 'not a completed success'
+$oldPush = $successfulRun.PSObject.Copy()
+$oldPush.event = 'push'
+Assert-Throws { Assert-FixtureRun -Run $oldPush } 'workflow_dispatch'
+$otherWorkflow = $successfulRun.PSObject.Copy()
+$otherWorkflow.path = '.github/workflows/windows-build-local.yml'
+Assert-Throws { Assert-FixtureRun -Run $otherWorkflow } 'windows.yml'
+
+$fullJobs = @('build', 'managed-setup-install', 'setup-shortcut-choices') | ForEach-Object {
+    [pscustomobject]@{ name = $_; run_id = 101; run_attempt = 1; status = 'completed'; conclusion = 'success'
+        started_at = '2026-09-15T10:00:00Z'; completed_at = '2026-09-15T10:10:00Z' }
+}
+Assert-WindowsFullJobs -Jobs $fullJobs -RunId 101 -Attempt 1
+Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0], $fullJobs[1]) -RunId 101 -Attempt 1 } 'required job'
+Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs + $fullJobs[0]) -RunId 101 -Attempt 1 } 'exactly one'
+Assert-Throws { Assert-WindowsFullJobs -Jobs $fullJobs -RunId 101 -Attempt 2 } 'not a completed success'
+foreach ($state in @('failure', 'cancelled', 'skipped', 'neutral')) {
+    $badJob = $fullJobs[2].PSObject.Copy()
+    $badJob.conclusion = $state
+    Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0], $fullJobs[1], $badJob) -RunId 101 -Attempt 1 } 'not a completed success'
+}
+$fullArtifact = [pscustomobject]@{
+    id = 555; name = 'CycleArc-win-x64'; expired = $false; size_in_bytes = 123; created_at = '2026-09-15T10:05:00Z'
+    workflow_run = [pscustomobject]@{ id = 101; head_sha = $shaA; head_repository_id = 17 }
+}
+Assert-Equal 555 (Select-WindowsFullArtifact -Artifacts @($fullArtifact) -Run $successfulRun -Jobs $fullJobs).id 'exact artifact identity is retained'
+Assert-Throws { Select-WindowsFullArtifact -Artifacts @() -Run $successfulRun -Jobs $fullJobs } 'exactly one'
+Assert-Throws { Select-WindowsFullArtifact -Artifacts @($fullArtifact, $fullArtifact) -Run $successfulRun -Jobs $fullJobs } 'exactly one'
+$expiredArtifact = $fullArtifact.PSObject.Copy()
+$expiredArtifact.expired = $true
+Assert-Throws { Select-WindowsFullArtifact -Artifacts @($expiredArtifact) -Run $successfulRun -Jobs $fullJobs } 'expired, empty'
+$wrongArtifact = $fullArtifact.PSObject.Copy()
+$wrongArtifact.workflow_run = [pscustomobject]@{ id = 101; head_sha = $shaB; head_repository_id = 17 }
+Assert-Throws { Select-WindowsFullArtifact -Artifacts @($wrongArtifact) -Run $successfulRun -Jobs $fullJobs } 'target SHA'
+$emptyArtifact = $fullArtifact.PSObject.Copy()
+$emptyArtifact.size_in_bytes = 0
+Assert-Throws { Select-WindowsFullArtifact -Artifacts @($emptyArtifact) -Run $successfulRun -Jobs $fullJobs } 'expired, empty'
+$staleArtifact = $fullArtifact.PSObject.Copy()
+$staleArtifact.created_at = '2026-09-15T09:55:00Z'
+Assert-Throws { Select-WindowsFullArtifact -Artifacts @($staleArtifact) -Run $successfulRun -Jobs $fullJobs } 'selected full run attempt'
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-release-tests-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
@@ -308,15 +342,47 @@ try {
             if ($joined -match '^release view') {
                 return [pscustomobject]@{ ExitCode = 0; Output = ($script:fixtureRelease | ConvertTo-Json -Depth 30) }
             }
-            if ($joined -match '^run list') {
-                $run = @(@{
-                    databaseId = 4242; headSha = $script:fixtureCommit; event = 'push'; status = 'completed'
-                    conclusion = 'success'; createdAt = '2026-09-15T10:00:00Z'; workflowName = 'Windows'
-                    url = 'https://example.invalid/run/4242'
-                })
+            if ($joined -match '^api repos/.+/actions/runs/4242$') {
+                $script:runReads++
+                $run = @{
+                    id = 4242; head_sha = $script:fixtureCommit; event = 'workflow_dispatch'; status = 'completed'
+                    conclusion = 'success'; path = '.github/workflows/windows.yml'; run_attempt = 1
+                    head_repository = @{ id = 17; full_name = 'frozenvoice/cyclearc' }
+                }
+                if ($script:fixtureGate -eq 'wrong-sha') { $run.head_sha = 'e' * 40 }
+                if ($script:fixtureGate -eq 'old-push') { $run.event = 'push' }
+                if ($script:fixtureGate -eq 'cancelled') { $run.conclusion = 'cancelled' }
+                if ($script:fixtureGate -eq 'rerun-after-download' -and $script:runReads -gt 1) { $run.run_attempt = 2 }
                 return [pscustomobject]@{ ExitCode = 0; Output = ($run | ConvertTo-Json -Depth 30) }
             }
+            if ($joined -match '^api repos/.+/actions/runs/4242/attempts/(\d+)/jobs\?') {
+                $attempt = [int]$Matches[1]
+                $jobs = @(@('build', 'managed-setup-install', 'setup-shortcut-choices') | ForEach-Object {
+                    @{ name = $_; run_id = 4242; run_attempt = $attempt; status = 'completed'; conclusion = 'success'
+                        started_at = '2026-09-15T10:00:00Z'; completed_at = '2026-09-15T10:10:00Z' }
+                })
+                if ($script:fixtureGate -eq 'missing-install-job') { $jobs = @($jobs[0], $jobs[2]) }
+                if ($script:fixtureGate -eq 'failed-install-job') { $jobs[1].conclusion = 'failure' }
+                if ($script:fixtureGate -eq 'skipped-shortcut-job') { $jobs[2].conclusion = 'skipped' }
+                return [pscustomobject]@{ ExitCode = 0; Output = (@{ total_count = $jobs.Count; jobs = $jobs } | ConvertTo-Json -Depth 30) }
+            }
+            if ($joined -match '^api repos/.+/actions/runs/4242/artifacts\?') {
+                $artifact = @{
+                    id = 555; name = 'CycleArc-win-x64'; expired = $false; size_in_bytes = 123; created_at = '2026-09-15T10:05:00Z'
+                    workflow_run = @{ id = 4242; head_sha = $script:fixtureCommit; head_repository_id = 17 }
+                }
+                if ($script:fixtureGate -eq 'wrong-artifact-sha') { $artifact.workflow_run.head_sha = 'e' * 40 }
+                if ($script:fixtureGate -eq 'expired-artifact') { $artifact.expired = $true }
+                if ($script:fixtureGate -eq 'stale-attempt-artifact') { $artifact.created_at = '2026-09-15T09:55:00Z' }
+                if ($script:fixtureGate -eq 'artifact-replaced' -and $script:runReads -gt 1) { $artifact.id = 556 }
+                $artifacts = @($artifact)
+                if ($script:fixtureGate -eq 'missing-artifact') { $artifacts = @() }
+                if ($script:fixtureGate -eq 'duplicate-artifact') { $artifacts = @($artifact, $artifact) }
+                return [pscustomobject]@{ ExitCode = 0; Output = (@{ total_count = $artifacts.Count; artifacts = $artifacts } | ConvertTo-Json -Depth 30) }
+            }
             if ($joined -match '^run download') {
+                Assert-Equal '4242' $Arguments[2] 'download is pinned to the explicitly selected full run'
+                Assert-Equal 'CycleArc-win-x64' $Arguments[[array]::IndexOf([array]$Arguments, '--name') + 1] 'download is pinned to the uniquely checked artifact name'
                 $dirIndex = [array]::IndexOf([array]$Arguments, '--dir')
                 if ($dirIndex -lt 0) { throw 'gh run download was called without --dir' }
                 Copy-Item -Path (Join-Path $script:fixtureArtifact '*') -Destination $Arguments[$dirIndex + 1] -Force
@@ -348,7 +414,8 @@ try {
             [string]$CorruptName,
             [string]$WrongSizeName,
             [string[]]$ReleaseOnly,
-            [object[]]$ExtraReleaseAssets
+            [object[]]$ExtraReleaseAssets,
+            [string]$GateFailure
         )
         $caseRoot = Join-Path $assetTestRoot $Name
         $script:fixtureArtifact = Join-Path $caseRoot 'artifact'
@@ -367,8 +434,10 @@ try {
             assets          = $assets
         }
         $script:ghCommands = @()
+        $script:runReads = 0
+        $script:fixtureGate = $GateFailure
         Invoke-Release -VersionValue $script:fixtureVersion -Commitish 'HEAD' `
-            -RepositoryName 'frozenvoice/cyclearc' -RemoteName 'origin' -Preflight -RepositoryRoot $caseRoot
+            -RepositoryName 'frozenvoice/cyclearc' -RemoteName 'origin' -FullRunId 4242 -Preflight -RepositoryRoot $caseRoot
     }
 
     function Assert-NoRemoteMutation {
@@ -385,7 +454,28 @@ try {
     # A normally produced draft carries six files; the name check must not reject it.
     $draft = Invoke-PreflightFixture -Name 'draft-six-files'
     Assert-Equal 'Preflight' $draft.Status 'a six-file draft passes preflight'
+    Assert-Equal 4242 $draft.FullRunId 'preflight records the selected run ID'
+    Assert-Equal 555 $draft.ArtifactId 'preflight records the selected exact artifact ID'
     Assert-NoRemoteMutation
+
+    foreach ($case in @(
+        @{ Gate = 'wrong-sha'; Error = 'target SHA' },
+        @{ Gate = 'old-push'; Error = 'workflow_dispatch' },
+        @{ Gate = 'cancelled'; Error = 'not a completed success' },
+        @{ Gate = 'missing-install-job'; Error = 'required job' },
+        @{ Gate = 'failed-install-job'; Error = 'not a completed success' },
+        @{ Gate = 'skipped-shortcut-job'; Error = 'not a completed success' },
+        @{ Gate = 'missing-artifact'; Error = 'exactly one' },
+        @{ Gate = 'duplicate-artifact'; Error = 'exactly one' },
+        @{ Gate = 'expired-artifact'; Error = 'expired, empty' },
+        @{ Gate = 'wrong-artifact-sha'; Error = 'target SHA' },
+        @{ Gate = 'stale-attempt-artifact'; Error = 'selected full run attempt' },
+        @{ Gate = 'rerun-after-download'; Error = 'identity changed' },
+        @{ Gate = 'artifact-replaced'; Error = 'identity changed' }
+    )) {
+        Assert-Throws { Invoke-PreflightFixture -Name $case.Gate -GateFailure $case.Gate } $case.Error
+        Assert-NoRemoteMutation
+    }
 
     # The same six files, already public and matching, need no further work.
     $complete = Invoke-PreflightFixture -Name 'public-six-files' -Public
