@@ -105,6 +105,10 @@ function Get-ActiveCounterComparisonReasons([object]$Baseline, [object]$Observed
 
 $phaseNames = @('warmup', 'tray-idle', 'widget-before-flyout', 'flyout-visible', 'tray-after-flyout',
     'widget-visible', 'post-refresh-widget', 'tray-after-refresh', 'widget-after-churn')
+$currentPhaseNames = $phaseNames
+$legacyPhaseNames = @('warmup', 'tray-idle', 'flyout-visible', 'tray-after-flyout',
+    'widget-visible', 'post-refresh-widget', 'tray-after-refresh')
+$savedPhaseMatrix = $null
 $activeRequestCounters = @('CodexStarts', 'CodexQuotaRequests', 'ClaudeLiveRequests',
     'CursorUsageRequests', 'CursorHttpRequests')
 $metrics = @('MedianWorkingSetBytes', 'MedianPrivateWorkingSetBytes', 'MedianPrivateBytes',
@@ -142,9 +146,16 @@ foreach ($result in $run.Results) {
         $report.Trial -lt 1 -or $report.Trial -gt $run.Trials) {
         throw 'Saved reports contain a duplicate or unexpected trial/configuration.'
     }
-    if (@($report.Phases).Count -ne $phaseNames.Count -or
-        (@($report.Phases.Name) -join ',') -cne ($phaseNames -join ',')) {
-        throw "Child report does not contain the nine expected phases: $reportPath"
+    $reportPhaseMatrix = @($report.Phases.Name) -join ','
+    if ($reportPhaseMatrix -cne ($currentPhaseNames -join ',') -and
+        $reportPhaseMatrix -cne ($legacyPhaseNames -join ',')) {
+        throw "Child report does not contain a supported seven- or nine-phase matrix: $reportPath"
+    }
+    if ($null -eq $savedPhaseMatrix) {
+        $savedPhaseMatrix = $reportPhaseMatrix
+        $phaseNames = @($report.Phases.Name)
+    } elseif ($reportPhaseMatrix -cne $savedPhaseMatrix) {
+        throw "Child report phase matrices differ within this batch: $reportPath"
     }
     $trialRuns.Add([pscustomobject][ordered]@{
         Trial = $report.Trial
