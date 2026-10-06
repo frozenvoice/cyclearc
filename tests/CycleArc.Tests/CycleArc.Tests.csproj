@@ -18,6 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\CycleArc.UiSmoke\ChildProcessOutput.cs" Link="ChildProcessOutput.cs" />
+    <Compile Include="..\CycleArc.IdleMeasure\PhaseBoundary.cs" Link="PhaseBoundary.cs" />
     <!-- The installer's layout is pure arithmetic; linking it keeps the DPI invariants under
          the unit suite without referencing the Native AOT project. -->
     <Compile Include="..\..\src\CycleArc.Setup\SetupLayout.cs" Link="SetupLayout.cs" />

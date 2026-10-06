@@ -72,6 +72,7 @@ internal static class Program
         var phases = new List<PhaseResult>(9);
         var inventories = new List<NativeVirtualMemoryInventory>(9);
         var transitions = new List<TransitionResult>(8 + ChurnCycles * 4);
+        var phaseBoundary = new PhaseBoundary<HandleTypeCounts, ThreadCpuSnapshot>(new AppBoundaryDiagnostics(app));
         try
         {
             await app.InitializeAsync();
@@ -157,6 +158,8 @@ internal static class Program
                     "ManagedAllocatedBytes is GC.GetTotalMemory(false), not retained live objects",
                     "Last-GC sizes are dated snapshots; private-minus-GC commit is not native heap attribution",
                     "Instrumentation and fixture memory are included equally in every configuration",
+                    "Handle/thread inventories are outside process/UI cycle intervals; counter queries and boundary bookkeeping still have nonzero cost",
+                    "Per-thread CPU snapshots span boundary enumeration/query work and are auxiliary diagnostics, not the process/UI cycle interval",
                     "UI creation counts compare displayed objects by reference after fixture calls; objects replaced within one call are not counted" }
             });
             Console.WriteLine("PASS: isolated idle measurement, provider requests, latest data, account isolation and visibility.");
@@ -179,23 +182,24 @@ internal static class Program
                 measurements.Phase = phase;
                 WriteJson(options.Output + ".progress.json", new { phase, ProcessId = Environment.ProcessId, ElapsedSeconds = clock.Elapsed.TotalSeconds });
                 app.AssertVisibility(flyout, widget);
-                // Boundary diagnostics are taken outside the sampled window so they do not
-                // add their own allocation or CPU to the phase.
-                var diagnostics = Diagnostics(app);
-                var start = sampler.Capture(phase, clock.Elapsed.TotalSeconds);
-                var counters = fixture.CaptureCounters();
-                var ui = app.UiCounts;
+                // START: handle/thread inventory, phase sample, then process/UI cycles last.
+                // END: process/UI cycles first, phase sample, then handle/thread inventory.
+                // Per-thread snapshots span the inventories and are only auxiliary attribution.
+                Func<PhaseSample> captureSample = CapturePhaseSample;
+                var before = phaseBoundary.CaptureStart(captureSample);
                 await Task.Delay(TimeSpan.FromSeconds(seconds));
-                var end = sampler.Capture(phase, clock.Elapsed.TotalSeconds);
-                var countersAfter = fixture.CaptureCounters();
-                var uiAfter = app.UiCounts;
-                var diagnosticsAfter = Diagnostics(app);
+                var after = phaseBoundary.CaptureEnd(captureSample);
                 measurements.Phase = "boundary-inventory";
                 app.AssertVisibility(flyout, widget);
                 await app.AssertDataWhenIdleAsync();
-                phases.Add(new PhaseResult(phase, start, end, counters, countersAfter, ui, uiAfter,
-                    diagnostics, diagnosticsAfter, ProcessInventory.CpuDelta(diagnostics.Threads, diagnosticsAfter.Threads)));
+                phases.Add(new PhaseResult(phase, before.Sample.Metrics, after.Sample.Metrics,
+                    before.Sample.Counters, after.Sample.Counters, before.Sample.Ui, after.Sample.Ui,
+                    BoundaryDiagnostics.From(before.Cpu, before.Inventory), BoundaryDiagnostics.From(after.Cpu, after.Inventory),
+                    ProcessInventory.CpuDelta(before.Inventory.Threads, after.Inventory.Threads)));
                 inventories.Add(sampler.CaptureVirtualMemoryInventory(phase));
+
+                PhaseSample CapturePhaseSample() => new(sampler.Capture(phase, clock.Elapsed.TotalSeconds),
+                    fixture.CaptureCounters(), app.UiCounts);
             }
         }
         finally
@@ -298,13 +302,25 @@ internal static class Program
         FixtureCounters CountersBefore, FixtureCounters CountersAfter, UiCreationCounts UiBefore, UiCreationCounts UiAfter,
         BoundaryDiagnostics DiagnosticsBefore, BoundaryDiagnostics DiagnosticsAfter, IReadOnlyDictionary<string, double> ThreadCpuMilliseconds);
 
-    /// <summary>Precise CPU cycles (process and UI thread), presentation refreshes, kernel handles by type and per-thread CPU.</summary>
-    private sealed record BoundaryDiagnostics(ulong ProcessCycles, ulong UiThreadCycles, long RefreshSnapshotCalls,
-        HandleTypeCounts Handles, [property: System.Text.Json.Serialization.JsonIgnore] ThreadCpuSnapshot Threads);
+    private readonly record struct PhaseSample(ProcessSample Metrics, FixtureCounters Counters, UiCreationCounts Ui);
 
-    private static BoundaryDiagnostics Diagnostics(AppHarness app) => new(ProcessInventory.ProcessCycles(),
-        ProcessInventory.CurrentThreadCycles(), app.RefreshSnapshotCalls, ProcessInventory.CaptureHandles(),
-        ProcessInventory.CaptureThreads(ProcessInventory.GetCurrentThreadId()));
+    // Preserve the schema-1 flattened diagnostics fields for old reports and summarizers.
+    // Capture order is owned by PhaseBoundary, not by this serialization projection.
+    private sealed record BoundaryDiagnostics(ulong ProcessCycles, ulong UiThreadCycles, long RefreshSnapshotCalls,
+        HandleTypeCounts Handles)
+    {
+        public static BoundaryDiagnostics From(PhaseCpuBoundary cpu, BoundaryInventory<HandleTypeCounts, ThreadCpuSnapshot> inventory)
+            => new(cpu.ProcessCycles, cpu.UiThreadCycles, cpu.RefreshSnapshotCalls, inventory.Handles);
+    }
+
+    private sealed class AppBoundaryDiagnostics(AppHarness app) : IPhaseBoundaryDiagnostics<HandleTypeCounts, ThreadCpuSnapshot>
+    {
+        public HandleTypeCounts CaptureHandles() => ProcessInventory.CaptureHandles();
+        public ThreadCpuSnapshot CaptureThreads() => ProcessInventory.CaptureThreads(ProcessInventory.GetCurrentThreadId());
+        public long RefreshSnapshotCalls() => app.RefreshSnapshotCalls;
+        public ulong ProcessCycles() => ProcessInventory.ProcessCycles();
+        public ulong UiThreadCycles() => ProcessInventory.CurrentThreadCycles();
+    }
     private sealed record TransitionResult(string Name, double StartMilliseconds,
         double SynchronousActionMilliseconds, double UntilDispatcherIdleMilliseconds, UiCreationCounts UiCreated);
 }
