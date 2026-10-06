@@ -515,7 +515,8 @@ internal static class DesktopInstanceProcessChecks
         try
         {
             var reports = new List<Report>();
-            foreach (var line in File.ReadLines(reportPath))
+            // Release the shared read handle before parsing; never deny the child's append.
+            foreach (var line in ChildReportFile.ReadCompleteLines(reportPath))
             {
                 try
                 {

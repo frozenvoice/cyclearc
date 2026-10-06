@@ -42,13 +42,31 @@
     incompatible sharing mode; its repeated reads can exhaust the child's bounded
     shutdown-report append retries, yielding IOException and child exit 6.
     The standalone `--desktop-instance` reproduction passed
-    (`artifacts/automatic-prerequisites-desktop-repro.log`). Neither affected C# file
-    was changed; this unrelated race remains outside this prerequisite-only change.
-    This records a final-gate failure, not a clean final full-gate result.
+    (`artifacts/automatic-prerequisites-desktop-repro.log`). That initial prerequisite
+    commit left the unrelated race unchanged; this records a failed gate attempt.
+    During the subsequently requested push/merge delivery, the smoke reader was
+    changed to the existing `ChildReportFile.ReadCompleteLines` helper, releasing a
+    read/write-shared handle before JSON parsing and excluding incomplete records.
+    Append retry limits and wait timeouts remain unchanged. Production app code and
+    C# unit-test sources remain unchanged. UiSmoke Release build, seven existing
+    `ChildReportFileTests` and the desktop-instance smoke check passed after repair.
+    A subsequent full-gate attempt reached WPF recovery but an external Windows
+    Terminal replaced Explorer as foreground during the focus assertion, while
+    fixture activation counts and its thread-active window were unchanged
+    (`artifacts/automatic-prerequisites-delivery-gate.log`). Standalone widget
+    recovery then passed all EN/KO Dark/Light cases on both monitors
+    (`artifacts/automatic-prerequisites-widget-repro.log`); its assertion and timeout
+    were not changed. The next gate runs without additional console launches during
+    the UI checks.
+    Final `dev-run.ps1 -NoLaunch -Fast` passed in 4m41.9s on the repaired source,
+    including the full WPF suite, test-flavour build/publish, production single-file
+    publish, Native AOT Setup packaging and package/update component checks
+    (`artifacts/automatic-prerequisites-push-gate.log`). The unchanged 2,064 C# unit
+    tests are reused; the seven report-helper tests also passed during this delivery.
   - No real developer-tool installation/UAC/policy/reboot experiment was performed.
     System SDKs and the existing CycleArc installation remain unchanged. No disposable
     Windows VM/user is available for destructive installed-update verification.
-    No push, merge, release or additional remote run was performed.
+    At initial validation, no push, merge, release or additional remote run was performed.
 
 - Unified source-build prerequisites (2026-10-06, local only):
   - Started from clean `97ea95c`, confirmed equal to remote `main` with read-only
