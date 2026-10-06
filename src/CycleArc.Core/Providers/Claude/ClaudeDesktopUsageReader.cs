@@ -190,21 +190,29 @@ public sealed class ClaudeDesktopUsageReader
     {
         try
         {
+            // Reads go straight into one buffer, so the stream keeps no buffer of its own.
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete, 8192, FileOptions.SequentialScan);
+                FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
             _observe?.Invoke(ClaudeDesktopUsageReadOperation.FileOpened);
-            using var buffer = new MemoryStream();
-            var chunk = new byte[8192];
+            // Sized from the current length, with one spare byte so the end is read without a
+            // resize. A file that grows while it is read still grows the buffer, and the limit
+            // applies to the bytes actually read: one byte past it is enough to reject.
+            var buffer = new byte[(int)Math.Min(stream.Length + 1, MaxInputBytes + 1L)];
+            var length = 0;
             while (true)
             {
-                var count = stream.Read(chunk, 0, chunk.Length);
+                if (length == buffer.Length)
+                {
+                    if (length > MaxInputBytes) return new(null, true);
+                    Array.Resize(ref buffer, (int)Math.Min(buffer.Length * 2L, MaxInputBytes + 1L));
+                }
+                var count = stream.Read(buffer, length, buffer.Length - length);
                 if (count == 0) break;
-                if (buffer.Length + count > MaxInputBytes) return new(null, true);
-                buffer.Write(chunk, 0, count);
+                length += count;
             }
 
             _observe?.Invoke(ClaudeDesktopUsageReadOperation.ParseInvoked);
-            return Parse(buffer.ToArray(), organizationId, now);
+            return Parse(buffer.AsMemory(0, length), organizationId, now);
         }
         catch (FileNotFoundException) { return new(null); }
         catch (DirectoryNotFoundException) { return new(null); }

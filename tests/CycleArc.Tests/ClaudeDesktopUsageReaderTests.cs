@@ -216,6 +216,33 @@ public sealed class ClaudeDesktopUsageReaderTests
         Assert.Null(read.Sample);
     }
 
+    [Fact]
+    public void Read_LimitAppliesToTheBytesReadAtItsExactEdge()
+    {
+        using var root = new TempRoot();
+        var path = Path.Combine(root.Path, ClaudeDesktopUsageReader.FileName);
+        var history = Encoding.UTF8.GetBytes(History(Sample(Now.AddMinutes(-1), Organization, 15, 7)));
+        byte[] Padded(int length) => [.. history, .. Enumerable.Repeat((byte)' ', length - history.Length)];
+        var reader = new ClaudeDesktopUsageReader([path]);
+
+        File.WriteAllBytes(path, Padded(ClaudeDesktopUsageReader.MaxInputBytes));
+        var atLimit = reader.Read(Organization, Now);
+        File.WriteAllBytes(path, Padded(ClaudeDesktopUsageReader.MaxInputBytes + 1));
+        var overLimit = reader.Read(Organization, Now);
+        File.WriteAllBytes(path, []);
+        var empty = reader.Read(Organization, Now);
+        File.WriteAllBytes(path, history);
+        var exact = reader.Read(Organization, Now);
+
+        Assert.Equal(new ClaudeDesktopUsageSample(Now.AddMinutes(-1), 15, 7), atLimit.Sample);
+        Assert.False(atLimit.Unavailable);
+        Assert.True(overLimit.Unavailable);
+        Assert.Null(overLimit.Sample);
+        Assert.True(empty.Unavailable);
+        Assert.Null(empty.Sample);
+        Assert.Equal(new ClaudeDesktopUsageSample(Now.AddMinutes(-1), 15, 7), exact.Sample);
+    }
+
     private static ClaudeDesktopUsageRead Parse(string json) =>
         ClaudeDesktopUsageReader.Parse(Encoding.UTF8.GetBytes(json), Organization, Now);
 
