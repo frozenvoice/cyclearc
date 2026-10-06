@@ -64,14 +64,14 @@ internal static class Program
         ProcessMetricsSampler sampler, RuntimeIdentity runtime, ProcessSample entry, Stopwatch clock)
     {
         using var cancellation = new CancellationTokenSource();
-        var duration = options.WarmupSeconds + options.PhaseSeconds * 6;
+        var duration = options.WarmupSeconds + options.PhaseSeconds * 8;
         var measurements = new Measurements(sampler, app.Dispatcher, clock, duration);
         // Warm instrumentation and allocate buffers before the steady phases. No forced GC.
         var sampleTask = Task.Run(() => measurements.SampleAsync(cancellation.Token));
         var probeTask = Task.Run(() => measurements.ProbeAsync(cancellation.Token));
-        var phases = new List<PhaseResult>(7);
-        var inventories = new List<NativeVirtualMemoryInventory>(7);
-        var transitions = new List<TransitionResult>(4);
+        var phases = new List<PhaseResult>(9);
+        var inventories = new List<NativeVirtualMemoryInventory>(9);
+        var transitions = new List<TransitionResult>(8 + ChurnCycles * 4);
         try
         {
             await app.InitializeAsync();
@@ -81,6 +81,11 @@ internal static class Program
             WriteJson(options.Output + ".ready.json", new { ProcessId = Environment.ProcessId, EntryToReadyMilliseconds = readyMilliseconds });
             await Phase("warmup", options.WarmupSeconds, false, false);
             await Phase("tray-idle", options.PhaseSeconds, false, false);
+            // The widget before the popup has ever been created; the later widget phases keep
+            // a created, hidden popup.
+            await Transition("show-widget-before-flyout", () => app.ShowWidget(true));
+            await Phase("widget-before-flyout", options.PhaseSeconds, false, true);
+            await Transition("hide-widget-before-flyout", () => app.ShowWidget(false));
             await Transition("show-flyout", () => app.ShowFlyout(true));
             await Phase("flyout-visible", options.PhaseSeconds, true, false);
             await Transition("hide-flyout", () => app.ShowFlyout(false));
@@ -102,6 +107,23 @@ internal static class Program
             await Phase("post-refresh-widget", options.PhaseSeconds, false, true);
             await Transition("hide-widget", () => app.ShowWidget(false));
             await Phase("tray-after-refresh", options.PhaseSeconds, false, false);
+            // Repeated popup open/close and account switching with the widget shown. Each
+            // cycle selects twice, so the five-account ring returns to its first selection.
+            var firstSelection = app.SelectedAccountId;
+            await Transition("show-widget-churn", () => app.ShowWidget(true));
+            for (var cycle = 0; cycle < ChurnCycles; cycle++)
+            {
+                await Transition("churn-open-flyout", () => app.ShowFlyout(true));
+                await Task.Delay(ChurnPauseMilliseconds);
+                await Transition("churn-switch-visible", app.SelectNextAccount);
+                await Task.Delay(ChurnPauseMilliseconds);
+                await Transition("churn-close-flyout", () => app.ShowFlyout(false));
+                await Task.Delay(ChurnPauseMilliseconds);
+                await Transition("churn-switch-hidden", app.SelectNextAccount);
+                await Task.Delay(ChurnPauseMilliseconds);
+            }
+            Require(app.SelectedAccountId == firstSelection, "Account churn did not return to its first selection.");
+            await Phase("widget-after-churn", options.PhaseSeconds, false, true);
             await app.AssertDataWhenIdleAsync();
             Require(app.PassiveTicks >= duration / 3, "Two-second passive timer stopped or lost excessive ticks.");
             cancellation.Cancel();
@@ -124,28 +146,32 @@ internal static class Program
                 Samples = measurements.Samples.Take(measurements.SampleCount).ToArray(),
                 UiProbes = measurements.Probes.Take(measurements.ProbeCount).ToArray(),
                 Counters = fixture.CaptureCounters(), app.PassiveTicks, app.AutomaticTicks, app.DisplayTicks,
+                UiCreations = app.UiCounts,
                 Assertions = new[] { "five isolated accounts", "latest passive values and original timestamps",
-                    "all providers performed refresh requests", "production window visibility", "passive timer remains active" },
+                    "all providers performed refresh requests", "production window visibility", "passive timer remains active",
+                    "account churn returns to its first selection" },
                 Limitations = new[] { "Synthetic current-source WPF harness; ordinary installed bootstrap, IPC, updater and discovery excluded",
                     "External provider transport is synthetic with cancellable 10ms responses",
                     "UI latency is a dispatcher/scheduling proxy, not click-to-pixel latency",
                     "GC pauses are cumulative; individual maximum pauses are not observed",
                     "ManagedAllocatedBytes is GC.GetTotalMemory(false), not retained live objects",
                     "Last-GC sizes are dated snapshots; private-minus-GC commit is not native heap attribution",
-                    "Instrumentation and fixture memory are included equally in every configuration" }
+                    "Instrumentation and fixture memory are included equally in every configuration",
+                    "UI creation counts compare displayed objects by reference after fixture calls; objects replaced within one call are not counted" }
             });
             Console.WriteLine("PASS: isolated idle measurement, provider requests, latest data, account isolation and visibility.");
 
             async Task Transition(string name, Action action)
             {
                 measurements.Phase = name;
+                var ui = app.UiCounts;
                 var start = clock.Elapsed.TotalMilliseconds;
                 action();
                 var returned = clock.Elapsed.TotalMilliseconds;
                 // WPF render/layout priorities precede ApplicationIdle. This is still
                 // a dispatcher milestone, not a physical screen-present timestamp.
                 var idle = await app.Dispatcher.InvokeAsync(() => clock.Elapsed.TotalMilliseconds, DispatcherPriority.ApplicationIdle);
-                transitions.Add(new TransitionResult(name, start, returned - start, idle - start));
+                transitions.Add(new TransitionResult(name, start, returned - start, idle - start, app.UiCounts.Minus(ui)));
             }
 
             async Task Phase(string phase, int seconds, bool flyout, bool widget)
@@ -155,13 +181,15 @@ internal static class Program
                 app.AssertVisibility(flyout, widget);
                 var start = sampler.Capture(phase, clock.Elapsed.TotalSeconds);
                 var counters = fixture.CaptureCounters();
+                var ui = app.UiCounts;
                 await Task.Delay(TimeSpan.FromSeconds(seconds));
                 var end = sampler.Capture(phase, clock.Elapsed.TotalSeconds);
                 var countersAfter = fixture.CaptureCounters();
+                var uiAfter = app.UiCounts;
                 measurements.Phase = "boundary-inventory";
                 app.AssertVisibility(flyout, widget);
                 await app.AssertDataWhenIdleAsync();
-                phases.Add(new PhaseResult(phase, start, end, counters, countersAfter));
+                phases.Add(new PhaseResult(phase, start, end, counters, countersAfter, ui, uiAfter));
                 inventories.Add(sampler.CaptureVirtualMemoryInventory(phase));
             }
         }
@@ -171,6 +199,9 @@ internal static class Program
             await Task.WhenAll(sampleTask, probeTask);
         }
     }
+
+    private const int ChurnCycles = 5;
+    private const int ChurnPauseMilliseconds = 250;
 
     private static void ValidateConfiguration(string label, RuntimeIdentity runtime)
     {
@@ -259,7 +290,7 @@ internal static class Program
     private readonly record struct UiProbe(string Phase, double DueMilliseconds, double QueuedMilliseconds,
         double ExecutedMilliseconds, double DueToExecutionMilliseconds, double QueueToExecutionMilliseconds);
     private sealed record PhaseResult(string Name, ProcessSample Start, ProcessSample End,
-        FixtureCounters CountersBefore, FixtureCounters CountersAfter);
+        FixtureCounters CountersBefore, FixtureCounters CountersAfter, UiCreationCounts UiBefore, UiCreationCounts UiAfter);
     private sealed record TransitionResult(string Name, double StartMilliseconds,
-        double SynchronousActionMilliseconds, double UntilDispatcherIdleMilliseconds);
+        double SynchronousActionMilliseconds, double UntilDispatcherIdleMilliseconds, UiCreationCounts UiCreated);
 }

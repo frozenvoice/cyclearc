@@ -101,7 +101,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 $outputRoot = [IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $outputRoot) { throw "OutputDirectory must be new; existing data is preserved: $outputRoot" }
 $null = New-Item -ItemType Directory -Path $outputRoot
-$timeoutSeconds = 7 * $PhaseSeconds + $WarmupSeconds + 120
+$timeoutSeconds = 9 * $PhaseSeconds + $WarmupSeconds + 120
 $results = [Collections.Generic.List[object]]::new()
 $runMetadata = [ordered]@{
     SchemaVersion = 1

@@ -8,6 +8,7 @@ public sealed class TrayController : IDisposable
 {
     private readonly NotifyIcon _icon;
     private Icon? _current;
+    private TrayIconView _currentView;
     private ContextMenuStrip? _widgetMenu;
     private bool _startWithWindows;
 
@@ -94,11 +95,15 @@ public sealed class TrayController : IDisposable
             // Render at the current Windows small-icon metric so the native
             // notification slot does not resample a 32px icon down to 16px.
             var size = Math.Max(16, SystemInformation.SmallIconSize.Width);
-            var next = TrayIconRenderer.Render(overview.Snapshot, style, size,
+            var view = TrayIconRenderer.Describe(overview.Snapshot, style, size,
                 claudeAwaitingUsage: overview.Selected?.IsAwaitingUsage == true, lightTaskbar: IsLightTaskbar(), preference: overview.Preference);
+            // The tooltip above follows every update; the icon is redrawn only when its pixels change.
+            if (_current is not null && view == _currentView) return;
+            var next = TrayIconRenderer.Render(view);
             _icon.Icon = next;
             _current?.Dispose();
             _current = next;
+            _currentView = view;
         });
     }
 

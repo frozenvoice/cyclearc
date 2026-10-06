@@ -30,6 +30,7 @@ public sealed class WidgetAccountModuleView : Border
     private readonly StackPanel _periodPanel = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid _ringHost = new() { Width = RingDiameter, Height = RingDiameter, VerticalAlignment = VerticalAlignment.Top };
     private readonly RotateTransform _statusRotation = new();
+    private AnimationClock? _statusClock;
     private readonly StackPanel _content = new() { VerticalAlignment = VerticalAlignment.Top };
 
     // Selection is a short accent pill on a slightly lifted surface. The surface and its neutral
@@ -244,7 +245,8 @@ public sealed class WidgetAccountModuleView : Border
     {
         Model = model;
         ProfileId = model.ProfileId;
-        _avatarHost.Child = AccountSummary.Avatar(account, 22);
+        var avatar = AccountSummary.AvatarFor(account, 22, _avatarHost.Child);
+        if (!ReferenceEquals(_avatarHost.Child, avatar)) _avatarHost.Child = avatar;
         _badge.Provider = model.Provider;
         NameText.Text = model.DisplayName;
         // The module width is fixed, so a long nickname is trimmed here and stays whole in the tooltip.
@@ -300,13 +302,16 @@ public sealed class WidgetAccountModuleView : Border
     {
         if (IsLoaded && StatusActivityIcon.Visibility == Visibility.Visible)
         {
-            if (!_statusRotation.HasAnimatedProperties)
-                _statusRotation.BeginAnimation(RotateTransform.AngleProperty,
-                    new DoubleAnimation(0, 360, TimeSpan.FromSeconds(1)) { RepeatBehavior = RepeatBehavior.Forever });
+            if (_statusClock is null)
+            {
+                _statusClock = new DoubleAnimation(0, 360, TimeSpan.FromSeconds(1)) { RepeatBehavior = RepeatBehavior.Forever }.CreateClock();
+                _statusRotation.ApplyAnimationClock(RotateTransform.AngleProperty, _statusClock);
+            }
         }
         else
         {
-            _statusRotation.BeginAnimation(RotateTransform.AngleProperty, null);
+            FlyoutWindow.StopClock(ref _statusClock);
+            _statusRotation.ApplyAnimationClock(RotateTransform.AngleProperty, null);
             _statusRotation.Angle = 0;
         }
     }

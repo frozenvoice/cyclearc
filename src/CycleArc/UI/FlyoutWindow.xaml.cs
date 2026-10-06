@@ -34,10 +34,15 @@ public partial class FlyoutWindow : Window
     public int ZoomPercent { get; private set; } = FlyoutZoom.DefaultPercent;
     public bool Pinned { get; private set; }
     private readonly RefreshIndicatorController _refreshIndicator = new();
+    private AnimationClock? _spinnerClock;
     private bool _refreshActive;
     private bool _bindingUsagePeriod;
     private bool _bindingAccountSelector;
     private AccountChoice[] _accountChoices = [];
+    private readonly DisplayedAccountIdentities _displayedIdentities = new();
+    // Each row stays with its account: created when the account appears, rewritten only when
+    // its displayed output changes, moved when the order changes and dropped when it leaves.
+    private readonly Dictionary<string, System.Windows.Controls.Button> _accountRows = new(StringComparer.Ordinal);
     private bool _resetCreditsCompact;
     private sealed record AccountChoice(string Id, string AccountName, string ProviderName)
     {
@@ -309,20 +314,17 @@ public partial class FlyoutWindow : Window
         var selected = overview.Selected;
         _observationAccount = selected;
         BindSnapshot(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing, overview.Preference);
+        _displayedIdentities.Record(accounts);
         AccountSection.Visibility = Visibility.Visible;
         ManageAccountsButton.Content = UiText.T("Manage accounts", "계정 관리");
         AccountsHeading.Text = UiText.T($"Accounts · {accounts.Count}", $"계정 · {accounts.Count}");
-        AccountOverview.Items.Clear();
-        if (accounts.Count > 1)
-            foreach (var account in accounts)
-                AccountOverview.Items.Add(AccountSummary.Create(account, account.Profile.Id == selectedId,
-                    () => { if (!_redeemingCredit) AccountSelected?.Invoke(account.Profile.Id); }, compactNotice: true));
+        BindAccountRows(accounts.Count > 1 ? accounts : [], selectedId);
         AccountSelectionHint.Text = accounts.Count > 1
             ? UiText.T("Select an account for details, tray and widget.", "계정을 선택하면 상세 카드·트레이·위젯에 표시됩니다.")
             : UiText.T("Connect accounts in Manage accounts to show them here.", "계정 관리에서 연결한 계정이 여기에 표시됩니다.");
         AccountSelectionHint.Visibility = accounts.Count == 1 ? Visibility.Collapsed : Visibility.Visible;
         SelectedAccountText.Text = selected?.DisplayName ?? UiText.T("Add your first account", "첫 계정을 추가하세요");
-        SelectedAvatarHost.Content = selected is null ? null : AccountSummary.Avatar(selected, 30);
+        SelectedAvatarHost.Content = selected is null ? null : AccountSummary.AvatarFor(selected, 30, SelectedAvatarHost.Content);
         SelectedAccountText.Visibility = Visibility.Visible;
         SelectedAccountText.ToolTip = selected?.Email ?? selected?.DisplayName;
         BindAccountChoices(accounts, selectedId);
@@ -353,6 +355,36 @@ public partial class FlyoutWindow : Window
             StatusText.Text = UiText.T("No usage yet", "사용량 대기");
         }
     }
+
+    private void BindAccountRows(IReadOnlyList<CodexAccountView> accounts, string selectedId)
+    {
+        foreach (var id in _accountRows.Keys.ToArray())
+        {
+            if (accounts.Any(account => account.Profile.Id == id)) continue;
+            AccountOverview.Items.Remove(_accountRows[id]);
+            _accountRows.Remove(id);
+        }
+        for (var index = 0; index < accounts.Count; index++)
+        {
+            var account = accounts[index];
+            var id = account.Profile.Id;
+            if (_accountRows.TryGetValue(id, out var row))
+                AccountSummary.Update(row, account, id == selectedId, compactNotice: true);
+            else
+                _accountRows[id] = row = AccountSummary.Create(account, id == selectedId,
+                    () => { if (!_redeemingCredit) AccountSelected?.Invoke(id); }, compactNotice: true);
+            if (index < AccountOverview.Items.Count && ReferenceEquals(AccountOverview.Items[index], row)) continue;
+            if (AccountOverview.Items.IndexOf(row) >= 0) AccountOverview.Items.Remove(row);
+            AccountOverview.Items.Insert(index, row);
+        }
+    }
+
+    /// <summary>
+    /// True when this window still displays an account that was removed, signed in as another
+    /// email or became identity-protected since its last bind, even while it is hidden.
+    /// </summary>
+    public bool RetainsWithdrawnAccount(IReadOnlyList<CodexAccountView> accounts) =>
+        _displayedIdentities.Withdrawn(accounts);
 
     private void OnAccountsClick(object sender, RoutedEventArgs e) => AccountsRequested?.Invoke();
 
@@ -449,14 +481,29 @@ public partial class FlyoutWindow : Window
             Duration = TimeSpan.FromSeconds(RefreshIndicatorController.DurationSeconds),
             RepeatBehavior = RepeatBehavior.Forever
         };
-        spinner.BeginAnimation(RotateTransform.AngleProperty, spin, HandoffBehavior.SnapshotAndReplace);
+        StopClock(ref _spinnerClock);
+        _spinnerClock = spin.CreateClock();
+        spinner.ApplyAnimationClock(RotateTransform.AngleProperty, _spinnerClock, HandoffBehavior.SnapshotAndReplace);
     }
 
     private void StopRefreshAnimations()
     {
         var spinner = LiveSpinnerRotate();
-        spinner.BeginAnimation(RotateTransform.AngleProperty, null);
+        StopClock(ref _spinnerClock);
+        spinner.ApplyAnimationClock(RotateTransform.AngleProperty, null);
         spinner.Angle = 0;
+    }
+
+    // Detaching a repeating clock from its property alone leaves it ticking every frame until
+    // a garbage collection; stopping and removing it ends that work as soon as motion ends.
+    internal static void StopClock(ref AnimationClock? clock)
+    {
+        if (clock?.Controller is { } controller)
+        {
+            controller.Stop();
+            controller.Remove();
+        }
+        clock = null;
     }
 
     private RotateTransform LiveSpinnerRotate()

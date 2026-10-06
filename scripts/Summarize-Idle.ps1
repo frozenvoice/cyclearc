@@ -103,8 +103,8 @@ function Get-ActiveCounterComparisonReasons([object]$Baseline, [object]$Observed
     }
 }
 
-$phaseNames = @('warmup', 'tray-idle', 'flyout-visible', 'tray-after-flyout',
-    'widget-visible', 'post-refresh-widget', 'tray-after-refresh')
+$phaseNames = @('warmup', 'tray-idle', 'widget-before-flyout', 'flyout-visible', 'tray-after-flyout',
+    'widget-visible', 'post-refresh-widget', 'tray-after-refresh', 'widget-after-churn')
 $activeRequestCounters = @('CodexStarts', 'CodexQuotaRequests', 'ClaudeLiveRequests',
     'CursorUsageRequests', 'CursorHttpRequests')
 $metrics = @('MedianWorkingSetBytes', 'MedianPrivateWorkingSetBytes', 'MedianPrivateBytes',
@@ -144,7 +144,7 @@ foreach ($result in $run.Results) {
     }
     if (@($report.Phases).Count -ne $phaseNames.Count -or
         (@($report.Phases.Name) -join ',') -cne ($phaseNames -join ',')) {
-        throw "Child report does not contain the seven expected phases: $reportPath"
+        throw "Child report does not contain the nine expected phases: $reportPath"
     }
     $trialRuns.Add([pscustomobject][ordered]@{
         Trial = $report.Trial

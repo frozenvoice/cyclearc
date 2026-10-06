@@ -13,21 +13,21 @@ using SolidBrush = System.Drawing.SolidBrush;
 
 namespace CycleArc.UI;
 
+/// <summary>
+/// Every input that decides the drawn icon. Equal views draw identical pixels, so a caller may
+/// keep its current icon for an equal view while still updating the tooltip and account.
+/// </summary>
+public readonly record struct TrayIconView(TrayIconStyle Style, int Size, string Text, bool Exact,
+    float SweepDegrees, int FillArgb, bool LightTaskbar);
+
 public static class TrayIconRenderer
 {
-    public static Icon Render(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false, bool lightTaskbar = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+    public static Icon Render(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false, bool lightTaskbar = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto) =>
+        Render(Describe(snapshot, style, size, claudeAwaitingUsage, lightTaskbar, preference));
+
+    public static TrayIconView Describe(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false, bool lightTaskbar = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
         size = Math.Max(8, size);
-        using var bitmap = new Bitmap(size, size);
-        using var graphics = Graphics.FromImage(bitmap);
-        graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        // ClearType assumes an opaque desktop background and produces colored fringes
-        // after Windows scales the native notification icon. Grayscale AA keeps the
-        // small glyph crisp on both light and dark taskbars.
-        graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-        graphics.Clear(DrawingColor.Transparent);
-
         var ring = CodexRingPresentation.From(snapshot, preference);
         var exact = ring.IsAvailable;
         var ratio = (ring.UsedPercent ?? 0) / 100;
@@ -40,20 +40,36 @@ public static class TrayIconRenderer
         // The left number complements the whole-percent usage digits, so 67 used reads 33 left.
         if (style == TrayIconStyle.LeftNumber && exact && ring.UsedPercent is { } used)
             text = (100 - Math.Round(Math.Clamp(used, 0, 100), MidpointRounding.AwayFromZero)).ToString(CultureInfo.InvariantCulture);
+        return new(style, size, text, exact, (float)(360 * ratio), palette.Fill.ToArgb(), lightTaskbar);
+    }
 
-        if (style == TrayIconStyle.ProgressRing)
+    public static Icon Render(TrayIconView view)
+    {
+        var size = view.Size;
+        var text = view.Text;
+        using var bitmap = new Bitmap(size, size);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        // ClearType assumes an opaque desktop background and produces colored fringes
+        // after Windows scales the native notification icon. Grayscale AA keeps the
+        // small glyph crisp on both light and dark taskbars.
+        graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+        graphics.Clear(DrawingColor.Transparent);
+
+        if (view.Style == TrayIconStyle.ProgressRing)
         {
             // An opaque center keeps the number legible on light and dark Windows taskbars.
             using var center = new SolidBrush(DrawingColor.FromArgb(27, 31, 39));
             graphics.FillEllipse(center, 1, 1, size - 2, size - 2);
             using var bg = new Pen(DrawingColor.FromArgb(60, 255, 255, 255), Math.Max(2f, size / 8f));
-            using var fg = new Pen(palette.Fill, Math.Max(2f, size / 8f)) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            using var fg = new Pen(DrawingColor.FromArgb(view.FillArgb), Math.Max(2f, size / 8f)) { StartCap = LineCap.Round, EndCap = LineCap.Round };
             var pad = size / 8f;
             var rect = new RectangleF(pad, pad, size - pad * 2, size - pad * 2);
             graphics.DrawArc(bg, rect, -90, 360);
-            if (exact)
+            if (view.Exact)
             {
-                graphics.DrawArc(fg, rect, -90, (float)(360 * ratio));
+                graphics.DrawArc(fg, rect, -90, view.SweepDegrees);
             }
 
 
@@ -61,7 +77,7 @@ public static class TrayIconRenderer
         }
         else
         {
-            var foreground = lightTaskbar ? DrawingColor.FromArgb(24, 24, 24) : DrawingColor.White;
+            var foreground = view.LightTaskbar ? DrawingColor.FromArgb(24, 24, 24) : DrawingColor.White;
             DrawGlyph(graphics, text, size, foreground, ringStyle: false);
         }
 

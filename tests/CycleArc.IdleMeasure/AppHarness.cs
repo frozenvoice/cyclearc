@@ -30,6 +30,7 @@ internal sealed class AppHarness : App
     private readonly FieldInfo _passiveTaskField;
     private readonly FieldInfo _widgetField;
     private readonly FieldInfo _flyoutField;
+    private readonly UiCreationObserver _ui;
     private TrayController? _fixtureTray;
     private DesktopEnvironmentMonitor? _fixtureEnvironment;
     private Window? _guardedWidget;
@@ -40,6 +41,7 @@ internal sealed class AppHarness : App
     public long PassiveTicks { get; private set; }
     public long AutomaticTicks { get; private set; }
     public long DisplayTicks { get; private set; }
+    public UiCreationCounts UiCounts => _ui.Counts;
 
     public AppHarness(SyntheticAccounts fixture, Func<AppHarness, Task> run)
     {
@@ -66,10 +68,11 @@ internal sealed class AppHarness : App
             WidgetTop = 40
         };
         _fixtureSettingsStore = new SettingsStore(fixture.SettingsPath);
-        _refreshSnapshot = Method<Action>("RefreshSnapshot");
+        _ui = new UiCreationObserver(() => Flyout, () => Widget, () => _fixtureTray);
+        _refreshSnapshot = Observed(Method<Action>("RefreshSnapshot"));
         _applyRefreshSchedule = Method<Action>("ApplyRefreshSchedule");
-        _applyWidget = Method<Action>("ApplyWidget");
-        _toggleFlyout = Method<Action>("ToggleFlyout");
+        _applyWidget = Observed(Method<Action>("ApplyWidget"));
+        _toggleFlyout = Observed(Method<Action>("ToggleFlyout"));
         _refreshCodex = Method<Func<bool, Task>>("RefreshCodexAsync");
         _readPassive = Method<Func<Task>>("ReadPassiveUsageAsync");
         _setExiting = Method<Action<bool>>("set_IsExiting");
@@ -196,6 +199,19 @@ internal sealed class AppHarness : App
         GuardFixtureWindowControls();
     }
 
+    /// <summary>Selects the next account in management order through the production manager,
+    /// as the popup selector and widget module handlers do.</summary>
+    public void SelectNextAccount()
+    {
+        Dispatcher.VerifyAccess();
+        EnsureRunning();
+        var ids = _fixture.ProfileIds;
+        var index = ids.ToList().IndexOf(_fixture.Manager.SelectedId);
+        _fixture.Manager.Select(ids[(index + 1) % ids.Count]);
+    }
+
+    public string SelectedAccountId => _fixture.Manager.SelectedId;
+
     public void AssertVisibility(bool flyout, bool widget)
     {
         Dispatcher.VerifyAccess();
@@ -268,6 +284,7 @@ internal sealed class AppHarness : App
     {
         PassiveTicks++;
         if (!IsExiting) Widget?.MaintainVisibility();
+        _ui.Observe();
         GuardFixtureWindowControls();
         if (!IsExiting && PassiveTask.IsCompleted) _passiveTaskField.SetValue(this, _readPassive());
     }
@@ -296,6 +313,12 @@ internal sealed class AppHarness : App
             ?? throw new MissingFieldException(window.GetType().FullName, eventName);
         field.SetValue(window, null);
     }
+
+    private Action Observed(Action action) => () =>
+    {
+        action();
+        _ui.Observe();
+    };
 
     private Task PassiveTask => (Task)(_passiveTaskField.GetValue(this)
         ?? throw new InvalidOperationException("Production passive task is missing."));
