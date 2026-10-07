@@ -2,6 +2,50 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Flyout window-options menu theme (unreleased, 2026-10-07 Asia/Seoul):
+  - Started from clean `main` / fetched `origin/main` at `3ef21eb76887b7ff54010fe2e1c8c48cec6db6ef`
+    on `codex/flyout-options-menu-theme`. Opened the production `WindowOptionsMenu` with
+    synthetic account data before editing. The Popup resolved `CardBrush` / `LineBrush`,
+    but both controls still used `DefaultStyle` templates: `GlyphPanel` painted
+    `#3D26A0DA` / `#FF26A0DA`, and the default check used `#FF212121`.
+  - Scoped ContextMenu, MenuItem and Separator templates in `FlyoutWindow.xaml` replace
+    that system check panel with a small stroked vector, one themed row highlight/focus
+    border and a thin themed separator. Explicit styles apply only to the two flat
+    options and their separator; other WPF menus and the WinForms tray are unchanged.
+    Native WPF input and the existing code-behind pin/hide handlers remain in use.
+  - The new default `FlyoutOptionsMenuChecks` opens the real separate-HWND Popup and
+    inspects its applied templates/brushes. Focused checks passed **96 state/layout
+    cases** across EN/KO and Dark/Light: checked/unchecked, highlight, Up/Down/Enter/Escape,
+    focus return, exactly one pin/unpin event, Close hiding only the Flyout, reopen,
+    theme change, disabled state and high-contrast resource presentation.
+    The Popup itself is rendered; a Flyout-body bitmap is not used as menu evidence.
+  - Independent Popup-root DPI injection passed **100/125/150/200% × app zoom 80/100/150%**
+    for each language/theme. Font size remains 13 DIP; the vector and rows scale once.
+    This is simulated layout DPI, not evidence from four physical monitor settings.
+    Opt-in native input passed **24 monitor/language/theme/zoom cases** on connected
+    `DISPLAY1` (150%, work area 2560×1528) and `DISPLAY6` (100%, work area 1920×1032,
+    negative X): actual check/Close hover, Up/Escape, pin click once, outside dismissal
+    and final Close click. Each opened Popup stayed inside the right work-area edge.
+  - `dev-run.ps1 -DevelopmentOnly -TestFilter
+    'FullyQualifiedName~FlyoutRefreshAndLocalizationTests|FullyQualifiedName~ThemeSelectionStateTests|FullyQualifiedName~FlyoutWindowStateTests'`
+    passed the Release solution build and **15 unit tests**, zero skips. The subsequent
+    UiSmoke-project Release build passed after the final harness correction; three
+    pre-existing CS8602 warnings remain in `UiReuseChecks`. Focused `--flyout-menu` and
+    opt-in `--flyout-menu-native` both exited 0. The final argument-free
+    `dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build`
+    exited 0 with `[ui-smoke] COMPLETE all default suites`, including Flyout activation
+    and the new menu suite; the starting host DPI was 150%. Logs use
+    `artifacts/flyout-menu-*.log`. This is local UI validation, not a package/install gate
+    or a remote CI success.
+  - [Opened-menu before/after and input-state images](images/README.md#opened-window-options-menu)
+    were visually inspected in EN/KO and Dark/Light, including unchecked, Close-hover,
+    keyboard selection and representative injected DPI. Minimal Korean menu PNGs are
+    retained; the temporary capture directory is removed after verification.
+    No installed app was replaced, stopped or restarted, no live accounts were accessed,
+    and no Windows DPI/high-contrast setting was changed. Physical 125%/200% monitors
+    and an OS-enabled high-contrast session remain unverified. No packaging, installation,
+    release or GitHub Actions dispatch was requested or performed.
+
 - Build-local failure log ownership (unreleased, 2026-10-07 Asia/Seoul):
   - Starting from `37b40ded2f20f82add0ebe28df1f65f42ceb8549`, a synthetic consecutive-run
     fixture reproduced old stdout/stderr Check/Cause text after a real `Process.Start`

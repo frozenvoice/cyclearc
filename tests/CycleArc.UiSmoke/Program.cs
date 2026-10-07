@@ -254,6 +254,21 @@ internal static class Program
                 FlyoutActivationChecks.Run(app, args.Length == 2 ? args[1] : null);
                 return 0;
             }
+            if (args is ["--flyout-menu"] or ["--flyout-menu", _])
+            {
+                FlyoutOptionsMenuChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
+            if (args is ["--flyout-menu-baseline", var menuBaselineDirectory])
+            {
+                FlyoutOptionsMenuChecks.Run(menuBaselineDirectory, baseline: true);
+                return 0;
+            }
+            if (args is ["--flyout-menu-native", var menuNativeDirectory])
+            {
+                FlyoutOptionsMenuChecks.RunNative(menuNativeDirectory);
+                return 0;
+            }
             if (args is ["--ui-reuse"])
             {
                 UiReuseChecks.Run(app);
@@ -299,6 +314,8 @@ internal static class Program
             ToolTipUiChecks.Run();
             Begin("flyout-activation");
             FlyoutActivationChecks.Run(app);
+            Begin("flyout-menu");
+            FlyoutOptionsMenuChecks.Run();
             Begin("ui-reuse");
             UiReuseChecks.Run(app);
             Begin("environment-callbacks");
