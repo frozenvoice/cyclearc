@@ -121,8 +121,9 @@ function Get-DevRunChildStage([string]$LogDirectory) {
     ([string]$value[0]).Trim()
 }
 
-function Resolve-BuildLocalReportedStage([string]$ParentStage, [string]$LogDirectory) {
-    if ($ParentStage -eq 'build') {
+function Resolve-BuildLocalReportedStage([string]$ParentStage, [string]$LogDirectory, [object]$ExecutionState = $null) {
+    if ($ParentStage -eq 'build' -and $ExecutionState -and $ExecutionState.Started -and
+        $ExecutionState.StagePrepared -and ($null -eq $ExecutionState.ExitCode -or $ExecutionState.ExitCode -ne 0)) {
         $child = Get-DevRunChildStage $LogDirectory
         if ($child) { return $child }
     }
@@ -244,10 +245,14 @@ function Get-BuildLocalLogTail {
 
 function Write-BuildLocalLogTail {
     param([string]$Path, [int]$Lines = 80)
-    $tail = @(Get-BuildLocalLogTail -Path $Path -Lines $Lines)
-    if ($tail.Count -eq 0) { return }
-    Write-Host "----- $Path (last $Lines lines) -----"
-    foreach ($line in $tail) { Write-Host $line }
+    # Best-effort diagnostics must not replace a timeout or interrupt an exit-code result.
+    try {
+        $tail = @(Get-BuildLocalLogTail -Path $Path -Lines $Lines)
+        if ($tail.Count -eq 0) { return }
+        Write-Host "----- $Path (last $Lines lines) -----"
+        foreach ($line in $tail) { Write-Host $line }
+    }
+    catch { }
 }
 
 function Get-BuildLocalLogLines([string]$Path) {
@@ -270,9 +275,9 @@ The failing check and the child's first exception, read only from this run's cap
 child logs. A field the logs do not show stays $null; it is never inferred.
 UiSmoke marks its default suites with "[ui-smoke] START/PASS/FAIL <suite>".
 #>
-function Get-BuildLocalChildFailure([string]$LogDirectory) {
-    $err = @(Get-BuildLocalLogLines (Join-Path $LogDirectory 'dev-run.err.log'))
-    $out = @(Get-BuildLocalLogLines (Join-Path $LogDirectory 'dev-run.out.log'))
+function Get-BuildLocalChildFailure([string]$LogDirectory, [object]$ExecutionState = $null) {
+    $err = @(if ($ExecutionState -and $ExecutionState.ErrorPrepared) { Get-BuildLocalLogLines $ExecutionState.ErrorPath })
+    $out = @(if ($ExecutionState -and $ExecutionState.OutputPrepared) { Get-BuildLocalLogLines $ExecutionState.OutputPath })
     $check = $null
     $cause = $null
     for ($i = $err.Count - 1; $i -ge 0; $i--) {
@@ -310,11 +315,15 @@ function Write-BuildLocalFailure {
         [string]$LogPath,
         [string]$Elapsed = '',
         [string]$PrerequisiteStatus = '',
-        # Only a run that started dev-run.ps1 summarises its captured logs; otherwise
-        # they belong to an earlier run and are not described as this failure.
+        # Retain the old parameters for callers; file existence alone never grants ownership.
         [switch]$ChildStarted,
-        [AllowNull()][object]$ChildExitCode = $null
+        [AllowNull()][object]$ChildExitCode = $null,
+        [object]$ExecutionState = $null
     )
+    if ($ExecutionState) {
+        $ChildStarted = [bool]$ExecutionState.Started
+        $ChildExitCode = $ExecutionState.ExitCode
+    }
     # Never let reporting a failure fail: an empty stage or message still has to
     # produce a readable line rather than a parameter binding error.
     if (!$Stage) { $Stage = 'unknown' }
@@ -332,38 +341,57 @@ function Write-BuildLocalFailure {
     )
     if ($LogPath) { $lines += "Log: $LogPath" }
     if ($Stage -ne 'preflight' -and $LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
-        $childLog = Join-Path $LogDirectory 'dev-run.err.log'
-        if (Test-Path -LiteralPath $childLog -PathType Leaf) {
-            $lines += "Child log: $childLog"
+        if ($ExecutionState -and $ExecutionState.ErrorPrepared) {
+            $lines += "Child log: $($ExecutionState.ErrorPath)"
         }
-        foreach ($name in @('dev-run.err.log', 'dev-run.out.log')) {
-            $captured = Join-Path $LogDirectory $name
-            if (!(Test-Path -LiteralPath $captured -PathType Leaf)) { continue }
+        $ownedLogs = @(
+            if ($ExecutionState -and $ExecutionState.ErrorPrepared) { $ExecutionState.ErrorPath }
+            if ($ExecutionState -and $ExecutionState.OutputPrepared) { $ExecutionState.OutputPath }
+        )
+        foreach ($captured in $ownedLogs) {
+            $name = Split-Path -Leaf $captured
             $lines += "Captured ${name}: $captured"
-            $tail = @(Get-BuildLocalLogTail -Path $captured)
+            $tail = @()
+            try { $tail = @(Get-BuildLocalLogTail -Path $captured) } catch { }
             if ($tail.Count -gt 0) {
                 $lines += "----- $name (tail) -----"
                 $lines += @($tail | ForEach-Object { Limit-BuildLocalLine ([string]$_) })
             }
         }
     }
-    # A child that exited 0 is not this failure's cause; a later step's Cause line already is.
-    if ($ChildStarted -and $ChildExitCode -ne 0 -and $LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
+    if ($Stage -ne 'preflight') {
         # The tails above can be long. Repeat the essentials last, where the console ends.
         $child = $null
-        try { $child = Get-BuildLocalChildFailure $LogDirectory } catch { }
+        if ($ChildStarted -and $ExecutionState -and ($null -eq $ChildExitCode -or $ChildExitCode -ne 0)) {
+            try { $child = Get-BuildLocalChildFailure $LogDirectory $ExecutionState } catch { }
+        }
         $notFound = 'not identified from the captured logs'
-        $cause = if ($child -and $child.Cause) { Limit-BuildLocalLine $child.Cause 600 }
-            elseif ($child -and !$child.HasError) { "$notFound (dev-run.err.log is empty)" }
+        $check = if (!$ChildStarted) { 'not started' }
+            elseif ($null -ne $ChildExitCode -and $ChildExitCode -eq 0) { 'not applicable (dev-run.ps1 succeeded)' }
+            elseif ($child -and $child.Check) { $child.Check }
             else { $notFound }
+        # Start, capture and timeout exceptions are the parent's actual cause. Only a
+        # confirmed nonzero child exit may replace it with a cause found in owned logs.
+        $cause = if ($ChildStarted -and $null -ne $ChildExitCode -and $ChildExitCode -ne 0) {
+            if ($child -and $child.Cause) { Limit-BuildLocalLine $child.Cause 600 }
+            elseif ($child -and !$child.HasError -and $ExecutionState.ErrorPrepared) { "$notFound (dev-run.err.log is empty)" }
+            else { $notFound }
+        }
+        else { $Message }
+        $details = if ($ChildStarted -and $ExecutionState -and $ExecutionState.ErrorPrepared -and
+            ($null -eq $ChildExitCode -or $ChildExitCode -ne 0)) { $ExecutionState.ErrorPath }
+            else { $LogPath }
         $lines += @(
             '',
             '===== CycleArc build-local failure summary =====',
             "Stage: $Stage",
-            ('Check: {0}' -f $(if ($child -and $child.Check) { $child.Check } else { $notFound })),
+            "Check: $check",
             "Cause: $cause",
-            ('Child exit: {0}' -f $(if ($null -ne $ChildExitCode) { $ChildExitCode } else { 'not available (dev-run.ps1 did not exit normally)' })),
-            "Details: $(Join-Path $LogDirectory 'dev-run.err.log')",
+            ('Child started: {0}' -f ([bool]$ChildStarted).ToString().ToLowerInvariant()),
+            ('Child exit: {0}' -f $(if ($null -ne $ChildExitCode) { $ChildExitCode }
+                elseif (!$ChildStarted) { 'not available (not started)' }
+                else { 'not available (dev-run.ps1 did not exit normally)' })),
+            "Details: $details",
             (Get-BuildLocalStageGuidance $Stage)
         )
         if ($LogPath) { $lines += "Log: $LogPath" }
@@ -411,6 +439,21 @@ function New-BuildLocalLogDirectory([string]$RepoRoot) {
     $directory
 }
 
+function New-BuildLocalExecutionState {
+    # Mutable facts survive an exception without changing Invoke-ExternalProcess's int result.
+    [pscustomobject]@{
+        Attempted = $false
+        StartAttempted = $false
+        Started = $false
+        OutputPrepared = $false
+        ErrorPrepared = $false
+        OutputPath = $null
+        ErrorPath = $null
+        StagePrepared = $false
+        ExitCode = $null
+    }
+}
+
 function Invoke-ExternalProcess {
     param(
         [Parameter(Mandatory)][string]$FilePath,
@@ -422,8 +465,11 @@ function Invoke-ExternalProcess {
         [string]$StandardErrorPath,
         [int]$OutputDrainMilliseconds = 15000,
         [switch]$StreamProgress,
-        [int]$ProgressIntervalMilliseconds = 250
+        [int]$ProgressIntervalMilliseconds = 250,
+        [object]$ExecutionState = $null
     )
+    if (!$ExecutionState) { $ExecutionState = New-BuildLocalExecutionState }
+    $ExecutionState.Attempted = $true
     Write-Host ("    > {0} {1}" -f $FilePath, ($ArgumentList -join ' '))
     $captureOutput = ![string]::IsNullOrWhiteSpace($StandardOutputPath)
     $captureError = ![string]::IsNullOrWhiteSpace($StandardErrorPath)
@@ -440,21 +486,34 @@ function Invoke-ExternalProcess {
         $start.RedirectStandardOutput = $true
         $start.RedirectStandardError = $true
     }
-    $process = [Diagnostics.Process]::Start($start)
-    if (!$process) { throw "Could not start $FilePath" }
+    $process = $null
     $outFile = $null
     $errFile = $null
     $stdoutTask = $null
     $stderrTask = $null
     $progress = $null
     try {
+        # Prepare both captures before starting a child. Record each successful open
+        # separately, so partial preparation cannot make the other run's file ours.
+        # FileShare.Read and an unbuffered handle retain live progress while capturing.
+        if ($captureOutput) {
+            $outFile = [IO.FileStream]::new($StandardOutputPath, [IO.FileMode]::Create,
+                [IO.FileAccess]::Write, [IO.FileShare]::Read, 1, $true)
+            $ExecutionState.OutputPath = $StandardOutputPath
+            $ExecutionState.OutputPrepared = $true
+        }
+        if ($captureError) {
+            $errFile = [IO.FileStream]::new($StandardErrorPath, [IO.FileMode]::Create,
+                [IO.FileAccess]::Write, [IO.FileShare]::Read, 1, $true)
+            $ExecutionState.ErrorPath = $StandardErrorPath
+            $ExecutionState.ErrorPrepared = $true
+        }
+        $ExecutionState.StartAttempted = $true
+        $process = [Diagnostics.Process]::Start($start)
+        if (!$process) { throw "Could not start $FilePath" }
+        $ExecutionState.Started = $true
         if ($start.RedirectStandardOutput) {
             if ($captureOutput) {
-                # FileShare.Read so progress can be read back while this run writes it, and an
-                # unbuffered handle so a stage line reaches the file when the child emits it
-                # rather than sitting in a 4 KB buffer until the run ends.
-                $outFile = [IO.FileStream]::new($StandardOutputPath, [IO.FileMode]::Create,
-                    [IO.FileAccess]::Write, [IO.FileShare]::Read, 1, $true)
                 $stdoutTask = $process.StandardOutput.BaseStream.CopyToAsync($outFile)
             }
             else {
@@ -463,8 +522,6 @@ function Invoke-ExternalProcess {
         }
         if ($start.RedirectStandardError) {
             if ($captureError) {
-                $errFile = [IO.FileStream]::new($StandardErrorPath, [IO.FileMode]::Create,
-                    [IO.FileAccess]::Write, [IO.FileShare]::Read, 1, $true)
                 $stderrTask = $process.StandardError.BaseStream.CopyToAsync($errFile)
             }
             else {
@@ -516,6 +573,7 @@ function Invoke-ExternalProcess {
             throw "$FilePath did not finish within $TimeoutSeconds seconds (PID $($process.Id))."
         }
         $exitCode = [int]$process.ExitCode
+        $ExecutionState.ExitCode = $exitCode
         if ($exitCode -ne 0) {
             Write-BuildLocalLogTail -Path $StandardErrorPath
             Write-BuildLocalLogTail -Path $StandardOutputPath
@@ -523,9 +581,18 @@ function Invoke-ExternalProcess {
         return $exitCode
     }
     finally {
+        # An exception after Start still owns this child and its pipes. Cleanup is bounded
+        # and must never replace the original start/capture/wait failure.
+        if ($process) {
+            try {
+                if (!$process.HasExited) { $process.Kill($true); [void]$process.WaitForExit(5000) }
+            } catch { }
+            if ($start.RedirectStandardOutput) { try { $process.StandardOutput.Dispose() } catch { } }
+            if ($start.RedirectStandardError) { try { $process.StandardError.Dispose() } catch { } }
+        }
         if ($outFile) { try { $outFile.Dispose() } catch { } }
         if ($errFile) { try { $errFile.Dispose() } catch { } }
-        $process.Dispose()
+        if ($process) { try { $process.Dispose() } catch { } }
     }
 }
 
@@ -1013,8 +1080,7 @@ function Invoke-BuildLocal {
     )
     $script:BuildLocalStarted = [Diagnostics.Stopwatch]::StartNew()
     Set-BuildLocalStage 'preflight'
-    $devRunStarted = $false
-    $devRunExitCode = $null
+    $devRunState = New-BuildLocalExecutionState
     $lease = $null
     $logDirectory = $null
     $logPath = $null
@@ -1088,14 +1154,13 @@ function Invoke-BuildLocal {
             $devRunErr = Join-Path $logDirectory 'dev-run.err.log'
             $devRunStage = Join-Path $logDirectory 'dev-run.stage'
             if (Test-Path -LiteralPath $devRunStage -PathType Leaf) { Remove-Item -LiteralPath $devRunStage -Force }
+            $devRunState.StagePrepared = $true
             $previousStageFile = $env:CYCLEARC_DEV_RUN_STAGE_FILE
             $env:CYCLEARC_DEV_RUN_STAGE_FILE = $devRunStage
             try {
-                $devRunStarted = $true
                 $exitCode = Invoke-ExternalProcess -FilePath $pwsh -ArgumentList $arguments -WorkingDirectory $RepoRoot `
                     -TimeoutSeconds 1800 -NoNewWindow -StandardOutputPath $devRunOut -StandardErrorPath $devRunErr `
-                    -StreamProgress
-                $devRunExitCode = $exitCode
+                    -StreamProgress -ExecutionState $devRunState
             }
             finally {
                 if ($null -eq $previousStageFile) { Remove-Item Env:CYCLEARC_DEV_RUN_STAGE_FILE -ErrorAction SilentlyContinue }
@@ -1323,17 +1388,22 @@ function Invoke-BuildLocal {
         }
     }
     catch {
-        $stage = Resolve-BuildLocalReportedStage (Get-BuildLocalStage) $logDirectory
+        $failure = $_
+        $stage = Get-BuildLocalStage
+        try { $stage = Resolve-BuildLocalReportedStage $stage $logDirectory $devRunState } catch { }
         Set-BuildLocalStage $stage -Quiet
         Write-Host ''
-        Write-Host (Write-BuildLocalFailure -Stage $stage -Message $_.Exception.Message `
-            -LogDirectory $logDirectory -LogPath $logPath -Elapsed (Format-BuildLocalElapsed $script:BuildLocalStarted) `
-            -ChildStarted:$devRunStarted -ChildExitCode $devRunExitCode)
-        throw
+        try {
+            Write-Host (Write-BuildLocalFailure -Stage $stage -Message $failure.Exception.Message `
+                -LogDirectory $logDirectory -LogPath $logPath -Elapsed (Format-BuildLocalElapsed $script:BuildLocalStarted) `
+                -ExecutionState $devRunState)
+        }
+        catch { Write-Host "CycleArc build-local failed at ${stage}: $($failure.Exception.Message). Log: $logPath" }
+        throw $failure
     }
     finally {
         if ($transcript) { try { Stop-Transcript | Out-Null } catch { } }
-        if ($lease) { $lease.Dispose() }
+        if ($lease) { try { $lease.Dispose() } catch { } }
     }
 }
 

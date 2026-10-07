@@ -122,6 +122,71 @@ function Stop-TestProcessById([int]$ProcessId) {
     if ($process) { try { $process.Kill() } catch { } finally { $process.Dispose() } }
 }
 
+function Invoke-TestBuildFailure([hashtable]$Parameters, [string]$Expected) {
+    $console = [Collections.Generic.List[string]]::new()
+    $failure = $null
+    try {
+        Invoke-BuildLocal @Parameters 6>&1 | ForEach-Object { $console.Add([string]$_) }
+    }
+    catch { $failure = $_.Exception.Message }
+    if (!$failure -or !$failure.Contains($Expected)) { throw "Expected '$Expected', got '$failure'" }
+    [pscustomobject]@{
+        Message = $failure
+        Console = $console -join "`n"
+        Record = Get-Content -LiteralPath (Join-Path $Parameters.RepoRoot 'artifacts/build-local/last-failure.txt') -Raw
+    }
+}
+
+function Assert-TestFailureReport($Failure, [string[]]$Required, [string[]]$Forbidden = @()) {
+    foreach ($text in @($Failure.Console, $Failure.Record)) {
+        foreach ($value in $Required) {
+            if (!$text.Contains($value)) { throw "Failure report lost '$value': $text" }
+        }
+        foreach ($value in $Forbidden) {
+            if ($text.Contains($value)) { throw "Failure report leaked '$value': $text" }
+        }
+    }
+}
+
+function Set-TestPreviousDiagnostics([string]$Directory, [string]$Marker) {
+    foreach ($entry in @{
+        'dev-run.out.log' = "[ui-smoke] START $Marker"
+        'dev-run.err.log' = "[ui-smoke] FAIL $Marker`nException: $Marker"
+        'dev-run.stage' = $Marker
+        'last-failure.txt' = "Stage: $Marker`nCheck: $Marker`nCause: $Marker"
+    }.GetEnumerator()) {
+        $path = Join-Path $Directory $entry.Key
+        Set-Content -LiteralPath $path -Value $entry.Value
+        # Even a recent timestamp is not proof that the file belongs to the next run.
+        (Get-Item -LiteralPath $path).LastWriteTimeUtc = [datetime]::UtcNow.AddMinutes(1)
+    }
+}
+
+function Write-TestFailureExample([string]$Name, $Failure) {
+    $summary = ($Failure.Record -split '===== CycleArc build-local failure summary =====')[-1].Trim()
+    Write-Host "EXAMPLE ($Name):`n$summary"
+}
+
+# Keep the real runner, changing only its Process.Start target/budget at the test boundary.
+# No machine PATH, executable, policy, build or installed-app operation is changed.
+$realExternalProcess = (Get-Command Invoke-ExternalProcess).ScriptBlock
+
+function Invoke-TestExternalProcess {
+    [CmdletBinding()]
+    param(
+        [string]$FilePath, [string[]]$ArgumentList, [string]$WorkingDirectory,
+        [int]$TimeoutSeconds, [switch]$NoNewWindow,
+        [string]$StandardOutputPath, [string]$StandardErrorPath,
+        [switch]$StreamProgress, [object]$ExecutionState
+    )
+    $script:observedExecutionState = $ExecutionState
+    if ($script:externalTestMode -eq 'start-failure') {
+        $PSBoundParameters.FilePath = Join-Path $testRoot 'CURRENT-START-FAILURE-missing.exe'
+    }
+    elseif ($script:externalTestMode -eq 'timeout') { $PSBoundParameters.TimeoutSeconds = 3 }
+    & $realExternalProcess @PSBoundParameters
+}
+
 try {
     $scriptText = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/Build-Local.ps1') -Raw
     $cmdText = Get-Content -LiteralPath (Join-Path $repoRoot 'build-local.cmd') -Raw
@@ -190,6 +255,196 @@ try {
         throw 'Build-Local.ps1 must not treat an absent desktop PID as a terminating error'
     }
     Write-Host 'PASS: build-local.cmd reports the recorded stage instead of a blanket claim.'
+
+    # Seed a real previous failure, then fail at the real Process.Start boundary in the
+    # same repository/log location. Summary-only mocks cannot reproduce this regression.
+    $diagnosticTree = Join-Path $testRoot 'consecutive failure diagnostics'
+    New-GitCycleArcTree $diagnosticTree
+    $oldRun = 'OLD-RUN-DO-NOT-REPORT'
+    New-TestDevRun $diagnosticTree (Join-Path $diagnosticTree 'dev-run-marker.txt') 9 `
+        "[ui-smoke] FAIL $oldRun`nException: $oldRun" $oldRun | Out-Null
+    $script:diagnosticCalls = 0
+    $diagnosticParameters = @{
+        RepoRoot = $diagnosticTree
+        ManagedRoot = Join-Path $testRoot 'install diagnostic'
+        PrerequisitePreflight = { [pscustomobject]@{ Status = 'Ready' } }
+        StopDesktop = { $script:diagnosticCalls++ }
+        RunSetup = { $script:diagnosticCalls++; 0 }
+        StartLauncher = { $script:diagnosticCalls++ }
+    }
+    $previousRun = Invoke-TestBuildFailure $diagnosticParameters 'failed (exit 9)'
+    $diagnosticLogs = Join-Path $diagnosticTree 'artifacts/build-local'
+    Set-Content -LiteralPath (Join-Path $diagnosticLogs 'dev-run.out.log') -Value "[ui-smoke] START $oldRun"
+    if (!$previousRun.Record.Contains($oldRun)) { throw 'The previous real failure did not seed the fixture' }
+    $script:externalTestMode = 'start-failure'
+    Set-Item Function:Invoke-ExternalProcess -Value ${function:Invoke-TestExternalProcess}
+    try { $startFailure = Invoke-TestBuildFailure $diagnosticParameters 'CURRENT-START-FAILURE-missing.exe' }
+    finally { Set-Item Function:Invoke-ExternalProcess -Value $realExternalProcess }
+    Assert-TestFailureReport $startFailure @('Stage: build', 'Check: not started', 'Child started: false',
+        'Child exit: not available (not started)', 'CURRENT-START-FAILURE-missing.exe') @($oldRun)
+    if (!$observedExecutionState.Attempted -or !$observedExecutionState.StartAttempted -or
+        $observedExecutionState.Started -or $null -ne $observedExecutionState.ExitCode) {
+        throw 'The actual start boundary was not recorded truthfully'
+    }
+    if ($startFailure.Record -match '(?m)^Details: .*dev-run\.err\.log') { throw 'Start failure details must identify the parent log' }
+    if ($diagnosticCalls -ne 0) { throw 'A start failure reached desktop stop, Setup or launch' }
+    Write-Host 'PASS: consecutive runs do not report prior logs after a real Process.Start failure.'
+    Write-TestFailureExample 'start failure' $startFailure
+
+    # B. No prior files: the same exception/absent exit semantics still hold.
+    foreach ($name in @('dev-run.out.log', 'dev-run.err.log', 'dev-run.stage', 'last-failure.txt')) {
+        Remove-Item -LiteralPath (Join-Path $diagnosticLogs $name) -Force -ErrorAction SilentlyContinue
+    }
+    Set-Item Function:Invoke-ExternalProcess -Value ${function:Invoke-TestExternalProcess}
+    try { $freshStartFailure = Invoke-TestBuildFailure $diagnosticParameters 'CURRENT-START-FAILURE-missing.exe' }
+    finally { Set-Item Function:Invoke-ExternalProcess -Value $realExternalProcess }
+    Assert-TestFailureReport $freshStartFailure @('Check: not started', 'Child started: false',
+        'Child exit: not available (not started)', 'CURRENT-START-FAILURE-missing.exe') @($oldRun)
+    Write-Host 'PASS: a start failure without prior logs keeps the original exception and no exit code.'
+
+    # Fail before any capture preparation; neither stale stages nor stale tails are ours.
+    Set-TestPreviousDiagnostics $diagnosticLogs $oldRun
+    $savedDevRun = Get-Content -LiteralPath (Join-Path $diagnosticTree 'dev-run.ps1') -Raw
+    Remove-Item -LiteralPath (Join-Path $diagnosticTree 'dev-run.ps1')
+    try { $missingScript = Invoke-TestBuildFailure $diagnosticParameters 'dev-run.ps1 is missing' }
+    finally { Set-Content -LiteralPath (Join-Path $diagnosticTree 'dev-run.ps1') -Value $savedDevRun -Encoding utf8 }
+    Assert-TestFailureReport $missingScript @('Stage: build', 'Check: not started', 'dev-run.ps1 is missing') @($oldRun, 'Captured dev-run.')
+    Write-Host 'PASS: a pre-capture failure ignores even recent previous stdout/stderr/stage/summary files.'
+
+    # C. stdout is opened/truncated, but a read-sharing lock prevents preparing stderr.
+    # Keep that old file present and readable: deleting old files is not the assertion.
+    Set-TestPreviousDiagnostics $diagnosticLogs $oldRun
+    $childMarker = Join-Path $diagnosticTree 'dev-run-marker.txt'
+    Remove-Item -LiteralPath $childMarker -Force
+    $errorPath = Join-Path $diagnosticLogs 'dev-run.err.log'
+    $errorLock = [IO.File]::Open($errorPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $script:externalTestMode = 'normal'
+    Set-Item Function:Invoke-ExternalProcess -Value ${function:Invoke-TestExternalProcess}
+    try { $captureFailure = Invoke-TestBuildFailure $diagnosticParameters 'dev-run.err.log' }
+    finally { $errorLock.Dispose(); Set-Item Function:Invoke-ExternalProcess -Value $realExternalProcess }
+    Assert-TestFailureReport $captureFailure @('Stage: build', 'Check: not started', 'Child started: false',
+        'Child exit: not available (not started)', "Cause: $($captureFailure.Message)") @($oldRun, 'Captured dev-run.err.log:', 'Child log:')
+    if (!$observedExecutionState.OutputPrepared -or $observedExecutionState.ErrorPrepared -or
+        $observedExecutionState.StartAttempted -or $observedExecutionState.Started -or (Test-Path -LiteralPath $childMarker)) {
+        throw 'Partial log preparation started a child or claimed the old stderr'
+    }
+    if (!(Get-Content -LiteralPath $errorPath -Raw).Contains($oldRun)) { throw 'The locked old stderr was changed' }
+    $exclusiveOut = [IO.File]::Open((Join-Path $diagnosticLogs 'dev-run.out.log'), [IO.FileMode]::Open,
+        [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $exclusiveOut.Dispose()
+    Write-Host 'PASS: partial log preparation preserves the I/O failure, ignores old stderr and closes stdout without starting a child.'
+
+    # D. Nonzero and then silent nonzero in exactly the same location overwrite prior
+    # captures; the full raw stdout remains even though failure tails are bounded.
+    Set-TestPreviousDiagnostics $diagnosticLogs $oldRun
+    $currentCause = 'System.InvalidOperationException: CURRENT-CHILD-FAILURE'
+    Set-Content -LiteralPath (Join-Path $diagnosticTree 'dev-run.ps1') -Encoding utf8 -Value (@(
+        '[CmdletBinding()]', 'param([switch]$Fast, [switch]$NoLaunch)',
+        '[IO.File]::WriteAllText($env:CYCLEARC_DEV_RUN_STAGE_FILE, "ui-smoke-full")',
+        '1..300 | ForEach-Object { [Console]::Out.WriteLine("PASS: current check $_") }',
+        '1..40 | ForEach-Object { [Console]::Out.WriteLine("x" * 2000) }',
+        '[Console]::Error.WriteLine("[ui-smoke] FAIL current-check")',
+        "[Console]::Error.WriteLine('Exception: $currentCause')", 'exit 7') -join "`n")
+    # A best-effort tail read may itself fail. It must not swallow the child's exit.
+    $realLogTail = (Get-Command Get-BuildLocalLogTail).ScriptBlock
+    Set-Item Function:Get-BuildLocalLogTail -Value { throw 'SECONDARY-TAIL-READ-FAILURE' }
+    try { $currentFailure = Invoke-TestBuildFailure $diagnosticParameters 'failed (exit 7)' }
+    finally { Set-Item Function:Get-BuildLocalLogTail -Value $realLogTail }
+    Assert-TestFailureReport $currentFailure @('Stage: ui-smoke-full', 'Check: current-check',
+        "Cause: $currentCause", 'Child started: true', 'Child exit: 7', "Details: $errorPath") @($oldRun, 'SECONDARY-TAIL-READ-FAILURE')
+    $currentOut = Get-Content -LiteralPath (Join-Path $diagnosticLogs 'dev-run.out.log')
+    if (@($currentOut | Where-Object Length -eq 2000).Count -ne 40) { throw 'The current full stdout was truncated' }
+    Write-TestFailureExample 'child nonzero' $currentFailure
+    New-TestDevRun $diagnosticTree $childMarker 5 | Out-Null
+    $silentCurrent = Invoke-TestBuildFailure $diagnosticParameters 'failed (exit 5)'
+    Assert-TestFailureReport $silentCurrent @('Check: not identified from the captured logs',
+        'Cause: not identified from the captured logs (dev-run.err.log is empty)', 'Child exit: 5') @($oldRun, $currentCause, 'Check: current-check')
+    Write-Host 'PASS: consecutive nonzero children retain current check/cause/exit/raw logs; empty stderr invents no cause.'
+
+    # E. Start succeeds, current output is captured, then the parent times out. The
+    # real started child must be stopped; its absence of a normal exit stays unknown.
+    Set-TestPreviousDiagnostics $diagnosticLogs $oldRun
+    $diagnosticPid = Join-Path $diagnosticTree 'timeout.pid'
+    Set-Content -LiteralPath (Join-Path $diagnosticTree 'dev-run.ps1') -Encoding utf8 -Value (@(
+        '[CmdletBinding()]', 'param([switch]$Fast, [switch]$NoLaunch)',
+        "`$PID | Set-Content -LiteralPath '$diagnosticPid'",
+        '[IO.File]::WriteAllText($env:CYCLEARC_DEV_RUN_STAGE_FILE, "ui-smoke-full")',
+        '[Console]::Out.WriteLine("[ui-smoke] START current-timeout")',
+        '[Console]::Error.WriteLine("Exception: CURRENT-TIMEOUT-OUTPUT")',
+        '[Console]::Out.Flush(); [Console]::Error.Flush()', 'Start-Sleep -Seconds 600') -join "`n")
+    $script:externalTestMode = 'timeout'
+    Set-Item Function:Invoke-ExternalProcess -Value ${function:Invoke-TestExternalProcess}
+    Set-Item Function:Get-BuildLocalLogTail -Value { throw 'SECONDARY-TAIL-READ-FAILURE' }
+    try {
+        $timeoutFailure = Invoke-TestBuildFailure $diagnosticParameters 'did not finish within 3 seconds'
+        Set-Item Function:Get-BuildLocalLogTail -Value $realLogTail
+        Assert-TestFailureReport $timeoutFailure @('Stage: ui-smoke-full', 'Check: current-timeout (started, no failure marker)',
+            'Child started: true', 'Child exit: not available (dev-run.ps1 did not exit normally)') @($oldRun, 'Child started: false', 'SECONDARY-TAIL-READ-FAILURE')
+        if (!(Get-Content -LiteralPath $errorPath -Raw).Contains('CURRENT-TIMEOUT-OUTPUT')) { throw 'The current timeout stderr was not preserved' }
+        if (!$observedExecutionState.Started -or $null -ne $observedExecutionState.ExitCode) { throw 'Timeout state lost the actual start or invented an exit' }
+        $timeoutSummary = ($timeoutFailure.Record -split '===== CycleArc build-local failure summary =====')[-1]
+        if (!$timeoutSummary.Contains("Cause: $($timeoutFailure.Message)")) { throw 'The current timeout exception was replaced by child stderr' }
+        $leftover = Get-TestProcessById ([int](Get-Content -LiteralPath $diagnosticPid -Raw))
+        if ($leftover) { $leftover.Dispose(); throw 'The actual timed-out child remained running' }
+        Write-TestFailureExample 'timeout after start' $timeoutFailure
+    }
+    finally {
+        Set-Item Function:Invoke-ExternalProcess -Value $realExternalProcess
+        Set-Item Function:Get-BuildLocalLogTail -Value $realLogTail
+        if (Test-Path -LiteralPath $diagnosticPid) { Stop-TestProcessById ([int](Get-Content -LiteralPath $diagnosticPid -Raw)) }
+    }
+    Write-Host 'PASS: timeout records an actual start, current output and parent cause; it leaves no owned child.'
+
+    # F. A successful child can print exception-shaped text; it is not a subsequent
+    # packaging failure's cause. The last summary must end with the parent failure.
+    Set-TestPreviousDiagnostics $diagnosticLogs $oldRun
+    New-TestDevRun $diagnosticTree $childMarker 0 'Exception: SUCCESSFUL-CHILD-NOT-THE-CAUSE' 'ui-smoke-full' | Out-Null
+    $packageFailure = Invoke-TestBuildFailure $diagnosticParameters 'Published CycleArc.exe is missing'
+    Assert-TestFailureReport $packageFailure @('Stage: package', 'Check: not applicable (dev-run.ps1 succeeded)',
+        'Child started: true', 'Child exit: 0', 'installed version is unchanged') @($oldRun)
+    $packageSummary = ($packageFailure.Record -split '===== CycleArc build-local failure summary =====')[-1]
+    if ($packageSummary.Contains('SUCCESSFUL-CHILD-NOT-THE-CAUSE') -or
+        !$packageSummary.Contains("Cause: $($packageFailure.Message)") -or $packageSummary.Contains("Details: $errorPath")) {
+        throw 'A successful child supplied the subsequent package failure cause/details'
+    }
+    if ($diagnosticCalls -ne 0) { throw 'Pre-install diagnostic failures reached desktop stop, Setup or launch' }
+    Write-Host 'PASS: exit-zero followed by package failure reports only the current parent cause in its final summary.'
+
+    # Secondary stage/report/lease errors cannot replace the original exception or
+    # publish an old failure record. The lease wrapper still disposes the real handle.
+    $realReportedStage = (Get-Command Resolve-BuildLocalReportedStage).ScriptBlock
+    $realFailureReport = (Get-Command Write-BuildLocalFailure).ScriptBlock
+    $realInstallLease = (Get-Command New-InstallLease).ScriptBlock
+    Set-Item Function:Resolve-BuildLocalReportedStage -Value { throw 'SECONDARY-STAGE-FAILURE' }
+    Set-Item Function:Write-BuildLocalFailure -Value { throw 'SECONDARY-SUMMARY-FAILURE' }
+    Set-Item Function:New-InstallLease -Value {
+        param($InstallRoot, $AllowedRoots)
+        $wrapped = [pscustomobject]@{ Lease = & $realInstallLease -InstallRoot $InstallRoot -AllowedRoots $AllowedRoots }
+        $wrapped | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $this.Lease.Dispose(); throw 'SECONDARY-CLEANUP-FAILURE' }
+        $wrapped
+    }
+    $secondaryParameters = $diagnosticParameters.Clone()
+    $secondaryParameters.DevRun = { throw 'CURRENT-PRIMARY-FAILURE' }
+    $secondaryConsole = [Collections.Generic.List[string]]::new()
+    $secondaryMessage = $null
+    try {
+        try { Invoke-BuildLocal @secondaryParameters 6>&1 | ForEach-Object { $secondaryConsole.Add([string]$_) } }
+        catch { $secondaryMessage = $_.Exception.Message }
+    }
+    finally {
+        Set-Item Function:Resolve-BuildLocalReportedStage -Value $realReportedStage
+        Set-Item Function:Write-BuildLocalFailure -Value $realFailureReport
+        Set-Item Function:New-InstallLease -Value $realInstallLease
+    }
+    if ($secondaryMessage -ne 'CURRENT-PRIMARY-FAILURE' -or
+        !(($secondaryConsole -join "`n").Contains('CURRENT-PRIMARY-FAILURE')) -or
+        ($secondaryConsole -join "`n") -match 'SECONDARY-|SUCCESSFUL-CHILD-NOT-THE-CAUSE' -or
+        (Test-Path -LiteralPath (Join-Path $diagnosticLogs 'last-failure.txt'))) {
+        throw 'Secondary reporting/cleanup replaced the first exception or reused the old record'
+    }
+    $leaseCheck = & $realInstallLease -InstallRoot $diagnosticTree -AllowedRoots @($diagnosticTree)
+    $leaseCheck.Dispose()
+    Write-Host 'PASS: secondary stage, summary and lease-cleanup failures preserve the first exception and release the lease.'
 
     # Exercise the real preflight ordering without building or using the machine's VS.
     # Every subsequent app operation is a forbidden adapter.
@@ -914,12 +1169,12 @@ exit 0
             ForEach-Object { foreach ($line in ([string]$_ -split "`r?`n")) { $script:summaryConsole.Add($line) } }
     } 'dev-run.ps1 -NoLaunch failed (exit 7)'
     if ($summaryCalls -ne 0) { throw "A failed build reached stop/Setup/launch $summaryCalls time(s)" }
-    $consoleEnd = ($summaryConsole | Where-Object { $_ } | Select-Object -Last 9) -join "`n"
+    $consoleEnd = ($summaryConsole | Where-Object { $_ } | Select-Object -Last 10) -join "`n"
     if (!$consoleEnd.Contains("Cause: $summaryCause") -or !$consoleEnd.Contains('Child exit: 7') -or !$consoleEnd.Contains('Check: observation-removal')) {
         throw "The console does not end with the child's check, cause and exit: $consoleEnd"
     }
     $summaryText = Get-Content -LiteralPath (Join-Path $summaryTree 'artifacts/build-local/last-failure.txt') -Raw
-    $summaryEnd = (($summaryText.TrimEnd() -split "`r?`n") | Select-Object -Last 9) -join "`n"
+    $summaryEnd = (($summaryText.TrimEnd() -split "`r?`n") | Select-Object -Last 10) -join "`n"
     foreach ($expected in @(
         '===== CycleArc build-local failure summary =====', 'Stage: ui-smoke-full', 'Check: observation-removal',
         "Cause: $summaryCause", 'Child exit: 7',
@@ -957,7 +1212,7 @@ exit 0
     # --- Regression: a post-Setup failure never claims the old install survived. ---
     $lateTree = Join-Path $testRoot 'late failure'
     New-GitCycleArcTree $lateTree
-    New-TestDevRun $lateTree (Join-Path $lateTree 'dev-run-marker.txt') 0 | Out-Null
+    New-TestDevRun $lateTree (Join-Path $lateTree 'dev-run-marker.txt') 0 'Exception: SUCCESSFUL-CHILD-NOT-THE-CAUSE' 'ui-smoke-full' | Out-Null
     $lateInstall = Join-Path $testRoot 'install late'
     Assert-Throws {
         Invoke-BuildLocal -RepoRoot $lateTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot $lateInstall `
@@ -978,6 +1233,11 @@ exit 0
     }
     if ($lateText -notmatch 'Do not assume the previous version is intact') {
         throw "A post-Setup failure must warn that the previous version may be gone: $lateText"
+    }
+    $lateSummary = ($lateText -split '===== CycleArc build-local failure summary =====')[-1]
+    if (!$lateSummary.Contains('Child started: true') -or !$lateSummary.Contains('Child exit: 0') -or
+        !$lateSummary.Contains('does not match this build') -or $lateSummary.Contains('SUCCESSFUL-CHILD-NOT-THE-CAUSE')) {
+        throw 'Post-Setup failure reused the successful child cause or lost its exit'
     }
     Write-Host 'PASS: failure guidance follows the stage the run actually reached.'
 
