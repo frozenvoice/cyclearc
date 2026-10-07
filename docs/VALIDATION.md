@@ -2,6 +2,28 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Deterministic menu high-contrast tests (unreleased, 2026-10-07 Asia/Seoul):
+  - Started at `8d04c32941b2ae4a29a629467f3ce4773f8c32cb`, clean working tree.
+    Product code is unchanged. The old test expected app brushes while the product
+    correctly resolved system HC brushes; a fixture merged-resource fallback `true`
+    reproduced `Opened Popup did not resolve theme surface/border resources` without
+    changing Windows settings (`artifacts/flyout-menu-hc-before.log`).
+  - Synthetic menu fixtures explicitly set local `HighContrastKey=false/true`; exact
+    normal/HC surface, text, border, separator, checked/disabled, highlight and focus
+    assertions cover fallback true/false, true→false and theme changes. Overrides and
+    fallback dictionaries are cleaned up. Opt-in native mode still observes the host.
+  - UiSmoke Release build and focused `--flyout-menu` passed **120 state/layout cases**,
+    EN/KO Dark/Light, app zoom 80/100/150% and injected DPI 100/125/150/200%.
+    Final argument-free UiSmoke ran once on the final source: exit 0 and
+    `[ui-smoke] COMPLETE all default suites` (`artifacts/flyout-menu-hc-default.log`).
+    An initial DPI-focus failure is retained in `artifacts/flyout-menu-hc-focus-failure.log`;
+    it was not reproduced after adding explicit focus/state diagnostics; final focused
+    and default runs passed without weakening checks, adding retry logic or changing timeouts.
+    Host HC was **false**, starting DPI 150%; simulated false/true both passed, but an
+    actual Windows HC session remains unverified. Logs: `artifacts/flyout-menu-hc-*.log`.
+    Unit/package/install gates and native input were not repeated for test-only changes;
+    no CI dispatch, push, merge, version/tag/release or installed-app operation.
+
 - Flyout window-options menu theme (unreleased, 2026-10-07 Asia/Seoul):
   - Started from clean `main` / fetched `origin/main` at `3ef21eb76887b7ff54010fe2e1c8c48cec6db6ef`
     on `codex/flyout-options-menu-theme`. Opened the production `WindowOptionsMenu` with
