@@ -27,11 +27,13 @@ internal static class FlyoutOptionsMenuChecks
         {
             ApplyTheme(language, theme);
             var flyout = CreateFlyout();
+            var fixtureMenu = (ContextMenu)flyout.FindName("WindowOptionsMenu");
             try
             {
                 flyout.Show();
                 Pump();
                 var menu = Open(flyout);
+                if (!baseline) SetMenuHighContrastMode(menu, false);
                 var hostSource = (HwndSource)PresentationSource.FromVisual(menu)!;
                 var hostDpi = VisualTreeHelper.GetDpi(menu);
                 Console.WriteLine($"Host Popup HWND=0x{hostSource.Handle.ToInt64():X}; native DPI={GetDpiForWindow(hostSource.Handle)}; WPF DPI={hostDpi.DpiScaleX * 100:0}/{hostDpi.DpiScaleY * 100:0}%; {language}/{theme}.");
@@ -45,11 +47,15 @@ internal static class FlyoutOptionsMenuChecks
                 Pump();
                 if (!baseline) count += CheckStates(flyout, language, theme, directory);
             }
-            finally { flyout.Close(); }
+            finally
+            {
+                fixtureMenu.Resources.Remove(SystemParameters.HighContrastKey);
+                flyout.Close();
+            }
         }
         Console.WriteLine(baseline
             ? "PASS: baseline production WindowOptionsMenu opened and captured separately from its Flyout HWND, synthetic accounts only."
-            : $"PASS: {count} production window-options state/layout checks, EN/KO Dark/Light, pin/unpin, keyboard, reopen, disabled and high-contrast presentation; separate Popup captures, synthetic accounts only.");
+            : $"PASS: {count} production window-options state/layout checks, EN/KO Dark/Light, pin/unpin, keyboard, reopen, disabled and independently simulated normal/high-contrast presentation; separate Popup captures, synthetic accounts only.");
     }
 
     private static int CheckStates(FlyoutWindow flyout, UiLanguage language, AppTheme theme, string? directory)
@@ -62,7 +68,8 @@ internal static class FlyoutOptionsMenuChecks
         try
         {
             var menu = Open(flyout);
-            CheckTemplate(menu, pin, close);
+            SetMenuHighContrastMode(menu, false);
+            CheckTemplate(menu, pin, close, highContrast: false);
             Require(pin.IsChecked && flyout.Pinned, "Checked menu did not reflect pinned state.");
             Require(pin.Focus(), "Pin item refused keyboard focus.");
             Pump();
@@ -93,25 +100,22 @@ internal static class FlyoutOptionsMenuChecks
                 "Enter did not pin exactly once.");
 
             menu = Open(flyout);
-            pin.IsEnabled = false;
-            Pump();
-            Require(Same(pin.Foreground, Brush("DisabledBrush")), "Disabled menu item lost its theme foreground.");
-            pin.IsEnabled = true;
-            menu.Resources[SystemParameters.HighContrastKey] = true;
-            Pump();
-            var chrome = Part<Border>(menu, "OptionsMenuChrome");
-            Require(Same(chrome.Background, SystemColors.MenuBrush), "High-contrast menu did not use the system menu background.");
-            pin.Focus(); Pump();
-            CheckHighlight(pin, highContrast: true);
-            if (directory is not null) Capture(menu, Path.Combine(directory, $"menu-{language}-{theme}-high-contrast.png"));
-            menu.Resources.Remove(SystemParameters.HighContrastKey);
+            var presentationCases = CheckPresentationModes(menu, pin, close, directory, $"{language}-{theme}");
             menu.IsOpen = false; Pump();
 
             ApplyTheme(language, theme == AppTheme.Dark ? AppTheme.Light : AppTheme.Dark);
             menu = Open(flyout);
-            CheckTemplate(menu, pin, close);
+            CheckTemplate(menu, pin, close, highContrast: false);
             Require(Same(Part<Border>(menu, "OptionsMenuChrome").Background, Brush("CardBrush")),
                 "Reopened Popup retained the previous theme background.");
+            pin.Focus(); Pump();
+            CheckHighlight(pin, highContrast: false);
+            SetMenuHighContrastMode(menu, true);
+            CheckTemplate(menu, pin, close, highContrast: true);
+            CheckHighlight(pin, highContrast: true);
+            SetMenuHighContrastMode(menu, false);
+            CheckTemplate(menu, pin, close, highContrast: false);
+            CheckHighlight(pin, highContrast: false);
             menu.IsOpen = false; Pump();
             ApplyTheme(language, theme);
             var count = CheckDpiAndZoom(flyout, directory, $"{language}-{theme}");
@@ -124,7 +128,7 @@ internal static class FlyoutOptionsMenuChecks
             menu = Open(flyout);
             Require(flyout.Pinned && pin.IsChecked, "Close/reopen lost pinned state.");
             menu.IsOpen = false; Pump();
-            return count + 12;
+            return count + 12 + presentationCases;
         }
         finally { flyout.PinChanged -= changes.Add; }
     }
@@ -137,12 +141,16 @@ internal static class FlyoutOptionsMenuChecks
         {
             flyout.ApplyWindowSettings(new AppSettings { FlyoutPinned = true, FlyoutZoomPercent = zoom });
             var menu = Open(flyout);
+            SetMenuHighContrastMode(menu, false);
             var pin = (MenuItem)flyout.FindName("PinMenuItem");
             var context = $"{suffix}/zoom={zoom}/simulated DPI={scale * 100:0}";
             var popupRoot = ((HwndSource)PresentationSource.FromVisual(menu)!).RootVisual;
             VisualTreeHelper.SetRootDpi(popupRoot, new DpiScale(scale, scale));
             menu.InvalidateMeasure(); menu.UpdateLayout();
-            pin.Focus(); Pump();
+            Require(pin.Focus(), "Pin item refused DPI-case keyboard focus: " + context);
+            Pump();
+            Require(pin.IsKeyboardFocused && pin.IsHighlighted,
+                $"DPI-case selection changed: {context}; focused={pin.IsKeyboardFocused}, highlighted={pin.IsHighlighted}, menu open={menu.IsOpen}, foreground=0x{GetForegroundWindow().ToInt64():X}, flyout=0x{new WindowInteropHelper(flyout).Handle.ToInt64():X}, popup=0x{((HwndSource)PresentationSource.FromVisual(menu)!).Handle.ToInt64():X}.");
             Require(Math.Abs(pin.FontSize - 13) < 0.001, "App zoom/DPI multiplied menu font size: " + context);
             Require(Math.Abs(VisualTreeHelper.GetDpi(pin).DpiScaleX - scale) < 0.001,
                 "Popup child did not receive the independently simulated DPI: " + context);
@@ -161,23 +169,100 @@ internal static class FlyoutOptionsMenuChecks
         return count;
     }
 
-    private static void CheckTemplate(ContextMenu menu, MenuItem pin, MenuItem close)
+    private static void SetMenuHighContrastMode(ContextMenu menu, bool enabled)
+    {
+        // Only this synthetic Popup owns the override; Windows and Application resources stay untouched.
+        menu.Resources[SystemParameters.HighContrastKey] = enabled;
+        Pump();
+        Require(menu.Tag is bool effective && effective == enabled,
+            "The opened Popup did not resolve its fixture-local presentation mode.");
+    }
+
+    private static int CheckPresentationModes(ContextMenu menu, MenuItem pin, MenuItem close, string? directory, string suffix)
+    {
+        // A merged dictionary supplies a fallback at the resource-resolution boundary.
+        // It stands in for either host value without changing the real OS/session.
+        var fallback = new ResourceDictionary();
+        menu.Resources.MergedDictionaries.Add(fallback);
+        try
+        {
+            foreach (var fallbackHighContrast in new[] { true, false })
+            {
+                fallback[SystemParameters.HighContrastKey] = fallbackHighContrast;
+                menu.Resources.Remove(SystemParameters.HighContrastKey);
+                Pump();
+                Require(menu.Tag is bool effective && effective == fallbackHighContrast,
+                    "Fixture fallback did not exercise the Popup's HighContrastKey resolution.");
+
+                CheckPresentationState(menu, pin, close, highContrast: false);
+                CheckPresentationState(menu, pin, close, highContrast: true);
+                if (directory is not null)
+                    Capture(menu, Path.Combine(directory, $"menu-{suffix}-high-contrast.png"));
+                CheckPresentationState(menu, pin, close, highContrast: false);
+            }
+        }
+        finally
+        {
+            menu.Resources.MergedDictionaries.Remove(fallback);
+            SetMenuHighContrastMode(menu, false);
+        }
+        Console.WriteLine($"PASS: {suffix} fixture fallback HC=true/false → local normal/HC/normal; exact surface, separator, checked/disabled, highlight and keyboard-focus brushes.");
+        return 6;
+    }
+
+    private static void CheckPresentationState(ContextMenu menu, MenuItem pin, MenuItem close, bool highContrast)
+    {
+        SetMenuHighContrastMode(menu, highContrast);
+        CheckTemplate(menu, pin, close, highContrast);
+        Require(pin.IsChecked && pin.Focus(), "Presentation transition lost the checked state or Pin focus.");
+        Pump();
+        Require(pin.IsKeyboardFocused, "Presentation transition lost keyboard focus.");
+        CheckHighlight(pin, highContrast);
+        close.Focus(); Pump();
+        CheckHighlight(close, highContrast);
+        pin.IsEnabled = false;
+        try
+        {
+            Pump();
+            var foreground = highContrast ? SystemColors.GrayTextBrush : Brush("DisabledBrush");
+            var check = Part<System.Windows.Shapes.Path>(pin, "OptionsCheck");
+            var chrome = Part<Border>(pin, "OptionsItemChrome");
+            Require(Same(pin.Foreground, foreground) && Same(check.Stroke, foreground)
+                && check.Visibility == Visibility.Visible && pin.IsChecked,
+                "Disabled checked item lost its normal/high-contrast foreground or vector state.");
+            Require(Same(chrome.Background, Brushes.Transparent) && Same(chrome.BorderBrush, Brushes.Transparent),
+                "Disabled item retained a highlight/focus border.");
+        }
+        finally { pin.IsEnabled = true; }
+        pin.Focus(); Pump();
+        CheckHighlight(pin, highContrast);
+    }
+
+    private static void CheckTemplate(ContextMenu menu, MenuItem pin, MenuItem close, bool highContrast)
     {
         Require(menu.Style == menu.TryFindResource("FlyoutOptionsContextMenu"), "Options menu did not receive its scoped style.");
         Require(pin.Style == pin.TryFindResource("FlyoutOptionsMenuItem") && close.Style == pin.Style,
             "Options items did not receive their scoped style.");
         var chrome = Part<Border>(menu, "OptionsMenuChrome");
-        Require(Same(chrome.Background, Brush("CardBrush")) && Same(chrome.BorderBrush, Brush("LineBrush")),
-            "Opened Popup did not resolve theme surface/border resources.");
+        Require(menu.Tag is bool effective && effective == highContrast,
+            "Opened Popup presentation mode disagrees with the explicit expectation.");
+        Require(Same(chrome.Background, highContrast ? SystemColors.MenuBrush : Brush("CardBrush"))
+            && Same(chrome.BorderBrush, highContrast ? SystemColors.MenuTextBrush : Brush("LineBrush"))
+            && Same(menu.Foreground, highContrast ? SystemColors.MenuTextBrush : Brush("TextBrush")),
+            "Opened Popup did not resolve its normal/high-contrast surface, text and border resources.");
         foreach (var item in new[] { pin, close })
         {
             Part<Border>(item, "OptionsItemChrome");
             var check = Part<System.Windows.Shapes.Path>(item, "OptionsCheck");
             Require(check.Data is not null && check.StrokeThickness > 0, "Check must be a stroked vector.");
+            Require(check.Visibility == (item.IsChecked ? Visibility.Visible : Visibility.Hidden),
+                "Presentation transition changed checked/unchecked vector visibility.");
         }
         var separator = menu.Items.OfType<Separator>().Single();
-        Require(Same(Part<Border>(separator, "OptionsSeparatorLine").Background, Brush("LineBrush")),
-            "Separator did not resolve the theme's thin border brush.");
+        var separatorLine = Part<Border>(separator, "OptionsSeparatorLine");
+        Require(separatorLine.IsVisible && separatorLine.ActualHeight > 0
+            && Same(separatorLine.Background, highContrast ? SystemColors.MenuTextBrush : Brush("LineBrush")),
+            "Separator did not remain visible with its normal/high-contrast brush.");
     }
 
     private static void CheckHighlight(MenuItem item, bool highContrast)
