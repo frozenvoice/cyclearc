@@ -161,7 +161,7 @@ public partial class FloatingWidget : Window
         if (_appliedSize is not { } applied) return false;
         var (width, height) = ArrangedSize();
         if (width <= 0 || height <= 0) return false;
-        var slack = (LastLayout?.HairlineRoundingSlack(1) ?? 0) * ZoomScale + 2;
+        var slack = HairlineSlack() * ZoomScale + 2;
         return Math.Abs(applied.Width - width) <= slack && Math.Abs(applied.Height - height) <= slack;
     }
 
@@ -310,7 +310,7 @@ public partial class FloatingWidget : Window
         var height = (LastLayout?.Height ?? 0) * scale;
         if (content is { DesiredSize.Width: > 0 })
         {
-            var slack = (LastLayout?.HairlineRoundingSlack(1) ?? 0) * scale;
+            var slack = HairlineSlack() * scale;
             // Hairline snapping may be a few DIP wider than the formula. A previous
             // five-column DesiredSize must not keep the HWND wide after the grid wraps.
             if (width <= 0 || content.DesiredSize.Width <= width + slack + 2)
@@ -321,6 +321,14 @@ public partial class FloatingWidget : Window
             height = Math.Max(height, content.DesiredSize.Height);
         return (width > 0 ? width : 180, height > 0 ? height : 60);
     }
+
+    /// <summary>
+    /// Layout rounding snaps each 1 DIP hairline at the window's own DPI, not at the zoomed
+    /// scale, so the slack is computed from that DPI and then scaled like the grid. A fixed
+    /// 100% here left five zoomed columns at 150% DPI three DIP short of their content.
+    /// </summary>
+    private double HairlineSlack() =>
+        LastLayout?.HairlineRoundingSlack(VisualTreeHelper.GetDpi(this).DpiScaleX) ?? 0;
 
     private void RecoverTo(ScreenRect target)
     {

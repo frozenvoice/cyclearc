@@ -118,6 +118,14 @@ Run commands from the repository root. Use `--no-build` only for code already bu
   This path reuses SDK/process preflight and restore/build/test implementation, does not require
   the packaging AOT toolchain, and never publishes, packages, installs or launches the app/UiSmoke.
   Run affected WPF checks explicitly when needed. A partial local check is not a full-gate success.
+- Use focused UiSmoke modes while developing. Before such a change reaches `main`, run the
+  argument-free UiSmoke above once locally on the final integrated source, to exit 0 and its
+  `[ui-smoke] COMPLETE` line, when the change touches: a shared WPF view/resource/layout/lifecycle;
+  the default UiSmoke suite's composition or order; a feature several surfaces share being added or
+  removed; or `build-local`/a shared verification path in a way that changes how UI checks run.
+  Named-mode passes (`--observation-removal`, `--widget-zoom`, ...) do not substitute for it, and
+  a full gate that ran it on the same source does not need a separate repeat. Documentation-only or
+  unrelated Core changes do not need it. Report the host DPI, since layout rounding differs at 150%.
 - Full gate: `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` for explicit full validation,
   installer delivery or release preparation. `-NoLaunch` is not a lightweight build/test mode.
   It is fail-fast: environment/toolchain and workflow/release guards, restore, Release compile,

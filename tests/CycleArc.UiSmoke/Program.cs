@@ -87,8 +87,12 @@ internal static class Program
         // Load production WPF views/resources with startup overridden: no account access,
         // settings writes, tray registration or background refresh occurs.
         var app = new OfflineApp();
+        // Only the argument-free suite announces its stages; every named mode keeps its own output.
+        _announce = args.Length == 0;
+        var failed = false;
         try
         {
+            Begin("wpf-initialization");
             app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             app.Resources.MergedDictionaries.Add(new ResourceDictionary
             {
@@ -110,7 +114,9 @@ internal static class Program
                 ObservationRemovalUiChecks.Run(baselineDirectory, baseline: true);
                 return 0;
             }
+            Begin("observation-removal");
             if (args.Length == 0) ObservationRemovalUiChecks.Run();
+            Begin("desktop-version-ui");
             if (args.Length == 0) DesktopInstanceProcessChecks.RunUiChecks();
             if (args is ["--tray-icons", var trayDirectory])
             {
@@ -263,35 +269,65 @@ internal static class Program
                 MixedProviderUiChecks.Run(claudeDirectory);
                 return 0;
             }
+            Begin("shutdown");
             ShutdownChecks.Run();
+            Begin("updates");
             UpdateUiChecks.Run();
+            Begin("claude-statusline-process");
             ClaudeStatusLineProcessChecks.Run();
+            Begin("accounts");
             AccountUiChecks.Run();
+            Begin("codex-windows");
             CodexWindowUiChecks.Run();
+            Begin("cursor");
             CursorUiChecks.Run();
+            Begin("usage-credits");
             UsageCreditUiChecks.Run();
+            Begin("cursor-widget-summary");
             CursorWidgetSummaryChecks.Run();
+            Begin("widget-status-row");
             WidgetStatusRowChecks.Run();
+            Begin("usage-percent");
             UsagePercentUiChecks.Run();
+            Begin("ring-band");
             RingBandUiChecks.Run();
+            Begin("usage-periods");
             UsagePeriodUiChecks.Run(app);
+            Begin("mixed-provider");
             MixedProviderUiChecks.Run();
+            Begin("tooltips");
             ToolTipUiChecks.Run();
+            Begin("flyout-activation");
             FlyoutActivationChecks.Run(app);
+            Begin("ui-reuse");
             UiReuseChecks.Run(app);
+            Begin("environment-callbacks");
             CheckEnvironmentCallbacks(app);
+            Begin("widget-recovery-basic");
             CheckWidgetRecovery();
+            Begin("widget-restart");
             CheckWidgetRestart();
+            Begin("widget-recovery");
             WidgetRecoveryChecks.Run();
+            Begin("widget-accounts");
             WidgetMultiAccountChecks.Run();
+            Begin("widget-layout");
             WidgetLayoutChecks.Run();
+            Begin("widget-zoom");
             WidgetZoomChecks.Run();
+            Begin("settings-window");
             SettingsWindowChecks.Run();
+            Begin("widget-edge-snap");
             WidgetEdgeSnapChecks.Run();
+            Begin("flyout-edge-snap");
             FlyoutEdgeSnapChecks.Run();
+            Begin("tray-icons");
             TrayIconChecks.Run();
+            Begin("widget-dpi");
             WidgetDpiChecks.Run();
+            Begin("position-reset");
             CheckPositionReset();
+            Begin("production-renders");
             var applyTheme = typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)
                 ?? throw new MissingMethodException("App.ApplyTheme");
             var count = 0;
@@ -375,14 +411,46 @@ internal static class Program
                 }
             }
             Console.WriteLine($"PASS: {count} production WPF resource/layout renders across languages and themes.");
+            Begin(null);
+            if (_announce) Console.WriteLine("[ui-smoke] COMPLETE all default suites");
             return 0;
         }
         catch (Exception ex)
         {
+            if (_announce)
+            {
+                Console.Out.Flush();
+                Console.Error.WriteLine($"[ui-smoke] FAIL {_suite}");
+                Console.Error.Write("Exception: ");
+            }
             Console.Error.WriteLine(ex);
+            failed = true;
             return 1;
         }
-        finally { app.Shutdown(); }
+        finally
+        {
+            // A shutdown error after a failed check must not replace the check's own exception.
+            try { app.Shutdown(); }
+            catch (Exception shutdown) when (failed)
+            {
+                Console.Error.WriteLine("[ui-smoke] cleanup after failure also failed: " + shutdown.Message);
+            }
+        }
+    }
+
+    private static bool _announce;
+    private static string? _suite;
+
+    /// <summary>
+    /// Marks the default suite's progress on stdout so a failure names the suite it happened in.
+    /// The previous suite completed when the next one begins.
+    /// </summary>
+    private static void Begin(string? suite)
+    {
+        if (!_announce) return;
+        if (_suite is not null) Console.WriteLine($"[ui-smoke] PASS {_suite}");
+        _suite = suite;
+        if (suite is not null) Console.WriteLine($"[ui-smoke] START {suite}");
     }
 
     private static void CheckRefreshSettings(App app, string previewName)

@@ -51,6 +51,7 @@ internal static class ObservationRemovalUiChecks
                 var workAreas = kind == "wrapped" ? new[] { new ScreenRect(0, 0, 760, 1040) } : WidgetFixture.Desktop;
                 var widget = new FloatingWidget { ShowActivated = false, Topmost = false, Left = 20, Top = 20 };
                 var flyout = new FlyoutWindow { ShowActivated = false, Left = 30, Top = 30 };
+                var at = "initial bind";
                 try
                 {
                     widget.SetZoom(zoom, notify: false);
@@ -65,6 +66,7 @@ internal static class ObservationRemovalUiChecks
                     var naturalHeights = widget.Modules.Select(module => module.DesiredSize.Height).ToArray();
                     for (var selected = 0; selected < count; selected++)
                     {
+                        at = $"selected {selected}";
                         widget.BindAccounts(accounts, accounts[selected].Profile.Id, UsagePeriodPreference.Auto, workAreas, Now);
                         flyout.BindAccounts(accounts, accounts[selected].Profile.Id, false);
                         Pump(widget, flyout);
@@ -84,6 +86,7 @@ internal static class ObservationRemovalUiChecks
                         Require(widget.Modules.Count == count, kind + ": account modules disappeared.");
                         for (var moduleIndex = 0; moduleIndex < count; moduleIndex++)
                         {
+                            at = $"selected {selected} / module {moduleIndex}";
                             var module = widget.Modules[moduleIndex];
                             Require(module.Model!.IsSelected == (selected == moduleIndex), kind + ": selected surface model changed.");
                             if (!baseline)
@@ -96,7 +99,8 @@ internal static class ObservationRemovalUiChecks
                             var viewportBounds = viewport.TransformToAncestor(content).TransformBounds(new Rect(viewport.RenderSize));
                             Require(moduleBounds.Right <= viewportBounds.Right + 1
                                 && (widget.LastLayout!.Scrolls || moduleBounds.Bottom <= viewportBounds.Bottom + 1),
-                                kind + ": module is clipped by the native widget viewport.");
+                                kind + ": module is clipped by the native widget viewport. "
+                                + Geometry(widget, moduleBounds, viewportBounds, widgetBounds));
                             rows.Add(string.Join(',', new object?[]
                             {
                                 baseline ? "before" : "after", language, theme, zoom, kind, count, selected, moduleIndex,
@@ -126,6 +130,11 @@ internal static class ObservationRemovalUiChecks
                         selections++;
                     }
                     fixtures++;
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException(
+                        $"Case: {language} / {theme} / zoom {zoom} / {kind} / accounts {count} / {at}: {ex.Message}", ex);
                 }
                 finally { flyout.Close(); widget.Close(); }
             }
@@ -188,6 +197,19 @@ internal static class ObservationRemovalUiChecks
         Require(GetWindowRect(new WindowInteropHelper(window).Handle, out var rect), "Could not read fixture HWND size.");
         return (rect.Right - rect.Left, rect.Bottom - rect.Top);
     }
+    // Every number a clipping verdict depends on, in the coordinate space each one is measured in.
+    private static string Geometry(FloatingWidget widget, Rect module, Rect viewport, (int Width, int Height) native)
+    {
+        var source = PresentationSource.FromVisual(widget)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+        var dpi = VisualTreeHelper.GetDpi(widget);
+        var layout = widget.LastLayout!;
+        var content = (FrameworkElement)widget.Content;
+        return $"module(content DIP)={R(module)} viewport(content DIP)={R(viewport)} "
+            + $"layout={layout.Columns} columns, {N(layout.Width)}x{N(layout.Height)} DIP, scrolls={layout.Scrolls}; "
+            + $"window={N(widget.ActualWidth)}x{N(widget.ActualHeight)} DIP, content desired={N(content.DesiredSize.Width)}x{N(content.DesiredSize.Height)} DIP, "
+            + $"HWND={native.Width}x{native.Height} px; WPF DPI={N(dpi.PixelsPerDip)} device={N(source.M11)}.";
+    }
+    private static string R(Rect rect) => $"[{N(rect.Left)},{N(rect.Top)} {N(rect.Width)}x{N(rect.Height)}]";
     private static string N(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
     private static string Csv(string? value) => "\"" + (value ?? "").Replace("\"", "\"\"") + "\"";
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
