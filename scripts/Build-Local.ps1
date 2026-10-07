@@ -250,6 +250,58 @@ function Write-BuildLocalLogTail {
     foreach ($line in $tail) { Write-Host $line }
 }
 
+function Get-BuildLocalLogLines([string]$Path) {
+    if (!$Path -or !(Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+    $item = Get-Item -LiteralPath $Path
+    if ($item.Length -eq 0) { return @() }
+    # Bounded: a runaway log is read from its end, where the failure is.
+    $lines = if ($item.Length -gt 8MB) { @(Get-Content -LiteralPath $Path -Tail 4000 -ErrorAction SilentlyContinue) }
+        else { @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue) }
+    @($lines | ForEach-Object { ([string]$_) -replace "`e\[[0-9;?]*[A-Za-z]", '' })
+}
+
+function Limit-BuildLocalLine([string]$Line, [int]$Length = 500) {
+    if ($Line.Length -le $Length) { return $Line }
+    $Line.Substring(0, $Length) + " ... ($($Line.Length - $Length) more characters in the log)"
+}
+
+<#
+The failing check and the child's first exception, read only from this run's captured
+child logs. A field the logs do not show stays $null; it is never inferred.
+UiSmoke marks its default suites with "[ui-smoke] START/PASS/FAIL <suite>".
+#>
+function Get-BuildLocalChildFailure([string]$LogDirectory) {
+    $err = @(Get-BuildLocalLogLines (Join-Path $LogDirectory 'dev-run.err.log'))
+    $out = @(Get-BuildLocalLogLines (Join-Path $LogDirectory 'dev-run.out.log'))
+    $check = $null
+    $cause = $null
+    for ($i = $err.Count - 1; $i -ge 0; $i--) {
+        if ($err[$i] -match '^\[ui-smoke\] FAIL (.+)$') {
+            $check = $Matches[1].Trim()
+            if ($i + 1 -lt $err.Count -and $err[$i + 1] -match '^Exception: (.+)$') { $cause = $Matches[1].Trim() }
+            break
+        }
+    }
+    if (!$check) {
+        $started = $null
+        foreach ($line in $out) {
+            if ($line -match '^\[ui-smoke\] START (.+)$') { $started = $Matches[1].Trim() }
+            elseif ($started -and $line -eq "[ui-smoke] PASS $started") { $started = $null }
+        }
+        if ($started) { $check = "$started (started, no failure marker)" }
+    }
+    if (!$cause) {
+        # The first exception-shaped line is the child's own; wrappers report it later.
+        foreach ($line in $err) {
+            if ($line -match '^\s*((Unhandled exception\.\s*)?[A-Za-z_][\w.]*(Exception|Error)\b[^:]*:\s.*)$') {
+                $cause = $Matches[1].Trim()
+                break
+            }
+        }
+    }
+    [pscustomobject]@{ Check = $check; Cause = $cause; HasError = $err.Count -gt 0 }
+}
+
 function Write-BuildLocalFailure {
     param(
         [string]$Stage = 'unknown',
@@ -257,7 +309,11 @@ function Write-BuildLocalFailure {
         [string]$LogDirectory,
         [string]$LogPath,
         [string]$Elapsed = '',
-        [string]$PrerequisiteStatus = ''
+        [string]$PrerequisiteStatus = '',
+        # Only a run that started dev-run.ps1 summarises its captured logs; otherwise
+        # they belong to an earlier run and are not described as this failure.
+        [switch]$ChildStarted,
+        [AllowNull()][object]$ChildExitCode = $null
     )
     # Never let reporting a failure fail: an empty stage or message still has to
     # produce a readable line rather than a parameter binding error.
@@ -287,9 +343,30 @@ function Write-BuildLocalFailure {
             $tail = @(Get-BuildLocalLogTail -Path $captured)
             if ($tail.Count -gt 0) {
                 $lines += "----- $name (tail) -----"
-                $lines += $tail
+                $lines += @($tail | ForEach-Object { Limit-BuildLocalLine ([string]$_) })
             }
         }
+    }
+    # A child that exited 0 is not this failure's cause; a later step's Cause line already is.
+    if ($ChildStarted -and $ChildExitCode -ne 0 -and $LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
+        # The tails above can be long. Repeat the essentials last, where the console ends.
+        $child = $null
+        try { $child = Get-BuildLocalChildFailure $LogDirectory } catch { }
+        $notFound = 'not identified from the captured logs'
+        $cause = if ($child -and $child.Cause) { Limit-BuildLocalLine $child.Cause 600 }
+            elseif ($child -and !$child.HasError) { "$notFound (dev-run.err.log is empty)" }
+            else { $notFound }
+        $lines += @(
+            '',
+            '===== CycleArc build-local failure summary =====',
+            "Stage: $Stage",
+            ('Check: {0}' -f $(if ($child -and $child.Check) { $child.Check } else { $notFound })),
+            "Cause: $cause",
+            ('Child exit: {0}' -f $(if ($null -ne $ChildExitCode) { $ChildExitCode } else { 'not available (dev-run.ps1 did not exit normally)' })),
+            "Details: $(Join-Path $LogDirectory 'dev-run.err.log')",
+            (Get-BuildLocalStageGuidance $Stage)
+        )
+        if ($LogPath) { $lines += "Log: $LogPath" }
     }
     $text = ($lines -join [Environment]::NewLine)
     if ($LogDirectory -and (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
@@ -936,6 +1013,8 @@ function Invoke-BuildLocal {
     )
     $script:BuildLocalStarted = [Diagnostics.Stopwatch]::StartNew()
     Set-BuildLocalStage 'preflight'
+    $devRunStarted = $false
+    $devRunExitCode = $null
     $lease = $null
     $logDirectory = $null
     $logPath = $null
@@ -1012,9 +1091,11 @@ function Invoke-BuildLocal {
             $previousStageFile = $env:CYCLEARC_DEV_RUN_STAGE_FILE
             $env:CYCLEARC_DEV_RUN_STAGE_FILE = $devRunStage
             try {
+                $devRunStarted = $true
                 $exitCode = Invoke-ExternalProcess -FilePath $pwsh -ArgumentList $arguments -WorkingDirectory $RepoRoot `
                     -TimeoutSeconds 1800 -NoNewWindow -StandardOutputPath $devRunOut -StandardErrorPath $devRunErr `
                     -StreamProgress
+                $devRunExitCode = $exitCode
             }
             finally {
                 if ($null -eq $previousStageFile) { Remove-Item Env:CYCLEARC_DEV_RUN_STAGE_FILE -ErrorAction SilentlyContinue }
@@ -1246,7 +1327,8 @@ function Invoke-BuildLocal {
         Set-BuildLocalStage $stage -Quiet
         Write-Host ''
         Write-Host (Write-BuildLocalFailure -Stage $stage -Message $_.Exception.Message `
-            -LogDirectory $logDirectory -LogPath $logPath -Elapsed (Format-BuildLocalElapsed $script:BuildLocalStarted))
+            -LogDirectory $logDirectory -LogPath $logPath -Elapsed (Format-BuildLocalElapsed $script:BuildLocalStarted) `
+            -ChildStarted:$devRunStarted -ChildExitCode $devRunExitCode)
         throw
     }
     finally {

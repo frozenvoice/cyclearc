@@ -886,6 +886,74 @@ exit 0
     }
     Write-Host 'PASS: a desktop-instance child failure is reported as ui-smoke-desktop-instance, not Stage: build.'
 
+    # --- Regression: the console ends on the child's real cause, not on a long stdout tail. ---
+    # stdout carries a long PASS list and very long lines; stderr carries one unique failure.
+    $summaryTree = Join-Path $testRoot 'summary failure'
+    New-GitCycleArcTree $summaryTree
+    $summaryCause = 'System.InvalidOperationException: Case: Korean / Light / zoom 150 / mixed: SYNTHETIC-UNIQUE-CAUSE-4821'
+    $summaryBody = @(
+        '[CmdletBinding()]',
+        'param([switch]$Fast, [switch]$NoLaunch)',
+        'if ($env:CYCLEARC_DEV_RUN_STAGE_FILE) { [IO.File]::WriteAllText($env:CYCLEARC_DEV_RUN_STAGE_FILE, "ui-smoke-full`n") }',
+        '1..300 | ForEach-Object { [Console]::Out.WriteLine("PASS: synthetic check $_") }',
+        '1..40 | ForEach-Object { [Console]::Out.WriteLine("e" * 2000) }',
+        '[Console]::Out.WriteLine("[ui-smoke] START observation-removal")',
+        '[Console]::Error.WriteLine("[ui-smoke] FAIL observation-removal")',
+        ('[Console]::Error.WriteLine(''Exception: {0}'')' -f $summaryCause),
+        '[Console]::Error.WriteLine("   at CycleArc.UiSmoke.Synthetic.Run()")',
+        '[Console]::Out.Flush(); [Console]::Error.Flush()',
+        'exit 7'
+    )
+    Set-Content -LiteralPath (Join-Path $summaryTree 'dev-run.ps1') -Value ($summaryBody -join "`n") -Encoding utf8
+    $script:summaryCalls = 0
+    $script:summaryConsole = [Collections.Generic.List[string]]::new()
+    Assert-Throws {
+        Invoke-BuildLocal -RepoRoot $summaryTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } `
+            -ManagedRoot (Join-Path $testRoot 'install summary') -StopDesktop { $script:summaryCalls++ } `
+            -RunSetup { $script:summaryCalls++; 0 } -StartLauncher { $script:summaryCalls++ } 6>&1 |
+            ForEach-Object { foreach ($line in ([string]$_ -split "`r?`n")) { $script:summaryConsole.Add($line) } }
+    } 'dev-run.ps1 -NoLaunch failed (exit 7)'
+    if ($summaryCalls -ne 0) { throw "A failed build reached stop/Setup/launch $summaryCalls time(s)" }
+    $consoleEnd = ($summaryConsole | Where-Object { $_ } | Select-Object -Last 9) -join "`n"
+    if (!$consoleEnd.Contains("Cause: $summaryCause") -or !$consoleEnd.Contains('Child exit: 7') -or !$consoleEnd.Contains('Check: observation-removal')) {
+        throw "The console does not end with the child's check, cause and exit: $consoleEnd"
+    }
+    $summaryText = Get-Content -LiteralPath (Join-Path $summaryTree 'artifacts/build-local/last-failure.txt') -Raw
+    $summaryEnd = (($summaryText.TrimEnd() -split "`r?`n") | Select-Object -Last 9) -join "`n"
+    foreach ($expected in @(
+        '===== CycleArc build-local failure summary =====', 'Stage: ui-smoke-full', 'Check: observation-removal',
+        "Cause: $summaryCause", 'Child exit: 7',
+        ('Details: ' + (Join-Path $summaryTree 'artifacts/build-local/dev-run.err.log')), 'installed version is unchanged')) {
+        if (!$summaryEnd.Contains($expected)) { throw "The end of last-failure.txt is missing '$expected': $summaryEnd" }
+    }
+    if (($summaryText -split "`r?`n" | ForEach-Object Length | Measure-Object -Maximum).Maximum -gt 700) {
+        throw 'last-failure.txt still repeats unbounded log lines'
+    }
+    $capturedOut = Get-Content -LiteralPath (Join-Path $summaryTree 'artifacts/build-local/dev-run.out.log')
+    if (@($capturedOut | Where-Object { $_.Length -eq 2000 }).Count -ne 40) { throw 'The full stdout log was not preserved' }
+    Write-Host 'PASS: a long stdout tail cannot bury the child failure; the summary ends with check, cause, exit and log.'
+
+    # --- Regression: a nonzero exit with empty stderr stays a failure and invents no cause. ---
+    $silentTree = Join-Path $testRoot 'silent failure'
+    New-GitCycleArcTree $silentTree
+    Set-Content -LiteralPath (Join-Path $silentTree 'dev-run.ps1') -Encoding utf8 -Value (@(
+        '[CmdletBinding()]', 'param([switch]$Fast, [switch]$NoLaunch)',
+        '1..50 | ForEach-Object { [Console]::Out.WriteLine("PASS: synthetic check $_") }', 'exit 5') -join "`n")
+    $script:silentCalls = 0
+    Assert-Throws {
+        Invoke-BuildLocal -RepoRoot $silentTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } `
+            -ManagedRoot (Join-Path $testRoot 'install silent') -StopDesktop { $script:silentCalls++ } `
+            -RunSetup { $script:silentCalls++; 0 } -StartLauncher { $script:silentCalls++ } 6>$null
+    } 'dev-run.ps1 -NoLaunch failed (exit 5)'
+    if ($silentCalls -ne 0) { throw "A silent failure reached stop/Setup/launch $silentCalls time(s)" }
+    $silentText = Get-Content -LiteralPath (Join-Path $silentTree 'artifacts/build-local/last-failure.txt') -Raw
+    foreach ($expected in @('Check: not identified from the captured logs',
+        'Cause: not identified from the captured logs (dev-run.err.log is empty)', 'Child exit: 5')) {
+        if (!$silentText.Contains($expected)) { throw "A silent failure summary is missing '$expected': $silentText" }
+    }
+    if ($silentText -match 'Check: observation-removal|SYNTHETIC-UNIQUE') { throw "Another run's failure leaked into this summary: $silentText" }
+    Write-Host 'PASS: an empty-stderr nonzero exit is still a failure and its summary does not invent a check or cause.'
+
     # --- Regression: a post-Setup failure never claims the old install survived. ---
     $lateTree = Join-Path $testRoot 'late failure'
     New-GitCycleArcTree $lateTree

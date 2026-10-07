@@ -59,6 +59,7 @@ internal static class WidgetZoomChecks
             applyTheme.Invoke(null, [AppTheme.Dark]);
             count += FocusStaysWhereTheClickWas(directory);
             count += SizeSurvivesRecreation();
+            count += ZoomedGridHoldsSnappedHairlines();
         }
         finally
         {
@@ -822,6 +823,41 @@ internal static class WidgetZoomChecks
             .GetMethod("ArrangedSize", PrivateInstance)!.Invoke(widget, null)!).Width;
 
     private static IntPtr Handle(Window window) => new WindowInteropHelper(window).Handle;
+
+    /// <summary>
+    /// The size given to the HWND must hold the zoomed grid after its hairlines snap at the
+    /// window's DPI. At 150% DPI and 150% zoom, five columns measure 3 DIP wider than the DIP
+    /// formula; sizing from a fixed 100% slack clipped the last module by 2 DIP. The DPI is
+    /// injected so a 100% host reproduces what a 150% monitor showed.
+    /// </summary>
+    private static int ZoomedGridHoldsSnappedHairlines()
+    {
+        var checks = 0;
+        var arrangedSize = typeof(FloatingWidget).GetMethod("ArrangedSize", PrivateInstance)!;
+        var accounts = MixedHeights().Take(5).ToArray();
+        foreach (var dpi in new[] { 1.0, 1.25, 1.5, 1.75, 2.0 })
+        foreach (var percent in new[] { 80, 100, 150 })
+        {
+            var widget = new FloatingWidget { ShowActivated = false };
+            try
+            {
+                widget.SetZoom(percent, notify: false);
+                VisualTreeHelper.SetRootDpi(widget, new DpiScale(dpi, dpi));
+                VisualTreeHelper.SetRootDpi((Visual)widget.Content, new DpiScale(dpi, dpi));
+                widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, Wide, Now);
+                Layout(widget);
+                var content = (FrameworkElement)widget.Content;
+                var (width, height) = ((double, double))arrangedSize.Invoke(widget, null)!;
+                Check(widget.LastLayout!.Columns == 5, $"DPI {dpi} zoom {percent}: five accounts did not stay on one row.");
+                Check(width + 0.01 >= content.DesiredSize.Width && height + 0.01 >= content.DesiredSize.Height,
+                    $"DPI {dpi} zoom {percent}: arranged {width:0.###}x{height:0.###} DIP is smaller than the "
+                    + $"{content.DesiredSize.Width:0.###}x{content.DesiredSize.Height:0.###} DIP grid it must hold.");
+                checks++;
+            }
+            finally { widget.Close(); }
+        }
+        return checks;
+    }
 
     private static void Layout(FloatingWidget widget)
     {

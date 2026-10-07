@@ -1600,7 +1600,8 @@
   drain; the child sub-stage is stored in `dev-run.stage` so a UiSmoke timeout is
   reported as `ui-smoke-desktop-instance` rather than `Stage: build`. A failed
   gate prints a tail and `last-failure.txt` includes `Failed at`, `Child log` and
-  the captured stderr. Successful runs print the timing lines instead of dumping
+  the captured stderr, ending with a short Stage/Check/Cause/Child exit/Details
+  summary read only from that run's child logs. Successful runs print the timing lines instead of dumping
   those logs. `scripts/Release.ps1 -Preflight` runs local, package and remote
   verification without creating tags, drafts or uploads; publish does not start a
   new build, test or packaging run. Linux can run
