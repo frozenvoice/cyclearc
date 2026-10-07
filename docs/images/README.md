@@ -391,3 +391,38 @@ View previews use WPF `RenderTargetBitmap` at 2x resolution under the smoke harn
 Neither takes a desktop screenshot. Each image must be visually inspected before
 replacing the checked-in file. Keep English and Korean captions consistent with the account counts,
 selected profile, data source and separate Claude periods.
+
+## Opened window-options menu
+
+These menu-only PNGs render the **opened production ContextMenu Popup**, not the Flyout
+body. The before images were captured on `3ef21eb` before the scoped templates were applied;
+the after images use native mouse hover on the checked item at Windows DPI 150%, app zoom
+100%, with synthetic account data. The keyboard image uses native Up at DPI 100%; the Close
+hover image uses DPI 150%, app zoom 150%.
+
+| State | Dark / Korean | Light / Korean |
+| --- | --- | --- |
+| Before (checked default template) | [Before Dark](flyout-menu-before-ko-dark.png) | [Before Light](flyout-menu-before-ko-light.png) |
+| After (checked + mouse hover) | [After Dark](flyout-menu-after-ko-dark.png) | [After Light](flyout-menu-after-ko-light.png) |
+| Additional input state | [Keyboard selection](flyout-menu-keyboard-ko-dark.png) | [Close hover](flyout-menu-close-hover-ko-light.png) |
+
+Focused synthetic state/layout checks and separate Popup captures (after a Release build):
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --flyout-menu artifacts/flyout-menu
+```
+
+The default UiSmoke suite includes these state/layout checks without native input or captures.
+`--flyout-menu-baseline artifacts/flyout-menu` captures the current checkout's menu without
+requiring the new template; use an unmodified checkout to reproduce the original template.
+For an explicit interactive desktop check on connected monitors:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --flyout-menu-native artifacts/flyout-menu
+```
+
+This opt-in mode moves only synthetic Flyout windows, checks their own HWND before sending
+mouse/keyboard input, restores the pointer, and checks the Popup against each monitor's work
+area. It does not replace, stop or start the installed application. DPI injection in the
+focused mode tests 100/125/150/200% layout; it does not establish physical-monitor behavior
+at an unavailable DPI. High-contrast resource simulation does not change the Windows setting.
