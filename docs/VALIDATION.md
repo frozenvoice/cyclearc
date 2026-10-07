@@ -2,6 +2,27 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Build-local failure log ownership (unreleased, 2026-10-07 Asia/Seoul):
+  - Starting from `37b40ded2f20f82add0ebe28df1f65f42ceb8549`, a synthetic consecutive-run
+    fixture reproduced old stdout/stderr Check/Cause text after a real `Process.Start`
+    failure. This is review-discovered reporting behavior, not an installed-app failure;
+    the old stage was already removed by the existing production path.
+  - Capture files are prepared before starting the child, with separate mutable start,
+    capture ownership and exit facts. Only owned files supply tails/checks/stages; start,
+    preparation, timeout and post-success failures retain their actual parent cause.
+    Secondary tail/report/cleanup errors do not replace that failure or its exit state.
+  - PowerShell syntax, final `BuildLocal.Tests.ps1`, and unchanged
+    `BuildLocalFailure.Tests.ps1` passed. Same-location fixtures cover missing/prior logs,
+    partial preparation, nonzero/empty stderr, timeout, exit-zero downstream failures and
+    secondary diagnostic faults; existing flood, UTF-8/progress, CMD and acknowledgement
+    coverage remains. Both stale-log and secondary-tail regressions failed before fixing.
+  - `dev-run.ps1 -DevelopmentOnly -TestFilter BuildLocalScriptGuardTests` passed the
+    Release build and **2 tests**, with three existing CS8602 warnings. Logs are
+    `artifacts/build-local-diagnostics-*.log`, `artifacts/build-local-tail-read-before.log`
+    and `artifacts/build-local-acknowledgement.log`; disposable fixtures cleaned themselves.
+    Normal gate arguments/order/UI execution conditions are unchanged, so UiSmoke was not
+    rerun. No packaging, real installation/app operation, performance run or Actions dispatch.
+
 - Remove current observed usage/history (started 2026-10-06; completed 2026-10-07 Asia/Seoul):
   - Started at `173c2b526ebcdbdb5860f602be8dd1c5958fb91d` on
     `codex/remove-observed-usage`, preserving the preceding
