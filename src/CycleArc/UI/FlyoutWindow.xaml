@@ -18,7 +18,7 @@
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
             <Setter Property="HorizontalAlignment" Value="Right"/>
         </Style>
-        <Style x:Key="FlyoutHeaderIconButton" TargetType="Button">
+        <Style x:Key="FlyoutHeaderIconButton" TargetType="ButtonBase">
             <Setter Property="MinWidth" Value="28"/>
             <Setter Property="MinHeight" Value="28"/>
             <Setter Property="Padding" Value="6,2"/>
@@ -30,9 +30,11 @@
             <Setter Property="Focusable" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="Button">
+                    <ControlTemplate TargetType="ButtonBase">
                         <Border x:Name="HeaderIconChrome"
                                 Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="6"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -52,108 +54,95 @@
                                 <Setter Property="Opacity" Value="0.45"/>
                                 <Setter TargetName="HeaderIconChrome" Property="Background" Value="Transparent"/>
                             </Trigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="False"/>
+                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding IsEnabled, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="HeaderIconChrome" Property="Background" Value="{DynamicResource GhostBrush}"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="False"/>
+                                    <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="HeaderIconChrome" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            </MultiDataTrigger>
+                            <!-- The direct pin inherits the same chrome, with system colors
+                                 when its live high-contrast resource is active. -->
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="HeaderIconChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding IsKeyboardFocused, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="HeaderIconChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                                <Setter TargetName="HeaderIconChrome" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="HeaderIconChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding IsEnabled, RelativeSource={RelativeSource Self}}" Value="False"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Opacity" Value="1"/>
+                                <Setter TargetName="HeaderIconChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"/>
+                                <Setter TargetName="HeaderIconChrome" Property="BorderBrush" Value="Transparent"/>
+                            </MultiDataTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
-        <!-- Only the flat window-options menu owns these templates. Other WPF menus and
-             the WinForms tray menu keep their existing icon/submenu behavior. Tag carries
-             WPF's live high-contrast resource inside this separate Popup only. -->
-        <Style x:Key="FlyoutOptionsContextMenu" TargetType="ContextMenu">
-            <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
-            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="4"/>
-            <Setter Property="MinWidth" Value="160"/>
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="UseLayoutRounding" Value="True"/>
-            <Setter Property="SnapsToDevicePixels" Value="True"/>
-            <Setter Property="Tag" Value="{DynamicResource {x:Static SystemParameters.HighContrastKey}}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ContextMenu">
-                        <Border x:Name="OptionsMenuChrome" Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
-                                Padding="{TemplateBinding Padding}" CornerRadius="8">
-                            <ScrollViewer CanContentScroll="True" HorizontalScrollBarVisibility="Disabled"
-                                          VerticalScrollBarVisibility="Auto">
-                                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
-                            </ScrollViewer>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.MenuBrushKey}}"/>
-                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        <Style x:Key="FlyoutOptionsMenuItem" TargetType="MenuItem">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        <Style x:Key="FlyoutPinButton" TargetType="ToggleButton" BasedOn="{StaticResource FlyoutHeaderIconButton}">
             <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="MinHeight" Value="32"/>
-            <Setter Property="Padding" Value="8,5"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Tag" Value="{Binding Tag, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}"/>
-            <!-- Focus is drawn once by the item's own border, rather than a second adorner. -->
+            <Setter Property="Padding" Value="5,1"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="MenuItem">
-                        <Border x:Name="OptionsItemChrome" Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
-                                Padding="{TemplateBinding Padding}" CornerRadius="5">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="20"/>
-                                    <ColumnDefinition Width="8"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Path x:Name="OptionsCheck" Width="12" Height="10" Stretch="Uniform"
-                                      Data="M 1,5 L 4,8 L 10,1" Stroke="{TemplateBinding Foreground}"
-                                      StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                      StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                      Visibility="Hidden"/>
-                                <ContentPresenter Grid.Column="2" ContentSource="Header" RecognizesAccessKey="True"
-                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
-                            </Grid>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="OptionsCheck" Property="Visibility" Value="Visible"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="Tag" Value="{DynamicResource {x:Static SystemParameters.HighContrastKey}}"/>
             <Style.Triggers>
-                <Trigger Property="IsHighlighted" Value="True">
+                <Trigger Property="IsChecked" Value="True">
                     <Setter Property="Background" Value="{DynamicResource GhostBrush}"/>
-                </Trigger>
-                <Trigger Property="IsKeyboardFocused" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource GhostBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                     <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                 </Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource TextBrush}"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                </Trigger>
                 <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.MenuBrushKey}}"/>
-                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}"/>
+                    <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"/>
                 </DataTrigger>
                 <MultiDataTrigger>
                     <MultiDataTrigger.Conditions>
                         <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
-                        <Condition Binding="{Binding IsHighlighted, RelativeSource={RelativeSource Self}}" Value="True"/>
+                        <Condition Binding="{Binding IsChecked, RelativeSource={RelativeSource Self}}" Value="True"/>
                     </MultiDataTrigger.Conditions>
                     <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                </MultiDataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                        <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+                    </MultiDataTrigger.Conditions>
                     <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
                 </MultiDataTrigger>
                 <MultiDataTrigger>
@@ -161,14 +150,18 @@
                         <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
                         <Condition Binding="{Binding IsKeyboardFocused, RelativeSource={RelativeSource Self}}" Value="True"/>
                     </MultiDataTrigger.Conditions>
-                    <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
                     <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                </MultiDataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                        <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource Self}}" Value="True"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
                 </MultiDataTrigger>
                 <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Foreground" Value="{DynamicResource DisabledBrush}"/>
-                    <Setter Property="Background" Value="Transparent"/>
                     <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="Foreground" Value="{DynamicResource DisabledBrush}"/>
                 </Trigger>
                 <MultiDataTrigger>
                     <MultiDataTrigger.Conditions>
@@ -177,25 +170,6 @@
                     </MultiDataTrigger.Conditions>
                     <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
                 </MultiDataTrigger>
-            </Style.Triggers>
-        </Style>
-        <Style x:Key="FlyoutOptionsSeparator" TargetType="Separator">
-            <Setter Property="Background" Value="{DynamicResource LineBrush}"/>
-            <Setter Property="IsHitTestVisible" Value="False"/>
-            <Setter Property="Focusable" Value="False"/>
-            <Setter Property="Tag" Value="{Binding Tag, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Separator">
-                        <Border x:Name="OptionsSeparatorLine" Height="1" Margin="8,3"
-                                Background="{TemplateBinding Background}" SnapsToDevicePixels="True"/>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}"/>
-                </DataTrigger>
             </Style.Triggers>
         </Style>
         <Style x:Key="UsagePeriodChoice" TargetType="RadioButton">
@@ -341,7 +315,7 @@
                            Foreground="{DynamicResource MutedBrush}" Typography.NumeralAlignment="Tabular"/>
                 <Button x:Name="FlyoutZoomInButton" Grid.Column="4"
                         Style="{StaticResource FlyoutHeaderIconButton}"
-                        Click="OnZoomInClick" Margin="0,0,4,0">
+                        Click="OnZoomInClick" Margin="0,0,12,0">
                     <Path x:Name="FlyoutZoomInIcon" Width="16" Height="16"
                           Stroke="{DynamicResource TextBrush}" StrokeThickness="1.4"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
@@ -392,25 +366,32 @@
                     </Grid>
                 </Button>
                 <Button x:Name="SettingsButton" Grid.Column="6"
-                        Style="{StaticResource FlyoutHeaderIconButton}" Click="OnSettingsClick" Margin="0,0,4,0">
+                        Style="{StaticResource FlyoutHeaderIconButton}" Click="OnSettingsClick" Margin="0,0,8,0">
                     <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="14"
                                Foreground="{DynamicResource TextBrush}"/>
                 </Button>
-                <Button x:Name="WindowOptionsButton"
-                        Grid.Column="7"
-                        Style="{StaticResource FlyoutHeaderIconButton}"
-                        Click="OnWindowOptionsClick" Margin="0,0,4,0">
-                    <Button.ContextMenu>
-                        <ContextMenu x:Name="WindowOptionsMenu" Style="{StaticResource FlyoutOptionsContextMenu}">
-                            <MenuItem x:Name="PinMenuItem" Style="{StaticResource FlyoutOptionsMenuItem}" IsCheckable="True" Click="OnPinClick"/>
-                            <Separator Style="{StaticResource FlyoutOptionsSeparator}"/>
-                            <MenuItem x:Name="CloseFlyoutMenuItem" Style="{StaticResource FlyoutOptionsMenuItem}" Click="OnCloseClick"/>
-                        </ContextMenu>
-                    </Button.ContextMenu>
-                    <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource TextBrush}"
-                          StrokeThickness="2.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                          Data="M2,8 L2.1,8 M8,8 L8.1,8 M14,8 L14.1,8"/>
-                </Button>
+                <ToggleButton x:Name="PinButton" Grid.Column="7"
+                              Style="{StaticResource FlyoutPinButton}" IsThreeState="False"
+                              KeyboardNavigation.AcceptsReturn="True"
+                              Checked="OnPinToggled" Unchecked="OnPinToggled" Margin="0,0,4,0">
+                    <Path x:Name="PinIcon" Width="14" Height="14"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                          StrokeThickness="1.4" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          RenderTransformOrigin="0.5,0.5"
+                          Data="M4,1 L10,1 M5,1 L5,5 L3,8 L11,8 L9,5 L9,1 Z M7,8 L7,13">
+                        <Path.Style>
+                            <Style TargetType="Path">
+                                <Setter Property="Fill" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}}" Value="True">
+                                        <Setter Property="Fill" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Path.Style>
+                        <Path.RenderTransform><RotateTransform x:Name="PinRotate" Angle="-35"/></Path.RenderTransform>
+                    </Path>
+                </ToggleButton>
                 <Button x:Name="CloseButton" Grid.Column="8"
                         Style="{StaticResource FlyoutHeaderIconButton}" Click="OnCloseClick">
                     <Path x:Name="CloseIcon" Width="14" Height="14"

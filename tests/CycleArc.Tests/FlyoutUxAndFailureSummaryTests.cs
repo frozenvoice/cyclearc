@@ -80,7 +80,7 @@ public class FlyoutUxAndFailureSummaryTests
         Assert.DoesNotContain("OnHeaderButtonPreviewMouseDown", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("OnHeaderButtonPreviewMouseDown", code, StringComparison.Ordinal);
         Assert.Contains("OnRefreshAllClick", code, StringComparison.Ordinal);
-        Assert.Contains("OnPinClick", code, StringComparison.Ordinal);
+        Assert.Contains("OnPinToggled", code, StringComparison.Ordinal);
         Assert.Contains("OnCloseClick", code, StringComparison.Ordinal);
         Assert.Contains("DragMove()", code, StringComparison.Ordinal);
         Assert.Contains("if (e.Key == Key.Escape)", code, StringComparison.Ordinal);
@@ -128,9 +128,12 @@ public class FlyoutUxAndFailureSummaryTests
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
         var xaml = document.ToString();
         Assert.Contains("x:Name=\"TitleText\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"WindowOptionsButton\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"PinMenuItem\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"CloseFlyoutMenuItem\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PinButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PinIcon\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("WindowOptions", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("PinMenuItem", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("CloseFlyoutMenuItem", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("⋯", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"CloseButton\"", xaml, StringComparison.Ordinal);
         Assert.Contains("AccentBrush", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("ProgressBar", xaml, StringComparison.Ordinal);
@@ -140,12 +143,15 @@ public class FlyoutUxAndFailureSummaryTests
         var spinner = document.Descendants(ns + "Viewbox")
             .Single(element => (string?)element.Attribute(x + "Name") == "RefreshSpinner");
         Assert.Equal("Collapsed", (string?)spinner.Attribute("Visibility"));
-        var close = document.Descendants(ns + "MenuItem")
-            .Single(element => (string?)element.Attribute(x + "Name") == "CloseFlyoutMenuItem");
+        var close = document.Descendants(ns + "Button")
+            .Single(element => (string?)element.Attribute(x + "Name") == "CloseButton");
         Assert.Equal("OnCloseClick", (string?)close.Attribute("Click"));
-        var pin = document.Descendants(ns + "MenuItem")
-            .Single(element => (string?)element.Attribute(x + "Name") == "PinMenuItem");
-        Assert.Equal("OnPinClick", (string?)pin.Attribute("Click"));
+        var pin = document.Descendants(ns + "ToggleButton")
+            .Single(element => (string?)element.Attribute(x + "Name") == "PinButton");
+        Assert.Equal("OnPinToggled", (string?)pin.Attribute("Checked"));
+        Assert.Equal("OnPinToggled", (string?)pin.Attribute("Unchecked"));
+        Assert.Null(pin.Attribute("Click"));
+        Assert.Empty(document.Descendants(ns + "ContextMenu"));
         Assert.Contains("OnHeaderMouseLeftButtonDown", xaml, StringComparison.Ordinal);
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Topmost=\"False\"", xaml, StringComparison.Ordinal);
@@ -173,18 +179,27 @@ public class FlyoutUxAndFailureSummaryTests
         Assert.Contains("PersistPosition()", drag, StringComparison.Ordinal);
         Assert.DoesNotContain("Pinned", drag, StringComparison.Ordinal);
         var interactive = Slice(code, "private bool HeaderSourceIsInteractive", "private IReadOnlyList<ScreenRect> EnumerateWorkAreas");
-        Assert.Contains("RefreshAllButton", interactive, StringComparison.Ordinal);
-        Assert.Contains("WindowOptionsButton", interactive, StringComparison.Ordinal);
-        Assert.Contains("source is System.Windows.Controls.Button", interactive, StringComparison.Ordinal);
+        Assert.Contains("source is System.Windows.Controls.Primitives.ButtonBase", interactive, StringComparison.Ordinal);
+        Assert.Contains("StatusIndicator", interactive, StringComparison.Ordinal);
         Assert.DoesNotContain("_suppressDeactivateClose", code, StringComparison.Ordinal);
         Assert.DoesNotContain("OnHeaderButtonPreviewMouseDown", code, StringComparison.Ordinal);
         Assert.DoesNotContain("OnDeactivated", code, StringComparison.Ordinal);
-        var refresh = Slice(code, "private void OnRefreshAllClick", "private void OnPinClick");
+        var refresh = Slice(code, "private void OnRefreshAllClick", "private void OnPinToggled");
         Assert.Contains("SyncRequested", refresh, StringComparison.Ordinal);
         Assert.DoesNotContain("Topmost", refresh, StringComparison.Ordinal);
-        var pin = Slice(code, "private void OnPinClick", "private void OnCloseClick");
+        var pin = Slice(code, "private void OnPinToggled", "private void OnCloseClick");
+        Assert.Contains("PinButton.IsChecked == true", pin, StringComparison.Ordinal);
+        Assert.Contains("if (Pinned == pinned) return", pin, StringComparison.Ordinal);
         Assert.Contains("Topmost = FlyoutWindowState.IsTopmost(Pinned)", pin, StringComparison.Ordinal);
         Assert.Contains("PinChanged?.Invoke(Pinned)", pin, StringComparison.Ordinal);
+        Assert.Equal(1, pin.Split("PinChanged?.Invoke(Pinned)", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("OnPinClick", code, StringComparison.Ordinal);
+        var pinGlyph = Slice(code, "private void ApplyPinGlyph", "private bool HeaderSourceIsInteractive");
+        Assert.Contains("PinButton.IsChecked = Pinned", pinGlyph, StringComparison.Ordinal);
+        Assert.Contains("UiText.Unpin : UiText.Pin", pinGlyph, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.SetName(PinButton", pinGlyph, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.SetHelpText(PinButton", pinGlyph, StringComparison.Ordinal);
+        Assert.DoesNotContain("PinChanged", pinGlyph, StringComparison.Ordinal);
         Assert.DoesNotContain("PersistPosition", pin, StringComparison.Ordinal);
         Assert.DoesNotContain("CloseOnDeactivate", pin, StringComparison.Ordinal);
         Assert.Contains("Topmost = FlyoutWindowState.IsTopmost(Pinned)", Slice(code, "public void ApplyWindowSettings", "public void RestorePosition"), StringComparison.Ordinal);
