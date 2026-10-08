@@ -2,6 +2,60 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Compact detail header and direct Close (unreleased, 2026-10-08 Asia/Seoul):
+  - Started with clean `main` at `ded53c9cd0279e34e8856a4dab26bfb0fb4e9dac`;
+    local branch `codex/flyout-header-icons`. Original production captures were taken
+    before changing the header, using the same fixed three-provider synthetic accounts.
+  - Removed the rendered global status/progress TextBlocks. A fixed 20×28 DIP status
+    Label supplies an actual automation peer, full localized tooltip/name/help, a small
+    green dot only for confirmed current usage, a warning shape that survives refresh,
+    and a neutral icon for unknown/pending/local receipts. The existing refresh button
+    still owns the sole spinner and its animation-clock lifecycle. Cursor's independent
+    optional Grok failure keeps valid monthly usage current and its warning in detail,
+    matching the existing global status contract; provider/cache policies are unchanged.
+  - The permanent last header button uses the existing localized icon-button style,
+    minimum 28 DIP hit target and `OnCloseClick` → `Hide()`. Shown synthetic-window
+    checks retain widget visibility, selection, pin, position/anchors and active refresh;
+    menu/dropdown/tooltips close, clocks stop while hidden and resume once on reopening.
+    Zoom buttons, visible percentage, shortcuts and menu pin/keyboard/focus behavior remain.
+  - Passed: .NET 10.0.401 Release solution build (three existing `UiReuseChecks`
+    nullable warnings); **86** relevant unit tests, zero skips; focused production header
+    checks in EN/KO, Dark/Light, 80/100/150% app zoom; **60** separately injected
+    100/125/150/175/200% DPI layouts with exact action-bound equality; Cursor checks,
+    **148** ring cases and **982** zoom checks. The final argument-free UiSmoke ran on
+    the corrected integrated source: exit 0 and `[ui-smoke] COMPLETE all default suites`,
+    including the existing **120** fixture-local normal/HC menu cases, clock/reuse,
+    activation, edge-snap and native layout/recovery checks on two monitors.
+    Header host DPI was **150%**. Other header DPIs are injected, not physical-monitor proof.
+  - Initial failures were diagnosed rather than skipped: source assertions still matched
+    the removed text header; injected layouts cached host-DPI measurement before injection;
+    an unshown fixture was incorrectly required in the screen-reader content view; and
+    Cursor's optional-warning test expected a visible Updated TextBlock. Assertions now
+    inspect the real status peer and actual check timestamp. DPI is set before measurement;
+    exact geometry comparison and shown-window content-view checks remain intact. No retry
+    loop, timeout increase or weakened failure/metadata expectations.
+  - Native direct-click mode was attempted separately and stopped **before input**:
+    `Refusing native click because the foreground is not the synthetic popup.`
+    Original pointer and foreground restoration were verified. Thus routed production
+    Close/hit-target/state checks passed, while a native mouse click remains unverified
+    on this host. Real Windows HC, live provider requests and installed-app behavior were
+    not exercised. Logs: `artifacts/{build,unit,header,cursor,preview-export,ui-smoke}.log`,
+    `artifacts/header-native.log`, `artifacts/header-native-restoration.txt`, and retained failure diagnostics.
+  - [Before](images/flyout-header-before-ko-dark.png) /
+    [after](images/flyout-header-after-ko-dark.png) and actual host
+    [healthy](images/flyout-header-healthy-ko-dark.png),
+    [refreshing](images/flyout-header-refreshing-ko-dark.png),
+    [warning](images/flyout-header-warning-ko-dark.png) captures are production WPF.
+    [Final body comparison](measurements/flyout-header-2026-10-08-body.csv): 33/36 exact
+    body matches; three KO/Dark 150% captures differ only in the existing ring hover
+    background, with unchanged values/layout. [Widget comparison](measurements/flyout-header-2026-10-08-widget.csv):
+    12/12 whole-file SHA-256 matches. Widget sources, weekly secondary bars, quota values,
+    colors, sizes and placement have no diff. Only 31 affected popup guide previews were
+    refreshed; widget-only, settings and historical images remain untouched. Temporary
+    capture output is removed after reducing it to these images, CSVs and logs.
+  - Local modification/validation/commit only: no push, merge, CI, version/tag/release,
+    packaging, reinstall or restart of the user's installation.
+
 - Deterministic menu high-contrast tests (unreleased, 2026-10-07 Asia/Seoul):
   - Started at `8d04c32941b2ae4a29a629467f3ce4773f8c32cb`, clean working tree.
     Product code is unchanged. The old test expected app brushes while the product

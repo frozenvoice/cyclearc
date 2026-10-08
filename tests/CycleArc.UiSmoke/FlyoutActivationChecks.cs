@@ -97,10 +97,7 @@ internal static class FlyoutActivationChecks
                     Require(flyout.IsVisible && flyout.Topmost, "Inspect click hid or unpinned the pinned popup.");
 
                     // Explicit close and tray toggle must still close, and widget inspection reopens.
-                    ((Button)flyout.FindName("WindowOptionsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    var optionsMenu = (ContextMenu)flyout.FindName("WindowOptionsMenu");
-                    Require(optionsMenu.IsOpen, "Window options did not open.");
-                    ((MenuItem)flyout.FindName("CloseFlyoutMenuItem")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    ((Button)flyout.FindName("CloseButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     Require(!flyout.IsVisible, "Explicit close failed.");
                     Click(widget); Pump();
                     Require(flyout.IsVisible, "Widget did not reopen an explicitly closed popup.");

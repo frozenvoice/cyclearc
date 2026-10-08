@@ -27,9 +27,27 @@ dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -
 ![Zoom percentage in the Korean dark widget](zoom-percent-widget-ko-dark.png)
 ![Zoom percentage in the Korean dark detail popup](zoom-percent-detail-ko-dark.png)
 
+The detail header now uses a compact status icon with its full explanation in the tooltip
+and accessible name/help. Confirmed current usage has a green dot, known warnings keep a
+warning shape during checks, and pending/unknown/local receipts remain neutral. The existing
+refresh button owns the single spinner. A permanent rightmost × hides only the popup,
+including when pinned; zoom percentage and Window options stay directly accessible.
+The `flyout-header-{healthy,refreshing,warning}-ko-dark.png` captures use the same fixed
+synthetic accounts as `flyout-header-before-ko-dark.png`; the widget and quota body are
+compared separately. Reproduce the production header state and injected DPI checks:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --flyout-header artifacts/previews
+```
+
+The opt-in `--flyout-header-baseline <directory>` collector must be run against the
+original production header before editing; it is evidence collection, not a check of the
+current contract. `--flyout-header-native artifacts/previews` is separate from the default
+suite and sends native input only to guarded synthetic HWNDs.
+
 The current source removes the usage-history graph, selected-widget sparkline, actual-value
 expander, metric selector and storage warning. The detail header keeps zoom, refresh and
-settings beside Window options; multi-account details have a display-account dropdown.
+settings beside Window options and direct Close; multi-account details have a display-account dropdown.
 Healthy missing credits remain folded auxiliary rows. The removal refresh, completed
 2026-10-07 Asia/Seoul, replaced 36 current popup/widget guide images plus eight zoom-percentage
 previews after EN/KO Dark/Light visual inspection, including individual mixed, wrapped and

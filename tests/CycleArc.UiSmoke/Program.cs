@@ -254,6 +254,21 @@ internal static class Program
                 FlyoutActivationChecks.Run(app, args.Length == 2 ? args[1] : null);
                 return 0;
             }
+            if (args is ["--flyout-header"] or ["--flyout-header", _])
+            {
+                FlyoutHeaderChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
+            if (args is ["--flyout-header-baseline", var headerBaselineDirectory])
+            {
+                FlyoutHeaderChecks.Run(headerBaselineDirectory, baseline: true);
+                return 0;
+            }
+            if (args is ["--flyout-header-native", var headerNativeDirectory])
+            {
+                FlyoutOptionsMenuChecks.RunHeaderNative(headerNativeDirectory);
+                return 0;
+            }
             if (args is ["--flyout-menu"] or ["--flyout-menu", _])
             {
                 FlyoutOptionsMenuChecks.Run(args.Length == 2 ? args[1] : null);
@@ -316,6 +331,8 @@ internal static class Program
             FlyoutActivationChecks.Run(app);
             Begin("flyout-menu");
             FlyoutOptionsMenuChecks.Run();
+            Begin("flyout-header");
+            FlyoutHeaderChecks.Run();
             Begin("ui-reuse");
             UiReuseChecks.Run(app);
             Begin("environment-callbacks");

@@ -462,6 +462,108 @@ internal static class FlyoutOptionsMenuChecks
         foreach (var line in lines) Console.WriteLine(line);
     }
 
+    // Reuse the existing HWND-checked mouse helper. This entry point is opt-in only;
+    // it never participates in Run() or the argument-free suite.
+    internal static void RunHeaderNative(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        Require(GetCursorPos(out var originalPointer), "Could not save the pointer position.");
+        var originalForeground = GetForegroundWindow();
+        var previousLanguage = UiText.Language;
+        var lines = new List<string> { "Opt-in native direct-Close checks; synthetic production windows only; restoration results recorded below." };
+        try
+        {
+            foreach (var language in new[] { UiLanguage.English, UiLanguage.Korean })
+            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light })
+            foreach (var screen in System.Windows.Forms.Screen.AllScreens)
+            foreach (var zoom in new[] { 100, 150 })
+            foreach (var pinned in new[] { false, true })
+            {
+                ApplyTheme(language, theme);
+                var flyout = new FlyoutWindow { ShowActivated = false, Left = 40, Top = 40 };
+                var widget = new FloatingWidget { ShowActivated = false, Topmost = false, Left = 20, Top = 20 };
+                try
+                {
+                    var accounts = FlyoutHeaderChecks.Accounts();
+                    widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, WidgetFixture.Desktop);
+                    flyout.ApplyWindowSettings(new AppSettings { FlyoutPinned = pinned, FlyoutZoomPercent = zoom });
+                    flyout.BindAccounts(accounts, accounts[0].Profile.Id, false);
+                    widget.Show(); flyout.Show(); flyout.Activate(); Pump();
+                    var hwnd = new WindowInteropHelper(flyout).Handle;
+                    Require(SetWindowPos(hwnd, IntPtr.Zero, screen.WorkingArea.Left + 40, screen.WorkingArea.Top + 40, 0, 0, 0x0015),
+                        "Could not place the synthetic popup on its real monitor.");
+                    Pump(); flyout.Activate(); Pump();
+                    var position = flyout.PixelPosition;
+                    var anchors = flyout.EdgeAnchors;
+                    var selected = flyout.SelectedProfileId;
+                    var pinEvents = 0; var selectionEvents = 0; var refreshes = 0; var moves = 0;
+                    flyout.PinChanged += _ => pinEvents++;
+                    flyout.AccountSelected += _ => selectionEvents++;
+                    flyout.SyncRequested += () => refreshes++;
+                    flyout.PositionChanged += (_, _) => moves++;
+                    flyout.SetRefreshPresentation(new(false, true, UiText.RefreshAllProgress)); Pump();
+                    var close = (Button)flyout.FindName("CloseButton");
+                    var closePoint = close.PointToScreen(new Point(close.ActualWidth / 2, close.ActualHeight / 2));
+                    Require(GetForegroundWindow() == hwnd, "Refusing native click because the foreground is not the synthetic popup.");
+                    var dpi = VisualTreeHelper.GetDpi(flyout);
+                    NativeHeaderClick(close, hwnd);
+                    Require(!flyout.IsVisible && widget.IsVisible && flyout.Pinned == pinned && flyout.SelectedProfileId == selected
+                        && flyout.PixelPosition == position && flyout.EdgeAnchors == anchors && !flyout.RefreshIndicator.IsAnimating
+                        && pinEvents == 0 && selectionEvents == 0 && refreshes == 0 && moves == 0,
+                        "Native direct Close changed another surface, pin, selection, placement, refresh or drag state.");
+                    flyout.Show(); Pump();
+                    Require(flyout.SelectedProfileId == selected && flyout.Pinned == pinned && flyout.PixelPosition == position
+                        && flyout.RefreshIndicator.IsAnimating, "Native close/reopen did not restore the ongoing refresh and popup state.");
+                    flyout.SetRefreshPresentation(new(true, false, "")); Pump();
+                    lines.Add($"PASS {language}/{theme}/{screen.DeviceName}: actual WPF DPI={dpi.DpiScaleX * 100:0}/{dpi.DpiScaleY * 100:0}%, app zoom={zoom}%, pinned={pinned}; click physical={closePoint.X:0},{closePoint.Y:0}; popup only hidden, widget survives, selection/pin/position/anchors retained, refresh stopped/resumed.");
+                }
+                finally { flyout.Close(); widget.Close(); }
+            }
+        }
+        finally
+        {
+            UiText.SetLanguage(previousLanguage);
+            typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [AppTheme.Dark]);
+            var pointerRestored = SetCursorPos(originalPointer.X, originalPointer.Y)
+                && GetCursorPos(out var restoredPointer) && restoredPointer.X == originalPointer.X && restoredPointer.Y == originalPointer.Y;
+            lines.Add(pointerRestored ? "PASS: original pointer position restored and reread." : "FAIL: original pointer position could not be restored and verified.");
+            var foregroundRestored = false;
+            if (originalForeground != IntPtr.Zero && IsWindow(originalForeground))
+            {
+                if (GetForegroundWindow() != originalForeground) SetForegroundWindow(originalForeground);
+                foregroundRestored = GetForegroundWindow() == originalForeground;
+                lines.Add(foregroundRestored ? "PASS: original foreground HWND restored and reread." : "FAIL: original foreground HWND could not be restored and verified.");
+            }
+            else lines.Add("GAP: original foreground HWND was absent or disappeared; foreground restoration could not be verified.");
+            File.WriteAllLines(Path.Combine(directory, "native-header-results.txt"), lines);
+            Require(pointerRestored, "Native header check could not verify restoration of the original pointer position.");
+            Require(originalForeground == IntPtr.Zero || !IsWindow(originalForeground) || foregroundRestored,
+                "Native header check could not verify restoration of the original foreground HWND.");
+        }
+        foreach (var line in lines) Console.WriteLine(line);
+    }
+
+    private static void NativeHeaderClick(FrameworkElement element, IntPtr expectedHwnd)
+    {
+        var point = element.PointToScreen(new Point(element.ActualWidth / 2, element.ActualHeight / 2));
+        var target = new NativePoint { X = (int)Math.Round(point.X), Y = (int)Math.Round(point.Y) };
+        Require(SetCursorPos(target.X, target.Y), "Could not place the pointer on the synthetic direct-Close target.");
+        Require(GetCursorPos(out var pointer) && pointer.X == target.X && pointer.Y == target.Y
+            && WindowFromPoint(pointer) == expectedHwnd && GetForegroundWindow() == expectedHwnd,
+            "Refusing direct-Close input because its pointer target or foreground is not the synthetic popup.");
+        var down = new NativeInput { Type = 0, Data = new NativeInputData { Mouse = new NativeMouseInput { Flags = 0x0002 } } };
+        var up = new NativeInput { Type = 0, Data = new NativeInputData { Mouse = new NativeMouseInput { Flags = 0x0004 } } };
+        var written = SendInput(2, [down, up], Marshal.SizeOf<NativeInput>());
+        if (written != 2)
+        {
+            if (written == 1 && GetForegroundWindow() == expectedHwnd
+                && (GetCapture() == expectedHwnd || GetCursorPos(out var current) && WindowFromPoint(current) == expectedHwnd))
+                Require(SendInput(1, [up], Marshal.SizeOf<NativeInput>()) == 1, "Synthetic direct-Close partial click release was rejected.");
+            throw new InvalidOperationException($"Interactive desktop wrote {written}/2 direct-Close mouse inputs; guarded synthetic-only release attempted when still owned.");
+        }
+        AccountUiChecks.PumpUntil(Task.Delay(120)); Pump();
+    }
+
     private static void NativeHover(FrameworkElement element, IntPtr expectedHwnd)
     {
         var point = element.PointToScreen(new Point(element.ActualWidth / 2, element.ActualHeight / 2));
@@ -511,6 +613,9 @@ internal static class FlyoutOptionsMenuChecks
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(NativePoint point);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern IntPtr GetCapture();
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);

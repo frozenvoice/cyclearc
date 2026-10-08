@@ -36,6 +36,12 @@ public partial class FlyoutWindow : Window
     private readonly RefreshIndicatorController _refreshIndicator = new();
     private AnimationClock? _spinnerClock;
     private bool _refreshActive;
+    private WidgetStatusSeverity _headerStatusSeverity = WidgetStatusSeverity.Pending;
+    private string _headerStatusText = "";
+    private string _headerStatusDetail = "";
+    private string _refreshProgressText = "";
+    private System.Windows.Controls.ToolTip? _headerStatusTip;
+    private System.Windows.Controls.ToolTip? _refreshTip;
     private bool _bindingUsagePeriod;
     private bool _bindingAccountSelector;
     private AccountChoice[] _accountChoices = [];
@@ -96,6 +102,8 @@ public partial class FlyoutWindow : Window
             if (!IsVisible)
             {
                 if (_creditHelpTip is not null) _creditHelpTip.IsOpen = false;
+                if (_headerStatusTip is not null) _headerStatusTip.IsOpen = false;
+                if (_refreshTip is not null) _refreshTip.IsOpen = false;
                 WindowOptionsMenu.IsOpen = false;
                 AccountSelector.IsDropDownOpen = false;
             }
@@ -294,9 +302,16 @@ public partial class FlyoutWindow : Window
         SelectedProviderBadge.Provider = snapshot.Provider;
         ResetCreditsCard.Visibility = snapshot.Provider == UsageProviderId.Codex ? Visibility.Visible : Visibility.Collapsed;
         ApplyLocalizedTexts();
-        StatusText.Text = snapshot.Status == CodexQuotaStatus.Available && snapshot.Provider == UsageProviderId.Codex
-            ? UiText.T("Up to date", "정상 작동 중") : CycleArcPresentation.StatusLabel(snapshot);
-        StatusDot.Fill = (Brush)FindResource(refreshing ? "AccentBrush" : snapshot.Status == CodexQuotaStatus.Available ? "OkBrush" : "MutedBrush");
+        var status = WidgetStatusPresentation.From(snapshot, DateTimeOffset.Now);
+        var fresh = HasCurrentHeaderUsage(snapshot);
+        _headerStatusSeverity = status.IsWarning ? WidgetStatusSeverity.Warning
+            : fresh ? WidgetStatusSeverity.Normal : WidgetStatusSeverity.Pending;
+        _headerStatusText = fresh && snapshot.Provider == UsageProviderId.Codex
+            ? UiText.T("Up to date", "정상 작동 중")
+            : status.IsWarning && snapshot.Status == CodexQuotaStatus.Refreshing ? status.Summary
+            : snapshot.Status == CodexQuotaStatus.Available && !fresh && snapshot.Provider != UsageProviderId.Claude
+                ? UiText.T("Unknown", "미확인") : CycleArcPresentation.StatusLabel(snapshot);
+        _headerStatusDetail = status.DetailText;
         BindCodex(snapshot);
         BindCreditCard(snapshot);
         BindUsageCard(snapshot);
@@ -334,24 +349,31 @@ public partial class FlyoutWindow : Window
         System.Windows.Automation.AutomationProperties.SetName(AccountSelector,
             UiText.T("Display account", "표시 계정"));
         System.Windows.Automation.AutomationProperties.SetHelpText(AccountSelector, selectionHelp);
-        var failed = accounts.Count(a => a.Snapshot.Status != CodexQuotaStatus.Available && !a.IsAwaitingUsage);
+        var statuses = accounts.Select(a => WidgetStatusPresentation.From(a.Snapshot, DateTimeOffset.Now, a.IsSigningIn)).ToArray();
+        var failed = statuses.Count(status => status.IsWarning);
         var waiting = accounts.Count(a => a.IsAwaitingUsage);
         // Only a Claude statusLine or Desktop history sample is "received"; a live server check
         // is as current as a Codex or Cursor check.
         var received = accounts.Any(a => a.Profile.Provider == UsageProviderId.Claude
             && !WidgetAccountModel.HasHealthyServerSample(a.Snapshot));
-        if (accounts.Count > 1 && !refreshing)
-            StatusText.Text = failed > 0 ? UiText.T($"{failed} need attention", $"{failed}개 확인 필요")
+        var fresh = accounts.Count > 0 && accounts.All(a => !a.IsSigningIn
+            && HasCurrentHeaderUsage(a.Snapshot));
+        _headerStatusSeverity = failed > 0 ? WidgetStatusSeverity.Warning
+            : fresh ? WidgetStatusSeverity.Normal : WidgetStatusSeverity.Pending;
+        if (accounts.Count > 1)
+            _headerStatusText = failed > 0 ? UiText.T($"{failed} need attention", $"{failed}개 확인 필요")
                 : waiting > 0 ? UiText.T($"{waiting} awaiting usage", $"{waiting}개 수신 대기")
                 : received ? UiText.T("Received", "수신값 포함")
-                : UiText.T("All updated", "전체 최신");
-        StatusDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty,
-            refreshing ? "AccentBrush" : accounts.Count > 0 && failed == 0 && waiting == 0 ? "OkBrush" : "MutedBrush");
+                : fresh ? UiText.T("All updated", "전체 최신") : UiText.T("Unknown", "미확인");
+        else if (accounts.Count == 1 && accounts[0].IsSigningIn)
+            _headerStatusText = statuses[0].Summary;
+        _headerStatusDetail = string.Join(Environment.NewLine, statuses.Select(status => status.DetailText).Distinct());
         if (selected is null)
         {
             SelectedAccountHeader.Visibility = SelectedProviderBadge.Visibility = CodexCard.Visibility = ResetCreditsCard.Visibility = UsageCreditsCard.Visibility = Visibility.Collapsed;
-            StatusText.Text = UiText.T("No usage yet", "사용량 대기");
+            _headerStatusText = UiText.T("No usage yet", "사용량 대기");
         }
+        ApplyHeaderStatus();
     }
 
     private void BindAccountRows(IReadOnlyList<CodexAccountView> accounts, string selectedId)
@@ -437,9 +459,7 @@ public partial class FlyoutWindow : Window
         RefreshAllIcon.Stroke = presentation.Active
             ? (Brush)FindResource("AccentBrush")
             : (Brush)FindResource("TextBrush");
-        RefreshProgressText.Text = presentation.ProgressText;
-        StatusText.Visibility = presentation.ShowNormalStatus ? Visibility.Visible : Visibility.Collapsed;
-        RefreshProgressText.Visibility = presentation.ShowRefreshProgress ? Visibility.Visible : Visibility.Collapsed;
+        _refreshProgressText = presentation.ProgressText;
         SetRefreshing(presentation.Active);
     }
 
@@ -453,6 +473,7 @@ public partial class FlyoutWindow : Window
 
     private void ApplyRefreshVisuals()
     {
+        ApplyHeaderStatus();
         var state = FlyoutRefreshVisualState.Create(_refreshActive, IsVisible);
         RefreshAllIcon.Visibility = state.IdleIconVisible ? Visibility.Visible : Visibility.Collapsed;
         RefreshSpinner.Visibility = state.SpinnerVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -468,6 +489,42 @@ public partial class FlyoutWindow : Window
             StopRefreshAnimations();
         }
     }
+
+    private void ApplyHeaderStatus()
+    {
+        // The status slot never changes width. Only the refresh button owns a spinner;
+        // a known warning remains visible while a new check is in flight.
+        var warning = _headerStatusSeverity == WidgetStatusSeverity.Warning;
+        StatusDot.Visibility = !_refreshActive && _headerStatusSeverity == WidgetStatusSeverity.Normal
+            ? Visibility.Visible : Visibility.Collapsed;
+        StatusWarningIcon.Visibility = warning ? Visibility.Visible : Visibility.Collapsed;
+        StatusPendingIcon.Visibility = !warning && StatusDot.Visibility != Visibility.Visible
+            ? Visibility.Visible : Visibility.Collapsed;
+        var progress = string.IsNullOrWhiteSpace(_refreshProgressText) ? UiText.RefreshAllProgress : _refreshProgressText;
+        var name = !_refreshActive ? _headerStatusText
+            : warning ? progress + " · " + _headerStatusText : progress;
+        var previous = _refreshActive ? UiText.T("Previous status: ", "이전 상태: ") + _headerStatusText : _headerStatusText;
+        var help = string.Join(Environment.NewLine, new[] { _refreshActive ? progress : null, previous, _headerStatusDetail }
+            .Where(line => !string.IsNullOrWhiteSpace(line)).Distinct());
+        _headerStatusTip ??= MakeTooltip(help);
+        _headerStatusTip.Content = help;
+        StatusIndicator.ToolTip = _headerStatusTip;
+        System.Windows.Automation.AutomationProperties.SetName(StatusIndicator, name);
+        System.Windows.Automation.AutomationProperties.SetHelpText(StatusIndicator, help);
+        var refreshHelp = _refreshActive ? progress : UiText.RefreshAll;
+        _refreshTip ??= MakeTooltip(refreshHelp);
+        _refreshTip.Content = refreshHelp;
+        RefreshAllButton.ToolTip = _refreshTip;
+        System.Windows.Automation.AutomationProperties.SetHelpText(RefreshAllButton, refreshHelp);
+    }
+
+    private static bool HasCurrentHeaderUsage(CodexQuotaSnapshot snapshot) => snapshot.HasUsablePercentages
+        && (WidgetAccountModel.HasHealthyServerSample(snapshot)
+            // The optional Grok request cannot invalidate a successful Cursor monthly check.
+            // Match the existing global StatusLabel contract; its warning stays in the detail.
+            || snapshot.Provider == UsageProviderId.Cursor && snapshot.Status == CodexQuotaStatus.Available
+                && snapshot.LastSuccessfulRefresh is not null && snapshot.TechnicalDetail == "cursor-sand-unavailable"
+                && !WidgetStatusPresentation.HidesQuota(snapshot));
 
     private void StartRefreshAnimations()
     {
@@ -537,6 +594,10 @@ public partial class FlyoutWindow : Window
         ApplyPinGlyph();
         CloseFlyoutMenuItem.Header = UiText.Close;
         System.Windows.Automation.AutomationProperties.SetName(CloseFlyoutMenuItem, UiText.Close);
+        CloseButton.ToolTip = UiText.Close;
+        System.Windows.Automation.AutomationProperties.SetName(CloseButton, UiText.Close);
+        System.Windows.Automation.AutomationProperties.SetHelpText(CloseButton,
+            UiText.T("Hide the detail popup. CycleArc keeps running.", "상세 팝업을 숨깁니다. CycleArc는 계속 실행됩니다."));
         UpdateZoomPresentation();
     }
 
@@ -1185,8 +1246,7 @@ One credit will be consumed.",
         while (source is not null && !ReferenceEquals(source, FlyoutHeaderGrid))
         {
             if (source is System.Windows.Controls.Button
-                || ReferenceEquals(source, StatusText)
-                || ReferenceEquals(source, RefreshProgressText)
+                || ReferenceEquals(source, StatusIndicator)
                 || ReferenceEquals(source, RefreshAllButton)
                 || ReferenceEquals(source, WindowOptionsButton))
             {
