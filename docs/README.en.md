@@ -271,6 +271,8 @@ Usage comes from the Desktop live profile/usage check when available, then the o
 | Auto / 5 hours / Weekly | Choose the period shared by the detail ring, tray and widget; saved across restarts |
 | Click the usage ring | Switch between five-hour and weekly usage when both values are known |
 | Account dropdown above the detail card | Select the account displayed in CycleArc |
+| Header status icon | Hover for the full status; green means confirmed current usage, a warning means attention, neutral means pending, unknown or local receipt |
+| Rightmost × | Hide the detail popup, including when pinned; CycleArc, the widget and background checks keep running |
 | Window options (···) | Pin/unpin or close the detail card |
 | `Ctrl` + `+` / `Ctrl` + `-` | Enlarge or reduce the focused window - the detail card or the widget |
 | `Ctrl` + `0` | Restore the focused window to 100% |

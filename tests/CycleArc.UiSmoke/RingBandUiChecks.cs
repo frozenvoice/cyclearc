@@ -324,7 +324,7 @@ internal static class RingBandUiChecks
                 AccountUiChecks.Render(flyout, 440, null, directory is null ? null
                     : Path.Combine(directory, $"claude-rate-limit-{(stale ? "failed" : "recovered")}-detail-{(language == UiLanguage.Korean ? "ko" : "en")}-{theme.ToString().ToLowerInvariant()}.png"));
                 var notice = (TextBlock)flyout.FindName("CodexStatusText");
-                var globalStatus = (TextBlock)flyout.FindName("StatusText");
+                var globalStatus = FlyoutHeaderChecks.Status(flyout);
                 var value = (TextBlock)flyout.FindName("CodexRingValueText");
                 Check(value.Text == "100%"
                     && ReferenceEquals(value.Foreground, flyout.FindResource("TextBrush")),
@@ -340,9 +340,9 @@ internal static class RingBandUiChecks
                     "Claude detail quota values inherited the freshness warning color.");
                 Check(ReferenceEquals(notice.Foreground, flyout.FindResource(stale ? "StaleBrush" : "MutedBrush"))
                     && (stale ? notice.Text.StartsWith(ClaudeUsagePresentation.FailureLabel("claude-live-rate-limited")!, StringComparison.Ordinal)
-                            && globalStatus.Text == UiText.T("1 need attention", "1개 확인 필요")
+                            && globalStatus == UiText.T("1 need attention", "1개 확인 필요")
                         : !notice.Text.Contains(ClaudeUsagePresentation.FailureLabel("claude-live-rate-limited")!, StringComparison.Ordinal)
-                            && globalStatus.Text != UiText.T("1 need attention", "1개 확인 필요")),
+                            && globalStatus != UiText.T("1 need attention", "1개 확인 필요")),
                     "Claude freshness warning did not follow the 429 failure and successful recovery.");
                 var card = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>()
                     .Single(button => (string)button.Tag == sample.Profile.Id);

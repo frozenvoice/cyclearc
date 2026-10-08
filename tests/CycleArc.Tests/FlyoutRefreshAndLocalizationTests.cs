@@ -29,7 +29,8 @@ public class FlyoutRefreshAndLocalizationTests
         Assert.Null(button.Attribute("Visibility"));
         Assert.Contains("ResetCreditsCard", document.ToString(), StringComparison.Ordinal);
         Assert.Contains("CodexRows", document.ToString(), StringComparison.Ordinal);
-        Assert.Contains("RefreshProgressText", document.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("RefreshProgressText", document.ToString(), StringComparison.Ordinal);
+        Assert.Equal("True", (string?)button.Attribute("ToolTipService.ShowOnDisabled"));
         var icon = document.Descendants(ns + "Path")
             .Single(element => (string?)element.Attribute(x + "Name") == "RefreshAllIcon");
         Assert.NotNull(icon.Attribute("Data"));
@@ -97,7 +98,7 @@ public class FlyoutRefreshAndLocalizationTests
     }
 
     [Fact]
-    public void FlyoutHeader_ShowsExactlyOneActiveRefreshLabel()
+    public void FlyoutHeader_UsesOneRefreshSpinnerAndAccessibleStatus()
     {
         var idle = CombinedRefreshCoordinator.Present(false, false);
         Assert.True(idle.ShowNormalStatus);
@@ -116,8 +117,10 @@ public class FlyoutRefreshAndLocalizationTests
         Assert.False(done.ShowRefreshProgress);
 
         var flyoutCode = File.ReadAllText(Find("src/CycleArc/UI/FlyoutWindow.xaml.cs"));
-        Assert.Contains("StatusText.Visibility = presentation.ShowNormalStatus", flyoutCode, StringComparison.Ordinal);
-        Assert.Contains("RefreshProgressText.Visibility = presentation.ShowRefreshProgress", flyoutCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n        StatusText.Visibility =", flyoutCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("RefreshProgressText", flyoutCode, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.SetName(StatusIndicator", flyoutCode, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.SetHelpText(StatusIndicator", flyoutCode, StringComparison.Ordinal);
         Assert.Contains("SetRefreshing(presentation.Active)", flyoutCode, StringComparison.Ordinal);
         Assert.Contains("RefreshAllIcon.Visibility", flyoutCode, StringComparison.Ordinal);
         Assert.Contains("RefreshSpinner.Visibility", flyoutCode, StringComparison.Ordinal);
@@ -138,7 +141,7 @@ public class FlyoutRefreshAndLocalizationTests
     }
 
     [Fact]
-    public void FlyoutHeader_ProtectsTitleAndTrimsLongStatus()
+    public void FlyoutHeader_ProtectsTitleAndKeepsStatusCompactWithDirectCloseLast()
     {
         var document = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "FlyoutWindow.xaml"));
         XNamespace ns = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
@@ -151,25 +154,23 @@ public class FlyoutRefreshAndLocalizationTests
             .ToArray();
         Assert.Equal("Auto", columns[0]);
         Assert.Equal("*", columns[1]);
-        // The title keeps its own width and the status takes what is left; every control to
-        // their right sizes to itself, so adding one cannot squeeze the title.
+        // The title keeps its own width; the fixed indicator leaves unused space in the
+        // stretch column while each action sizes to itself.
         Assert.All(columns.Skip(2), width => Assert.Equal("Auto", width));
-        // Zoom out, current percentage, zoom in, refresh, settings, window options.
-        Assert.Equal(8, columns.Length);
         var title = header.Descendants(ns + "TextBlock")
             .Single(element => (string?)element.Attribute(x + "Name") == "TitleText");
         var titleHost = title.Ancestors().Single(element => element.Parent == header);
         Assert.Equal("0", (string?)titleHost.Attribute("Grid.Column"));
         Assert.Equal("{x:Static text:UiText.ProductName}", (string?)title.Attribute("Text") ?? title.Value.Trim());
-        var statusHost = header.Elements(ns + "Grid").Single();
+        var statusHost = header.Descendants(ns + "Label").Single(element => (string?)element.Attribute(x + "Name") == "StatusIndicator");
         Assert.Equal("1", (string?)statusHost.Attribute("Grid.Column"));
-        var status = statusHost.Descendants(ns + "TextBlock")
-            .Single(element => (string?)element.Attribute(x + "Name") == "StatusText");
-        var progress = statusHost.Descendants(ns + "TextBlock")
-            .Single(element => (string?)element.Attribute(x + "Name") == "RefreshProgressText");
-        Assert.Equal("CharacterEllipsis", (string?)status.Attribute("TextTrimming"));
-        Assert.Equal("CharacterEllipsis", (string?)progress.Attribute("TextTrimming"));
-        Assert.Equal("NoWrap", (string?)status.Attribute("TextWrapping"));
+        Assert.Equal("20", (string?)statusHost.Attribute("Width"));
+        Assert.Equal("28", (string?)statusHost.Attribute("Height"));
+        Assert.Empty(statusHost.Descendants(ns + "TextBlock"));
+        Assert.DoesNotContain(header.Descendants(), element => (string?)element.Attribute(x + "Name") is "StatusText" or "RefreshProgressText");
+        Assert.NotNull(statusHost.Descendants(ns + "Ellipse").Single(element => (string?)element.Attribute(x + "Name") == "StatusDot"));
+        Assert.NotNull(statusHost.Descendants(ns + "Path").Single(element => (string?)element.Attribute(x + "Name") == "StatusWarningIcon"));
+        Assert.NotNull(statusHost.Descendants(ns + "Path").Single(element => (string?)element.Attribute(x + "Name") == "StatusPendingIcon"));
         var button = header.Descendants(ns + "Button")
             .Single(element => (string?)element.Attribute(x + "Name") == "RefreshAllButton");
         Assert.Equal("5", (string?)button.Attribute("Grid.Column"));
@@ -200,6 +201,16 @@ public class FlyoutRefreshAndLocalizationTests
         var settings = header.Descendants(ns + "Button").Single(element => (string?)element.Attribute(x + "Name") == "SettingsButton");
         Assert.Equal("6", (string?)settings.Attribute("Grid.Column"));
         Assert.Equal("OnSettingsClick", (string?)settings.Attribute("Click"));
+        var directClose = header.Elements(ns + "Button").Single(element => (string?)element.Attribute(x + "Name") == "CloseButton");
+        Assert.Equal((columns.Length - 1).ToString(), (string?)directClose.Attribute("Grid.Column"));
+        Assert.Same(directClose, header.Elements(ns + "Button").Last());
+        Assert.Equal("OnCloseClick", (string?)directClose.Attribute("Click"));
+        Assert.Equal("{StaticResource FlyoutHeaderIconButton}", (string?)directClose.Attribute("Style"));
+        Assert.Null(directClose.Attribute("Visibility"));
+        var code = File.ReadAllText(Find("src/CycleArc/UI/FlyoutWindow.xaml.cs"));
+        Assert.Contains("CloseButton.ToolTip = UiText.Close", code, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.SetName(CloseButton, UiText.Close)", code, StringComparison.Ordinal);
+        Assert.NotNull(directClose.Descendants(ns + "Path").Single(element => (string?)element.Attribute(x + "Name") == "CloseIcon"));
         Assert.NotEqual((string?)title.Attribute("Grid.Column"), (string?)statusHost.Attribute("Grid.Column"));
         Assert.NotEqual((string?)button.Attribute("Grid.Column"), (string?)statusHost.Attribute("Grid.Column"));
     }

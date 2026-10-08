@@ -131,6 +131,7 @@ public class FlyoutUxAndFailureSummaryTests
         Assert.Contains("x:Name=\"WindowOptionsButton\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"PinMenuItem\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"CloseFlyoutMenuItem\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"CloseButton\"", xaml, StringComparison.Ordinal);
         Assert.Contains("AccentBrush", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("ProgressBar", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("SyncProgressStrip", xaml, StringComparison.Ordinal);
@@ -174,6 +175,7 @@ public class FlyoutUxAndFailureSummaryTests
         var interactive = Slice(code, "private bool HeaderSourceIsInteractive", "private IReadOnlyList<ScreenRect> EnumerateWorkAreas");
         Assert.Contains("RefreshAllButton", interactive, StringComparison.Ordinal);
         Assert.Contains("WindowOptionsButton", interactive, StringComparison.Ordinal);
+        Assert.Contains("source is System.Windows.Controls.Button", interactive, StringComparison.Ordinal);
         Assert.DoesNotContain("_suppressDeactivateClose", code, StringComparison.Ordinal);
         Assert.DoesNotContain("OnHeaderButtonPreviewMouseDown", code, StringComparison.Ordinal);
         Assert.DoesNotContain("OnDeactivated", code, StringComparison.Ordinal);

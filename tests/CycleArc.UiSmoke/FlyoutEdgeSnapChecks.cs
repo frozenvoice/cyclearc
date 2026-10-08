@@ -120,6 +120,16 @@ internal static class FlyoutEdgeSnapChecks
             refresh.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             Require(refreshes == 1 && flyout.EdgeAnchors.Horizontal == HorizontalEdgeAnchor.Right,
                 "The flyout header button leaked into drag/snap handling.");
+            var beforeClose = (flyout.PixelPosition, flyout.EdgeAnchors, flyout.Pinned, changed);
+            ((System.Windows.Controls.Button)flyout.FindName("CloseButton"))
+                .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            Pump();
+            Require(!flyout.IsVisible && flyout.EdgeAnchors == beforeClose.EdgeAnchors
+                && flyout.Pinned == beforeClose.Pinned && changed == beforeClose.changed,
+                "Direct close changed pin or persisted drag/snap state.");
+            flyout.Show(); Pump();
+            Require(flyout.PixelPosition == beforeClose.PixelPosition && flyout.EdgeAnchors == beforeClose.EdgeAnchors,
+                "Reopening after direct close lost snapped placement.");
 
             // Attached axes follow the real production resize/DPI relayout path.
             var anchorsBeforeResize = flyout.EdgeAnchors;

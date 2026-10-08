@@ -296,6 +296,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
                     <Border Background="{DynamicResource GhostBrush}" CornerRadius="9" Width="28" Height="28" Margin="0,0,10,0">
@@ -312,25 +313,21 @@
                     </StackPanel>
                 </StackPanel>
 
-                <Grid Grid.Column="1" Margin="0,0,12,0" MinWidth="0" HorizontalAlignment="Right"><Ellipse x:Name="StatusDot" Width="8" Height="8" HorizontalAlignment="Left" VerticalAlignment="Center" Fill="{DynamicResource OkBrush}"/>
-                    <TextBlock x:Name="StatusText" Margin="14,0,0,0"
-                               HorizontalAlignment="Stretch"
-                               TextAlignment="Right"
-                               TextTrimming="CharacterEllipsis"
-                               TextWrapping="NoWrap"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource MutedBrush}"
-                               FontSize="11"/>
-                    <TextBlock x:Name="RefreshProgressText" Margin="14,0,0,0"
-                               HorizontalAlignment="Stretch"
-                               TextAlignment="Right"
-                               TextTrimming="CharacterEllipsis"
-                               TextWrapping="NoWrap"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource AccentBrush}"
-                               FontSize="11"
-                               Visibility="Collapsed"/>
-                </Grid>
+                <Label x:Name="StatusIndicator" Grid.Column="1" Width="20" Height="28" Padding="0"
+                       Margin="0,0,12,0" HorizontalAlignment="Left" Background="Transparent"
+                       HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                    <Grid>
+                    <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{DynamicResource OkBrush}" Visibility="Collapsed"/>
+                    <Path x:Name="StatusWarningIcon" Width="14" Height="14" Stretch="Uniform"
+                          Stroke="{DynamicResource StaleBrush}" StrokeThickness="1.4"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                          Data="M7,1 L13,12 L1,12 Z M7,4.5 L7,7.5 M7,9.5 L7,9.6" Visibility="Collapsed"/>
+                    <Path x:Name="StatusPendingIcon" Width="14" Height="14" Stretch="Uniform"
+                          Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.4"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M13,7 A6,6 0 1 1 1,7 A6,6 0 1 1 13,7 M7,3.5 L7,7 L9.5,8.5"/>
+                    </Grid>
+                </Label>
                 <Button x:Name="FlyoutZoomOutButton" Grid.Column="2"
                         Style="{StaticResource FlyoutHeaderIconButton}"
                         Click="OnZoomOutClick" Margin="0,0,4,0">
@@ -355,6 +352,7 @@
                         Style="{StaticResource FlyoutHeaderIconButton}"
                         Click="OnRefreshAllClick"
                         ToolTip="Refresh all"
+                        ToolTipService.ShowOnDisabled="True"
                         AutomationProperties.Name="Refresh all"
                         Margin="0,0,4,0">
                     <Grid Width="18" Height="18">
@@ -401,7 +399,7 @@
                 <Button x:Name="WindowOptionsButton"
                         Grid.Column="7"
                         Style="{StaticResource FlyoutHeaderIconButton}"
-                        Click="OnWindowOptionsClick">
+                        Click="OnWindowOptionsClick" Margin="0,0,4,0">
                     <Button.ContextMenu>
                         <ContextMenu x:Name="WindowOptionsMenu" Style="{StaticResource FlyoutOptionsContextMenu}">
                             <MenuItem x:Name="PinMenuItem" Style="{StaticResource FlyoutOptionsMenuItem}" IsCheckable="True" Click="OnPinClick"/>
@@ -412,6 +410,13 @@
                     <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource TextBrush}"
                           StrokeThickness="2.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                           Data="M2,8 L2.1,8 M8,8 L8.1,8 M14,8 L14.1,8"/>
+                </Button>
+                <Button x:Name="CloseButton" Grid.Column="8"
+                        Style="{StaticResource FlyoutHeaderIconButton}" Click="OnCloseClick">
+                    <Path x:Name="CloseIcon" Width="14" Height="14"
+                          Stroke="{DynamicResource TextBrush}" StrokeThickness="1.4"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M3,3 L11,11 M11,3 L3,11"/>
                 </Button>
             </Grid>
             <ScrollViewer x:Name="FlyoutContentScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="14,4,14,14" MaxHeight="640">

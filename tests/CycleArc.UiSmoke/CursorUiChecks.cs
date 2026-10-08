@@ -160,11 +160,15 @@ internal static class CursorUiChecks
             var stale = UiText.T("Stale data", "오래된 데이터");
             Check(snapshot.Status == CodexQuotaStatus.Available,
                 "Cursor partial Sand sample was not available.");
-            Check(Descendants<TextBlock>(flyoutContent).Any(text => text.Text == updated),
-                "Cursor partial popup lost its Updated status or timestamp.");
+            var checkedRow = flyout.DetailRows.Select(border => (Grid)border.Child)
+                .Single(row => row.Children.OfType<TextBlock>().Any(text => text.Text == UiText.LastChecked));
+            var checkedValue = checkedRow.Children.OfType<StackPanel>().Single().Children.OfType<TextBlock>().First().Text;
+            Check(FlyoutHeaderChecks.Status(flyout) == updated
+                && checkedValue.StartsWith(CodexDisplayFormatting.ResetStamp(snapshot.LastSuccessfulRefresh, now), StringComparison.Ordinal),
+                "Cursor partial popup lost its accessible Updated status or exact Last checked timestamp row.");
             Check(((TextBlock)flyout.FindName("CodexStatusText")).Text == grokUnavailable,
                 "Cursor partial popup did not keep the optional Grok warning in detail.");
-            Check(((TextBlock)flyout.FindName("StatusText")).Text == updated,
+            Check(FlyoutHeaderChecks.Status(flyout) == updated,
                 "Cursor partial popup promoted the optional Grok warning to global status.");
             Check(!Descendants<TextBlock>(flyoutContent).Any(text => text.Text.Contains(stale, StringComparison.Ordinal)),
                 "Cursor partial popup marked the monthly sample stale.");

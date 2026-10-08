@@ -134,7 +134,7 @@ internal static class MixedProviderUiChecks
                 flyout.BindAccounts([accounts[0], idle], idle.Profile.Id, false);
                 AccountUiChecks.Render(flyout, 440, null, directory is null ? null
                     : Path.Combine(directory, $"claude-idle-{language}-{theme}.png"));
-                Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("Received", "수신값 포함"),
+                Check(FlyoutHeaderChecks.Status(flyout) == UiText.T("Received", "수신값 포함"),
                     "Idle Claude receipt unnecessarily raises attention.");
                 CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), idle.Snapshot);
                 var idleCard = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>().Last();
@@ -196,7 +196,7 @@ internal static class MixedProviderUiChecks
                 AccountUiChecks.Render(flyout, 440, null, directory is null ? null
                     : Path.Combine(directory, $"claude-live-{language}-{theme}.png"));
                 var liveNotice = (TextBlock)flyout.FindName("CodexStatusText");
-                Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("All updated", "전체 최신"),
+                Check(FlyoutHeaderChecks.Status(flyout) == UiText.T("All updated", "전체 최신"),
                     "A live Claude server check is summarized as a received sample in the popup header.");
                 Check(liveNotice.Text.Contains(
                         UiText.T("Updated from the Claude server", "Claude 서버에서"), StringComparison.Ordinal),
@@ -238,7 +238,7 @@ internal static class MixedProviderUiChecks
                 CheckStaleText(resetNotice, elapsed.Snapshot);
                 Check(elapsed.Snapshot.Status == CodexQuotaStatus.Available
                     && !resetNotice.Text.Contains(UiText.T("Stale data", "오래된 데이터"))
-                    && ((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("Received", "수신값 포함"),
+                    && FlyoutHeaderChecks.Status(flyout) == UiText.T("Received", "수신값 포함"),
                     "Elapsed reset unnecessarily raises attention for the last received Claude sample.");
                 var elapsedCard = ((ItemsControl)flyout.FindName("AccountOverview")).Items.Cast<Button>().Last();
                 CheckStaleText(AccountUiChecks.Descendants<TextBlock>(elapsedCard).Single(text =>
@@ -264,7 +264,7 @@ internal static class MixedProviderUiChecks
                 flyout.BindAccounts([accounts[0], failed], failed.Profile.Id, false);
                 AccountUiChecks.Render(flyout, 440, null, null);
                 CheckStaleText((TextBlock)flyout.FindName("CodexStatusText"), failed.Snapshot);
-                Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("1 need attention", "1개 확인 필요"),
+                Check(FlyoutHeaderChecks.Status(flyout) == UiText.T("1 need attention", "1개 확인 필요"),
                     "A real Claude input failure no longer raises attention.");
                 WidgetFixture.BindOne(widget, failed);
                 WidgetFixture.RenderWidget(widget, null);
@@ -434,7 +434,7 @@ internal static class MixedProviderUiChecks
             AccountUiChecks.Render(flyout, 440, null, path);
             Check(((ItemsControl)flyout.FindName("AccountOverview")).Items.Count == 2 && flyout.SelectedProfileId == account.Profile.Id,
                 "A bound authentication failure disappeared from the account list.");
-            Check(!account.IsAwaitingUsage && ((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("1 need attention", "1개 확인 필요"),
+            Check(!account.IsAwaitingUsage && FlyoutHeaderChecks.Status(flyout) == UiText.T("1 need attention", "1개 확인 필요"),
                 "Authentication failure was reported as benign awaiting usage.");
             Check(((TextBlock)flyout.FindName("CodexStatusText")).Text.StartsWith(label, StringComparison.Ordinal),
                 "Selected details did not name the authentication failure.");
@@ -471,7 +471,7 @@ internal static class MixedProviderUiChecks
         var rows = (ItemsControl)flyout.FindName("AccountOverview");
         Check(rows.Items.Count == 2 && rows.Items.Cast<Button>().All(button => (string)button.Tag != pending.Profile.Id), "Pending Claude profile is visible in the main account overview.");
         Check(((TextBlock)flyout.FindName("AccountsHeading")).Text == UiText.T("Accounts · 2", "계정 · 2"), "Pending profile inflated the displayed account count.");
-        Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("All updated", "전체 최신"), "Pending profile incorrectly requires attention.");
+        Check(FlyoutHeaderChecks.Status(flyout) == UiText.T("All updated", "전체 최신"), "Pending profile incorrectly requires attention.");
         Check(flyout.SelectedProfileId == second.Profile.Id, "Filtering changed a valid account selection.");
         manager.Bind(all, second.Profile.Id);
         var managed = (ItemsControl)manager.FindName("AccountRows");
@@ -494,7 +494,7 @@ internal static class MixedProviderUiChecks
         flyout.BindAccounts([first, connected, second], connected.Profile.Id, false);
         AccountUiChecks.Render(flyout, 440, null, directory is null ? null : Path.Combine(directory, $"connected-waiting-{language}-{theme}.png"));
         Check(rows.Items.Count == 3 && flyout.SelectedProfileId == connected.Profile.Id, "Connected Claude without usage is hidden.");
-        Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("1 awaiting usage", "1개 수신 대기"), "A connected account awaiting usage was labeled as an error.");
+        Check(FlyoutHeaderChecks.Status(flyout) == UiText.T("1 awaiting usage", "1개 수신 대기"), "A connected account awaiting usage was labeled as an error.");
         Check(((TextBlock)flyout.FindName("ClaudeUsageScope")).Text == ClaudeUsagePresentation.SharedScope
             && ((Button)flyout.FindName("ClaudeUsagePageButton")).Visibility == Visibility.Visible,
             "Waiting profile lacks shared quota meaning or access to current usage.");
@@ -510,7 +510,7 @@ internal static class MixedProviderUiChecks
         AccountUiChecks.Render(flyout, 440, null, null);
         Check(rows.Items.Count == 3 && flyout.SelectedProfileId == pending.Profile.Id
             && ((Border)flyout.FindName("CodexCard")).Visibility == Visibility.Visible, "First valid usage did not restore the account and detail card.");
-        Check(((TextBlock)flyout.FindName("StatusText")).Text == UiText.T("Received", "수신값 포함"),
+        Check(FlyoutHeaderChecks.Status(flyout) == UiText.T("Received", "수신값 포함"),
             "A recently received Claude sample was presented as a current account query.");
     }
 
