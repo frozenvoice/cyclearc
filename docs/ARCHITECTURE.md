@@ -352,8 +352,12 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
   hiding the detail window closes it. Automatic hover opening is disabled for this button.
 - Flyout refresh uses only the header status and fixed-size spinning button; no sliding progress
   bar or duplicate in-card refreshing message changes the card height.
-- Flyout header exposes independent zoom, refresh, settings and a themed Window options menu
-  containing pin/unpin and close. A keyboard-accessible account dropdown above the quota card
+- Flyout header groups zoom, refresh/settings and direct pin/close actions; no options Popup
+  or duplicate menu Close remains. Pin is a two-state ToggleButton with a real UIA toggle
+  pattern, localized action/help and distinct filled/upright versus outlined/angled geometry.
+  Checked/unchecked changes update the existing Pinned/Topmost/PinChanged save path once;
+  settings restoration assigns Pinned first and emits no redundant save. Tab/Space/Enter
+  work without a menu, and Close/Escape hide without changing pin state. A keyboard-accessible account dropdown above the quota card
   raises the existing display-selection event without starting login or quota requests; binding
   suppresses duplicate selection events and credit redemption guards account changes.
   The bottom account summaries retain attention and connection-recovery states. Settings is owned by the visible

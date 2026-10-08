@@ -187,17 +187,33 @@ public class FlyoutRefreshAndLocalizationTests
         Assert.Equal("4", (string?)zoomIn.Attribute("Grid.Column"));
         Assert.Equal("OnZoomOutClick", (string?)zoomOut.Attribute("Click"));
         Assert.Equal("OnZoomInClick", (string?)zoomIn.Attribute("Click"));
-        var options = header.Descendants(ns + "Button")
-            .Single(element => (string?)element.Attribute(x + "Name") == "WindowOptionsButton");
-        Assert.Equal("7", (string?)options.Attribute("Grid.Column"));
-        var menu = options.Descendants(ns + "ContextMenu").Single();
-        var pin = menu.Descendants(ns + "MenuItem")
-            .Single(element => (string?)element.Attribute(x + "Name") == "PinMenuItem");
-        var close = menu.Descendants(ns + "MenuItem")
-            .Single(element => (string?)element.Attribute(x + "Name") == "CloseFlyoutMenuItem");
-        Assert.Equal("True", (string?)pin.Attribute("IsCheckable"));
-        Assert.Equal("OnPinClick", (string?)pin.Attribute("Click"));
-        Assert.Equal("OnCloseClick", (string?)close.Attribute("Click"));
+        var pin = header.Elements(ns + "ToggleButton")
+            .Single(element => (string?)element.Attribute(x + "Name") == "PinButton");
+        Assert.Equal("7", (string?)pin.Attribute("Grid.Column"));
+        Assert.Equal("False", (string?)pin.Attribute("IsThreeState"));
+        Assert.Equal("True", (string?)pin.Attribute("KeyboardNavigation.AcceptsReturn"));
+        Assert.Equal("OnPinToggled", (string?)pin.Attribute("Checked"));
+        Assert.Equal("OnPinToggled", (string?)pin.Attribute("Unchecked"));
+        Assert.Null(pin.Attribute("Click"));
+        Assert.Equal("{StaticResource FlyoutPinButton}", (string?)pin.Attribute("Style"));
+        Assert.Empty(header.Descendants(ns + "ContextMenu"));
+        Assert.Empty(header.Descendants(ns + "MenuItem"));
+        var pinIcon = pin.Descendants(ns + "Path").Single(element => (string?)element.Attribute(x + "Name") == "PinIcon");
+        Assert.Equal("14", (string?)pinIcon.Attribute("Width"));
+        Assert.Equal("14", (string?)pinIcon.Attribute("Height"));
+        Assert.NotNull(pinIcon.Descendants(ns + "RotateTransform").Single(element => (string?)element.Attribute(x + "Name") == "PinRotate"));
+        var headerStyle = document.Descendants(ns + "Style").Single(element => (string?)element.Attribute(x + "Key") == "FlyoutHeaderIconButton");
+        Assert.Equal("ButtonBase", (string?)headerStyle.Attribute("TargetType"));
+        Assert.NotNull(headerStyle.Descendants(ns + "Border").Single(element => (string?)element.Attribute(x + "Name") == "HeaderIconChrome"));
+        var pinStyle = document.Descendants(ns + "Style").Single(element => (string?)element.Attribute(x + "Key") == "FlyoutPinButton");
+        Assert.Equal("ToggleButton", (string?)pinStyle.Attribute("TargetType"));
+        Assert.Equal("{StaticResource FlyoutHeaderIconButton}", (string?)pinStyle.Attribute("BasedOn"));
+        Assert.Contains(pinStyle.Descendants(ns + "Setter"), element => (string?)element.Attribute("Property") == "Tag"
+            && ((string?)element.Attribute("Value"))!.Contains("SystemParameters.HighContrastKey", StringComparison.Ordinal));
+        Assert.Contains(pinStyle.Descendants(ns + "Trigger"), element => (string?)element.Attribute("Property") == "IsChecked");
+        Assert.Contains(pinStyle.Descendants(ns + "Trigger"), element => (string?)element.Attribute("Property") == "IsPressed");
+        Assert.Contains(pinStyle.Descendants(ns + "Trigger"), element => (string?)element.Attribute("Property") == "IsKeyboardFocused");
+        Assert.Contains(pinStyle.Descendants(ns + "Trigger"), element => (string?)element.Attribute("Property") == "IsEnabled");
         var settings = header.Descendants(ns + "Button").Single(element => (string?)element.Attribute(x + "Name") == "SettingsButton");
         Assert.Equal("6", (string?)settings.Attribute("Grid.Column"));
         Assert.Equal("OnSettingsClick", (string?)settings.Attribute("Click"));

@@ -2,6 +2,60 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Direct detail-header pin toggle (unreleased, 2026-10-08 Asia/Seoul):
+  - Started with clean fetched `main` at `fbc8e4c2ccf02a6b357f7f2ed1d1948f8c2ea746`,
+    branch `codex/flyout-direct-pin`. Removed the redundant Window options Popup,
+    duplicate menu Close, menu-opening handler and three menu-only styles.
+    Header groups are zoom/percentage, refresh/settings, then direct pin/Close;
+    spacing separates actions without changing 440 DIP width, title, zoom percentage
+    or minimum 28 DIP targets. Close remains last and hides only the popup.
+  - A native WPF two-state ToggleButton exposes the real UIA Toggle pattern. An upright
+    filled pin with a quiet GhostBrush surface and accent outline means pinned; an angled
+    outline means unpinned. EN/KO name, tooltip and help describe the current state/action.
+    Enabled vector contrast is asserted at least 3:1 from actual resolved/composited brushes,
+    including checked/off, focus, pressed and fixture-local HC cases. System HC colors are
+    read through a live resource; no Windows setting is changed.
+  - Checked/unchecked routes mouse-class activation, Enter, Space and UIA Toggle through
+    one authoritative Pinned/Topmost/PinChanged path. Existing App subscription/storage
+    remains untouched. Settings restore assigns Pinned before synchronizing the control
+    and emits no save. Tests retain Tab/ShiftTab traversal, disabled UIA rejection, focus,
+    close/Escape/reopen, single notification, selection, position/anchors, live refresh,
+    clock lifetime and widget visibility. Isolated explicit-path SettingsStore save/restart
+    checks remove their fixed temporary fixture. ButtonBase hit filtering includes the
+    pin vector so it cannot start header drag.
+  - Release solution build passed with .NET 10.0.401: zero errors, three existing
+    UiReuseChecks nullable warnings. Relevant unit tests: **86 passed, zero skipped**.
+    Focused direct-pin/header, Cursor, **148** ring and **982** zoom checks passed.
+    Pin and header each cover **60** separate injected DPI/zoom layouts in EN/KO,
+    Dark/Light, app zoom 80/100/150%, DPI 100/125/150/175/200%. Actual shown-header
+    host DPI was **150%**; the other DPIs are injected, not physical-monitor proof.
+    Final argument-free default UiSmoke: **exit 0**, ending in
+    `[ui-smoke] COMPLETE all default suites` on the final integrated source.
+  - Initial failures are retained, not skipped. Object-valued Tag triggers compared the
+    HC bool with a string; DataTrigger/MultiDataTrigger bindings corrected that defect.
+    A sandbox File.Move failure in the isolated settings fixture passed under the same
+    authorized elevated execution, without source/expectation changes. One initial default
+    Space-release assertion failed; focused and the narrow four-stage reproducer passed.
+    Its cause remains unconfirmed. Precise expected/actual pin, focus, capture, physical
+    mouse and routed-key diagnostics remain, with no retry loop or timeout increase.
+    Separately, reapplying zoom while collecting unpinned captures caused a one-pixel
+    work-area refit; the collector now uses the actual UIA pin toggle instead.
+  - [Before](images/flyout-pin-before-ko-dark.png) / [after](images/flyout-pin-after-ko-dark.png),
+    [pinned](images/flyout-pin-pinned-ko-dark.png) / [unpinned](images/flyout-pin-unpinned-ko-dark.png)
+    are actual synthetic-account production WPF captures. [Body comparison](measurements/flyout-pin-2026-10-08-body.csv)
+    records **36/36** equal dimensions and **35/36** decoded body-region SHA-256 matches;
+    the remaining KO/Dark warning capture differs only in existing ring hover background.
+    [Widget comparison](measurements/flyout-pin-2026-10-08-widget.csv): **12/12** complete PNG
+    hashes match. Provider/Core/App/widget/version files have no diff. Updated 31 current
+    popup guide previews plus ten pin/before-after images; widget/settings/tray and dated
+    menu/history images are preserved. Retired menu CLI modes fail explicitly; direct-pin
+    and a narrow preceding-stage reproducer replace the default menu checks.
+  - Logs: `artifacts/pin-{baseline,build,unit,focused,header,cursor,rings,zoom,prefix,ui-smoke}.log`,
+    retained failure diagnostics, and comparison CSVs. No real Windows HC session, native
+    SendInput, live-provider request, CI, packaging, installation or release was performed.
+    Guarded native modes remain opt-in. Temporary captures are reduced to the checked-in
+    images/CSVs and logs, then removed before delivery.
+
 - Compact detail header and direct Close (unreleased, 2026-10-08 Asia/Seoul):
   - Started with clean `main` at `ded53c9cd0279e34e8856a4dab26bfb0fb4e9dac`;
     local branch `codex/flyout-header-icons`. Original production captures were taken

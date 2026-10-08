@@ -266,23 +266,33 @@ internal static class Program
             }
             if (args is ["--flyout-header-native", var headerNativeDirectory])
             {
-                FlyoutOptionsMenuChecks.RunHeaderNative(headerNativeDirectory);
+                FlyoutPinChecks.RunHeaderNative(headerNativeDirectory);
                 return 0;
             }
-            if (args is ["--flyout-menu"] or ["--flyout-menu", _])
+            if (args is ["--flyout-pin"] or ["--flyout-pin", _])
             {
-                FlyoutOptionsMenuChecks.Run(args.Length == 2 ? args[1] : null);
+                FlyoutPinChecks.Run(args.Length == 2 ? args[1] : null);
                 return 0;
             }
-            if (args is ["--flyout-menu-baseline", var menuBaselineDirectory])
+            if (args is ["--flyout-pin-prefix"] or ["--flyout-pin-prefix", _])
             {
-                FlyoutOptionsMenuChecks.Run(menuBaselineDirectory, baseline: true);
+                // Reproduce the immediately preceding default-suite state without a broad rerun.
+                UsagePeriodUiChecks.Run(app);
+                MixedProviderUiChecks.Run();
+                ToolTipUiChecks.Run();
+                FlyoutActivationChecks.Run(app);
+                FlyoutPinChecks.Run(args.Length == 2 ? args[1] : null);
                 return 0;
             }
-            if (args is ["--flyout-menu-native", var menuNativeDirectory])
+            if (args is ["--flyout-pin-native", var pinNativeDirectory])
             {
-                FlyoutOptionsMenuChecks.RunNative(menuNativeDirectory);
+                FlyoutPinChecks.RunPinNative(pinNativeDirectory);
                 return 0;
+            }
+            if (args.Length > 0 && args[0] is "--flyout-menu" or "--flyout-menu-baseline" or "--flyout-menu-native")
+            {
+                Console.Error.WriteLine("Flyout options-menu modes were retired; use --flyout-pin or opt-in --flyout-pin-native <directory>.");
+                return 1;
             }
             if (args is ["--ui-reuse"])
             {
@@ -329,8 +339,8 @@ internal static class Program
             ToolTipUiChecks.Run();
             Begin("flyout-activation");
             FlyoutActivationChecks.Run(app);
-            Begin("flyout-menu");
-            FlyoutOptionsMenuChecks.Run();
+            Begin("flyout-pin");
+            FlyoutPinChecks.Run();
             Begin("flyout-header");
             FlyoutHeaderChecks.Run();
             Begin("ui-reuse");

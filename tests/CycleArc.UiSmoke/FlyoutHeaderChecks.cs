@@ -54,6 +54,17 @@ internal static class FlyoutHeaderChecks
                     else CheckIndicator(flyout, "healthy", UiText.T("All updated", "전체 최신"));
                     Capture(flyout, directory, "healthy-" + suffix);
                     if (directory is not null) WidgetFixture.RenderWidget(widget, Path.Combine(directory, "widget-" + suffix + ".png"));
+                    if (!baseline)
+                    {
+                        // Use the actual pin path without reapplying zoom/work-area sizing.
+                        var pin = (System.Windows.Controls.Primitives.ToggleButton)flyout.FindName("PinButton");
+                        var toggle = (System.Windows.Automation.Provider.IToggleProvider)
+                            UIElementAutomationPeer.CreatePeerForElement(pin)!.GetPattern(PatternInterface.Toggle)!;
+                        toggle.Toggle();
+                        Pump(); Capture(flyout, directory, "unpinned-" + suffix);
+                        toggle.Toggle();
+                        Pump();
+                    }
                     flyout.SetRefreshPresentation(new FlyoutRefreshPresentation(false, true, UiText.RefreshAllProgress));
                     Pump(); Capture(flyout, directory, "refreshing-" + suffix);
                     var warning = accounts.ToArray();
@@ -188,13 +199,11 @@ internal static class FlyoutHeaderChecks
         flyout.SyncRequested += () => requests++;
         flyout.PositionChanged += (_, _) => moves++;
         var sourceCheck = typeof(FlyoutWindow).GetMethod("HeaderSourceIsInteractive", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        foreach (var name in new[] { "FlyoutZoomOutButton", "FlyoutZoomInButton", "RefreshAllButton", "SettingsButton", "WindowOptionsButton", "CloseButton" })
+        foreach (var name in new[] { "FlyoutZoomOutButton", "FlyoutZoomInButton", "RefreshAllButton", "SettingsButton", "PinButton", "CloseButton" })
             Require((bool)sourceCheck.Invoke(flyout, [(FrameworkElement)flyout.FindName(name)])!, name + " leaks into header drag.");
         var selector = (ComboBox)flyout.FindName("AccountSelector");
         selector.IsDropDownOpen = true; Pump();
-        ((Button)flyout.FindName("WindowOptionsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
-        var menu = (ContextMenu)flyout.FindName("WindowOptionsMenu");
-        Require(menu.IsOpen, "Fixture did not open options before direct Close.");
+        Require(flyout.FindName("WindowOptionsMenu") is null, "Removed options menu is still attached.");
         var statusTip = (ToolTip)((FrameworkElement)flyout.FindName("StatusIndicator")).ToolTip;
         var refreshTip = (ToolTip)refresh.ToolTip;
         statusTip.PlacementTarget = (UIElement)flyout.FindName("StatusIndicator");
@@ -204,7 +213,7 @@ internal static class FlyoutHeaderChecks
         close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
         Require(!flyout.IsVisible && widget.IsVisible && flyout.Pinned && flyout.SelectedProfileId == selected
             && flyout.PixelPosition == position && flyout.EdgeAnchors == anchors && pinChanges == 0 && selectionChanges == 0 && requests == 0 && moves == 0
-            && !menu.IsOpen && !selector.IsDropDownOpen && !statusTip.IsOpen && !refreshTip.IsOpen,
+            && !selector.IsDropDownOpen && !statusTip.IsOpen && !refreshTip.IsOpen,
             "Direct Close changed another surface, pin, selection, position or refresh requests, or retained an open popup.");
         Require(clocks.GetValue(flyout) is null && clock!.CurrentState == ClockState.Stopped, "Direct Close left refresh animation running.");
         flyout.Show(); Pump();
@@ -282,7 +291,7 @@ internal static class FlyoutHeaderChecks
     {
         flyout.UpdateLayout();
         var header = (FrameworkElement)flyout.FindName("FlyoutHeaderGrid");
-        return new[] { "FlyoutZoomOutButton", "FlyoutZoomPercentText", "FlyoutZoomInButton", "RefreshAllButton", "SettingsButton", "WindowOptionsButton", "CloseButton" }
+        return new[] { "FlyoutZoomOutButton", "FlyoutZoomPercentText", "FlyoutZoomInButton", "RefreshAllButton", "SettingsButton", "PinButton", "CloseButton" }
             .ToDictionary(name => name, name => ((FrameworkElement)flyout.FindName(name)).TransformToAncestor(header).TransformBounds(new Rect(((FrameworkElement)flyout.FindName(name)).RenderSize)));
     }
 
@@ -314,7 +323,7 @@ internal static class FlyoutHeaderChecks
                 && bounds.Top >= -tolerance && bounds.Bottom <= header.ActualHeight + tolerance, name + " is clipped: " + context);
             Require(previous.Right <= bounds.Left + tolerance, name + " overlaps its previous action: " + context);
             previous = bounds;
-            if (flyout.FindName(name) is Button button) Require(button.ActualWidth + tolerance >= 28 && button.ActualHeight + tolerance >= 28, name + " shrank its hit target: " + context);
+            if (flyout.FindName(name) is System.Windows.Controls.Primitives.ButtonBase button) Require(button.ActualWidth + tolerance >= 28 && button.ActualHeight + tolerance >= 28, name + " shrank its hit target: " + context);
         }
         var title = (TextBlock)flyout.FindName("TitleText");
         var titleBox = title.TransformToAncestor(header).TransformBounds(new Rect(title.RenderSize));

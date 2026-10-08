@@ -104,7 +104,6 @@ public partial class FlyoutWindow : Window
                 if (_creditHelpTip is not null) _creditHelpTip.IsOpen = false;
                 if (_headerStatusTip is not null) _headerStatusTip.IsOpen = false;
                 if (_refreshTip is not null) _refreshTip.IsOpen = false;
-                WindowOptionsMenu.IsOpen = false;
                 AccountSelector.IsDropDownOpen = false;
             }
         };
@@ -592,8 +591,6 @@ public partial class FlyoutWindow : Window
         RefreshAllButton.ToolTip = UiText.RefreshAll;
         System.Windows.Automation.AutomationProperties.SetName(RefreshAllButton, UiText.RefreshAll);
         ApplyPinGlyph();
-        CloseFlyoutMenuItem.Header = UiText.Close;
-        System.Windows.Automation.AutomationProperties.SetName(CloseFlyoutMenuItem, UiText.Close);
         CloseButton.ToolTip = UiText.Close;
         System.Windows.Automation.AutomationProperties.SetName(CloseButton, UiText.Close);
         System.Windows.Automation.AutomationProperties.SetHelpText(CloseButton,
@@ -1128,16 +1125,11 @@ One credit will be consumed.",
 
     private void OnSettingsClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
 
-    private void OnWindowOptionsClick(object sender, RoutedEventArgs e)
+    private void OnPinToggled(object sender, RoutedEventArgs e)
     {
-        WindowOptionsMenu.PlacementTarget = WindowOptionsButton;
-        WindowOptionsMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-        WindowOptionsMenu.IsOpen = true;
-    }
-
-    private void OnPinClick(object sender, RoutedEventArgs e)
-    {
-        Pinned = !Pinned;
+        var pinned = PinButton.IsChecked == true;
+        if (Pinned == pinned) return;
+        Pinned = pinned;
         Topmost = FlyoutWindowState.IsTopmost(Pinned);
         ApplyPinGlyph();
         PinChanged?.Invoke(Pinned);
@@ -1233,22 +1225,23 @@ One credit will be consumed.",
     private void ApplyPinGlyph()
     {
         var label = Pinned ? UiText.Unpin : UiText.Pin;
-        PinMenuItem.Header = label;
-        PinMenuItem.IsChecked = Pinned;
-        System.Windows.Automation.AutomationProperties.SetName(PinMenuItem, label);
-        var options = UiText.T("Window options", "창 옵션");
-        WindowOptionsButton.ToolTip = Pinned ? options + UiText.T(" · Pinned", " · 고정됨") : options;
-        System.Windows.Automation.AutomationProperties.SetName(WindowOptionsButton, (string)WindowOptionsButton.ToolTip);
+        // Settings restore assigns Pinned first. The checked-event equality guard keeps
+        // restoration silent while mouse, keyboard and UIA toggles share one save path.
+        PinButton.IsChecked = Pinned;
+        PinButton.ToolTip = label;
+        PinRotate.Angle = Pinned ? 0 : -35;
+        System.Windows.Automation.AutomationProperties.SetName(PinButton, label);
+        System.Windows.Automation.AutomationProperties.SetHelpText(PinButton, Pinned
+            ? UiText.T("Pinned. Keep the detail popup above other windows. Activate to unpin.", "고정됨. 상세 팝업을 다른 창 위에 유지합니다. 누르면 고정을 해제합니다.")
+            : UiText.T("Unpinned. Activate to keep the detail popup above other windows.", "고정 해제됨. 누르면 상세 팝업을 다른 창 위에 유지합니다."));
     }
 
     private bool HeaderSourceIsInteractive(DependencyObject? source)
     {
         while (source is not null && !ReferenceEquals(source, FlyoutHeaderGrid))
         {
-            if (source is System.Windows.Controls.Button
-                || ReferenceEquals(source, StatusIndicator)
-                || ReferenceEquals(source, RefreshAllButton)
-                || ReferenceEquals(source, WindowOptionsButton))
+            if (source is System.Windows.Controls.Primitives.ButtonBase
+                || ReferenceEquals(source, StatusIndicator))
             {
                 return true;
             }

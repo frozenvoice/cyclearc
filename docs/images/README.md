@@ -31,8 +31,11 @@ The detail header now uses a compact status icon with its full explanation in th
 and accessible name/help. Confirmed current usage has a green dot, known warnings keep a
 warning shape during checks, and pending/unknown/local receipts remain neutral. The existing
 refresh button owns the single spinner. A permanent rightmost × hides only the popup,
-including when pinned; zoom percentage and Window options stay directly accessible.
-The `flyout-header-{healthy,refreshing,warning}-ko-dark.png` captures use the same fixed
+including when pinned; zoom percentage stays directly accessible. The pin button beside ×
+now replaces Window options: upright/filled with selected chrome is pinned, angled/outlined
+is unpinned. Spacing groups zoom, refresh/settings and pin/close without changing popup width.
+The `flyout-pin-{pinned,unpinned}-ko-dark.png` captures show both current states.
+The earlier `flyout-header-{healthy,refreshing,warning}-ko-dark.png` captures use the same fixed
 synthetic accounts as `flyout-header-before-ko-dark.png`; the widget and quota body are
 compared separately. Reproduce the production header state and injected DPI checks:
 
@@ -43,11 +46,16 @@ dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release -
 The opt-in `--flyout-header-baseline <directory>` collector must be run against the
 original production header before editing; it is evidence collection, not a check of the
 current contract. `--flyout-header-native artifacts/previews` is separate from the default
-suite and sends native input only to guarded synthetic HWNDs.
+suite and sends native input only to guarded synthetic HWNDs. Current direct-pin state,
+keyboard/automation, isolated persistence and normal/HC fixture checks use:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --flyout-pin artifacts/previews
+```
 
 The current source removes the usage-history graph, selected-widget sparkline, actual-value
 expander, metric selector and storage warning. The detail header keeps zoom, refresh and
-settings beside Window options and direct Close; multi-account details have a display-account dropdown.
+settings beside direct pin and Close; multi-account details have a display-account dropdown.
 Healthy missing credits remain folded auxiliary rows. The removal refresh, completed
 2026-10-07 Asia/Seoul, replaced 36 current popup/widget guide images plus eight zoom-percentage
 previews after EN/KO Dark/Light visual inspection, including individual mixed, wrapped and
@@ -410,9 +418,9 @@ Neither takes a desktop screenshot. Each image must be visually inspected before
 replacing the checked-in file. Keep English and Korean captions consistent with the account counts,
 selected profile, data source and separate Claude periods.
 
-## Opened window-options menu
+## Historical opened window-options menu (removed 2026-10-08)
 
-These menu-only PNGs render the **opened production ContextMenu Popup**, not the Flyout
+These historical menu-only PNGs render the **opened production ContextMenu Popup**, not the Flyout
 body. The before images were captured on `3ef21eb` before the scoped templates were applied;
 the after images use native mouse hover on the checked item at Windows DPI 150%, app zoom
 100%, with synthetic account data. The keyboard image uses native Up at DPI 100%; the Close
@@ -424,14 +432,15 @@ hover image uses DPI 150%, app zoom 150%.
 | After (checked + mouse hover) | [After Dark](flyout-menu-after-ko-dark.png) | [After Light](flyout-menu-after-ko-light.png) |
 | Additional input state | [Keyboard selection](flyout-menu-keyboard-ko-dark.png) | [Close hover](flyout-menu-close-hover-ko-light.png) |
 
-Focused synthetic state/layout checks and separate Popup captures (after a Release build):
+Reproduce the following retired menu checks only from source before the direct-pin change
+(for example `fbc8e4c`), after a Release build of that source:
 
 ```powershell
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --flyout-menu artifacts/flyout-menu
 ```
 
-The default UiSmoke suite includes these state/layout checks without native input or captures.
-`--flyout-menu-baseline artifacts/flyout-menu` captures the current checkout's menu without
+That source's default UiSmoke suite includes these state/layout checks without native input or captures.
+`--flyout-menu-baseline artifacts/flyout-menu` captures that checkout's menu without
 requiring the new template; use an unmodified checkout to reproduce the original template.
 For an explicit interactive desktop check on connected monitors:
 
