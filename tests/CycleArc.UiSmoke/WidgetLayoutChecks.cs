@@ -337,7 +337,18 @@ internal static class WidgetLayoutChecks
         };
         var persisted = new List<(double Left, double Top)>();
         var widget = new FloatingWidget { ShowActivated = false };
+        var activations = 0;
+        widget.Activated += (_, _) => activations++;
         widget.Moved += (left, top) => persisted.Add((left, top));
+        string FocusProbe(string phase)
+        {
+            var probe = $"Relayout focus {phase}: foreground={WindowIdentity(GetForegroundWindow())}, "
+                + $"active={WindowIdentity(GetActiveWindow())}, fixture={WindowIdentity(new WindowInteropHelper(focus).Handle)}, "
+                + $"widget={WindowIdentity(new WindowInteropHelper(widget).Handle)}, activations={activations}";
+            log.AppendLine(probe);
+            Console.WriteLine(probe);
+            return probe;
+        }
         try
         {
             focus.Show();
@@ -355,12 +366,16 @@ internal static class WidgetLayoutChecks
             LogProbe(log, "start five-column", widget, primary, Wide, persisted);
 
             var foreground = GetForegroundWindow();
+            var focusBefore = FocusProbe("before move");
             widget.Left = -400;
             widget.Top = 40;
+            FocusProbe("after move");
             var beforeSecondary = (widget.Left, widget.Top);
             persisted.Clear();
             widget.Relayout(Dual);
+            FocusProbe("immediately after Relayout");
             Pump();
+            var focusAfter = FocusProbe("after Pump");
             Check(widget.LastLayout!.Columns == 3 && widget.LastLayout.Rows == 2,
                 $"Drop onto the secondary did not wrap ({widget.LastLayout.Columns}x{widget.LastLayout.Rows}).");
             var after = DipSize(widget);
@@ -370,7 +385,8 @@ internal static class WidgetLayoutChecks
                 $"Wrapped widget {widget.Left},{widget.Top} {after.Width}x{after.Height} left the secondary {secondary}.");
             CheckMoved(persisted, widget, secondary, mustMove: true, before: beforeSecondary,
                 "secondary wrap");
-            Check(GetForegroundWindow() == foreground, "Relayout stole focus from another window.");
+            Check(GetForegroundWindow() == foreground,
+                $"Relayout stole focus from another window. {focusBefore}; {focusAfter}");
             CheckUnchangedAfterPump(persisted, widget, secondary, "secondary wrap");
             CheckAccountsFullyVisible(widget, "relayout-secondary");
             LogProbe(log, "after secondary 3+2", widget, secondary, Dual, persisted);
@@ -978,6 +994,18 @@ internal static class WidgetLayoutChecks
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetActiveWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+
+    private static string WindowIdentity(IntPtr hwnd)
+    {
+        GetWindowThreadProcessId(hwnd, out var processId);
+        return $"0x{hwnd.ToInt64():X}/pid={processId}";
+    }
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);

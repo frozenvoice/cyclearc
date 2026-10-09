@@ -19,6 +19,16 @@
   - Focused Release compilation and final `--ui-reuse` passed. Evidence:
     `artifacts/ui-reuse-red.log`, `artifacts/ui-reuse-backlog-green.log`, and
     `artifacts/ui-reuse-final-green.log`. Product code and unit-test binaries are unchanged.
+  - The following local integrated run passed `ui-reuse` but failed the existing
+    widget-relayout global-foreground equality check once. That check lacked window
+    identities, so the historical cause remains unconfirmed. Diagnostic-only additions
+    now record foreground HWND/PID, thread-active/fixture/widget identities and widget
+    activation counts before movement, after movement, after relayout and after pumping.
+    The original equality assertion remains intact. Focused `--widget-layout` then passed
+    **151 checks** with a stable external foreground, stable fixture thread activation
+    and **zero widget activations**; this does not prove the earlier failure's cause.
+    Logs: `artifacts/release-focus-failure.log` and
+    `artifacts/widget-layout-focus-diagnostic.log`.
 
 - Release setup-UI runner isolation (0.10.0 preparation, 2026-10-09 Asia/Seoul):
   - The initial release candidate `6aa572d05e85541bfd093ec1107102997ca31e3e`
@@ -46,6 +56,10 @@
     then passed after isolation. Five unsafe synthetic mutations are rejected, and all
     five multiline workflow PowerShell blocks parse. Application, installer and UI-test
     runtime code are unchanged; the earlier 2,036 unit-test results remain applicable.
+  - [Build-local 37873979123](https://github.com/frozenvoice/cyclearc/actions/runs/37873979123)
+    subsequently passed both the real CMD job and the separate setup-UI job on
+    `6aaf4a97c7c85a40958d07c43a64ba33a6dd9a2e`. The consumer matched the producer
+    installer SHA-256 before validating cancellation, Run choice and desktop-shortcut repairs.
 
 - Direct detail-header pin toggle (unreleased, 2026-10-08 Asia/Seoul):
   - Started with clean fetched `main` at `fbc8e4c2ccf02a6b357f7f2ed1d1948f8c2ea746`,
