@@ -2,6 +2,33 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Release setup-UI runner isolation (0.10.0 preparation, 2026-10-09 Asia/Seoul):
+  - The initial release candidate `6aa572d05e85541bfd093ec1107102997ca31e3e`
+    passed the local full gate: **2,036 unit tests, zero skipped**, argument-free
+    UiSmoke through `[ui-smoke] COMPLETE all default suites`, and package verification.
+    Actual local WPF host DPI was **100%**. The initial log-capture wrapper duplicated
+    PowerShell transcript output; a minimal probe reproduced two marker lines with a
+    merged-stream pipeline versus one without it. Running the official gate in its own
+    PowerShell process resolved that harness failure without source changes.
+  - [Windows 37871904836](https://github.com/frozenvoice/cyclearc/actions/runs/37871904836)
+    passed build, managed installation/repair and shortcut choices; the installed and
+    repaired executable matched the packed SHA-256. [Installed E2E 37871909940](https://github.com/frozenvoice/cyclearc/actions/runs/37871909940)
+    passed the .NET 8 `0.9.1` baseline migration, failed-start recovery and removal checks.
+  - [Build-local 37871907468](https://github.com/frozenvoice/cyclearc/actions/runs/37871907468)
+    passed the real CMD entry point, distinct same-version A/B executable replacement,
+    approval/completion interactions and preservation of build B after deliberate compile
+    failure. Its later setup-UI step failed because that same runner already contained
+    the managed installation, while `Verify-SetupUi.ps1` correctly requires a fresh user.
+    This is a workflow isolation failure, not successful complete build-local verification.
+  - The setup-UI check now runs in a separate disposable `windows-2022` job after the
+    CMD job succeeds. It downloads that job's exact uploaded installer by artifact ID
+    and checks the producer SHA-256 before running the unchanged guarded UI script.
+    It neither rebuilds the installer nor deletes an installation to simulate a fresh user.
+  - The focused workflow contract first failed against the original same-job wiring,
+    then passed after isolation. Five unsafe synthetic mutations are rejected, and all
+    five multiline workflow PowerShell blocks parse. Application, installer and UI-test
+    runtime code are unchanged; the earlier 2,036 unit-test results remain applicable.
+
 - Direct detail-header pin toggle (unreleased, 2026-10-08 Asia/Seoul):
   - Started with clean fetched `main` at `fbc8e4c2ccf02a6b357f7f2ed1d1948f8c2ea746`,
     branch `codex/flyout-direct-pin`. Removed the redundant Window options Popup,

@@ -3,7 +3,7 @@ name: Windows build-local entry point
 # Runs the real build-local.cmd double-click path on a disposable windows-2022
 # runner: no injected DevRun/RunSetup/StartLauncher scriptblocks, the real
 # dev-run.ps1 gate, the real CycleArc-Setup.exe and the real managed install under
-# %LOCALAPPDATA%\CycleArc. It installs build A, installs build B over it with the
+# the resolved managed root. It installs build A, installs build B over it with the
 # same version number but different executable content, and then breaks the build
 # to check that the failure reaches CMD with a nonzero exit code and leaves the
 # running installation alone.
@@ -11,6 +11,8 @@ name: Windows build-local entry point
 # The runner is discarded afterwards, which is why it may leave a real installation
 # for the runner's own Windows user. It is deliberately NOT part of the ordinary
 # Windows workflow and runs on request only.
+# The fresh-user setup UI checks run on a separate hosted runner, consuming this
+# job's exact packaged installer artifact and SHA-256, without rebuilding it.
 #
 # Run it from the Actions tab, choosing the branch to verify.
 
@@ -21,6 +23,9 @@ jobs:
   build-local-entry-point:
     runs-on: windows-2022
     timeout-minutes: 120
+    outputs:
+      setup-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}
+      setup-sha256: ${{ steps.record-setup.outputs.sha256 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -56,17 +61,27 @@ jobs:
           try { ./scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment -WorkRoot $artifacts }
           finally { Stop-Transcript | Out-Null }
 
-      # The screens a person actually sees when they double-click the downloaded installer.
-      # This installs for real, which is why it only runs on this disposable runner.
-      - name: Verify the setup window on the distributable installer
+      - name: Record verified build-local installer
+        id: record-setup
         run: |
-          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/build-local-entry/setup-ui'
           $setup = Join-Path $env:GITHUB_WORKSPACE 'publish/.dev-velopack/CycleArc-Setup.exe'
           if (!(Test-Path -LiteralPath $setup -PathType Leaf)) {
             throw "The packaged installer is missing at $setup"
           }
           "Installer: $setup ({0:n1} MB)" -f ((Get-Item $setup).Length / 1MB)
-          ./scripts/Verify-SetupUi.ps1 -SetupPath $setup -OutputDirectory $artifacts -ConfirmDisposableEnvironment
+          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToUpperInvariant()
+          Write-Host "Build-local installer SHA-256: $hash"
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Upload verified build-local installer
+        id: upload-setup
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-local-setup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: publish/.dev-velopack/CycleArc-Setup.exe
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
 
       # Collected for a failed run as well, so a failure is diagnosable from the log alone.
       - name: Collect logs
@@ -115,5 +130,49 @@ jobs:
         with:
           name: build-local-entry-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/build-local-entry
+          if-no-files-found: warn
+          retention-days: 14
+
+  # CMD verification deliberately leaves a managed installation. Setup UI needs
+  # a fresh user, so retain its guard and run it on another disposable host.
+  setup-ui:
+    needs: build-local-entry-point
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download verified build-local installer
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ needs.build-local-entry-point.outputs.setup-artifact-id }}
+          path: publish/build-local-setup
+          merge-multiple: true
+
+      # The screens a person actually sees when they double-click the downloaded installer.
+      # This installs for real only on this fresh disposable runner.
+      - name: Verify the setup window on the distributable installer
+        env:
+          EXPECTED_SETUP_SHA256: ${{ needs.build-local-entry-point.outputs.setup-sha256 }}
+        run: |
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts/build-local-entry/setup-ui'
+          $setup = Join-Path $env:GITHUB_WORKSPACE 'publish/build-local-setup/CycleArc-Setup.exe'
+          if (!(Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw "The downloaded installer is missing at $setup"
+          }
+          $actual = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToUpperInvariant()
+          if ($actual -cne $env:EXPECTED_SETUP_SHA256) {
+            throw "Downloaded installer SHA-256 $actual does not match build-local $env:EXPECTED_SETUP_SHA256"
+          }
+          Write-Host "Verified build-local installer SHA-256: $actual"
+          ./scripts/Verify-SetupUi.ps1 -SetupPath $setup -OutputDirectory $artifacts -ConfirmDisposableEnvironment
+
+      - name: Upload setup UI evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: setup-ui-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/build-local-entry/setup-ui
           if-no-files-found: warn
           retention-days: 14

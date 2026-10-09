@@ -36,6 +36,29 @@ function Assert-ManualWorkflow([string]$Text, [string]$Name) {
     Assert-Contract ($eventNames.Count -eq 1 -and $eventNames[0] -ceq 'workflow_dispatch') "$Name must be manual-only, with no push, PR, schedule or indirect event"
 }
 
+function Assert-BuildLocalSetupIsolation([string]$Text) {
+    $entryPoint = [regex]::Match($Text, '(?ms)^  build-local-entry-point:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
+    $setupUi = [regex]::Match($Text, '(?ms)^  setup-ui:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
+    Assert-Contract (!$entryPoint.Contains('Verify-SetupUi.ps1')) 'fresh-user Setup UI must not run after the real CMD installation in the same job'
+    Assert-Contract ($entryPoint.Contains('./scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment')) 'build-local must retain the real guarded CMD verification'
+    Assert-Contract ($setupUi -match '(?m)^\s+runs-on:\s+windows-2022\s*$') 'build-local Setup UI must use its own disposable hosted runner'
+    Assert-Contract ($setupUi -match '(?m)^\s+needs:\s+build-local-entry-point\s*$') 'build-local Setup UI must wait for successful CMD verification'
+    Assert-Contract ($entryPoint.Contains('setup-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}')) 'CMD job must expose the exact uploaded installer artifact ID'
+    Assert-Contract ($entryPoint.Contains('setup-sha256: ${{ steps.record-setup.outputs.sha256 }}')) 'CMD job must expose the packaged installer hash'
+    $upload = [regex]::Match($entryPoint, '(?ms)^      - name: Upload verified build-local installer.*?(?=^      - name:|\z)').Value
+    Assert-Contract ($upload.Contains('id: upload-setup') -and $upload.Contains('actions/upload-artifact@v6')) 'CMD job must upload its own installer'
+    Assert-Contract ($upload.Contains('path: publish/.dev-velopack/CycleArc-Setup.exe') -and $upload.Contains('include-hidden-files: true') -and $upload.Contains('if-no-files-found: error')) 'CMD job must require the existing exact installer under the hidden package directory'
+    $download = [regex]::Match($setupUi, '(?ms)^      - name: Download verified build-local installer.*?(?=^      - name:|\z)').Value
+    Assert-Contract ($download.Contains('actions/download-artifact@v6') -and $download.Contains('artifact-ids: ${{ needs.build-local-entry-point.outputs.setup-artifact-id }}') -and $download.Contains('path: publish/build-local-setup') -and $download.Contains('merge-multiple: true')) 'fresh Setup UI must download the exact producer artifact by ID into the verified installer path'
+    Assert-Contract ($download -notmatch '(?m)^\s+(name|pattern|run-id|repository):') 'Setup UI must not select an installer from another name, run or repository'
+    Assert-Contract ($entryPoint.Contains('Get-FileHash -LiteralPath $setup -Algorithm SHA256') -and $entryPoint.Contains('"sha256=$hash" >> $env:GITHUB_OUTPUT')) 'producer hash must come from the uploaded installer'
+    Assert-Contract ($setupUi.Contains('EXPECTED_SETUP_SHA256: ${{ needs.build-local-entry-point.outputs.setup-sha256 }}') -and $setupUi.Contains('Get-FileHash -LiteralPath $setup -Algorithm SHA256') -and $setupUi.Contains('if ($actual -cne $env:EXPECTED_SETUP_SHA256)')) 'fresh Setup UI must enforce the producer installer SHA-256'
+    Assert-Contract ($setupUi.Contains("'publish/build-local-setup/CycleArc-Setup.exe'") -and $setupUi.Contains('./scripts/Verify-SetupUi.ps1 -SetupPath $setup -OutputDirectory $artifacts -ConfirmDisposableEnvironment')) 'fresh runner must verify the downloaded installer through the guarded UI script'
+    Assert-Contract ($setupUi -notmatch '(?mi)dev-run\.ps1|dotnet\s+(build|publish)|Remove-Item|Verify-BuildLocalEntryPoint\.ps1') 'fresh UI job must not rebuild or clean an installation to evade its fresh-user requirement'
+    Assert-Contract ($Text -notmatch '(?mi)^\s+continue-on-error:\s*true\s*$') 'build-local must not mask a failed verification'
+    Assert-Contract ($setupUi.Contains('name: setup-ui-${{ github.run_id }}-${{ github.run_attempt }}') -and $setupUi.Contains('if: always()')) 'fresh UI runner must upload its diagnostic evidence on failure'
+}
+
 Assert-ManualWorkflow $workflow 'Windows full verification'
 foreach ($forbiddenEvent in @('push', 'pull_request', 'schedule', 'workflow_run', 'workflow_call', 'repository_dispatch')) {
     $rejected = $false
@@ -105,6 +128,31 @@ foreach ($sourceWorkflow in @('windows-e2e.yml', 'windows-build-local.yml')) {
     Assert-Contract ($sourceText -match '(?m)^\s+runs-on:\s+windows-2022\s*$') "$sourceWorkflow must use the VS2022 AOT image"
     Assert-Contract ($sourceText -match '(?m)^\s+dotnet-version:\s+["'']10\.0\.x["'']\s*$') "$sourceWorkflow must install the 10.0.x SDK channel"
 }
+$buildLocalWorkflow = Get-Content -LiteralPath (Join-Path $RepoRoot '.github/workflows/windows-build-local.yml') -Raw
+Assert-BuildLocalSetupIsolation $buildLocalWorkflow
+foreach ($mutation in @(
+    @{ Name = 'shared installed user'; Text = $buildLocalWorkflow.Replace('      - name: Drive build-local.cmd end to end', "      - name: Invalid shared-user UI`n        run: ./scripts/Verify-SetupUi.ps1`n`n      - name: Drive build-local.cmd end to end") },
+    @{ Name = 'different artifact'; Text = $buildLocalWorkflow.Replace('artifact-ids: ${{ needs.build-local-entry-point.outputs.setup-artifact-id }}', 'name: unrelated-installer') },
+    @{ Name = 'hash mismatch bypass'; Text = $buildLocalWorkflow.Replace('if ($actual -cne $env:EXPECTED_SETUP_SHA256)', 'if ($false)') },
+    @{ Name = 'unconfirmed install'; Text = $buildLocalWorkflow.Replace('./scripts/Verify-SetupUi.ps1 -SetupPath $setup -OutputDirectory $artifacts -ConfirmDisposableEnvironment', './scripts/Verify-SetupUi.ps1 -SetupPath $setup -OutputDirectory $artifacts') },
+    @{ Name = 'installation cleanup bypass'; Text = $buildLocalWorkflow.Replace('./scripts/Verify-SetupUi.ps1 -SetupPath', "Remove-Item -LiteralPath `$installation -Recurse`n          ./scripts/Verify-SetupUi.ps1 -SetupPath") }
+)) {
+    $rejected = $false
+    try { Assert-BuildLocalSetupIsolation $mutation.Text }
+    catch { $rejected = $true }
+    Assert-Contract $rejected "build-local isolation guard must reject $($mutation.Name)"
+}
+Write-Host 'PASS: build-local CMD and fresh-user Setup UI use separate hosted jobs and the same installer artifact ID and SHA-256; unsafe wiring mutations rejected.'
+$runBlocks = [regex]::Matches($buildLocalWorkflow, '(?m)^        run: \|\r?\n(?<body>(?:^          [^\r\n]*\r?\n|^\r?\n)+)')
+$runCount = [regex]::Matches($buildLocalWorkflow, '(?m)^        run:').Count
+Assert-Contract ($runCount -eq ($runBlocks.Count + 1) -and $buildLocalWorkflow.Contains('        run: ./tests/BuildLocal.Tests.ps1')) 'every build-local inline PowerShell run block must be covered by the syntax check'
+foreach ($runBlock in $runBlocks) {
+    $scriptText = [regex]::Replace($runBlock.Groups['body'].Value, '(?m)^          ', '')
+    $scriptErrors = $null
+    [void][Management.Automation.Language.Parser]::ParseInput($scriptText, [ref]$null, [ref]$scriptErrors)
+    Assert-Contract (!$scriptErrors) "build-local workflow PowerShell must parse: $(@($scriptErrors | ForEach-Object { $_.Message }) -join '; ')"
+}
+Write-Host "PASS: all $($runBlocks.Count) multiline build-local workflow PowerShell blocks parse."
 $installedWorkflow = Get-Content -LiteralPath (Join-Path $RepoRoot '.github/workflows/windows-e2e.yml') -Raw
 Assert-Contract ($installedWorkflow.Contains('50c73b4f070ccb8e6192c0dbbfc1b6476aa89153')) 'installed migration check must default to the known .NET 8 version 0.9.1 source commit'
 Assert-Contract ($installedWorkflow.Contains('dotnet-version: "8.0.x"') -and $installedWorkflow.Contains("version = '8.0.100'")) 'historical baseline must explicitly select its own .NET 8 SDK'
