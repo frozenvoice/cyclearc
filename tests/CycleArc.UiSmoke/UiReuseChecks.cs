@@ -235,6 +235,16 @@ internal static class UiReuseChecks
         Dispatcher.PushFrame(frame);
     }
 
+    // A frame timer can win over ApplicationIdle work when rendering is busy. Wait for
+    // the queued idle work itself: the equal-priority FIFO barrier follows the App bind.
+    private static void DrainDispatcherIdle()
+    {
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var frame = new DispatcherFrame();
+        dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
+    }
+
     private static void CheckTrayIcons()
     {
         var available = Snapshot(63);
@@ -342,15 +352,32 @@ internal static class UiReuseChecks
             manager.Select(profiles[1].Id);
             Call("RefreshSnapshot");
             Require(flyout.SelectedProfileId == profiles[0].Id, "The hidden selection bind ran before visible updates.");
-            Pump();
-            Require(!flyout.IsVisible && flyout.SelectedProfileId == profiles[1].Id && Rows(flyout).SequenceEqual(rows),
-                "A hidden popup was not prepared once for the new selection.");
+            var visibleUpdatesRan = false;
+            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background,
+                new Action(() =>
+                {
+                    Require(flyout.SelectedProfileId == profiles[0].Id,
+                        "The hidden selection bind ran before higher-priority visible updates.");
+                    visibleUpdatesRan = true;
+                }));
+            DrainDispatcherIdle();
+            Require(visibleUpdatesRan && !flyout.IsVisible && flyout.SelectedProfileId == profiles[1].Id && Rows(flyout).SequenceEqual(rows),
+                $"A hidden popup was not prepared once for the new selection. Selected={flyout.SelectedProfileId}; queued={typeof(App).GetField("_hiddenFlyoutSelectionBindQueued", PrivateInstance)!.GetValue(app)}.");
+
+            // Multiple selections before idle must coalesce into the latest account.
+            manager.Select(profiles[0].Id); Call("RefreshSnapshot");
+            manager.Select(profiles[2].Id); Call("RefreshSnapshot");
+            Require(flyout.SelectedProfileId == profiles[1].Id, "A coalesced hidden selection ran before idle.");
+            DrainDispatcherIdle();
+            Require(flyout.SelectedProfileId == profiles[2].Id && Rows(flyout).SequenceEqual(rows),
+                "The coalesced hidden bind did not prepare the latest selection.");
+            manager.Select(profiles[1].Id); Call("RefreshSnapshot"); DrainDispatcherIdle();
             contents = rows.Select(row => row.Content).ToArray();
             provider.Services[profiles[1].Id].Snapshot = Snapshot(61);
-            Call("RefreshSnapshot"); Pump();
+            Call("RefreshSnapshot"); DrainDispatcherIdle();
             Require(rows.Select(row => row.Content).SequenceEqual(contents), "A hidden quota change rebuilt popup rows.");
             manager.Select(profiles[0].Id);
-            Call("RefreshSnapshot"); Pump();
+            Call("RefreshSnapshot"); DrainDispatcherIdle();
 
             // Withdrawn data is dropped at once, even while hidden.
             manager.Remove(profiles[2].Id);
@@ -373,11 +400,12 @@ internal static class UiReuseChecks
         }
         finally
         {
+            // Complete callbacks against their own fixture before restoring another App state.
+            DrainDispatcherIdle();
             Get<FlyoutWindow?>("_flyout")?.Close();
             Get<FloatingWidgetController?>("_widgetController")?.Dispose();
             tray.Dispose();
             for (var index = 0; index < fields.Length; index++) fields[index].SetValue(app, original[index]);
-            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
@@ -430,7 +458,7 @@ internal static class UiReuseChecks
                 Require(flyout.SelectedProfileId == manager.SelectedId, $"Visible switch {cycle} did not follow the selection.");
                 Call("ToggleFlyout");
                 Next();
-                Pump(20);
+                DrainDispatcherIdle();
             }
             Require(Rows(flyout).SequenceEqual(rows), "Repeated reopen and switching recreated account rows.");
             Require(icons.Count > 1 && icons.Take(icons.Count - 1).All(icon => !ReferenceEquals(icon, current.GetValue(tray)) && Disposed(icon)),
@@ -444,11 +472,11 @@ internal static class UiReuseChecks
         }
         finally
         {
+            DrainDispatcherIdle();
             (fields[Array.IndexOf(names, "_flyout")].GetValue(app) as FlyoutWindow)?.Close();
             (fields[Array.IndexOf(names, "_widgetController")].GetValue(app) as FloatingWidgetController)?.Dispose();
             tray.Dispose();
             for (var index = 0; index < fields.Length; index++) fields[index].SetValue(app, original[index]);
-            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }

@@ -2,6 +2,24 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Deferred popup preparation test ordering (0.10.0 preparation, 2026-10-09 Asia/Seoul):
+  - [Windows 37873976560](https://github.com/frozenvoice/cyclearc/actions/runs/37873976560)
+    passed **2,036 unit tests** but failed the default `ui-reuse` check: the hidden popup
+    still had the preceding selection. The fixture used a 150 ms `Background` timer to
+    wait for production work queued at the lower `ApplicationIdle` priority.
+  - A deterministic local reproducer queued 200 ms of higher-priority dispatcher work.
+    The original timer-based check failed with the old selection and
+    `_hiddenFlyoutSelectionBindQueued=True`; the production binding had not run yet.
+    An equal-priority FIFO dispatcher barrier passed with the identical backlog.
+  - Only `UiReuseChecks.cs` changed. Deferred-binding assertions now wait for that
+    barrier, assert that visible updates run first and coalesced selections bind the
+    latest account, and drain fixture callbacks before restoring the preceding App
+    fields. Animation/frame timing checks retain their existing timed pump. The injected
+    delay is absent from final source; no timeout was increased or assertion removed.
+  - Focused Release compilation and final `--ui-reuse` passed. Evidence:
+    `artifacts/ui-reuse-red.log`, `artifacts/ui-reuse-backlog-green.log`, and
+    `artifacts/ui-reuse-final-green.log`. Product code and unit-test binaries are unchanged.
+
 - Release setup-UI runner isolation (0.10.0 preparation, 2026-10-09 Asia/Seoul):
   - The initial release candidate `6aa572d05e85541bfd093ec1107102997ca31e3e`
     passed the local full gate: **2,036 unit tests, zero skipped**, argument-free
