@@ -723,7 +723,8 @@ public partial class FloatingWidget : Window
             RestorePixels();
             _restoringPixels = false;
             Relayout();
-            Moved?.Invoke(Left, Top);
+            // Restoring native pixels is not a user move: WPF may round the saved DIP
+            // coordinates here. Relayout still reports any actual safety/anchor recovery.
         }));
     }
 
