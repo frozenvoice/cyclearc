@@ -44,8 +44,12 @@ Contract:
   loop and only rebinds the popup row and widget tooltip. Receipts are never part of the quota
   snapshot, freshness, alerts, account management, selection or caches, and never trigger a
   usage request.
+- Changes of the option are applied one at a time and always end on the latest saved value: an
+  Off saved while a connection is still being written removes the entries right after it, and
+  On saved during a removal adds them again.
 - Trade-off: each prompt waits for PowerShell and the receiver to start (bounded by the
-  five-second hook timeout, fail-open).
+  five-second hook timeout, fail-open). On a development build this took about 0.6 s per prompt
+  (synthetic events, 2026-10-10, see [Validation](VALIDATION.md)).
 
 ## Selected-account on-demand card (2026-10-01)
 

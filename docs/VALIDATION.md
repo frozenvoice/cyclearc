@@ -3701,3 +3701,30 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   new `CursorUiChecks.CheckRecentActivity`), visual EN/KO Dark/Light inspection, host-DPI
   checks, the `dev-run.ps1` gates and the `--cursor-hook` process path, because WPF and
   PowerShell 5 processes require Windows. These must run on Windows before this reaches `main`.
+
+### Windows follow-up and option sync fix, 2026-10-10
+
+- Defect (static review): saving Off while the On connection was still writing hooks.json set a
+  pending flag, but the follow-up ran from inside the still-running task, saw itself as busy,
+  set the flag again and returned. The option stayed Off while CycleArc's entries remained.
+  `CursorHookSynchronizer` now reruns the apply with the latest setting whenever the option
+  changed during a run. `CursorHookSynchronizerTests` hold the write open and cover On→Off,
+  Off→On, several changes in one run, On→Off→On, a later separate run, cancellation at exit
+  and an unexpected failure.
+- The recent-request clipping check compared `ActualWidth` with a `DesiredSize` that includes
+  the label's 12 px margin; the text itself was not clipped. The check now adds the margin.
+- Windows 11 (10.0.26300), 96 DPI host, .NET SDK 10.0.401: `dotnet build CycleArc.sln -c Release`
+  succeeded; the full unit suite passed 2,112 of 2,112, including the 59 tests that fail on
+  Linux; the argument-free UiSmoke exited 0 with `[ui-smoke] COMPLETE all default suites`.
+  `--cursor-ui` renders of the popup row and widget in EN/KO and System/Light/Dark were
+  inspected: no clipping, widget size unchanged.
+- Receiver process path (synthetic, isolated): the real installer wrote a temporary
+  `.cursor/hooks.json` holding another tool's `stop` hook, and each registered command ran
+  through `cmd.exe` with documented-shape stdin against the Release `CycleArc.exe`. Every
+  event exited 0 with `{"continue":true}` (`{}` for `stop`), including malformed input; the
+  inbox held the latest completion without prompt or email; removal restored the original
+  file. `beforeSubmitPrompt` took 901 ms cold and a 607 ms median (max 731 ms) over five warm
+  runs, mostly PowerShell and process start. The self-contained installed build was not timed.
+- Still not verified: a real Cursor event (the user's Cursor configuration was not changed),
+  the installed-app path, real Korean IME composition in the accounts window, and CPU, memory or
+  responsiveness measurements of the earlier UI update trimming.
