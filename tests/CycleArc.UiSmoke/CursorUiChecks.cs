@@ -507,8 +507,11 @@ internal static class CursorUiChecks
             flyoutContent.Arrange(new Rect(0, 0, 440, 1000));
             flyoutContent.UpdateLayout();
             var row = flyout.DetailRows[^1];
-            Check(row.ActualWidth > 0 && Descendants<TextBlock>(row).All(text => text.ActualWidth + 0.5 >= text.DesiredSize.Width),
-                "Cursor recent request row is clipped.");
+            // One device pixel of layout rounding (0.67 DIP at 150%) is not clipping; the other
+            // popup detail-row checks allow the same.
+            var clipped = Descendants<TextBlock>(row).FirstOrDefault(text => text.ActualWidth + 1 < text.DesiredSize.Width);
+            Check(row.ActualWidth > 0 && clipped is null,
+                $"Cursor recent request row is clipped: '{clipped?.Text}' {clipped?.ActualWidth:0.##} < {clipped?.DesiredSize.Width:0.##}.");
             var detail = string.Join(" ", Descendants<TextBlock>(row).Select(text => text.Text));
             Check(detail.Contains(CursorActivityPresentation.LinkText, StringComparison.Ordinal),
                 "Cursor recent request row does not say its limit link is unconfirmed.");
