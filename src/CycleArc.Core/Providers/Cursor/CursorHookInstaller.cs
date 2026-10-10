@@ -74,16 +74,19 @@ public static class CursorHookInstaller
     /// <summary>
     /// An encoded PowerShell command runs the same way from cmd, PowerShell or Git Bash and quotes
     /// any installation path. Every failure exits 1, never 2: Cursor treats 2 as "block".
+    /// Stdin is copied to the receiver as bytes: Windows PowerShell's <c>$input</c> decodes it with the
+    /// console code page (CP949 on Korean Windows), which corrupted Cursor's byte order mark and text.
+    /// The receiver writes its response straight to the inherited stdout.
     /// </summary>
     public static string Command(CursorHookOptions options)
     {
         if (!Valid(options)) throw new CursorHookException(CursorHookFailure.InvalidSettings);
         var path = options.CycleArcExecutable.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
         var script = Marker + OptionsPrefix + Payload(options) + "'; "
-            + "Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop; "
-            + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; "
-            + "$input | & '" + path + "' '" + CursorHookCommand.Argument + "' $options"
-            + " | & { process { [Console]::Out.WriteLine($_) } }; if ($LASTEXITCODE -eq 0) { exit 0 } else { exit 1 }";
+            + "try { $p = New-Object System.Diagnostics.Process; $s = $p.StartInfo; $s.FileName = '" + path + "'; "
+            + "$s.Arguments = '" + CursorHookCommand.Argument + " ' + $options; $s.UseShellExecute = $false; $s.RedirectStandardInput = $true; "
+            + "$null = $p.Start(); [Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream); $p.StandardInput.Close(); "
+            + "$p.WaitForExit(); if ($p.ExitCode -eq 0) { exit 0 } } catch { }; exit 1";
         var command = Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
         if (command.Length > MaxCommandLength) throw new CursorHookException(CursorHookFailure.CommandTooLong);
         return command;

@@ -69,6 +69,11 @@ internal static class Program
             ClaudeStatusLineProcessChecks.Run(executable);
             return 0;
         }
+        if (args is ["--cursor-hook-process"])
+        {
+            CursorHookProcessChecks.Run();
+            return 0;
+        }
         if (args is ["--published-native-dependencies", var nativeExecutable])
         {
             PublishedNativeDependencyChecks.Run(nativeExecutable);
@@ -315,6 +320,8 @@ internal static class Program
             UpdateUiChecks.Run();
             Begin("claude-statusline-process");
             ClaudeStatusLineProcessChecks.Run();
+            Begin("cursor-hook-process");
+            CursorHookProcessChecks.Run();
             Begin("accounts");
             AccountUiChecks.Run();
             Begin("codex-windows");
