@@ -60,6 +60,22 @@ jobs:
           path: TestResults/*.trx
           if-no-files-found: ignore
 
+      # Evidence stays in this exact full run, separate from public release assets.
+      - name: Upload original published executable
+        uses: actions/upload-artifact@v6
+        with:
+          name: CycleArc-published-win-x64
+          path: publish/.dev-staging/CycleArc.exe
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Upload portable verification tools
+        uses: actions/upload-artifact@v6
+        with:
+          name: CycleArc-verification-tools
+          path: tests/CycleArc.UiSmoke/bin/Release/net10.0-windows10.0.17763.0/**
+          if-no-files-found: error
+
   # Disposable GitHub-hosted runner only. Installs the just-packaged Setup.exe for the
   # runner user, checks that current\CycleArc.exe matches the packed executable, then
   # stops the desktop over IPC. This is not an uninstall/reinstall cycle and does not
@@ -237,5 +253,45 @@ jobs:
         with:
           name: setup-shortcut-choices
           path: artifacts/setup-shortcut-choices/**
+          if-no-files-found: ignore
+
+  # A fresh profile proves the shipped ZIP starts without a managed installation.
+  portable-distribution:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download exact-run release assets
+        uses: actions/download-artifact@v6
+        with:
+          name: CycleArc-win-x64
+          path: publish/velopack
+
+      - name: Download verification tools
+        uses: actions/download-artifact@v6
+        with:
+          name: CycleArc-verification-tools
+          path: artifacts/verification-tools
+
+      - name: Setup harness .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Verify standalone portable desktop
+        shell: pwsh
+        env:
+          CYCLEARC_DISPOSABLE_PROFILE: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet ./artifacts/verification-tools/CycleArc.UiSmoke.dll --portable-distribution ./publish/velopack
+          if ($LASTEXITCODE -ne 0) { throw "Portable verification failed with exit $LASTEXITCODE" }
+
+      - name: Upload portable evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: portable-distribution-evidence
+          path: artifacts/portable-distribution/*.json
           if-no-files-found: ignore
 

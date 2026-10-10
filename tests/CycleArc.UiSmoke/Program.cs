@@ -22,6 +22,11 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--portable-distribution", var portableAssets])
+        {
+            PortableDistributionChecks.Run(portableAssets);
+            return 0;
+        }
         if (args is [ClaudeStatusLineProcessChecks.PreviousStatusLineChildArgument])
             return ClaudeStatusLineProcessChecks.RunPreviousStatusLineChild();
         if (args is ["--update-package", var releaseDirectory])
@@ -109,6 +114,7 @@ internal static class Program
                 return 0;
             }
             if (args is ["--updates"]) { UpdateUiChecks.Run(); return 0; }
+            if (args is ["--portable-ui"]) { PortableUiChecks.Run(); return 0; }
             if (args is ["--observation-removal"] or ["--observation-removal", _])
             {
                 ObservationRemovalUiChecks.Run(args.Length == 2 ? args[1] : null);
@@ -318,6 +324,8 @@ internal static class Program
             ShutdownChecks.Run();
             Begin("updates");
             UpdateUiChecks.Run();
+            Begin("portable-distribution-ui");
+            PortableUiChecks.Run();
             Begin("claude-statusline-process");
             ClaudeStatusLineProcessChecks.Run();
             Begin("cursor-hook-process");

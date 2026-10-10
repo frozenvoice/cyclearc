@@ -100,9 +100,25 @@ These .NET 10 requirements describe the 0.10.0 source build. The latest-release 
 
 CycleArc discovers `codex.exe` or `codex.cmd` through PATH and supported installation locations. The Codex CLI itself is not bundled. Sign-in remains managed by Codex.
 
+Starting with the next release from this source, the same Release offers both `CycleArc-Setup.exe`
+and `CycleArc-<version>-win-x64-portable.zip`, built from the same self-contained Windows x64 EXE.
+Extract the ZIP to a writable folder and run its single `CycleArc.exe`; neither a .NET installation
+nor a managed CycleArc installation is required. It runs in place, without installing itself,
+creating shortcuts/uninstall entries, initializing Velopack, or changing installation/tray registry
+entries. Windows startup registration is unavailable in portable mode; an installed startup
+preference is retained in shared settings. The published 0.10.0 release and existing tags remain unchanged.
+
 ### Running and updating versions
 
-An ordinary launch keeps the first running instance and opens its popup, which shows the running version. Development builds and releases have equal priority. Windows startup uses the installed launcher and does not bring an already running window forward.
+An ordinary launch keeps the first running instance in the current Windows session and opens its popup, which shows the running version. Development, installed and portable builds have equal priority. New builds use a shared data lock to prevent another desktop from starting in a different session under the same Windows account. Older releases do not acquire this lock; exit older desktops in every session before switching versions or distributions. Windows startup uses the installed launcher and does not bring an already running window forward.
+
+Portable users check Releases manually: exit CycleArc, download the new ZIP, replace `CycleArc.exe`
+in the same folder, then run it again. Portable and installed copies share the existing accounts,
+settings, quota cache and backups under `%LOCALAPPDATA%\ProMeter`; the ZIP does not isolate user
+data. Passive Claude and Cursor callbacks also belong to these shared integrations and can refer
+to the configured portable executable path. Keep that path for ZIP replacement. If you move or
+delete its folder, explicitly reconnect the affected Claude integration or turn Cursor recent
+request off, apply, then on again. Managed startup retains its verified owned-callback migration.
 
 The setup installs the stable channel and keeps it current through GitHub Releases. CycleArc checks 20 seconds after startup and then every six hours. A stable release is offered with English/Korean release notes; choose **Download update**, then **Restart & update** to apply it, or choose **Later**. Updates are not applied automatically at startup. The complete `.nupkg` is SHA-256 checked after download and again before Velopack applies it.
 
@@ -374,11 +390,11 @@ Preflight reports existing desktop PIDs and executable paths. After validation, 
 
 - `-NoLaunch`: validate the staged executable without replacing the running local app.
 - `-Fast`: skip the unit suite only when it has already passed for the same changes.
-- CI builds and checks the development single-file executable and packages the Velopack installer assets for the stable release workflow.
+- CI builds and checks the self-contained single-file executable and packages both distributions plus the Velopack update assets for the stable release workflow.
 
 For ordinary development, `dev-run.ps1 -DevelopmentOnly` reuses SDK/process preflight, restore, Release build and unit tests. Add `-TestFilter "<matching-filter>"` to run only relevant tests, or `-BuildOnly` to compile only. It never publishes, packages, installs or launches the app/UiSmoke, and does not need the packaging AOT tools. Run affected WPF checks explicitly. A local partial check is not full validation.
 
-All three Windows workflows use only `workflow_dispatch`; push/PR work has no remote CI-completion wait. The `Windows` workflow runs the full `dev-run.ps1 -NoLaunch` gate on `windows-2022` with the existing VS2022 Native AOT tool contract. Its install/repair and shortcut-choice jobs consume `CycleArc-win-x64` from that same run, including installed executable hash checks and evidence. A manual run does not publish a release.
+All three Windows workflows use only `workflow_dispatch`; push/PR work has no remote CI-completion wait. The `Windows` workflow runs the full `dev-run.ps1 -NoLaunch` gate on `windows-2022` with the existing VS2022 Native AOT tool contract. Its install/repair, shortcut-choice and standalone portable jobs consume `CycleArc-win-x64` from that same run, including installed/portable executable hash checks and evidence. The portable job runs on a fresh disposable profile without a CycleArc installation and checks its tray/widget and registry behavior. A manual run does not publish a release.
 
 `scripts/Verify-BuildLocalEntryPoint.ps1 -ConfirmDisposableEnvironment` drives the real `build-local.cmd` entry point end to end with nothing injected: build A through the real `dev-run.ps1` gate and the real `CycleArc-Setup.exe`, build B installed over it with the same version number but different executable content, and a deliberately broken build to check that the cause and a nonzero exit code reach CMD while the running installation is left alone. It installs and replaces a real installation for the current Windows user, so run it only on a disposable Windows VM or throwaway user; the `Windows build-local entry point` workflow runs it on a discarded GitHub-hosted runner.
 
@@ -402,9 +418,20 @@ For installer delivery, require the full local gate and a successful full remote
 
 For a GitHub release, pass the local full gate on the final versioned changes, commit/push, then explicitly dispatch `Windows` for that SHA. Select its run ID and run `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -Commit <target-sha> -FullRunId <run-id> -NotesPath <notes-file> -Preflight`. After successful preflight, the same command without `-Preflight` publishes when requested. Preflight checks source metadata, remote run/commit/job/artifact state and the downloaded package without creating tags, drafts, uploads or public releases; it does not run a local build/test gate.
 
-`-FullRunId` is required: the tool checks the exact `windows.yml` manual run, target SHA, completed success of `build`, `managed-setup-install` and `setup-shortcut-choices`, and one exact unexpired `CycleArc-win-x64` artifact. Failed, cancelled, skipped, missing or in-progress validation cannot authorize publication. There is no fallback to a latest successful artifact, no automatic dispatch and no automatic deployment from validation. The app's updater still consumes published GitHub Releases, not Actions artifacts.
+`-FullRunId` is required: the tool checks the exact `windows.yml` manual run, target SHA, completed success of `build`, `managed-setup-install`, `setup-shortcut-choices` and `portable-distribution`, and one exact unexpired artifact each named `CycleArc-win-x64` and `CycleArc-published-win-x64`. Original publish, full-package and portable EXEs must have identical SHA-256 and the requested FileVersion; self-contained and asset/checksum validation must pass. Failed, cancelled, skipped, missing or in-progress validation cannot authorize publication. There is no fallback to a latest successful artifact, no automatic dispatch and no automatic deployment from validation. The app's updater still consumes published GitHub Releases, not Actions artifacts.
 
-The script downloads that commit's tested executable and installer assets, checks their
+To package both distributions locally from one validated publish directory:
+
+```powershell
+pwsh -NoProfile -File ./scripts/Package.ps1 -PublishedDir ./publish/.dev-staging -OutputDir ./publish/velopack -Version <version>
+```
+
+The full local gate already invokes packaging; this command does not substitute for validation.
+The formal release command above publishes Setup and portable ZIP together, retaining the full
+package, feed and checksum assets Velopack requires. The original-publish evidence EXE stays in
+Actions and is never an extra public release asset.
+
+The script downloads that commit's tested executable and distribution assets, checks their
 versions and uploaded SHA-256 values, and publishes the draft only after verification.
 Existing draft notes are preserved; a new release requires `-NotesPath "./release-notes/0.6.1.md"` (replace the notes path with your prepared file). Public assets and existing tag targets
 are never overwritten. Publish does not start a new build, test or packaging run.

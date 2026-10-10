@@ -3,6 +3,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $repoRoot 'scripts/ReleaseDependencies.ps1')
+. (Join-Path $repoRoot 'scripts/Package.ps1') -PublishedDir '.' -OutputDir '.' -Version '0.6.0' -LoadOnly
 
 function Assert-True([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw "ASSERT FAILED: $Message" }
@@ -153,8 +154,79 @@ try {
     try { [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $app, 'lib/net10.0/CycleArc.exe') | Out-Null }
     finally { $zip.Dispose() }
     Assert-PackagedReleaseApp -PackagePath $package -PublishedAppPath $app
+    $publishedSha256 = (Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash
+    Assert-UnchangedPublishedApp -Path $app -ExpectedSha256 $publishedSha256
+    $portable = Join-Path $testRoot 'CycleArc-0.6.0-win-x64-portable.zip'
+    New-PortableArchive -PublishedApp $app -ArchivePath $portable | Out-Null
+    Assert-PortableReleaseApp -ArchivePath $portable -PublishedAppPath $app
+    Assert-Throws { New-PortableArchive -PublishedApp $app -ArchivePath $portable } 'overwrite'
+    Assert-Throws { Assert-PortableReleaseApp -ArchivePath (Join-Path $testRoot 'missing.zip') -PublishedAppPath $app } 'Could not find'
+
+    function New-ArchiveFixture([string]$Path, [string[]]$Entries) {
+        $archive = [IO.Compression.ZipFile]::Open($Path, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($name in $Entries) {
+                [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $app, $name) | Out-Null
+            }
+        }
+        finally { $archive.Dispose() }
+    }
+    foreach ($entryNames in @(
+        @('folder/CycleArc.exe'), @('cyclearc.exe'),
+        @('CycleArc.exe', 'CycleArc.exe'), @('CycleArc.exe', 'Update.exe')
+    )) {
+        $malformed = Join-Path $testRoot 'malformed.zip'
+        if (Test-Path -LiteralPath $malformed) { Remove-Item -LiteralPath $malformed -Force }
+        New-ArchiveFixture -Path $malformed -Entries $entryNames
+        Assert-Throws { Assert-PortableReleaseApp -ArchivePath $malformed -PublishedAppPath $app } 'exactly one root'
+    }
+    foreach ($entryNames in @(
+        @('CycleArc.exe'), @('lib/net10.0/cyclearc.exe'),
+        @('lib/net10.0/CycleArc.exe', 'lib/net10.0/cyclearc.exe')
+    )) {
+        $malformed = Join-Path $testRoot 'malformed.nupkg'
+        if (Test-Path -LiteralPath $malformed) { Remove-Item -LiteralPath $malformed -Force }
+        New-ArchiveFixture -Path $malformed -Entries $entryNames
+        Assert-Throws { Assert-PackagedReleaseApp -PackagePath $malformed -PublishedAppPath $app } 'exactly one'
+    }
+    $corrupt = Join-Path $testRoot 'corrupt.zip'
+    [IO.File]::WriteAllText($corrupt, 'not a ZIP file')
+    Assert-Throws { Assert-PortableReleaseApp -ArchivePath $corrupt -PublishedAppPath $app } 'Central Directory'
+
+    $output = Join-Path $testRoot 'packaged'
+    New-Item -ItemType Directory -Path $output | Out-Null
+    $packageName = 'CycleArc-0.6.0-full.nupkg'
+    $outputPackage = Join-Path $output $packageName
+    Copy-Item -LiteralPath $package -Destination $outputPackage
+    Copy-Item -LiteralPath $portable -Destination $output
+    [IO.File]::WriteAllBytes((Join-Path $output 'CycleArc-Setup.exe'), [ReleaseDependencyFixture]::Pe())
+    $feedPath = Join-Path $output 'releases.win.json'
+    $feed = @{ Assets = @(@{
+        PackageId = 'CycleArc'; Version = '0.6.0'; Type = 'Full'; FileName = $packageName
+        SHA1 = (Get-FileHash -LiteralPath $outputPackage -Algorithm SHA1).Hash
+        SHA256 = (Get-FileHash -LiteralPath $outputPackage -Algorithm SHA256).Hash
+        Size = (Get-Item -LiteralPath $outputPackage).Length
+    }) }
+    [IO.File]::WriteAllText($feedPath, ($feed | ConvertTo-Json -Depth 10))
+    $assets = Assert-PackageOutput -Directory $output -PackageVersion '0.6.0' -PackageId 'CycleArc' -ChannelName 'win'
+    Assert-True ($assets.Files.Count -eq 5) 'one packaging result contains both distributions, full package, feed and manifest'
+    $portableHash = (Get-FileHash -LiteralPath $assets.PortableArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-True ((Get-Content -LiteralPath $assets.Manifest) -contains "$portableHash  CycleArc-0.6.0-win-x64-portable.zip") 'manifest includes portable ZIP SHA-256'
+    Remove-Item -LiteralPath $assets.PortableArchive -Force
+    Assert-Throws { Assert-PackageOutput -Directory $output -PackageVersion '0.6.0' -PackageId 'CycleArc' -ChannelName 'win' } 'Missing portable archive'
+    Copy-Item -LiteralPath $portable -Destination $output
+    $feed.Assets[0].Version = '0.6.1'
+    [IO.File]::WriteAllText($feedPath, ($feed | ConvertTo-Json -Depth 10))
+    Assert-Throws { Assert-PackageOutput -Directory $output -PackageVersion '0.6.0' -PackageId 'CycleArc' -ChannelName 'win' } 'exactly one'
+    $feed.Assets[0].Version = '0.6.0'
+    $feed.Assets[0].SHA256 = '0' * 64
+    [IO.File]::WriteAllText($feedPath, ($feed | ConvertTo-Json -Depth 10))
+    Assert-Throws { Assert-PackageOutput -Directory $output -PackageVersion '0.6.0' -PackageId 'CycleArc' -ChannelName 'win' } 'SHA256'
+
     [IO.File]::WriteAllText($app, 'tampered')
     Assert-Throws { Assert-PackagedReleaseApp -PackagePath $package -PublishedAppPath $app } 'differs'
+    Assert-Throws { Assert-PortableReleaseApp -ArchivePath $portable -PublishedAppPath $app } 'differs'
+    Assert-Throws { Assert-UnchangedPublishedApp -Path $app -ExpectedSha256 $publishedSha256 } 'changed after'
 }
 finally {
     $resolved = [IO.Path]::GetFullPath($testRoot)
@@ -182,7 +254,7 @@ foreach ($source in Get-ChildItem -LiteralPath $setupRoot -Filter '*.cs' -File) 
     }
 }
 $packageSource = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/Package.ps1') -Raw
-foreach ($guard in @('Assert-SelfContainedReleaseApp -Path $published', 'Assert-NativeReleaseExecutable -Path $engineFull', 'Assert-NativeReleaseExecutable -Path $built', 'Assert-PackagedReleaseApp -PackagePath $result.FullPackage')) {
+foreach ($guard in @('Assert-SelfContainedReleaseApp -Path $published', 'Assert-NativeReleaseExecutable -Path $engineFull', 'Assert-NativeReleaseExecutable -Path $built', 'Assert-PackagedReleaseApp -PackagePath $result.FullPackage', 'Assert-PortableReleaseApp -ArchivePath $result.PortableArchive', 'Assert-UnchangedPublishedApp -Path $published -ExpectedSha256 $publishedSha256')) {
     Assert-True ($packageSource.Contains($guard)) "packaging retains dependency guard $guard"
 }
 Write-Host 'PASS: release PE/bundle/dependency guards, package byte identity and production Setup source boundary; no software installed.'

@@ -111,6 +111,7 @@ public sealed class DesktopInstanceLease : IDisposable
     private readonly Mutex _mutex;
     private readonly string _name;
     private readonly int _ownerThreadId;
+    private FileStream? _dataLease;
     private bool _disposed;
 
     private DesktopInstanceLease(Mutex mutex, string name)
@@ -121,6 +122,10 @@ public sealed class DesktopInstanceLease : IDisposable
     }
 
     public static DesktopInstanceLease? TryAcquire(string name = LegacyInstallation.SingleInstanceMutexName)
+        => TryAcquire(name, OperatingSystem.IsWindows() && name == LegacyInstallation.SingleInstanceMutexName
+            ? AppPaths.Root : null);
+
+    internal static DesktopInstanceLease? TryAcquire(string name, string? dataRoot)
     {
         if (!LocalOwners.TryAdd(name, 0)) return null;
         Mutex? mutex = null;
@@ -136,7 +141,29 @@ public sealed class DesktopInstanceLease : IDisposable
                 LocalOwners.TryRemove(name, out _);
                 return null;
             }
-            return new DesktopInstanceLease(mutex, name);
+            var lease = new DesktopInstanceLease(mutex, name);
+            // Keep the legacy session mutex/IPC contract. A file lease additionally
+            // excludes this Windows user's other sessions from the shared data root.
+            // Synthetic test mutexes never create or lock production user data.
+            if (dataRoot is not null)
+            {
+                try
+                {
+                    lease._dataLease = new FileStream(Path.Combine(dataRoot, "desktop.lock"),
+                        FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                }
+                catch (IOException ex) when (ex.HResult is unchecked((int)0x80070020) or unchecked((int)0x80070021))
+                {
+                    lease.Dispose();
+                    throw new IOException("CycleArc is already running in another Windows session. Close it there before starting this copy.");
+                }
+                catch
+                {
+                    lease.Dispose();
+                    throw;
+                }
+            }
+            return lease;
         }
         catch
         {
@@ -155,6 +182,7 @@ public sealed class DesktopInstanceLease : IDisposable
         try { _mutex.ReleaseMutex(); }
         finally
         {
+            _dataLease?.Dispose();
             _mutex.Dispose();
             LocalOwners.TryRemove(_name, out _);
         }

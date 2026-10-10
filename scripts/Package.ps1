@@ -7,7 +7,7 @@
     The publish directory must be the single-file Windows publish output.  A
     clean output directory is used deliberately: vpk creates a delta only when
     an older full package is present, and CycleArc ships full packages only.
-    The resulting Setup, full package, release feed, and SHA-256 manifest are
+    The resulting Setup, full package, portable ZIP, release feed, and SHA-256 manifest are
     suitable for the CI artifact consumed by Release.ps1.
 #>
 [CmdletBinding()]
@@ -188,28 +188,14 @@ function New-PortableArchive {
     }
     # This is the original self-contained publish, not Velopack's managed launcher.
     # No setup, registry entry, updater, account data or user profile is bundled.
-    $zip = [IO.Compression.ZipFile]::Open($ArchivePath, [IO.Compression.ZipArchiveMode]::Create)
+    $file = [IO.File]::Open($ArchivePath, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $zip = [IO.Compression.ZipArchive]::new($file, [IO.Compression.ZipArchiveMode]::Create)
     try {
         [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
             $zip, $PublishedApp, 'CycleArc.exe', [IO.Compression.CompressionLevel]::Optimal)
     }
-    finally { $zip.Dispose() }
-
-    $readback = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
-    try {
-        $entries = @($readback.Entries)
-        if ($entries.Count -ne 1 -or $entries[0].FullName -cne 'CycleArc.exe') {
-            throw 'Portable archive must contain exactly one root CycleArc.exe'
-        }
-        $stream = $entries[0].Open()
-        try { $insideHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) }
-        finally { $stream.Dispose() }
-    }
-    finally { $readback.Dispose() }
-    $sourceHash = (Get-FileHash -LiteralPath $PublishedApp -Algorithm SHA256).Hash
-    if ($insideHash -ine $sourceHash) {
-        throw 'Portable archive executable does not match the validated published executable'
-    }
+    finally { $zip.Dispose(); $file.Dispose() }
+    Assert-PortableReleaseApp -ArchivePath $ArchivePath -PublishedAppPath $PublishedApp
     $ArchivePath
 }
 
@@ -434,6 +420,7 @@ function Invoke-Package {
     if ($publishedVersion -ne "$version.0" -and $publishedVersion -ne $version) {
         throw "$EntryPoint FileVersion is '$publishedVersion', expected '$version.0'"
     }
+    $publishedSha256 = (Get-FileHash -LiteralPath $published -Algorithm SHA256).Hash
     $publishedFull = [IO.Path]::GetFullPath($PublishedDirectory)
     $outputFull = [IO.Path]::GetFullPath($OutputDirectory)
     if ($outputFull.Equals($publishedFull, [StringComparison]::OrdinalIgnoreCase)) {
@@ -446,6 +433,7 @@ function Invoke-Package {
         $NotesPath = $notes.FullName
     }
     Invoke-VpkPack -Command $Command -PackIdValue $PackageIdValue -PackVersion $version -PackDirectory $publishedFull -OutputDirectory $output -EntryPoint $EntryPoint -ChannelName $ChannelName -NotesPath $NotesPath -IconFile $IconFile
+    Assert-UnchangedPublishedApp -Path $published -ExpectedSha256 $publishedSha256
     $portableName = "$PackageIdValue-$version-win-x64-portable.zip"
     New-PortableArchive -PublishedApp $published -ArchivePath (Join-Path $output $portableName) | Out-Null
     # The distributed installer is the setup window with the engine inside it. -NoSetupUi
@@ -457,8 +445,12 @@ function Invoke-Package {
         }
     }
     $result = Assert-PackageOutput -Directory $output -PackageVersion $version -PackageId $PackageIdValue -ChannelName $ChannelName -WrapSetup $wrap
+    # External packaging/build tools must never change the executable validated above.
+    # Compare both containers again after setup wrapping, against that original source.
+    Assert-UnchangedPublishedApp -Path $published -ExpectedSha256 $publishedSha256
     Assert-NativeReleaseExecutable -Path $result.Setup -AllowX86:$NoSetupUi | Out-Null
     Assert-PackagedReleaseApp -PackagePath $result.FullPackage -PublishedAppPath $published
+    Assert-PortableReleaseApp -ArchivePath $result.PortableArchive -PublishedAppPath $published
     $result
 }
 

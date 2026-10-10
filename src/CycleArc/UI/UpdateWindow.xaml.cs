@@ -43,6 +43,9 @@ public partial class UpdateWindow : Window
             : $"{_updates.CurrentVersion}  →  {release.Version}";
         StatusLabel.Text = state switch
         {
+            AppUpdateState.Disabled when InstalledApp.IsPortable => UiText.T(
+                "Portable updates are manual: exit CycleArc and replace its folder with the new ZIP.",
+                "포터블 업데이트는 수동입니다. CycleArc를 종료하고 새 ZIP으로 폴더를 교체하세요."),
             AppUpdateState.Disabled => UiText.T("Use the stable Windows installer to receive updates in this app.", "정식 Windows 설치 프로그램으로 설치하면 앱에서 업데이트할 수 있습니다."),
             AppUpdateState.Checking => UiText.T("Checking for a new version…", "새 버전을 확인하고 있습니다…"),
             AppUpdateState.Available => UiText.T("A new version is available. Download it when you are ready.", "새 버전이 있습니다. 편할 때 다운로드하세요."),
@@ -55,7 +58,10 @@ public partial class UpdateWindow : Window
             AppUpdateState.Failed => UiText.T("Could not check for updates. Check your connection and try again later.", "새 버전을 확인하지 못했습니다. 연결을 확인하고 잠시 후 다시 시도하세요."),
             _ => UiText.T("You are up to date.", "최신 버전을 사용하고 있습니다.")
         };
-        NotesLabel.Text = string.IsNullOrWhiteSpace(release?.Notes)
+        NotesLabel.Text = state == AppUpdateState.Disabled && InstalledApp.IsPortable
+            ? UiText.T("Download the portable ZIP from the official GitHub Release. Accounts and settings stay in your Windows user data folder.",
+                "공식 GitHub Release에서 포터블 ZIP을 다운로드하세요. 계정과 설정은 Windows 사용자 데이터 폴더에 유지됩니다.")
+            : string.IsNullOrWhiteSpace(release?.Notes)
             ? UiText.T("New versions are checked at startup and every six hours. Downloading and restarting require your approval.",
                 "시작할 때와 6시간마다 새 버전을 확인합니다. 다운로드와 재시작은 직접 선택한 경우에만 진행합니다.")
             : release.Notes.Length > 16000 ? release.Notes[..16000] : release.Notes;

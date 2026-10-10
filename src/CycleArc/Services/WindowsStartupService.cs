@@ -9,6 +9,8 @@ public sealed class WindowsStartupService : IWindowsStartup
 
     public void Apply(bool enabled)
     {
+        // Portable uses shared preferences but must preserve the installed app's Run entry.
+        if (InstalledApp.IsPortable) return;
         using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true)
                         ?? Registry.CurrentUser.CreateSubKey(RunKey);
         if (key is null)

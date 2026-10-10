@@ -83,7 +83,7 @@ public partial class App : Application
         _settings.CompanionConnectOptIn = false;
         _settings.FirstRunCompleted = true;
         _settingsStore.Save(_settings);
-        LegacyCompanionCleanup.Unregister(_log.Warn);
+        if (!InstalledApp.IsPortable) LegacyCompanionCleanup.Unregister(_log.Warn);
         StartupConsent.ApplyIfPermitted(new WindowsStartupService(), _settings);
         ApplyTheme(_settings.Theme);
         _tray = new TrayController();
@@ -101,9 +101,10 @@ public partial class App : Application
         _tray.AboutRequested += () => new AboutWindow(
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0",
             "Codex · Claude · Cursor subscription usage",
-            InstalledApp.IsManaged ? null : DesktopBootstrap.InstallSelectedVersion, ShowUpdates).Show();
+            InstalledApp.IsManaged || InstalledApp.IsPortable ? null : DesktopBootstrap.InstallSelectedVersion, ShowUpdates).Show();
         _tray.StartupToggled += enabled =>
         {
+            if (InstalledApp.IsPortable) return;
             _settings.StartWithWindows = enabled;
             StartupConsent.ApplyIfPermitted(new WindowsStartupService(), _settings);
             _settingsStore.Save(_settings);
@@ -299,6 +300,7 @@ public partial class App : Application
 
     private async Task MigrateTrayAsync()
     {
+        if (InstalledApp.IsPortable) return;
         var executable = InstalledApp.CallbackPath ?? DesktopBootstrap.ExecutablePath;
         if (!string.Equals(Environment.ProcessPath, executable, StringComparison.OrdinalIgnoreCase)) return;
         var oldPaths = DesktopBootstrap.ReadMigrationPaths()

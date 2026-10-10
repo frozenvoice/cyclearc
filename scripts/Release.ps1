@@ -42,6 +42,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ReleaseDependencies.ps1')
 
 function Invoke-NativeCommand {
     param(
@@ -248,7 +249,7 @@ function Get-RunApiItems {
 
 function Assert-WindowsFullJobs {
     param([object[]]$Jobs, [Parameter(Mandatory)][long]$RunId, [Parameter(Mandatory)][int]$Attempt)
-    foreach ($name in @('build', 'managed-setup-install', 'setup-shortcut-choices')) {
+    foreach ($name in @('build', 'managed-setup-install', 'setup-shortcut-choices', 'portable-distribution')) {
         $matching = @($Jobs | Where-Object { [string]$_.name -ceq $name })
         if ($matching.Count -ne 1) { throw "Windows full run $RunId must contain exactly one required job '$name'" }
     }
@@ -261,15 +262,16 @@ function Assert-WindowsFullJobs {
 }
 
 function Select-WindowsFullArtifact {
-    param([object[]]$Artifacts, [Parameter(Mandatory)][object]$Run, [Parameter(Mandatory)][object[]]$Jobs)
-    $matching = @($Artifacts | Where-Object { [string]$_.name -ceq 'CycleArc-win-x64' })
-    if ($matching.Count -ne 1) { throw 'Expected exactly one CycleArc-win-x64 artifact in the selected full run' }
+    param([object[]]$Artifacts, [Parameter(Mandatory)][object]$Run, [Parameter(Mandatory)][object[]]$Jobs,
+        [string]$ArtifactName = 'CycleArc-win-x64')
+    $matching = @($Artifacts | Where-Object { [string]$_.name -ceq $ArtifactName })
+    if ($matching.Count -ne 1) { throw "Expected exactly one $ArtifactName artifact in the selected full run" }
     $artifact = $matching[0]
     if ([long]$artifact.id -le 0 -or [bool]$artifact.expired -or [long]$artifact.size_in_bytes -le 0 -or
         [long]$artifact.workflow_run.id -ne [long]$Run.id -or
         [string]$artifact.workflow_run.head_sha -ine [string]$Run.head_sha -or
         [long]$artifact.workflow_run.head_repository_id -ne [long]$Run.head_repository.id) {
-        throw 'Selected CycleArc-win-x64 artifact is expired, empty or does not match the full run and target SHA'
+        throw "Selected $ArtifactName artifact is expired, empty or does not match the full run and target SHA"
     }
     # Artifacts belong to a run ID, not an attempt. Refuse an earlier attempt's
     # surviving artifact even if the run ID and commit are still identical.
@@ -297,7 +299,8 @@ function Get-VerifiedWindowsFullRun {
     Assert-WindowsFullJobs -Jobs $jobs -RunId $RunId -Attempt $run.run_attempt
     $artifacts = @(Get-RunApiItems -Endpoint "$endpoint/artifacts" -Property 'artifacts')
     $artifact = Select-WindowsFullArtifact -Artifacts $artifacts -Run $run -Jobs $jobs
-    [pscustomobject]@{ Run = $run; Artifact = $artifact }
+    $publishedArtifact = Select-WindowsFullArtifact -Artifacts $artifacts -Run $run -Jobs $jobs -ArtifactName 'CycleArc-published-win-x64'
+    [pscustomobject]@{ Run = $run; Artifact = $artifact; PublishedArtifact = $publishedArtifact }
 }
 
 function Assert-OwnedDirectory {
@@ -320,22 +323,27 @@ function Assert-OwnedDirectory {
     }
 }
 
+function Assert-ReleaseExecutableVersion {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$ExpectedFileVersion)
+    $actual = ([Diagnostics.FileVersionInfo]::GetVersionInfo($Path).FileVersion ?? '').Trim()
+    if ($actual -cne $ExpectedFileVersion) {
+        throw "CycleArc.exe FileVersion is '$actual', expected '$ExpectedFileVersion'"
+    }
+}
+
 function Assert-SinglePublishedExecutable {
     param(
         [Parameter(Mandatory)][string]$StagingDirectory,
         [Parameter(Mandatory)][string]$ExpectedFileVersion
     )
-    $files = @(Get-ChildItem -LiteralPath $StagingDirectory -File -Recurse)
-    if ($files.Count -ne 1 -or $files[0].Name -cne 'CycleArc.exe') {
+    $files = @(Get-ChildItem -LiteralPath $StagingDirectory -File -Recurse -Force)
+    if ($files.Count -ne 1 -or $files[0].FullName -cne (Join-Path $StagingDirectory 'CycleArc.exe')) {
         $names = ($files | ForEach-Object { $_.FullName }) -join ', '
-        throw "CycleArc-win-x64 must contain exactly CycleArc.exe; found: $names"
+        throw "CycleArc-published-win-x64 must contain exactly root CycleArc.exe; found: $names"
     }
-    $exe = $files[0]
-    $actual = ([string]$exe.VersionInfo.FileVersion).Trim()
-    if ($actual -ne $ExpectedFileVersion) {
-        throw "CycleArc.exe FileVersion is '$actual', expected '$ExpectedFileVersion'"
-    }
-    $exe.FullName
+    Assert-ReleaseExecutableVersion -Path $files[0].FullName -ExpectedFileVersion $ExpectedFileVersion
+    Assert-SelfContainedReleaseApp -Path $files[0].FullName | Out-Null
+    $files[0].FullName
 }
 
 function Assert-PackagedChecksumManifest {
@@ -404,32 +412,47 @@ function Assert-PackagedReleaseFeed {
     $true
 }
 
+function New-ReleaseExecutableCheckDirectory {
+    param([Parameter(Mandatory)][ValidateSet('package', 'portable')][string]$Kind)
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $target = [IO.Path]::GetFullPath((Join-Path $tempRoot "CycleArc-release-$Kind-check"))
+    if (!$target.StartsWith($tempRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Unsafe release executable check path'
+    }
+    if (Test-Path -LiteralPath $target) {
+        $items = @(Get-Item -LiteralPath $target -Force) + @(Get-ChildItem -LiteralPath $target -Recurse -Force)
+        if (@($items | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count -gt 0) {
+            throw "Release executable check path contains a reparse point: $target"
+        }
+        Remove-Item -LiteralPath $target -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $target | Out-Null
+    $target
+}
+
 function Assert-FullPackageFileVersion {
     param(
         [Parameter(Mandatory)][string]$PackagePath,
         [Parameter(Mandatory)][string]$ExpectedFileVersion,
-        [string]$ExpectedSha256
+        [Parameter(Mandatory)][string]$ExpectedSha256
     )
-    $checkRoot = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-package-check-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $checkRoot -Force | Out-Null
-    $extracted = $null
+    $checkRoot = New-ReleaseExecutableCheckDirectory -Kind package
     try {
         $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
         try {
-            $entry = @($archive.Entries | Where-Object { $_.Name -ceq 'CycleArc.exe' })
-            if ($entry.Count -ne 1) { throw 'Full package does not contain exactly one CycleArc.exe' }
+            $entry = @($archive.Entries | Where-Object { $_.Name -ieq 'CycleArc.exe' })
+            if ($entry.Count -ne 1 -or $entry[0].FullName -cnotmatch '^lib/[^/]+/CycleArc\.exe$') {
+                throw 'Full package must contain exactly one lib/*/CycleArc.exe'
+            }
             $extracted = Join-Path $checkRoot 'CycleArc.exe'
             [IO.Compression.ZipFileExtensions]::ExtractToFile($entry[0], $extracted, $true)
         }
         finally { $archive.Dispose() }
-        $actual = ([Diagnostics.FileVersionInfo]::GetVersionInfo($extracted).FileVersion ?? '').Trim()
-        if (!$actual) { throw 'Full package CycleArc.exe has no FileVersion metadata' }
-        if ($actual -ne $ExpectedFileVersion) {
-            throw "Full package CycleArc.exe FileVersion is '$actual', expected '$ExpectedFileVersion'"
+        if ((Get-FileHash -LiteralPath $extracted -Algorithm SHA256).Hash -ine $ExpectedSha256) {
+            throw 'Full package CycleArc.exe does not match original publish executable'
         }
-        if ($ExpectedSha256 -and (Get-FileHash -LiteralPath $extracted -Algorithm SHA256).Hash -ine $ExpectedSha256) {
-            throw 'Full package CycleArc.exe does not match portable archive executable'
-        }
+        Assert-ReleaseExecutableVersion -Path $extracted -ExpectedFileVersion $ExpectedFileVersion
+        Assert-SelfContainedReleaseApp -Path $extracted | Out-Null
     }
     finally {
         if (Test-Path -LiteralPath $checkRoot) { Remove-Item -LiteralPath $checkRoot -Recurse -Force }
@@ -437,18 +460,37 @@ function Assert-FullPackageFileVersion {
 }
 
 function Get-PortableArchiveExeSha256 {
-    param([Parameter(Mandatory)][string]$ArchivePath)
+    param(
+        [Parameter(Mandatory)][string]$ArchivePath,
+        [string]$ExpectedFileVersion,
+        [string]$ExpectedSha256
+    )
     $zip = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    $checkRoot = $null
     try {
         $entries = @($zip.Entries)
         if ($entries.Count -ne 1 -or $entries[0].FullName -cne 'CycleArc.exe') {
             throw 'Portable archive must contain exactly one root CycleArc.exe'
         }
         $stream = $entries[0].Open()
-        try { [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) }
+        try { $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) }
         finally { $stream.Dispose() }
+        if ($ExpectedSha256 -and $hash -ine $ExpectedSha256) {
+            throw 'Portable archive CycleArc.exe does not match original publish executable'
+        }
+        if ($ExpectedFileVersion) {
+            $checkRoot = New-ReleaseExecutableCheckDirectory -Kind portable
+            $extracted = Join-Path $checkRoot 'CycleArc.exe'
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[0], $extracted, $true)
+            Assert-ReleaseExecutableVersion -Path $extracted -ExpectedFileVersion $ExpectedFileVersion
+            Assert-SelfContainedReleaseApp -Path $extracted | Out-Null
+        }
+        $hash
     }
-    finally { $zip.Dispose() }
+    finally {
+        $zip.Dispose()
+        if ($checkRoot -and (Test-Path -LiteralPath $checkRoot)) { Remove-Item -LiteralPath $checkRoot -Recurse -Force }
+    }
 }
 
 function Get-PackagedArtifact {
@@ -456,11 +498,14 @@ function Get-PackagedArtifact {
         [Parameter(Mandatory)][string]$StagingDirectory,
         [Parameter(Mandatory)][string]$VersionValue,
         [Parameter(Mandatory)][string]$ExpectedFileVersion,
+        [Parameter(Mandatory)][string]$PublishedExecutablePath,
         [string]$PackageId = 'CycleArc',
         [string]$Channel = 'win'
     )
-    $files = @(Get-ChildItem -LiteralPath $StagingDirectory -File -Recurse)
+    $files = @(Get-ChildItem -LiteralPath $StagingDirectory -File -Recurse -Force)
     if ($files.Count -eq 0) { throw 'CycleArc-win-x64 artifact is empty' }
+    $nested = @($files | Where-Object { $_.DirectoryName -ine [IO.Path]::GetFullPath($StagingDirectory) })
+    if ($nested.Count -gt 0) { throw 'CI artifact release assets must all be root files' }
     $setup = @($files | Where-Object { $_.Name -ceq "$PackageId-Setup.exe" })
     $packageName = "$PackageId-$VersionValue-full.nupkg"
     $full = @($files | Where-Object { $_.Name -ceq $packageName })
@@ -474,7 +519,7 @@ function Get-PackagedArtifact {
     }
     $deltas = @($files | Where-Object { $_.Name -match '(?i)-delta\.nupkg$' })
     if ($deltas.Count -gt 0) { throw "CI artifact contains forbidden delta package(s): $($deltas.Name -join ', ')" }
-    # Same rule Package.ps1 applies to its own output directory: the four required files
+    # Same rule Package.ps1 applies to its own output directory: the five required files
     # plus the optional Velopack asset list and legacy index, and nothing else. Anything
     # else in the artifact is rejected here rather than being uploaded and then allowed.
     $permitted = @(Get-ExpectedReleaseAssetNames -VersionValue $VersionValue -PackageId $PackageId -Channel $Channel) +
@@ -486,8 +531,11 @@ function Get-PackagedArtifact {
     Assert-PackagedReleaseFeed -FeedPath $feed[0].FullName -VersionValue $VersionValue -PackageId $PackageId -PackageName $packageName -PackagePath $full[0].FullName | Out-Null
     $assetPaths = @($files | Where-Object { $_.Name -cne 'SHA256SUMS.txt' } | ForEach-Object { $_.FullName })
     Assert-PackagedChecksumManifest -ManifestPath $manifest[0].FullName -AssetPaths $assetPaths | Out-Null
-    $portableExeSha256 = Get-PortableArchiveExeSha256 -ArchivePath $portable[0].FullName
-    Assert-FullPackageFileVersion -PackagePath $full[0].FullName -ExpectedFileVersion $ExpectedFileVersion -ExpectedSha256 $portableExeSha256
+    Assert-ReleaseExecutableVersion -Path $PublishedExecutablePath -ExpectedFileVersion $ExpectedFileVersion
+    Assert-SelfContainedReleaseApp -Path $PublishedExecutablePath | Out-Null
+    $publishedHash = (Get-FileHash -LiteralPath $PublishedExecutablePath -Algorithm SHA256).Hash
+    Get-PortableArchiveExeSha256 -ArchivePath $portable[0].FullName -ExpectedFileVersion $ExpectedFileVersion -ExpectedSha256 $publishedHash | Out-Null
+    Assert-FullPackageFileVersion -PackagePath $full[0].FullName -ExpectedFileVersion $ExpectedFileVersion -ExpectedSha256 $publishedHash
     Get-LocalAssetMap -Paths @($files | ForEach-Object { $_.FullName })
 }
 
@@ -529,6 +577,7 @@ function Get-LocalAssetMap {
     foreach ($path in $Paths) {
         $item = Get-Item -LiteralPath $path -ErrorAction Stop
         $hash = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($map.ContainsKey($item.Name)) { throw "Duplicate local release asset '$($item.Name)'" }
         $map[$item.Name] = [pscustomobject]@{
             Name   = $item.Name
             Path   = $item.FullName
@@ -652,7 +701,7 @@ function Get-ExpectedReleaseAssetNames {
 }
 
 # Velopack also emits an asset list and a legacy RELEASES index. Package.ps1 accepts both as
-# ordinary outputs, so a normally produced release carries six files, not four. They are
+# ordinary outputs, so a normally produced release carries seven files, not five. They are
 # optional rather than required: a package that predates them, or a channel that does not
 # emit them, is still complete.
 function Get-OptionalReleaseAssetNames {
@@ -794,21 +843,32 @@ function Invoke-Release {
         $full = Get-VerifiedWindowsFullRun -RepositoryName $RepositoryName -RunId $FullRunId -CommitSha $commitSha
         $run = $full.Run
         $artifact = $full.Artifact
-        Write-Host "Selected full run $FullRunId attempt $($run.run_attempt), SHA $commitSha, artifact $($artifact.id) ($($artifact.name))."
+        $publishedArtifact = $full.PublishedArtifact
+        Write-Host "Selected full run $FullRunId attempt $($run.run_attempt), SHA $commitSha, artifact $($artifact.id) ($($artifact.name)), publish evidence $($publishedArtifact.id) ($($publishedArtifact.name))."
         Write-ReleasePhase 'release-preflight' 'passed'
 
         Write-ReleasePhase 'package-verify' 'start'
         $stagingRoot = Join-Path $root 'publish/.release-staging'
         Assert-OwnedDirectory -RepoRoot $root -Target $stagingRoot
         New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
-        $staging = Join-Path $stagingRoot ("$tag-" + [guid]::NewGuid().ToString('N'))
+        $staging = Join-Path $stagingRoot 'assets'
         Assert-OwnedDirectory -RepoRoot $root -Target $staging
+        if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
         New-Item -ItemType Directory -Path $staging | Out-Null
         Invoke-NativeCommand -FilePath 'gh' -Arguments @(
             'run', 'download', [string]$FullRunId, '--repo', $RepositoryName,
             '--name', [string]$artifact.name, '--dir', $staging
         ) | Out-Null
-        $assets = Get-PackagedArtifact -StagingDirectory $staging -VersionValue $version -ExpectedFileVersion $expectedFileVersion
+        $publishedStaging = Join-Path $stagingRoot 'published'
+        Assert-OwnedDirectory -RepoRoot $root -Target $publishedStaging
+        if (Test-Path -LiteralPath $publishedStaging) { Remove-Item -LiteralPath $publishedStaging -Recurse -Force }
+        New-Item -ItemType Directory -Path $publishedStaging | Out-Null
+        Invoke-NativeCommand -FilePath 'gh' -Arguments @(
+            'run', 'download', [string]$FullRunId, '--repo', $RepositoryName,
+            '--name', [string]$publishedArtifact.name, '--dir', $publishedStaging
+        ) | Out-Null
+        $publishedExe = Assert-SinglePublishedExecutable -StagingDirectory $publishedStaging -ExpectedFileVersion $expectedFileVersion
+        $assets = Get-PackagedArtifact -StagingDirectory $staging -VersionValue $version -ExpectedFileVersion $expectedFileVersion -PublishedExecutablePath $publishedExe
         $assetPaths = @($assets.Values | ForEach-Object { $_.Path })
         $allowedAssets = @($assets.Keys | ForEach-Object { [string]$_ })
         $missingExpected = @($expectedAssetNames | Where-Object { $_ -cnotin $allowedAssets })
@@ -823,7 +883,8 @@ function Invoke-Release {
         # artifact must never silently change the reviewed release source.
         $rechecked = Get-VerifiedWindowsFullRun -RepositoryName $RepositoryName -RunId $FullRunId -CommitSha $commitSha
         if ([int]$rechecked.Run.run_attempt -ne [int]$run.run_attempt -or
-            [long]$rechecked.Artifact.id -ne [long]$artifact.id) {
+            [long]$rechecked.Artifact.id -ne [long]$artifact.id -or
+            [long]$rechecked.PublishedArtifact.id -ne [long]$publishedArtifact.id) {
             throw 'Selected Windows full run attempt or artifact identity changed during release verification'
         }
         if ($release) { Assert-ReleaseAssetNames -Release $release -AllowedNames $allowedAssets }
@@ -836,13 +897,13 @@ function Invoke-Release {
             }
             Write-ReleasePhase 'remote-state-verify' 'passed'
             Write-Host "Already complete: public release $tag matches commit $commitSha and uploaded asset digests."
-            return [pscustomobject]@{ Status = 'AlreadyComplete'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; Staging = $staging }
+            return [pscustomobject]@{ Status = 'AlreadyComplete'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; PublishedArtifactId = $publishedArtifact.id; Staging = $staging }
         }
         Write-ReleasePhase 'remote-state-verify' 'passed'
 
         if ($Preflight) {
             Write-Host "Preflight passed: $tag for $commitSha. No GitHub tags, drafts, uploads or publishes were performed."
-            return [pscustomobject]@{ Status = 'Preflight'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; Staging = $staging }
+            return [pscustomobject]@{ Status = 'Preflight'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; PublishedArtifactId = $publishedArtifact.id; Staging = $staging }
         }
 
         # Publish uses the already-verified SHA and CI artifacts. It does not
@@ -884,15 +945,16 @@ function Invoke-Release {
         Assert-ReleaseAssets -Release $release -ExpectedAssets $assets -RequireComplete | Out-Null
         if ($DraftOnly) {
             Write-ReleasePhase 'publish' 'passed'
-            Write-Host "Draft ready: $tag for $commitSha with verified installer assets."
-            return [pscustomobject]@{ Status = 'DraftReady'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; Staging = $staging }
+            Write-Host "Draft ready: $tag for $commitSha with verified installer and portable assets."
+            return [pscustomobject]@{ Status = 'DraftReady'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; PublishedArtifactId = $publishedArtifact.id; Staging = $staging }
         }
 
         # Publishing remains the final mutation, after exact GitHub digests are
         # verified. Callers that need review time can pass -DraftOnly.
         $beforePublish = Get-VerifiedWindowsFullRun -RepositoryName $RepositoryName -RunId $FullRunId -CommitSha $commitSha
         if ([int]$beforePublish.Run.run_attempt -ne [int]$run.run_attempt -or
-            [long]$beforePublish.Artifact.id -ne [long]$artifact.id) {
+            [long]$beforePublish.Artifact.id -ne [long]$artifact.id -or
+            [long]$beforePublish.PublishedArtifact.id -ne [long]$publishedArtifact.id) {
             throw 'Selected Windows full run attempt or artifact identity changed before publication'
         }
         Invoke-NativeCommand -FilePath 'gh' -Arguments @(
@@ -906,8 +968,8 @@ function Invoke-Release {
             throw "Published release '$tag' is not GitHub's latest release (latest is '$latestTag')"
         }
         Write-ReleasePhase 'publish' 'passed'
-        Write-Host "Published $tag for $commitSha with verified installer assets."
-        [pscustomobject]@{ Status = 'Published'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; Staging = $staging }
+        Write-Host "Published $tag for $commitSha with verified installer and portable assets."
+        [pscustomobject]@{ Status = 'Published'; Tag = $tag; Commit = $commitSha; FullRunId = $FullRunId; ArtifactId = $artifact.id; PublishedArtifactId = $publishedArtifact.id; Staging = $staging }
     }
     catch {
         Write-Host ("Failed at: {0}" -f $script:ReleaseCurrentPhase)

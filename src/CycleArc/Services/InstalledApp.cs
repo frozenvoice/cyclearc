@@ -6,17 +6,20 @@ using Velopack.Locators;
 
 namespace CycleArc.Services;
 
-/// <summary>Velopack owns packaged installs; loose development executables keep the legacy bootstrap.</summary>
+/// <summary>Velopack owns managed installs; standalone releases run without its lifecycle.</summary>
 public static class InstalledApp
 {
     public static bool IsManaged { get; private set; }
     public static bool IsFirstRun { get; private set; }
     public static bool SupportsUpdates { get; private set; }
+    public static bool IsPortable { get; private set; }
     public static string? LauncherPath { get; private set; }
     public static string? CallbackPath { get; private set; }
 
     public static void Initialize(string[] args)
     {
+        IsPortable = !DesktopDistribution.IsDevelopmentInstall(Environment.ProcessPath, DesktopBootstrap.ExecutablePath);
+        if (!DesktopDistribution.HasManagedLayout(Environment.ProcessPath)) return;
         VelopackApp.Build().SetArgs(args).SetAutoApplyOnStartup(false)
             .OnFirstRun(_ => IsFirstRun = true)
             // Velopack 1.2.0 stops the app, runs this hook from the installed executable, ignores
@@ -33,6 +36,7 @@ public static class InstalledApp
         IsManaged = locator.AppId == "CycleArc" && locator.CurrentlyInstalledVersion is not null
             && !locator.IsPortable && locator.RootAppDir is not null && locator.AppContentDir is not null;
         if (!IsManaged) return;
+        IsPortable = false;
         SupportsUpdates = locator.Channel == "win" && !locator.CurrentlyInstalledVersion!.IsPrerelease;
         LauncherPath = Path.Combine(locator.RootAppDir!, "CycleArc.exe");
         // The root stub launches asynchronously via Update.exe. Claude needs the real
