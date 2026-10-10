@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -92,9 +93,8 @@ internal static class FlyoutPinChecks
             CheckEvent(flyout, events, 2, false, "Enter class handler");
             SendKey(pin, Key.Enter, Keyboard.KeyUpEvent);
             Require(events.Count == 2, "Enter key-up emitted a second pin notification.");
-            SendKey(pin, Key.Space, Keyboard.KeyDownEvent);
-            Require(pin.IsPressed && events.Count == 2 && !flyout.Pinned, "Space key-down must press without toggling on Release mode.");
-            SendKey(pin, Key.Space, Keyboard.KeyUpEvent);
+            SendSpace(pin, () => Require(pin.IsPressed && events.Count == 2 && !flyout.Pinned,
+                "Space key-down must press without toggling on Release mode."));
             CheckEvent(flyout, events, 3, true, "Space class handler");
             ToggleProvider(pin).Toggle(); Pump();
             CheckEvent(flyout, events, 4, false, "UIA Toggle provider");
@@ -201,9 +201,12 @@ internal static class FlyoutPinChecks
             if (prefix is not null) CaptureHeader(flyout, prefix + (pinned ? "-on-rest.png" : "-off-rest.png"));
             Require(pin.Focus(), "Pin refused keyboard focus."); Pump(); CheckVisual(flyout, highContrast);
             if (prefix is not null) CaptureHeader(flyout, prefix + (pinned ? "-on-focus.png" : "-off-focus.png"));
-            SendKey(pin, Key.Space, Keyboard.KeyDownEvent);
-            Require(pin.IsPressed, $"Space did not enter the real pressed state; {InputState(pin)}; {string.Join(" | ", KeyboardTrace)}."); CheckVisual(flyout, highContrast);
-            SendKey(pin, Key.Space, Keyboard.KeyUpEvent); CheckState(flyout, !pinned); CheckVisual(flyout, highContrast);
+            SendSpace(pin, () =>
+            {
+                Require(pin.IsPressed, $"Space did not enter the real pressed state; {InputState(pin)}; {string.Join(" | ", KeyboardTrace)}.");
+                CheckVisual(flyout, highContrast);
+            });
+            CheckState(flyout, !pinned); CheckVisual(flyout, highContrast);
             pin.IsEnabled = false; Pump(); CheckVisual(flyout, highContrast);
             pin.IsEnabled = true; Pump();
         }
@@ -362,14 +365,42 @@ internal static class FlyoutPinChecks
     private static Rect Bounds(FrameworkElement element, Visual relativeTo) => element.TransformToAncestor(relativeTo).TransformBounds(new Rect(element.RenderSize));
     private static bool SameBrush(Brush? left, Brush? right) => left is SolidColorBrush a && right is SolidColorBrush b && a.Color == b.Color && a.Opacity == b.Opacity;
 
-    private static void SendKey(UIElement target, Key key, RoutedEvent routedEvent)
+    private static void SendSpace(ToggleButton target, Action assertPressed)
+    {
+        Require(target.Focus(), "Pin refused keyboard focus before the synthetic Space sequence.");
+        var elapsed = Stopwatch.StartNew();
+        while (elapsed.Elapsed < TimeSpan.FromSeconds(2))
+        {
+            Pump();
+            if (target.IsKeyboardFocused && Mouse.LeftButton == MouseButtonState.Released
+                && (GetAsyncKeyState(0x01) & 0x8000) == 0) break;
+            Thread.Sleep(10);
+        }
+        Require(target.IsKeyboardFocused && Mouse.LeftButton == MouseButtonState.Released
+            && (GetAsyncKeyState(0x01) & 0x8000) == 0,
+            $"Synthetic Space requires Pin keyboard focus and a released native left mouse button; {InputState(target)}; {string.Join(" | ", KeyboardTrace)}.");
+        // ButtonBase captures the mouse on Space-down and checks the real mouse/focus
+        // state on Space-up. Pumping native input between two raised key events mixes
+        // an artificial key-down with unrelated desktop input. Keep the pair in one
+        // dispatcher turn while checking the actual pressed class-handler state.
+        SendKey(target, Key.Space, Keyboard.KeyDownEvent, pump: false);
+        assertPressed();
+        SendKey(target, Key.Space, Keyboard.KeyUpEvent, pump: false);
+        Pump();
+        TraceKeyboard($"pumped Space sequence: {InputState(target)}");
+    }
+
+    private static void SendKey(UIElement target, Key key, RoutedEvent routedEvent, bool pump = true)
     {
         TraceKeyboard($"before {routedEvent.Name}/{key}: {InputState(target)}");
         var args = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(target), Environment.TickCount, key) { RoutedEvent = routedEvent };
         target.RaiseEvent(args);
         TraceKeyboard($"routed {routedEvent.Name}/{key} handled={args.Handled}: {InputState(target)}");
-        Pump();
-        TraceKeyboard($"pumped {routedEvent.Name}/{key}: {InputState(target)}");
+        if (pump)
+        {
+            Pump();
+            TraceKeyboard($"pumped {routedEvent.Name}/{key}: {InputState(target)}");
+        }
     }
 
     private static void TraceKeyboard(string state)
@@ -555,4 +586,5 @@ internal static class FlyoutPinChecks
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern uint SendInput(uint count, NativeInput[] inputs, int size);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int virtualKey);
 }

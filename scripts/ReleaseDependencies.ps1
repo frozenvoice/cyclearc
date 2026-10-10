@@ -207,13 +207,43 @@ function Assert-PackagedReleaseApp {
     $ErrorActionPreference = 'Stop'
     $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
     try {
-        $apps = @($archive.Entries | Where-Object { $_.FullName -cmatch '^lib/[^/]+/CycleArc\.exe$' })
-        if ($apps.Count -ne 1) { throw 'Full package must contain exactly one lib/*/CycleArc.exe.' }
+        # Windows extraction is case insensitive. Reject alternate-case/alternate-path
+        # copies as well, rather than validating one entry that another could replace.
+        $apps = @($archive.Entries | Where-Object { $_.Name -ieq 'CycleArc.exe' })
+        if ($apps.Count -ne 1 -or $apps[0].FullName -cnotmatch '^lib/[^/]+/CycleArc\.exe$') {
+            throw 'Full package must contain exactly one lib/*/CycleArc.exe.'
+        }
         $stream = $apps[0].Open()
         try { $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) }
         finally { $stream.Dispose() }
         if ($hash -cne (Get-FileHash -LiteralPath $PublishedAppPath -Algorithm SHA256).Hash) {
             throw 'Packaged CycleArc.exe differs from the verified self-contained publish.'
+        }
+    }
+    finally { $archive.Dispose() }
+}
+
+function Assert-UnchangedPublishedApp {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$ExpectedSha256)
+    if ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ine $ExpectedSha256) {
+        throw 'Published CycleArc.exe changed after self-contained and version validation.'
+    }
+}
+
+function Assert-PortableReleaseApp {
+    param([Parameter(Mandatory)][string]$ArchivePath, [Parameter(Mandatory)][string]$PublishedAppPath)
+    $ErrorActionPreference = 'Stop'
+    $archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $entries = @($archive.Entries)
+        if ($entries.Count -ne 1 -or $entries[0].FullName -cne 'CycleArc.exe') {
+            throw 'Portable archive must contain exactly one root CycleArc.exe.'
+        }
+        $stream = $entries[0].Open()
+        try { $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) }
+        finally { $stream.Dispose() }
+        if ($hash -ine (Get-FileHash -LiteralPath $PublishedAppPath -Algorithm SHA256).Hash) {
+            throw 'Portable archive executable differs from the verified self-contained publish.'
         }
     }
     finally { $archive.Dispose() }

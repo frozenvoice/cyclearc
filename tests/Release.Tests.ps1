@@ -21,7 +21,7 @@ function Assert-Throws([scriptblock]$Action, [string]$MessageFragment) {
     catch {
         $thrown = $true
         if ($MessageFragment -and $_.Exception.Message -notlike "*$MessageFragment*") {
-            throw "ASSERT FAILED: expected '$MessageFragment' in '$($_.Exception.Message)'"
+            throw "ASSERT FAILED: expected '$MessageFragment' in '$($_.Exception.Message)' at $($_.ScriptStackTrace)"
         }
     }
     if (!$thrown) { throw "ASSERT FAILED: expected an exception containing '$MessageFragment'" }
@@ -96,7 +96,7 @@ $otherWorkflow = $successfulRun.PSObject.Copy()
 $otherWorkflow.path = '.github/workflows/windows-build-local.yml'
 Assert-Throws { Assert-FixtureRun -Run $otherWorkflow } 'windows.yml'
 
-$fullJobs = @('build', 'managed-setup-install', 'setup-shortcut-choices') | ForEach-Object {
+$fullJobs = @('build', 'managed-setup-install', 'setup-shortcut-choices', 'portable-distribution') | ForEach-Object {
     [pscustomobject]@{ name = $_; run_id = 101; run_attempt = 1; status = 'completed'; conclusion = 'success'
         started_at = '2026-09-15T10:00:00Z'; completed_at = '2026-09-15T10:10:00Z' }
 }
@@ -107,7 +107,7 @@ Assert-Throws { Assert-WindowsFullJobs -Jobs $fullJobs -RunId 101 -Attempt 2 } '
 foreach ($state in @('failure', 'cancelled', 'skipped', 'neutral')) {
     $badJob = $fullJobs[2].PSObject.Copy()
     $badJob.conclusion = $state
-    Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0], $fullJobs[1], $badJob) -RunId 101 -Attempt 1 } 'not a completed success'
+    Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0], $fullJobs[1], $badJob, $fullJobs[3]) -RunId 101 -Attempt 1 } 'not a completed success'
 }
 $fullArtifact = [pscustomobject]@{
     id = 555; name = 'CycleArc-win-x64'; expired = $false; size_in_bytes = 123; created_at = '2026-09-15T10:05:00Z'
@@ -160,7 +160,21 @@ try {
     Set-Content -LiteralPath $manifestPath -Value ((Get-Content -Raw $manifestPath) + 'tampered') -NoNewline
     Assert-Throws { Assert-ChecksumManifest -ManifestPath $manifestPath -ExecutablePath $exePath } 'one SHA-256 entry'
 
-    # The CI artifact now contains installer, full package, feed, and a
+function New-PortableFixtureArchive {
+    param([string]$Path, [string[]]$EntryNames = @('CycleArc.exe'), [byte[]]$Bytes = [byte[]](1, 2, 3, 4))
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $zip = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $EntryNames | ForEach-Object {
+            $entryStream = $zip.CreateEntry($_).Open()
+            try { $entryStream.Write($Bytes, 0, $Bytes.Length) }
+            finally { $entryStream.Dispose() }
+        }
+    }
+    finally { $zip.Dispose(); $stream.Dispose() }
+}
+
+    # The CI artifact now contains installer, full package, portable ZIP, feed, and a
     # checksum entry for every shipped asset. Exercise the feed and package
     # checks in isolation so a malformed or missing artifact fails before gh.
     $packaged = Join-Path $testRoot 'packaged'
@@ -172,7 +186,7 @@ try {
     $stream = [IO.File]::Open($fullPath, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
     $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create)
     try {
-        $entry = $archive.CreateEntry('CycleArc.exe')
+        $entry = $archive.CreateEntry('lib/net10.0/CycleArc.exe')
         $entryStream = $entry.Open()
         try { $entryStream.Write([byte[]](1, 2, 3, 4), 0, 4) }
         finally { $entryStream.Dispose() }
@@ -183,7 +197,29 @@ try {
     $fullSha256 = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash
     @{ Assets = @(@{ PackageId = 'CycleArc'; Version = '0.6.0'; Type = 'Full'; FileName = $fullName; SHA1 = $fullSha1; SHA256 = $fullSha256; Size = (Get-Item $fullPath).Length }) } |
         ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $feedPath -Encoding utf8
-    $assetFiles = @($setup, $fullPath, $feedPath)
+    # Read actual Windows PE metadata without compiling or launching a test program.
+    $realExe = @(Get-Command pwsh -CommandType Application)[0].Source
+    $realVersion = ([Diagnostics.FileVersionInfo]::GetVersionInfo($realExe).FileVersion ?? '').Trim()
+    Assert-True (![string]::IsNullOrWhiteSpace($realVersion)) 'Windows PowerShell executable carries real PE version metadata'
+    Assert-ReleaseExecutableVersion -Path $realExe -ExpectedFileVersion $realVersion
+    Assert-Throws { Assert-ReleaseExecutableVersion -Path $realExe -ExpectedFileVersion '99.0.0.0' } 'FileVersion'
+    $realBytes = [IO.File]::ReadAllBytes($realExe)
+    $realHash = (Get-FileHash -LiteralPath $realExe -Algorithm SHA256).Hash
+    $realZip = Join-Path $testRoot 'versioned-portable.zip'
+    New-PortableFixtureArchive -Path $realZip -Bytes $realBytes
+    Assert-Throws { Get-PortableArchiveExeSha256 -ArchivePath $realZip -ExpectedFileVersion '99.0.0.0' -ExpectedSha256 $realHash } 'FileVersion'
+    Assert-Throws { Get-PortableArchiveExeSha256 -ArchivePath $realZip -ExpectedSha256 ('f' * 64) } 'does not match original publish'
+    $realPackage = Join-Path $testRoot 'versioned-full.nupkg'
+    New-PortableFixtureArchive -Path $realPackage -EntryNames @('lib/net10.0/CycleArc.exe') -Bytes $realBytes
+    Assert-Throws { Assert-FullPackageFileVersion -PackagePath $realPackage -ExpectedFileVersion '99.0.0.0' -ExpectedSha256 $realHash } 'FileVersion'
+    Assert-Throws { Assert-FullPackageFileVersion -PackagePath $realPackage -ExpectedFileVersion $realVersion -ExpectedSha256 ('f' * 64) } 'does not match original publish'
+    # PowerShell's external-runtime host must never pass as a self-contained CycleArc portable.
+    Assert-Throws { Get-PortableArchiveExeSha256 -ArchivePath $realZip -ExpectedFileVersion $realVersion -ExpectedSha256 $realHash } 'bundle'
+    Assert-Throws { Assert-FullPackageFileVersion -PackagePath $realPackage -ExpectedFileVersion $realVersion -ExpectedSha256 $realHash } 'bundle'
+
+    $portable = Join-Path $packaged 'CycleArc-0.6.0-win-x64-portable.zip'
+    New-PortableFixtureArchive -Path $portable
+    $assetFiles = @($setup, $fullPath, $portable, $feedPath)
     $manifestLines = foreach ($asset in $assetFiles) {
         "$( (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant() )  $(Split-Path -Leaf $asset)"
     }
@@ -192,21 +228,28 @@ try {
     Assert-PackagedReleaseFeed -FeedPath $feedPath -VersionValue '0.6.0' -PackageName $fullName -PackagePath $fullPath | Out-Null
     $feedText = [IO.File]::ReadAllText($feedPath)
     $fullBytes = [IO.File]::ReadAllBytes($fullPath)
+    foreach ($field in @('SHA1', 'SHA256')) {
+        $badFeed = $feedText | ConvertFrom-Json
+        $badFeed.Assets[0].$field = if ($field -eq 'SHA1') { '0' * 40 } else { '0' * 64 }
+        $badFeed | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $feedPath -Encoding utf8
+        Assert-Throws { Assert-PackagedReleaseFeed -FeedPath $feedPath -VersionValue '0.6.0' -PackageName $fullName -PackagePath $fullPath } $field
+    }
+    [IO.File]::WriteAllText($feedPath, $feedText)
     Assert-Throws {
         Remove-Item -LiteralPath $feedPath -Force
-        Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0'
+        Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0' -PublishedExecutablePath $exePath
     } 'release feed'
     [IO.File]::WriteAllText($feedPath, $feedText)
     [IO.File]::WriteAllText($feedPath, $feedText.Replace('"0.6.0"', '"0.6.1"'))
-    Assert-Throws { Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0' } 'Release feed'
+    Assert-Throws { Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0' -PublishedExecutablePath $exePath } 'Release feed'
     [IO.File]::WriteAllText($feedPath, $feedText)
     Assert-Throws {
         Remove-Item -LiteralPath $fullPath -Force
-        Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0'
+        Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0' -PublishedExecutablePath $exePath
     } 'full package'
     [IO.File]::WriteAllBytes($fullPath, $fullBytes)
     [IO.File]::WriteAllBytes($fullPath, [byte[]](5, 4, 3, 2))
-    Assert-Throws { Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0' } 'Size'
+    Assert-Throws { Get-PackagedArtifact -StagingDirectory $packaged -VersionValue '0.6.0' -ExpectedFileVersion '0.6.0.0' -PublishedExecutablePath $exePath } 'Size'
 
     $owned = Join-Path $testRoot 'publish/.release-staging/run-1'
     New-Item -ItemType Directory -Path $owned -Force | Out-Null
@@ -216,6 +259,7 @@ try {
     Assert-Equal 'CycleArc-Setup.exe' (Get-ExpectedReleaseAssetNames -VersionValue '0.6.0')[0] 'setup asset name'
     $expectedAssets = @(Get-ExpectedReleaseAssetNames -VersionValue '0.6.0')
     Assert-True ($expectedAssets -contains 'CycleArc-0.6.0-full.nupkg') 'full package asset name'
+    Assert-True ($expectedAssets -contains 'CycleArc-0.6.0-win-x64-portable.zip') 'portable asset name'
     Assert-True ($expectedAssets -contains 'releases.win.json') 'feed asset name'
     Assert-True ($expectedAssets -contains 'SHA256SUMS.txt') 'checksum asset name'
 
@@ -242,14 +286,15 @@ finally {
 #
 # These drive Invoke-Release -Preflight with only the external process boundary
 # (Invoke-NativeCommand) replaced, so the asset-name, checksum, size and digest decisions
-# are the production ones. Assert-FullPackageFileVersion is stubbed because a representative
-# fixture cannot carry real PE version metadata; every asset rule under test stays live.
+# are the production ones. Only PE version/dependency parsing is stubbed for the four-byte
+# executable fixture; archive topology, all byte identity and asset checks remain live.
 # Nothing here creates, edits or publishes a GitHub release.
 
 $assetTestRoot = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-release-assets-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $assetTestRoot | Out-Null
 $nativeBeforeAssetTests = (Get-Command Invoke-NativeCommand -CommandType Function).ScriptBlock
-$fileVersionBeforeAssetTests = (Get-Command Assert-FullPackageFileVersion -CommandType Function).ScriptBlock
+$fileVersionBeforeAssetTests = (Get-Command Assert-ReleaseExecutableVersion -CommandType Function).ScriptBlock
+$dependenciesBeforeAssetTests = (Get-Command Assert-SelfContainedReleaseApp -CommandType Function).ScriptBlock
 try {
     $assetVersion = '0.6.0'
     $assetTag = "v$assetVersion"
@@ -262,7 +307,8 @@ try {
             [Parameter(Mandatory)][string]$Directory,
             [switch]$OmitOptional,
             [switch]$AddStrayFile,
-            [switch]$OmitFeed
+            [switch]$OmitFeed,
+            [switch]$OmitPortable
         )
         New-Item -ItemType Directory -Path $Directory -Force | Out-Null
         [IO.File]::WriteAllBytes((Join-Path $Directory 'CycleArc-Setup.exe'), [byte[]](4, 5, 6, 7))
@@ -271,10 +317,13 @@ try {
         $stream = [IO.File]::Open($fullPath, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
         $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create)
         try {
-            $entryStream = $archive.CreateEntry('CycleArc.exe').Open()
+            $entryStream = $archive.CreateEntry('lib/net10.0/CycleArc.exe').Open()
             try { $entryStream.Write([byte[]](1, 2, 3, 4), 0, 4) } finally { $entryStream.Dispose() }
         }
         finally { $archive.Dispose(); $stream.Dispose() }
+        if (!$OmitPortable) {
+            New-PortableFixtureArchive -Path (Join-Path $Directory "CycleArc-$script:fixtureVersion-win-x64-portable.zip")
+        }
         if (!$OmitFeed) {
             $feed = @{ Assets = @(@{
                 PackageId = 'CycleArc'
@@ -288,7 +337,7 @@ try {
             $feed | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Directory 'releases.win.json') -Encoding utf8
         }
         if (!$OmitOptional) {
-            # Exactly the two extra outputs Package.ps1 already accepts next to the required four.
+            # Exactly the two extra outputs Package.ps1 already accepts next to the required five.
             @(@{ RelativeFileName = 'CycleArc-Setup.exe'; Type = 'Setup' }) |
                 ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Directory 'assets.win.json') -Encoding utf8
             Set-Content -LiteralPath (Join-Path $Directory 'RELEASES') -Value "0000 $fullName 4" -Encoding utf8
@@ -357,13 +406,15 @@ try {
             }
             if ($joined -match '^api repos/.+/actions/runs/4242/attempts/(\d+)/jobs\?') {
                 $attempt = [int]$Matches[1]
-                $jobs = @(@('build', 'managed-setup-install', 'setup-shortcut-choices') | ForEach-Object {
+                $jobs = @(@('build', 'managed-setup-install', 'setup-shortcut-choices', 'portable-distribution') | ForEach-Object {
                     @{ name = $_; run_id = 4242; run_attempt = $attempt; status = 'completed'; conclusion = 'success'
                         started_at = '2026-09-15T10:00:00Z'; completed_at = '2026-09-15T10:10:00Z' }
                 })
                 if ($script:fixtureGate -eq 'missing-install-job') { $jobs = @($jobs[0], $jobs[2]) }
                 if ($script:fixtureGate -eq 'failed-install-job') { $jobs[1].conclusion = 'failure' }
                 if ($script:fixtureGate -eq 'skipped-shortcut-job') { $jobs[2].conclusion = 'skipped' }
+                if ($script:fixtureGate -eq 'missing-portable-job') { $jobs = @($jobs[0..2]) }
+                if ($script:fixtureGate -eq 'failed-portable-job') { $jobs[3].conclusion = 'failure' }
                 return [pscustomobject]@{ ExitCode = 0; Output = (@{ total_count = $jobs.Count; jobs = $jobs } | ConvertTo-Json -Depth 30) }
             }
             if ($joined -match '^api repos/.+/actions/runs/4242/artifacts\?') {
@@ -375,17 +426,34 @@ try {
                 if ($script:fixtureGate -eq 'expired-artifact') { $artifact.expired = $true }
                 if ($script:fixtureGate -eq 'stale-attempt-artifact') { $artifact.created_at = '2026-09-15T09:55:00Z' }
                 if ($script:fixtureGate -eq 'artifact-replaced' -and $script:runReads -gt 1) { $artifact.id = 556 }
-                $artifacts = @($artifact)
+                $published = @{} + $artifact
+                $published.id = 666
+                $published.name = 'CycleArc-published-win-x64'
+                if ($script:fixtureGate -eq 'published-replaced' -and $script:runReads -gt 1) { $published.id = 667 }
+                if ($script:fixtureGate -eq 'published-expired') { $published.expired = $true }
+                if ($script:fixtureGate -eq 'published-wrong-sha') {
+                    $published.workflow_run = @{ id = 4242; head_sha = 'e' * 40; head_repository_id = 17 }
+                }
+                if ($script:fixtureGate -eq 'published-stale') { $published.created_at = '2026-09-15T09:55:00Z' }
+                $artifacts = @($artifact, $published)
+                if ($script:fixtureGate -eq 'published-missing') { $artifacts = @($artifact) }
+                if ($script:fixtureGate -eq 'published-duplicate') { $artifacts += $published }
                 if ($script:fixtureGate -eq 'missing-artifact') { $artifacts = @() }
                 if ($script:fixtureGate -eq 'duplicate-artifact') { $artifacts = @($artifact, $artifact) }
                 return [pscustomobject]@{ ExitCode = 0; Output = (@{ total_count = $artifacts.Count; artifacts = $artifacts } | ConvertTo-Json -Depth 30) }
             }
             if ($joined -match '^run download') {
                 Assert-Equal '4242' $Arguments[2] 'download is pinned to the explicitly selected full run'
-                Assert-Equal 'CycleArc-win-x64' $Arguments[[array]::IndexOf([array]$Arguments, '--name') + 1] 'download is pinned to the uniquely checked artifact name'
+                $name = $Arguments[[array]::IndexOf([array]$Arguments, '--name') + 1]
+                Assert-True ($name -cin @('CycleArc-win-x64', 'CycleArc-published-win-x64')) 'download is pinned to a uniquely checked artifact name'
                 $dirIndex = [array]::IndexOf([array]$Arguments, '--dir')
                 if ($dirIndex -lt 0) { throw 'gh run download was called without --dir' }
-                Copy-Item -Path (Join-Path $script:fixtureArtifact '*') -Destination $Arguments[$dirIndex + 1] -Force
+                if ($name -ceq 'CycleArc-win-x64') {
+                    Copy-Item -Path (Join-Path $script:fixtureArtifact '*') -Destination $Arguments[$dirIndex + 1] -Force -Recurse
+                }
+                else {
+                    Copy-Item -Path (Join-Path $script:fixturePublished '*') -Destination $Arguments[$dirIndex + 1] -Force -Recurse
+                }
                 return [pscustomobject]@{ ExitCode = 0; Output = '' }
             }
             if ($joined -match '^api repos/.+/releases/latest') {
@@ -396,11 +464,12 @@ try {
         throw "Unexpected process in a preflight test: $FilePath"
     }
 
-    # A representative fixture cannot carry real PE version metadata; that check has its own
-    # coverage above and is not what these cases decide.
-    function Assert-FullPackageFileVersion {
-        param([string]$PackagePath, [string]$ExpectedFileVersion)
+    # Version and dependency readers have direct coverage; every archive/hash decision stays live.
+    function Assert-ReleaseExecutableVersion {
+        param([string]$Path, [string]$ExpectedFileVersion)
+        if ($ExpectedFileVersion -cne '0.6.0.0') { throw 'Unexpected fixture FileVersion' }
     }
+    function Assert-SelfContainedReleaseApp { param([string]$Path) }
 
     $script:fixtureVersion = $assetVersion
 
@@ -410,6 +479,7 @@ try {
             [switch]$OmitOptional,
             [switch]$AddStrayFile,
             [switch]$OmitFeed,
+            [switch]$OmitPortable,
             [switch]$Public,
             [string]$CorruptName,
             [string]$WrongSizeName,
@@ -420,7 +490,68 @@ try {
         $caseRoot = Join-Path $assetTestRoot $Name
         $script:fixtureArtifact = Join-Path $caseRoot 'artifact'
         New-StagedArtifact -Directory $script:fixtureArtifact -OmitOptional:$OmitOptional `
-            -AddStrayFile:$AddStrayFile -OmitFeed:$OmitFeed
+            -AddStrayFile:$AddStrayFile -OmitFeed:$OmitFeed -OmitPortable:$OmitPortable
+        $script:fixturePublished = Join-Path $caseRoot 'published'
+        New-Item -ItemType Directory -Path $script:fixturePublished -Force | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $script:fixturePublished 'CycleArc.exe'), [byte[]](1, 2, 3, 4))
+        if ($GateFailure -eq 'published-exe-tampered') {
+            [IO.File]::WriteAllBytes((Join-Path $script:fixturePublished 'CycleArc.exe'), [byte[]](5, 6, 7, 8))
+        }
+        if ($GateFailure -eq 'published-extra-file') {
+            Set-Content -LiteralPath (Join-Path $script:fixturePublished 'unexpected.dll') -Value 'stray'
+        }
+        if ($GateFailure -in @('portable-tampered', 'portable-nested', 'portable-duplicate', 'portable-corrupt')) {
+            $portablePath = Join-Path $script:fixtureArtifact "CycleArc-$script:fixtureVersion-win-x64-portable.zip"
+            Remove-Item -LiteralPath $portablePath -Force
+            switch ($GateFailure) {
+                'portable-tampered' { New-PortableFixtureArchive -Path $portablePath -Bytes ([byte[]](4, 3, 2, 1)) }
+                'portable-nested' { New-PortableFixtureArchive -Path $portablePath -EntryNames @('nested/CycleArc.exe') }
+                'portable-duplicate' { New-PortableFixtureArchive -Path $portablePath -EntryNames @('CycleArc.exe', 'CycleArc.exe') }
+                'portable-corrupt' { [IO.File]::WriteAllText($portablePath, 'corrupted zip') }
+            }
+            # Recompute the outer checksum: the internal EXE validation must still refuse it.
+            $targets = @(Get-ChildItem -LiteralPath $script:fixtureArtifact -File | Where-Object Name -cne 'SHA256SUMS.txt')
+            $targets | ForEach-Object { "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } |
+                Set-Content -LiteralPath (Join-Path $script:fixtureArtifact 'SHA256SUMS.txt') -Encoding utf8
+        }
+        if ($GateFailure -in @('full-tampered', 'full-root-exe', 'full-case-duplicate', 'full-corrupt')) {
+            $packagePath = Join-Path $script:fixtureArtifact "CycleArc-$script:fixtureVersion-full.nupkg"
+            Remove-Item -LiteralPath $packagePath -Force
+            switch ($GateFailure) {
+                'full-tampered' { New-PortableFixtureArchive -Path $packagePath -EntryNames @('lib/net10.0/CycleArc.exe') -Bytes ([byte[]](4, 3, 2, 1)) }
+                'full-root-exe' { New-PortableFixtureArchive -Path $packagePath }
+                'full-case-duplicate' { New-PortableFixtureArchive -Path $packagePath -EntryNames @('lib/net10.0/CycleArc.exe', 'lib/net10.0/cyclearc.exe') }
+                'full-corrupt' { [IO.File]::WriteAllText($packagePath, 'corrupted package') }
+            }
+            # Both outer checksums are valid; reject the incompatible/corrupt executable payload.
+            $feedPath = Join-Path $script:fixtureArtifact 'releases.win.json'
+            $feed = Get-Content -LiteralPath $feedPath -Raw | ConvertFrom-Json
+            $feed.Assets[0].SHA1 = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA1).Hash
+            $feed.Assets[0].SHA256 = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
+            $feed.Assets[0].Size = (Get-Item -LiteralPath $packagePath).Length
+            $feed | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $feedPath -Encoding utf8
+            Get-ChildItem -LiteralPath $script:fixtureArtifact -File | Where-Object Name -cne 'SHA256SUMS.txt' |
+                ForEach-Object { "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } |
+                Set-Content -LiteralPath (Join-Path $script:fixtureArtifact 'SHA256SUMS.txt') -Encoding utf8
+        }
+        if ($GateFailure -eq 'portable-nested-asset') {
+            $nested = Join-Path $script:fixtureArtifact 'nested'
+            New-Item -ItemType Directory -Path $nested | Out-Null
+            $portablePath = Join-Path $script:fixtureArtifact "CycleArc-$script:fixtureVersion-win-x64-portable.zip"
+            Copy-Item -LiteralPath $portablePath -Destination (Join-Path $nested (Split-Path -Leaf $portablePath))
+            Remove-Item -LiteralPath $portablePath -Force
+        }
+        if ($GateFailure -eq 'portable-missing-checksum') {
+            $manifest = Join-Path $script:fixtureArtifact 'SHA256SUMS.txt'
+            @(Get-Content -LiteralPath $manifest) | Where-Object { $_ -notmatch 'portable.zip$' } |
+                Set-Content -LiteralPath $manifest -Encoding utf8
+        }
+        if ($GateFailure -eq 'portable-wrong-checksum') {
+            $manifest = Join-Path $script:fixtureArtifact 'SHA256SUMS.txt'
+            $lines = @(Get-Content -LiteralPath $manifest)
+            $lines | ForEach-Object { if ($_ -match 'portable.zip$') { ('f' * 64) + '  ' + ($_ -split '  ')[1] } else { $_ } } |
+                Set-Content -LiteralPath $manifest -Encoding utf8
+        }
         $assets = @(New-ReleaseAssetsFrom -Directory $script:fixtureArtifact -Only $ReleaseOnly `
             -CorruptName $CorruptName -WrongSizeName $WrongSizeName)
         if ($ExtraReleaseAssets) { $assets = @($assets + $ExtraReleaseAssets) }
@@ -451,11 +582,12 @@ try {
         Assert-Equal 0 $mutations.Count "Preflight must not change anything on GitHub (saw: $shown)"
     }
 
-    # A normally produced draft carries six files; the name check must not reject it.
+    # A normally produced draft carries seven files; the name check must not reject it.
     $draft = Invoke-PreflightFixture -Name 'draft-six-files'
-    Assert-Equal 'Preflight' $draft.Status 'a six-file draft passes preflight'
+    Assert-Equal 'Preflight' $draft.Status 'a seven-file draft passes preflight'
     Assert-Equal 4242 $draft.FullRunId 'preflight records the selected run ID'
     Assert-Equal 555 $draft.ArtifactId 'preflight records the selected exact artifact ID'
+    Assert-Equal 666 $draft.PublishedArtifactId 'preflight records the original publish artifact identity'
     Assert-NoRemoteMutation
 
     foreach ($case in @(
@@ -465,35 +597,56 @@ try {
         @{ Gate = 'missing-install-job'; Error = 'required job' },
         @{ Gate = 'failed-install-job'; Error = 'not a completed success' },
         @{ Gate = 'skipped-shortcut-job'; Error = 'not a completed success' },
+        @{ Gate = 'missing-portable-job'; Error = 'required job' },
+        @{ Gate = 'failed-portable-job'; Error = 'not a completed success' },
         @{ Gate = 'missing-artifact'; Error = 'exactly one' },
         @{ Gate = 'duplicate-artifact'; Error = 'exactly one' },
         @{ Gate = 'expired-artifact'; Error = 'expired, empty' },
         @{ Gate = 'wrong-artifact-sha'; Error = 'target SHA' },
         @{ Gate = 'stale-attempt-artifact'; Error = 'selected full run attempt' },
         @{ Gate = 'rerun-after-download'; Error = 'identity changed' },
-        @{ Gate = 'artifact-replaced'; Error = 'identity changed' }
+        @{ Gate = 'artifact-replaced'; Error = 'identity changed' },
+        @{ Gate = 'published-replaced'; Error = 'identity changed' },
+        @{ Gate = 'published-expired'; Error = 'expired, empty' },
+        @{ Gate = 'published-wrong-sha'; Error = 'target SHA' },
+        @{ Gate = 'published-stale'; Error = 'selected full run attempt' },
+        @{ Gate = 'published-missing'; Error = 'CycleArc-published-win-x64 artifact' },
+        @{ Gate = 'published-duplicate'; Error = 'CycleArc-published-win-x64 artifact' },
+        @{ Gate = 'published-exe-tampered'; Error = 'does not match original publish' },
+        @{ Gate = 'published-extra-file'; Error = 'exactly root CycleArc.exe' },
+        @{ Gate = 'portable-tampered'; Error = 'does not match original publish' },
+        @{ Gate = 'portable-nested'; Error = 'exactly one root CycleArc.exe' },
+        @{ Gate = 'portable-duplicate'; Error = 'exactly one root CycleArc.exe' },
+        @{ Gate = 'portable-corrupt'; Error = '' },
+        @{ Gate = 'portable-wrong-checksum'; Error = 'SHA256SUMS.txt does not match' },
+        @{ Gate = 'portable-missing-checksum'; Error = 'one SHA-256 entry for every release asset' },
+        @{ Gate = 'portable-nested-asset'; Error = 'must all be root files' },
+        @{ Gate = 'full-tampered'; Error = 'does not match original publish' },
+        @{ Gate = 'full-root-exe'; Error = 'exactly one lib/*/CycleArc.exe' },
+        @{ Gate = 'full-case-duplicate'; Error = 'exactly one lib/*/CycleArc.exe' },
+        @{ Gate = 'full-corrupt'; Error = '' }
     )) {
         Assert-Throws { Invoke-PreflightFixture -Name $case.Gate -GateFailure $case.Gate } $case.Error
         Assert-NoRemoteMutation
     }
 
-    # The same six files, already public and matching, need no further work.
+    # The same seven files, already public and matching, need no further work.
     $complete = Invoke-PreflightFixture -Name 'public-six-files' -Public
-    Assert-Equal 'AlreadyComplete' $complete.Status 'a matching public six-file release is already complete'
+    Assert-Equal 'AlreadyComplete' $complete.Status 'a matching public seven-file release is already complete'
     Assert-NoRemoteMutation
 
     # A package without the optional outputs is still a complete package.
     Assert-Equal 'Preflight' (Invoke-PreflightFixture -Name 'draft-four-files' -OmitOptional).Status `
-        'a four-file package is handled by the same contract'
+        'a five-file package is handled by the same contract'
     Assert-Equal 'AlreadyComplete' (Invoke-PreflightFixture -Name 'public-four-files' -OmitOptional -Public).Status `
-        'a matching public four-file release is already complete'
+        'a matching public five-file release is already complete'
     Assert-NoRemoteMutation
 
     # Anything outside required-plus-optional is still refused, in the build output...
     # The release itself is clean here, so the stray reaches the build-output check.
     Assert-Throws {
         Invoke-PreflightFixture -Name 'stray-artifact-file' -AddStrayFile -ReleaseOnly @(
-            'CycleArc-Setup.exe', "CycleArc-$assetVersion-full.nupkg", 'releases.win.json',
+            'CycleArc-Setup.exe', "CycleArc-$assetVersion-full.nupkg", "CycleArc-$assetVersion-win-x64-portable.zip", 'releases.win.json',
             'SHA256SUMS.txt', 'assets.win.json', 'RELEASES')
     } 'unexpected file'
     # ...and on the release being inspected.
@@ -510,6 +663,7 @@ try {
 
     # A build output missing a required file never reaches a release at all.
     Assert-Throws { Invoke-PreflightFixture -Name 'artifact-missing-required' -OmitFeed } 'release feed'
+    Assert-Throws { Invoke-PreflightFixture -Name 'artifact-missing-portable' -OmitPortable } 'portable archive'
 
     # Digest and size verification against the uploaded assets stays in force, including for
     # an optional asset.
@@ -519,7 +673,8 @@ try {
 }
 finally {
     Set-Item -Path Function:\Invoke-NativeCommand -Value $nativeBeforeAssetTests
-    Set-Item -Path Function:\Assert-FullPackageFileVersion -Value $fileVersionBeforeAssetTests
+    Set-Item -Path Function:\Assert-ReleaseExecutableVersion -Value $fileVersionBeforeAssetTests
+    Set-Item -Path Function:\Assert-SelfContainedReleaseApp -Value $dependenciesBeforeAssetTests
     if (Test-Path -LiteralPath $assetTestRoot) { Remove-Item -LiteralPath $assetTestRoot -Recurse -Force }
 }
 

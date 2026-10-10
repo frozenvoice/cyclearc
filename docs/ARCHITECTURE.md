@@ -7,7 +7,7 @@
 `Program.Main` routes all three headless Claude modes before Velopack startup, desktop argument
 parsing, IPC and WPF. The headless paths run before Velopack so callbacks do not create desktop
 state, cleanup logs or update UI. `DesktopBootstrap` gives the first desktop ownership of the
-unchanged legacy mutex. A later ordinary launch requests activation over a bounded,
+unchanged legacy mutex in the current Windows session. A later ordinary launch requests activation over a bounded,
 current-user/session named pipe; autorun only probes it. The popup shows the running assembly
 version. There is no dev/release precedence.
 
@@ -29,7 +29,30 @@ The development single-file build replaces itself in `%LOCALAPPDATA%\Programs\Cy
 different directory from every managed root: both would otherwise own a `CycleArc.exe` at the root
 of the same one. It is excluded from the GitHub update channel.
 
-The update client checks the stable GitHub Releases channel 20 seconds after startup and every six
+The independent portable distribution contains only the same verified self-contained
+`CycleArc.exe` as the Velopack full package. A loose executable runs in place, without
+self-installation or Velopack initialization. Portable startup skips installation/autorun/tray
+registry migration, does not register Windows startup and has no managed update actions.
+The explicit `dev-run.ps1` deployment still owns the separate development installation.
+Portable users exit the desktop before manually replacing the executable with a new ZIP.
+Both distributions share `%LOCALAPPDATA%\ProMeter`, its backups and the legacy desktop mutex;
+the first instance owns tray/widget/settings for that session. A lifetime exclusive lease on
+`%LOCALAPPDATA%\ProMeter\desktop.lock` also blocks a second desktop in another session of
+the same Windows account, while the original Local mutex/IPC activation contract is preserved.
+Older binaries do not participate in the data lease and must be closed across sessions before
+switching to these builds; the lease does not retrofit protection into historical releases.
+Portable replacement keeps the folder path so passive Claude and Cursor callbacks can find
+their configured executable. Moving/deleting that path requires explicit reconnection; managed
+startup can still retarget verified owned callbacks to its stable current executable.
+
+One package invocation generates Setup, full package, portable ZIP, feed and checksums.
+Packaging retains the originally validated publish SHA across external packaging/setup builds
+and verifies both embedded EXEs against it. Formal release verification consumes packaged
+and original-publish artifacts from the same exact successful Windows run, requires the
+standalone portable job, and compares all three EXE hashes and versions before publication.
+Existing public release assets and tags are never changed to add portable archives.
+
+The managed installation's update client checks the stable GitHub Releases channel 20 seconds after startup and every six
 hours, downloads only after explicit user action, verifies the complete `.nupkg` SHA-256 after
 download and before apply, and applies only after explicit **Restart & update**. Velopack helper
 files belong to the installer. There is no automatic startup apply. Before graceful desktop exit,

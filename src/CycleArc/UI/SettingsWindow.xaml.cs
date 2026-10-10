@@ -47,6 +47,10 @@ public partial class SettingsWindow : Window
         TrayDetails.Header = UiText.T("Display period & tray guide", "표시 기간·트레이 안내");
         StartupLabel.Text = UiText.StartWithWindows;
         StartupBox.IsChecked = settings.StartWithWindows;
+        StartupBox.IsEnabled = !InstalledApp.IsPortable;
+        if (InstalledApp.IsPortable) StartupBox.ToolTip = UiText.T(
+            "Configure Windows startup from the installed app. Its saved preference is kept.",
+            "Windows 자동 시작은 설치형 앱에서 설정하세요. 기존 설정은 유지됩니다.");
         EdgeSnapLabel.Text = UiText.T("Snap windows to screen edges", "화면 가장자리에 자동 정렬");
         EdgeSnapBox.IsChecked = settings.SnapWindowsToScreenEdges;
         UsageAlertsLabel.Text = UiText.T("Usage alerts", "사용량 알림");
@@ -207,7 +211,7 @@ public partial class SettingsWindow : Window
         _settings.Theme = EditedTheme;
         _settings.UiLanguage = EditedLanguage;
         _settings.TrayIconStyle = EditedTrayIconStyle;
-        _settings.StartWithWindows = StartupBox.IsChecked == true;
+        if (!InstalledApp.IsPortable) _settings.StartWithWindows = StartupBox.IsChecked == true;
         _settings.TaskbarStatusEnabled = false;
         _settings.FloatingWidgetEnabled = WidgetBox.IsChecked == true;
         _settings.WidgetOpacity = WidgetOpacityBox.Value;

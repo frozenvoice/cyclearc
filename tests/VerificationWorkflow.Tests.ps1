@@ -68,7 +68,7 @@ foreach ($forbiddenEvent in @('push', 'pull_request', 'schedule', 'workflow_run'
 }
 $jobNames = @([regex]::Matches((Get-Block $workflow 'jobs:' '__end_of_jobs__'), '(?m)^  (?<name>[a-zA-Z][\w-]*):') |
     ForEach-Object { $_.Groups['name'].Value })
-Assert-Contract (($jobNames -join ',') -ceq 'build,managed-setup-install,setup-shortcut-choices') 'full verification must retain exactly its build and two independent install jobs'
+Assert-Contract (($jobNames -join ',') -ceq 'build,managed-setup-install,setup-shortcut-choices,portable-distribution') 'full verification must retain build, independent install jobs and the standalone portable job'
 $managed = [regex]::Match($workflow, '(?ms)^  managed-setup-install:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
 $shortcutChoices = [regex]::Match($workflow, '(?ms)^  setup-shortcut-choices:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
 $build = [regex]::Match($workflow, '(?ms)^  build:.*?(?=^  # Disposable GitHub-hosted runner only.)').Value
@@ -106,6 +106,13 @@ Assert-Contract ($shortcutChoices.Contains('actions/download-artifact@v6') -and 
 Assert-Contract ($shortcutChoices.Contains('./scripts/Verify-SetupUi.ps1') -and $shortcutChoices.Contains('-ConfirmDisposableEnvironment')) 'shortcut choices must run the guarded installer UI verification'
 Assert-Contract ($shortcutChoices.Contains('name: setup-shortcut-choices') -and $shortcutChoices.Contains('if: always()')) 'shortcut choices must retain evidence collection'
 Assert-Contract ($shortcutChoices -notmatch '(?mi)dev-run\.ps1') 'shortcut choices must not rebuild source'
+$portable = [regex]::Match($workflow, '(?ms)^  portable-distribution:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
+Assert-Contract ($portable -match '(?m)^\s+needs:\s+build\s*$' -and $portable -match '(?m)^\s+runs-on:\s+windows-latest\s*$') 'portable desktop must use a separate disposable runner after the verified build'
+Assert-Contract ($portable.Contains('name: CycleArc-win-x64') -and $portable.Contains('name: CycleArc-verification-tools')) 'portable checks must consume the same-run release ZIP and built verification tools'
+Assert-Contract ($portable.Contains('--portable-distribution ./publish/velopack') -and $portable.Contains('if ($LASTEXITCODE -ne 0)')) 'portable runtime failures must fail the full workflow'
+Assert-Contract ($portable -notmatch '(?mi)dev-run\.ps1|dotnet\s+(build|publish)|CycleArc-Setup\.exe') 'portable check must launch the actual ZIP without building or installing CycleArc'
+Assert-Contract ($build.Contains('name: CycleArc-published-win-x64') -and $build.Contains('path: publish/.dev-staging/CycleArc.exe')) 'original publish EXE must be retained as exact-run release validation evidence'
+Assert-Contract ($build.Contains('name: CycleArc-verification-tools') -and $build.Contains('path: tests/CycleArc.UiSmoke/bin/Release/net10.0-windows10.0.17763.0/**')) 'portable runtime must use verification tools built in the same gate'
 Assert-Contract ($workflow -notmatch '(?mi)vs_buildtools|vswhere.*install|Workload\.VCTools') 'CI must not download/install Visual Studio'
 Assert-Contract ($build -notmatch '(?mi)^\s+run:\s+.*dotnet\s+(restore|build|test|publish)\b') 'workflow must not duplicate the shared dotnet gate commands'
 Assert-Contract ($workflow -notmatch '(?mi)Compile test-only build flavours') 'test-only compile must live in the shared gate'

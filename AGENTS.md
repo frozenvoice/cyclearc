@@ -6,8 +6,19 @@ Visual Studio 2022 with the Desktop development with C++ workload (the setup win
 AOT); running the shipped installer does not. The solution is `CycleArc.sln`;
 `src/CycleArc` is the desktop app, `src/CycleArc.Core` holds provider/shared logic,
 and `tests/CycleArc.Tests` / `tests/CycleArc.UiSmoke` cover unit / production WPF checks.
-Ship the Windows x64 `CycleArc-Setup.exe` Velopack installer for the stable channel. Keep the
-development publish check for one self-contained `CycleArc.exe`. A new installation goes to
+Ship both the Windows x64 `CycleArc-Setup.exe` Velopack installer and
+`CycleArc-<version>-win-x64-portable.zip` in one stable GitHub Release, built from the
+same verified self-contained `CycleArc.exe`. Portable runs in place without managed
+installation, Velopack initialization/updates, automatic startup registration or installation/tray
+registry migration and shares the existing user settings. Windows startup registration remains
+available only to managed installations and the explicit development installation.
+The legacy desktop mutex protects one instance in the current Windows session; a lifetime
+exclusive `%LOCALAPPDATA%\ProMeter\desktop.lock` lease blocks another desktop for the same
+Windows account across sessions. Older binaries lack this lease; close them across sessions
+before switching distributions. Portable updates replace the ZIP contents at the same path
+after exit. Moving/deleting a callback-owned portable path requires explicit integration
+reconnection; keep authenticated managed callback migration and shared data compatibility.
+Keep the development publish check for one self-contained `CycleArc.exe`. A new installation goes to
 `%LOCALAPPDATA%\Programs\CycleArc`; an installation that already exists keeps its own
 location, found by its registered uninstall entry and then at either known root, so the former
 `%LOCALAPPDATA%\CycleArc` stays in use where it is. Never assume a root - resolve it with
@@ -181,10 +192,13 @@ CI is not where a change is first verified. Before every push:
   scope and gaps reported; commit/push and verify the remote ref, without a CI-completion wait.
 - Installer delivery: the full local gate and an explicitly selected successful `Windows` full
   run for the delivered SHA, including `build`, `managed-setup-install`, `setup-shortcut-choices`,
-  packaged/installed hashes and evidence. Do not claim a source build alone validates delivery.
+  `portable-distribution`, packaged/installed hashes and standalone portable evidence.
+  Do not claim a source build alone validates delivery.
 - Formal release: installer-delivery criteria plus `Release.ps1 -FullRunId <id>` preflight/package/
   uploaded-asset checks before public visibility. Run ID, target SHA, successful required jobs and
-  exact unexpired artifact must agree; never select a latest artifact from another commit.
+  exact unexpired `CycleArc-win-x64` and `CycleArc-published-win-x64` artifacts must agree;
+  compare the original publish EXE, portable ZIP EXE and full-package EXE SHA-256 and versions.
+  Never select a latest artifact from another commit or alter published historical releases/tags.
 - Additional install E2E: dispatch `windows-build-local.yml` only for build-local/CMD/prerequisite/
   user-install entry-point changes; dispatch `windows-e2e.yml` for setup/update/recovery/removal/
   runtime migration changes. Run both when both scopes apply. They remain independent manual

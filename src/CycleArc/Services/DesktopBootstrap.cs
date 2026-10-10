@@ -58,6 +58,14 @@ public static class DesktopBootstrap
             }
 
             var source = Environment.ProcessPath ?? throw new IOException("CycleArc executable path is unavailable.");
+            if (!options.Replace && InstalledApp.IsPortable)
+            {
+                if (!IsSingleFile())
+                    throw new IOException("Use dev-run.ps1 to publish and run the desktop application.");
+                // Share the existing lease and IPC with managed/development builds. The first
+                // desktop owns shared account/settings writes; a second launch activates it.
+                return RunManaged(options);
+            }
             if (!options.Replace)
             {
                 var lease = DesktopInstanceLease.TryAcquire();

@@ -71,7 +71,12 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(UiText.RefreshAll, null, (_, _) => SyncRequested?.Invoke());
         menu.Items.Add(UiText.Settings, null, (_, _) => SettingsRequested?.Invoke());
         menu.Items.Add(UiText.OpenLogs, null, (_, _) => OpenLogsRequested?.Invoke());
-        var startup = new ToolStripMenuItem(UiText.StartWithWindows) { Checked = startWithWindows, CheckOnClick = true };
+        var startup = new ToolStripMenuItem(UiText.StartWithWindows)
+        {
+            Checked = startWithWindows, CheckOnClick = true, Enabled = !InstalledApp.IsPortable,
+            ToolTipText = InstalledApp.IsPortable ? UiText.T(
+                "Configure Windows startup from the installed app.", "Windows 자동 시작은 설치형 앱에서 설정하세요.") : ""
+        };
         menu.Opening += (_, _) => startup.Checked = _startWithWindows;
         startup.CheckedChanged += (_, _) =>
         {
