@@ -507,9 +507,9 @@ internal static class CursorUiChecks
             flyoutContent.Arrange(new Rect(0, 0, 440, 1000));
             flyoutContent.UpdateLayout();
             var row = flyout.DetailRows[^1];
-            // One device pixel of layout rounding (0.67 DIP at 150%) is not clipping; the other
-            // popup detail-row checks allow the same.
-            var clipped = Descendants<TextBlock>(row).FirstOrDefault(text => text.ActualWidth + 1 < text.DesiredSize.Width);
+            // DesiredSize includes the margin (the label keeps 12 px before its value); ActualWidth does not.
+            var clipped = Descendants<TextBlock>(row).FirstOrDefault(text =>
+                text.ActualWidth + text.Margin.Left + text.Margin.Right + 1 < text.DesiredSize.Width);
             Check(row.ActualWidth > 0 && clipped is null,
                 $"Cursor recent request row is clipped: '{clipped?.Text}' {clipped?.ActualWidth:0.##} < {clipped?.DesiredSize.Width:0.##}.");
             var detail = string.Join(" ", Descendants<TextBlock>(row).Select(text => text.Text));
