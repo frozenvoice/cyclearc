@@ -7,7 +7,7 @@ namespace CycleArc.Codex;
 public sealed record CodexDiscoveryResult(int Added, int Failed, int SignedOut);
 
 /// <summary>Owns an extensible collection of isolated services and one shared refresh.</summary>
-public sealed class CodexAccountManager
+public sealed class CodexAccountManager : IDisposable
 {
     private readonly object _gate = new();
     private readonly CodexAccountStore _store;
@@ -36,11 +36,19 @@ public sealed class CodexAccountManager
         var registered = providers.ToDictionary(provider => provider.Id);
         _createService = profile => registered.TryGetValue(profile.Provider, out var provider)
             ? provider.Create(profile) : throw new InvalidDataException("Account provider is unavailable.");
-        foreach (var profile in _configuration.Profiles)
+        try
         {
-            AddService(profile);
-            if (profile.Provider == UsageProviderId.Codex && !profile.IsManaged && store.HasIdentityConflict(profile))
-                _identityConflicts.Add(profile.Id);
+            foreach (var profile in _configuration.Profiles)
+            {
+                AddService(profile);
+                if (profile.Provider == UsageProviderId.Codex && !profile.IsManaged && store.HasIdentityConflict(profile))
+                    _identityConflicts.Add(profile.Id);
+            }
+        }
+        catch
+        {
+            foreach (var service in _services.Values) ReleaseService(service);
+            throw;
         }
         RefreshIdentityConflicts(); // Preserve legacy duplicate conflicts before asynchronous identity migration.
         Refresh = new CodexRefreshCoordinator(RefreshAllAsync);
@@ -115,11 +123,15 @@ public sealed class CodexAccountManager
         {
             profile = _store.NewClaude(label);
             var service = _createService(profile);
-            // Version 2 makes older Codex-only builds refuse this registry, rather than
-            // treating a Claude profile as a Codex login on downgrade.
-            Save(_configuration with { Version = Math.Max(2, _configuration.Version), Profiles = _configuration.Profiles.Append(profile).ToArray(),
-                SelectedId = _configuration.Profiles.Count == 0 ? profile.Id : _configuration.SelectedId });
-            AddService(profile, service);
+            try
+            {
+                // Version 2 makes older Codex-only builds refuse this registry, rather than
+                // treating a Claude profile as a Codex login on downgrade.
+                Save(_configuration with { Version = Math.Max(2, _configuration.Version), Profiles = _configuration.Profiles.Append(profile).ToArray(),
+                    SelectedId = _configuration.Profiles.Count == 0 ? profile.Id : _configuration.SelectedId });
+                AddService(profile, service);
+            }
+            catch { ReleaseService(service); throw; }
         }
         Changed?.Invoke();
         return profile;
@@ -132,9 +144,13 @@ public sealed class CodexAccountManager
         {
             profile = _store.NewCursor(label);
             var service = _createService(profile);
-            Save(_configuration with { Version = 3, Profiles = _configuration.Profiles.Append(profile).ToArray(),
-                SelectedId = _configuration.Profiles.Count == 0 ? profile.Id : _configuration.SelectedId });
-            AddService(profile, service);
+            try
+            {
+                Save(_configuration with { Version = 3, Profiles = _configuration.Profiles.Append(profile).ToArray(),
+                    SelectedId = _configuration.Profiles.Count == 0 ? profile.Id : _configuration.SelectedId });
+                AddService(profile, service);
+            }
+            catch { ReleaseService(service); throw; }
         }
         Changed?.Invoke();
         return profile;
@@ -255,6 +271,7 @@ public sealed class CodexAccountManager
 
     private bool Remove(string id, bool discardClaudeDraft)
     {
+        IUsageAccountService removed;
         lock (_gate)
         {
             if (id == _loginProfile || !_services.TryGetValue(id, out var service)) return false;
@@ -272,7 +289,9 @@ public sealed class CodexAccountManager
             _identityConflicts.Remove(id);
             _identityConflictMarkersPending.Remove(id);
             _services.Remove(id);
+            removed = service;
         }
+        ReleaseService(removed);
         Changed?.Invoke();
         return true;
     }
@@ -519,6 +538,7 @@ public sealed class CodexAccountManager
                 _identityConflictMarkersPending.Remove(profileId);
                 AddService(replacement, candidateService);
             }
+            ReleaseService(originalService);
             RefreshIdentityConflicts();
             Changed?.Invoke();
             return new(CodexQuotaStatus.Available, login.Identity);
@@ -542,6 +562,33 @@ public sealed class CodexAccountManager
         }
         return operations!.ConsumeCreditAsync(creditId, token);
     }
+    /// <summary>
+    /// Releases every account service at shutdown. Services stay registered so a late
+    /// projection still reads their last snapshot; an in-flight request finishes before its
+    /// resources are released.
+    /// </summary>
+    public void Dispose()
+    {
+        IUsageAccountService[] services;
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            foreach (var (id, handler) in _serviceHandlers) _services[id].Changed -= handler;
+            _serviceHandlers.Clear();
+            services = _services.Values.ToArray();
+        }
+        foreach (var service in services) ReleaseService(service);
+    }
+    private bool _disposed;
+
+    private static void ReleaseService(IUsageAccountService service)
+    {
+        // Removal and shutdown must not fail because one service could not release a resource.
+        try { (service as IDisposable)?.Dispose(); }
+        catch { }
+    }
+
     private IUsageAccountService AddService(CodexAccountProfile profile, IUsageAccountService? service = null)
     {
         service ??= _createService(profile);

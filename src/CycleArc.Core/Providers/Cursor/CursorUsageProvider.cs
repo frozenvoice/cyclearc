@@ -12,17 +12,26 @@ public sealed class CursorUsageProvider : IUsageProvider
     private readonly Func<CodexAccountProfile, ICursorUsageClient>? _clientFactory;
     private readonly Func<CodexAccountProfile, ICursorAuthSource>? _authFactory;
     private readonly Func<CodexAccountProfile, ICursorUsageSource>? _sourceFactory;
+    private readonly Func<ICursorAuthSource, ICursorUsageClient> _ownedClientFactory;
 
     public CursorUsageProvider(CodexAccountStore accounts, IClock? clock = null,
         Func<CodexAccountProfile, ICursorUsageClient>? clientFactory = null,
         Func<CodexAccountProfile, ICursorAuthSource>? authFactory = null,
         Func<CodexAccountProfile, ICursorUsageSource>? sourceFactory = null)
+        : this(accounts, clock, clientFactory, authFactory, sourceFactory, ownedClientFactory: null) { }
+
+    internal CursorUsageProvider(CodexAccountStore accounts, IClock? clock,
+        Func<CodexAccountProfile, ICursorUsageClient>? clientFactory,
+        Func<CodexAccountProfile, ICursorAuthSource>? authFactory,
+        Func<CodexAccountProfile, ICursorUsageSource>? sourceFactory,
+        Func<ICursorAuthSource, ICursorUsageClient>? ownedClientFactory)
     {
         _accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         _clock = clock ?? SystemClock.Instance;
         _clientFactory = clientFactory;
         _authFactory = authFactory;
         _sourceFactory = sourceFactory;
+        _ownedClientFactory = ownedClientFactory ?? (auth => new CursorUsageClient(auth, clock: _clock));
     }
 
     public UsageProviderId Id => UsageProviderId.Cursor;
@@ -31,15 +40,31 @@ public sealed class CursorUsageProvider : IUsageProvider
     {
         if (profile.Provider != Id) throw new ArgumentException("Wrong usage provider.", nameof(profile));
         var auth = _authFactory?.Invoke(profile) ?? new CursorAuthStateDatabaseReader();
-        var client = _clientFactory?.Invoke(profile) ?? new CursorUsageClient(auth, clock: _clock);
-        var source = _sourceFactory?.Invoke(profile)
-            ?? new CursorUsageCollector(_accounts, profile.Id, client, _clock);
-        return new CursorQuotaService(_accounts, profile, client, source, _clock);
+        // A factory-supplied client may be shared with other services or owned by the
+        // caller, so only a client created here is released with its service.
+        var owned = _clientFactory is null ? _ownedClientFactory(auth) : null;
+        try
+        {
+            var client = owned ?? _clientFactory!(profile);
+            var source = _sourceFactory?.Invoke(profile)
+                ?? new CursorUsageCollector(_accounts, profile.Id, client, _clock);
+            return new CursorQuotaService(_accounts, profile, client, source, _clock, owned as IDisposable);
+        }
+        catch
+        {
+            (owned as IDisposable)?.Dispose();
+            throw;
+        }
     }
 }
 
-public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccountService, ICursorAccountOperations
+public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccountService, ICursorAccountOperations, IDisposable
 {
+    private readonly object _lifetime = new();
+    private readonly IDisposable? _ownedResources;
+    private int _operations;
+    private bool _released;
+    private bool _disposed;
     private readonly CodexAccountStore _accounts;
     private readonly CodexAccountProfile _profile;
     private readonly ICursorUsageClient _client;
@@ -54,7 +79,8 @@ public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccount
     private string? _lastPublishedEmail;
 
     public CursorQuotaService(CodexAccountStore accounts, CodexAccountProfile profile,
-        ICursorUsageClient client, ICursorUsageSource source, IClock? clock = null)
+        ICursorUsageClient client, ICursorUsageSource source, IClock? clock = null,
+        IDisposable? ownedResources = null)
     {
         _accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         _profile = profile ?? throw new ArgumentNullException(nameof(profile));
@@ -66,6 +92,43 @@ public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccount
         _binding = ReadBinding();
         var binding = ActiveBinding();
         _snapshot = Project(_source.ReadCached(binding), binding);
+        _ownedResources = ownedResources;
+    }
+
+    /// <summary>
+    /// Releases resources this service owns once no live request or connection check is
+    /// using them. Later client operations return a failure without touching the client.
+    /// </summary>
+    public void Dispose()
+    {
+        lock (_lifetime)
+        {
+            if (_released) return;
+            _released = true;
+            if (_operations > 0) return;
+            _disposed = true;
+        }
+        _ownedResources?.Dispose();
+    }
+
+    private bool TryBeginClientOperation()
+    {
+        lock (_lifetime)
+        {
+            if (_released) return false;
+            _operations++;
+            return true;
+        }
+    }
+
+    private void EndClientOperation()
+    {
+        lock (_lifetime)
+        {
+            if (--_operations > 0 || !_released || _disposed) return;
+            _disposed = true;
+        }
+        _ownedResources?.Dispose();
     }
 
     // Snapshot is intentionally a cheap, event-free read. Account-manager projection can
@@ -99,6 +162,17 @@ public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccount
     }
 
     public async Task<CodexRefreshResult> RefreshLiveAsync(CancellationToken token)
+    {
+        if (!TryBeginClientOperation())
+        {
+            var current = Snapshot;
+            return new(current, current.HasUsablePercentages, "cursor-service-released");
+        }
+        try { return await RefreshLiveCoreAsync(token).ConfigureAwait(false); }
+        finally { EndClientOperation(); }
+    }
+
+    private async Task<CodexRefreshResult> RefreshLiveCoreAsync(CancellationToken token)
     {
         if (!await _liveGate.WaitAsync(0, token).ConfigureAwait(false))
         {
@@ -145,6 +219,13 @@ public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccount
     }
 
     public async Task<CursorConnectionResult> ConnectCurrentAsync(CancellationToken token)
+    {
+        if (!TryBeginClientOperation()) return new(false, "cursor-profile-unavailable");
+        try { return await ConnectCurrentCoreAsync(token).ConfigureAwait(false); }
+        finally { EndClientOperation(); }
+    }
+
+    private async Task<CursorConnectionResult> ConnectCurrentCoreAsync(CancellationToken token)
     {
         await _connectionGate.WaitAsync(token).ConfigureAwait(false);
         try

@@ -738,7 +738,11 @@ public partial class App : Application
         catch (Exception ex) { LogExitFailure("App shutdown wait failed", ex); }
         finally
         {
-            try { RunExitCleanup(() => _tray?.Dispose(), "Tray shutdown failed"); }
+            try
+            {
+                RunExitCleanup(() => _codex?.Dispose(), "Account service shutdown failed");
+                RunExitCleanup(() => _tray?.Dispose(), "Tray shutdown failed");
+            }
             finally { Shutdown(); }
         }
     }
@@ -759,6 +763,7 @@ public partial class App : Application
     {
         RunExitCleanup(() => _widgetController?.Dispose(), "Widget shutdown failed");
         RunExitCleanup(() => _environment?.Dispose(), "Environment monitor shutdown failed");
+        RunExitCleanup(() => _codex?.Dispose(), "Account service shutdown failed");
         RunExitCleanup(() => _instanceServer?.DisposeAsync().AsTask().GetAwaiter().GetResult(), "Desktop IPC shutdown failed");
         RunExitCleanup(() => InstanceLease?.Dispose(), "Single-instance mutex release failed");
         InstanceLease = null;
