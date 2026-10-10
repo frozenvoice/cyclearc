@@ -295,3 +295,49 @@ jobs:
           path: artifacts/portable-distribution/*.json
           if-no-files-found: ignore
 
+  # Verify opt-in/out and execute the actual registered Run command on a fresh
+  # profile. This does not log off or claim to reproduce Windows logon itself.
+  managed-startup:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      # The source helper supplies the existing desktop/directory release guard.
+      # The installed executable still comes exclusively from the build artifact.
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download exact-run release assets
+        uses: actions/download-artifact@v6
+        with:
+          name: CycleArc-win-x64
+          path: publish/velopack
+
+      - name: Download verification tools
+        uses: actions/download-artifact@v6
+        with:
+          name: CycleArc-verification-tools
+          path: artifacts/verification-tools
+
+      - name: Setup harness .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Verify registered managed startup command
+        shell: pwsh
+        env:
+          CYCLEARC_DISPOSABLE_PROFILE: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet ./artifacts/verification-tools/CycleArc.UiSmoke.dll --managed-startup ./publish/velopack
+          if ($LASTEXITCODE -ne 0) { throw "Managed startup verification failed with exit $LASTEXITCODE" }
+
+      - name: Upload managed startup evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: managed-startup-evidence
+          path: artifacts/managed-startup/**
+          if-no-files-found: error
+

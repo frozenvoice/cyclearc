@@ -159,7 +159,8 @@ All three Windows workflows are manual-only (`workflow_dispatch`). There is no p
 indirect automatic, scheduled, replacement lightweight or fake-success CI. Ordinary work
 does not dispatch or wait for remote CI. The `Windows` full workflow shares the unchanged
 `dev-run.ps1 -NoLaunch` gate and passes its exact packaged artifact to its install/repair and
-shortcut-choice jobs on disposable hosted runners. Manual validation does not publish a release.
+shortcut-choice, portable and managed-startup jobs on disposable hosted runners.
+Manual validation does not publish a release.
 
 CI is not where a change is first verified. Before every push:
 
@@ -192,7 +193,9 @@ CI is not where a change is first verified. Before every push:
   scope and gaps reported; commit/push and verify the remote ref, without a CI-completion wait.
 - Installer delivery: the full local gate and an explicitly selected successful `Windows` full
   run for the delivered SHA, including `build`, `managed-setup-install`, `setup-shortcut-choices`,
-  `portable-distribution`, packaged/installed hashes and standalone portable evidence.
+  `portable-distribution`, `managed-startup`, packaged/installed hashes, standalone portable
+  evidence and actual managed startup registration/command execution/opt-out evidence.
+  Registered-command execution does not establish Windows logoff/logon behavior; report that scope.
   Do not claim a source build alone validates delivery.
 - Formal release: installer-delivery criteria plus `Release.ps1 -FullRunId <id>` preflight/package/
   uploaded-asset checks before public visibility. Run ID, target SHA, successful required jobs and

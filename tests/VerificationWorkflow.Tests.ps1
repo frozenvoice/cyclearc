@@ -68,7 +68,7 @@ foreach ($forbiddenEvent in @('push', 'pull_request', 'schedule', 'workflow_run'
 }
 $jobNames = @([regex]::Matches((Get-Block $workflow 'jobs:' '__end_of_jobs__'), '(?m)^  (?<name>[a-zA-Z][\w-]*):') |
     ForEach-Object { $_.Groups['name'].Value })
-Assert-Contract (($jobNames -join ',') -ceq 'build,managed-setup-install,setup-shortcut-choices,portable-distribution') 'full verification must retain build, independent install jobs and the standalone portable job'
+Assert-Contract (($jobNames -join ',') -ceq 'build,managed-setup-install,setup-shortcut-choices,portable-distribution,managed-startup') 'full verification must retain build, independent install jobs, standalone portable and managed startup jobs'
 $managed = [regex]::Match($workflow, '(?ms)^  managed-setup-install:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
 $shortcutChoices = [regex]::Match($workflow, '(?ms)^  setup-shortcut-choices:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
 $build = [regex]::Match($workflow, '(?ms)^  build:.*?(?=^  # Disposable GitHub-hosted runner only.)').Value
@@ -113,6 +113,27 @@ Assert-Contract ($portable.Contains('--portable-distribution ./publish/velopack'
 Assert-Contract ($portable -notmatch '(?mi)dev-run\.ps1|dotnet\s+(build|publish)|CycleArc-Setup\.exe') 'portable check must launch the actual ZIP without building or installing CycleArc'
 Assert-Contract ($build.Contains('name: CycleArc-published-win-x64') -and $build.Contains('path: publish/.dev-staging/CycleArc.exe')) 'original publish EXE must be retained as exact-run release validation evidence'
 Assert-Contract ($build.Contains('name: CycleArc-verification-tools') -and $build.Contains('path: tests/CycleArc.UiSmoke/bin/Release/net10.0-windows10.0.17763.0/**')) 'portable runtime must use verification tools built in the same gate'
+function Assert-ManagedStartupJob([string]$Text) {
+    $startup = [regex]::Match($Text, '(?ms)^  managed-startup:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
+    Assert-Contract ($startup -match '(?m)^\s+needs:\s+build\s*$' -and $startup -match '(?m)^\s+runs-on:\s+windows-latest\s*$') 'managed startup must use its own disposable hosted runner after the verified build'
+    Assert-Contract ($startup.Contains('uses: actions/checkout@v5')) 'managed startup must retain the same-source installation release helper'
+    Assert-Contract ($startup.Contains('name: CycleArc-win-x64') -and $startup.Contains('name: CycleArc-verification-tools')) 'managed startup must consume the exact same-run installer and verification tools'
+    Assert-Contract ($startup -notmatch '(?m)^\s+(run-id|repository|github-token):') 'managed startup must not select assets or tools from another run or repository'
+    Assert-Contract ($startup.Contains('CYCLEARC_DISPOSABLE_PROFILE: "1"')) 'managed startup must explicitly require a disposable profile'
+    Assert-Contract ($startup.Contains('--managed-startup ./publish/velopack') -and $startup.Contains('if ($LASTEXITCODE -ne 0)')) 'managed startup must run its production installer/UI/registered-command test and fail on a nonzero exit'
+    Assert-Contract ($startup -notmatch '(?mi)dev-run\.ps1|dotnet\s+(build|publish)') 'managed startup must not rebuild the delivered executable'
+    Assert-Contract ($startup.Contains('name: managed-startup-evidence') -and $startup.Contains('path: artifacts/managed-startup/**') -and $startup.Contains('if: always()') -and $startup.Contains('if-no-files-found: error')) 'managed startup must retain required verification evidence'
+}
+Assert-ManagedStartupJob $workflow
+foreach ($mutation in @(
+    @{ Name = 'missing disposable guard'; Text = $workflow.Replace('CYCLEARC_DISPOSABLE_PROFILE: "1"', 'CYCLEARC_DISPOSABLE_PROFILE: "0"') },
+    @{ Name = 'wrong runtime mode'; Text = $workflow.Replace('--managed-startup ./publish/velopack', '--portable-distribution ./publish/velopack') },
+    @{ Name = 'cross-run download'; Text = $workflow.Replace("  managed-startup:`n", "  managed-startup:`n    run-id: 123`n").Replace("  managed-startup:`r`n", "  managed-startup:`r`n    run-id: 123`r`n") }
+)) {
+    $rejected = $false
+    try { Assert-ManagedStartupJob $mutation.Text } catch { $rejected = $true }
+    Assert-Contract $rejected "managed startup must reject $($mutation.Name)"
+}
 Assert-Contract ($workflow -notmatch '(?mi)vs_buildtools|vswhere.*install|Workload\.VCTools') 'CI must not download/install Visual Studio'
 Assert-Contract ($build -notmatch '(?mi)^\s+run:\s+.*dotnet\s+(restore|build|test|publish)\b') 'workflow must not duplicate the shared dotnet gate commands'
 Assert-Contract ($workflow -notmatch '(?mi)Compile test-only build flavours') 'test-only compile must live in the shared gate'

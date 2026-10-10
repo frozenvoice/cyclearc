@@ -80,7 +80,13 @@ function Invoke-GhJson {
     }
     if ([string]::IsNullOrWhiteSpace($result.Output)) { return $null }
     try {
-        return $result.Output | ConvertFrom-Json -Depth 30
+        $jsonOptions = @{ Depth = 30 }
+        # PowerShell 7.5+ can preserve API timestamps verbatim. Earlier 7.x versions
+        # return typed dates; ConvertTo-ReleaseTimestamp preserves their DateTimeKind.
+        if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
+            $jsonOptions.DateKind = 'String'
+        }
+        return $result.Output | ConvertFrom-Json @jsonOptions
     }
     catch {
         throw "gh returned invalid JSON: $($_.Exception.Message)"
@@ -249,7 +255,7 @@ function Get-RunApiItems {
 
 function Assert-WindowsFullJobs {
     param([object[]]$Jobs, [Parameter(Mandatory)][long]$RunId, [Parameter(Mandatory)][int]$Attempt)
-    foreach ($name in @('build', 'managed-setup-install', 'setup-shortcut-choices', 'portable-distribution')) {
+    foreach ($name in @('build', 'managed-setup-install', 'setup-shortcut-choices', 'portable-distribution', 'managed-startup')) {
         $matching = @($Jobs | Where-Object { [string]$_.name -ceq $name })
         if ($matching.Count -ne 1) { throw "Windows full run $RunId must contain exactly one required job '$name'" }
     }
@@ -259,6 +265,24 @@ function Assert-WindowsFullJobs {
             throw "Windows full run $RunId job '$($job.name)' is not a completed success for attempt $Attempt"
         }
     }
+}
+
+function ConvertTo-ReleaseTimestamp {
+    param([Parameter(Mandatory)][object]$Value)
+    if ($Value -is [DateTimeOffset]) { return $Value }
+    if ($Value -is [DateTime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Unspecified) {
+            throw 'Release evidence timestamp has no timezone'
+        }
+        return [DateTimeOffset]$Value
+    }
+    $text = [string]$Value
+    # GitHub timestamps have an explicit UTC/offset suffix. Refuse an ambiguous
+    # local wall-clock value instead of assigning this release machine's timezone.
+    if ($text -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$') {
+        throw 'Release evidence timestamp must be an ISO 8601 value with timezone'
+    }
+    [DateTimeOffset]::Parse($text, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None)
 }
 
 function Select-WindowsFullArtifact {
@@ -278,9 +302,9 @@ function Select-WindowsFullArtifact {
     $build = @($Jobs | Where-Object { [string]$_.name -ceq 'build' })
     if ($build.Count -ne 1) { throw 'Artifact requires exactly one successful build job' }
     try {
-        $created = [DateTimeOffset]::Parse([string]$artifact.created_at)
-        $started = [DateTimeOffset]::Parse([string]$build[0].started_at)
-        $completed = [DateTimeOffset]::Parse([string]$build[0].completed_at)
+        $created = ConvertTo-ReleaseTimestamp -Value $artifact.created_at
+        $started = ConvertTo-ReleaseTimestamp -Value $build[0].started_at
+        $completed = ConvertTo-ReleaseTimestamp -Value $build[0].completed_at
     }
     catch { throw 'Artifact/build timestamps are missing or invalid; cannot verify the full run attempt' }
     if ($created -lt $started -or $created -gt $completed) {

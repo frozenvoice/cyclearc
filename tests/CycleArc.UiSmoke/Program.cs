@@ -22,6 +22,16 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--managed-startup", var managedStartupAssets])
+        {
+            ManagedStartupChecks.Run(managedStartupAssets);
+            return 0;
+        }
+        if (args is ["--managed-startup-ui"])
+        {
+            ManagedStartupChecks.RunUiContract();
+            return 0;
+        }
         if (args is ["--portable-distribution", var portableAssets])
         {
             PortableDistributionChecks.Run(portableAssets);
@@ -115,6 +125,8 @@ internal static class Program
             }
             if (args is ["--updates"]) { UpdateUiChecks.Run(); return 0; }
             if (args is ["--portable-ui"]) { PortableUiChecks.Run(); return 0; }
+            if (args is ["--managed-startup-ui-child", "on"] or ["--managed-startup-ui-child", "off"])
+                return ManagedStartupChecks.RunUiChild(args[1] == "on");
             if (args is ["--observation-removal"] or ["--observation-removal", _])
             {
                 ObservationRemovalUiChecks.Run(args.Length == 2 ? args[1] : null);

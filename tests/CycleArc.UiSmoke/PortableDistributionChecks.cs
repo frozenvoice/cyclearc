@@ -170,7 +170,7 @@ internal static class PortableDistributionChecks
         return Process.Start(start) ?? throw new InvalidOperationException("Portable executable did not start.");
     }
 
-    private static DesktopInstanceResponse Request(DesktopInstanceCommand command, DesktopInstanceResponse? expected = null)
+    internal static DesktopInstanceResponse Request(DesktopInstanceCommand command, DesktopInstanceResponse? expected = null)
         => DesktopInstanceClient.RequestAsync(DesktopInstancePipe.ForCurrentUserSession(), command,
             TimeSpan.FromSeconds(2), expectedInstance: expected).GetAwaiter().GetResult();
 
@@ -199,7 +199,7 @@ internal static class PortableDistributionChecks
             "Portable desktop did not shut down cleanly.");
     }
 
-    private static nint AwaitWidget(Process process)
+    internal static nint AwaitWidget(Process process)
     {
         var watch = Stopwatch.StartNew();
         while (watch.Elapsed < TimeSpan.FromSeconds(15))
@@ -220,7 +220,7 @@ internal static class PortableDistributionChecks
         throw new TimeoutException("Portable widget native window was not visible.");
     }
 
-    private static bool HasTraySink(int processId)
+    internal static bool HasTraySink(int processId)
     {
         var found = false;
         EnumWindows((window, _) =>
@@ -249,7 +249,7 @@ internal static class PortableDistributionChecks
         return JsonSerializer.Serialize(values);
     }
 
-    private static string Hash(string path)
+    internal static string Hash(string path)
     {
         using var stream = File.OpenRead(path);
         return Convert.ToHexString(SHA256.HashData(stream));

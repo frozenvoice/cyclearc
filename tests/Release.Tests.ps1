@@ -96,7 +96,7 @@ $otherWorkflow = $successfulRun.PSObject.Copy()
 $otherWorkflow.path = '.github/workflows/windows-build-local.yml'
 Assert-Throws { Assert-FixtureRun -Run $otherWorkflow } 'windows.yml'
 
-$fullJobs = @('build', 'managed-setup-install', 'setup-shortcut-choices', 'portable-distribution') | ForEach-Object {
+$fullJobs = @('build', 'managed-setup-install', 'setup-shortcut-choices', 'portable-distribution', 'managed-startup') | ForEach-Object {
     [pscustomobject]@{ name = $_; run_id = 101; run_attempt = 1; status = 'completed'; conclusion = 'success'
         started_at = '2026-09-15T10:00:00Z'; completed_at = '2026-09-15T10:10:00Z' }
 }
@@ -107,8 +107,24 @@ Assert-Throws { Assert-WindowsFullJobs -Jobs $fullJobs -RunId 101 -Attempt 2 } '
 foreach ($state in @('failure', 'cancelled', 'skipped', 'neutral')) {
     $badJob = $fullJobs[2].PSObject.Copy()
     $badJob.conclusion = $state
-    Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0], $fullJobs[1], $badJob, $fullJobs[3]) -RunId 101 -Attempt 1 } 'not a completed success'
+    Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0], $fullJobs[1], $badJob, $fullJobs[3], $fullJobs[4]) -RunId 101 -Attempt 1 } 'not a completed success'
 }
+# Actual execution of the registered managed startup command is a mandatory,
+# independently successful job from this exact run attempt.
+Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0..3]) -RunId 101 -Attempt 1 } "required job 'managed-startup'"
+Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs + $fullJobs[4]) -RunId 101 -Attempt 1 } "required job 'managed-startup'"
+foreach ($state in @('failure', 'cancelled', 'skipped', 'neutral')) {
+    $badStartup = $fullJobs[4].PSObject.Copy()
+    $badStartup.conclusion = $state
+    Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0..3] + $badStartup) -RunId 101 -Attempt 1 } "job 'managed-startup' is not a completed success"
+}
+$previousStartup = $fullJobs[4].PSObject.Copy()
+$previousStartup.run_attempt = 2
+Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0..3] + $previousStartup) -RunId 101 -Attempt 1 } "job 'managed-startup' is not a completed success"
+$otherRunStartup = $fullJobs[4].PSObject.Copy()
+$otherRunStartup.run_id = 102
+Assert-Throws { Assert-WindowsFullJobs -Jobs @($fullJobs[0..3] + $otherRunStartup) -RunId 101 -Attempt 1 } "job 'managed-startup' is not a completed success"
+
 $fullArtifact = [pscustomobject]@{
     id = 555; name = 'CycleArc-win-x64'; expired = $false; size_in_bytes = 123; created_at = '2026-09-15T10:05:00Z'
     workflow_run = [pscustomobject]@{ id = 101; head_sha = $shaA; head_repository_id = 17 }
@@ -128,6 +144,75 @@ Assert-Throws { Select-WindowsFullArtifact -Artifacts @($emptyArtifact) -Run $su
 $staleArtifact = $fullArtifact.PSObject.Copy()
 $staleArtifact.created_at = '2026-09-15T09:55:00Z'
 Assert-Throws { Select-WindowsFullArtifact -Artifacts @($staleArtifact) -Run $successfulRun -Jobs $fullJobs } 'selected full run attempt'
+
+# API timestamps must keep their original instant across DateKind defaults, offsets,
+# and release-machine culture. Only the native command boundary is mocked.
+$nativeBeforeTimestampTests = (Get-Command Invoke-NativeCommand -CommandType Function).ScriptBlock
+$cultureBeforeTimestampTests = [Globalization.CultureInfo]::CurrentCulture
+$converterBeforeTimestampTests = Get-Command ConvertFrom-Json
+try {
+    [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('fr-FR')
+    $script:timestampJson = ''
+    function Invoke-NativeCommand {
+        param([string]$FilePath, [string[]]$Arguments, [switch]$AllowFailure)
+        [pscustomobject]@{ ExitCode = 0; Output = $script:timestampJson }
+    }
+    $offsetArtifact = $fullArtifact.PSObject.Copy()
+    $offsetArtifact.created_at = '2026-09-15T19:05:00.1234567+09:00'
+    $offsetJobs = @($fullJobs | ForEach-Object { $_.PSObject.Copy() })
+    # The job timestamps deliberately use two other offsets for the same UTC window.
+    $offsetJobs[0].started_at = '2026-09-15T06:00:00-04:00'
+    $offsetJobs[0].completed_at = '2026-09-15T10:10:00Z'
+    $script:timestampJson = @{ artifact = $offsetArtifact; jobs = $offsetJobs } | ConvertTo-Json -Depth 10
+    $apiEvidence = Invoke-GhJson -Arguments @('api', 'synthetic-timestamp-evidence')
+    if ($converterBeforeTimestampTests.Parameters.ContainsKey('DateKind')) {
+        Assert-True ($apiEvidence.artifact.created_at -is [string]) 'modern JSON conversion preserves timestamp strings'
+        Assert-Equal $offsetArtifact.created_at $apiEvidence.artifact.created_at 'API offset and fractional precision survive JSON conversion'
+    }
+    Assert-Equal 555 (Select-WindowsFullArtifact -Artifacts @($apiEvidence.artifact) -Run $successfulRun -Jobs $apiEvidence.jobs).id `
+        'mixed original offsets pass within the successful build window under a non-US culture'
+    Assert-Equal ([DateTimeOffset]::Parse('2026-09-15T10:05:00.1234567Z').UtcTicks) `
+        (ConvertTo-ReleaseTimestamp -Value $apiEvidence.artifact.created_at).UtcTicks 'timestamp normalization preserves the exact UTC instant'
+    $apiEvidence.artifact.created_at = '2026-09-15T18:59:59.9999999+09:00'
+    Assert-Throws { Select-WindowsFullArtifact -Artifacts @($apiEvidence.artifact) -Run $successfulRun -Jobs $apiEvidence.jobs } 'selected full run attempt'
+    $apiEvidence.artifact.created_at = '2026-09-15T19:10:00.0000001+09:00'
+    Assert-Throws { Select-WindowsFullArtifact -Artifacts @($apiEvidence.artifact) -Run $successfulRun -Jobs $apiEvidence.jobs } 'selected full run attempt'
+    $apiEvidence.artifact.created_at = '2026-09-15T10:05:00'
+    Assert-Throws { Select-WindowsFullArtifact -Artifacts @($apiEvidence.artifact) -Run $successfulRun -Jobs $apiEvidence.jobs } 'timestamps are missing or invalid'
+    Assert-Throws { ConvertTo-ReleaseTimestamp -Value ([DateTime]::SpecifyKind([DateTime]::Now, [DateTimeKind]::Unspecified)) } 'no timezone'
+    $typedOffset = [DateTimeOffset]::Parse('2026-09-15T19:05:00.1234567+09:00', [Globalization.CultureInfo]::InvariantCulture)
+    Assert-Equal $typedOffset.UtcTicks (ConvertTo-ReleaseTimestamp -Value $typedOffset).UtcTicks 'typed DateTimeOffset keeps its offset and fractional precision'
+    Assert-Equal $typedOffset.UtcTicks (ConvertTo-ReleaseTimestamp -Value $typedOffset.UtcDateTime).UtcTicks 'legacy typed UTC DateTime preserves its instant'
+    Assert-Equal $typedOffset.UtcTicks (ConvertTo-ReleaseTimestamp -Value $typedOffset.LocalDateTime).UtcTicks 'legacy typed local DateTime preserves its instant'
+
+    # Simulate a PowerShell 7.0-7.4 command surface without DateKind. The production
+    # capability branch must omit that parameter and correctly handle typed dates.
+    $script:legacyJsonCalls = 0
+    function ConvertFrom-Json {
+        param([Parameter(ValueFromPipeline)][string]$InputObject, [int]$Depth = 30)
+        process {
+            $script:legacyJsonCalls++
+            Microsoft.PowerShell.Utility\ConvertFrom-Json -InputObject $InputObject -Depth $Depth
+        }
+    }
+    $legacyEvidence = Invoke-GhJson -Arguments @('api', 'synthetic-legacy-timestamp-evidence')
+    Assert-Equal 1 $script:legacyJsonCalls 'older command surface is invoked without unsupported DateKind'
+    Assert-True ($legacyEvidence.artifact.created_at -is [DateTime]) 'legacy JSON conversion returns typed dates'
+    Assert-Equal 555 (Select-WindowsFullArtifact -Artifacts @($legacyEvidence.artifact) -Run $successfulRun -Jobs $legacyEvidence.jobs).id `
+        'legacy typed dates retain their different original offsets under a non-US culture'
+    Assert-Equal $typedOffset.UtcTicks (ConvertTo-ReleaseTimestamp -Value $legacyEvidence.artifact.created_at).UtcTicks `
+        'legacy JSON conversion retains the original UTC instant and subsecond precision'
+    $legacyEvidence.artifact.created_at = $typedOffset.UtcDateTime.AddMinutes(-10)
+    Assert-Throws { Select-WindowsFullArtifact -Artifacts @($legacyEvidence.artifact) -Run $successfulRun -Jobs $legacyEvidence.jobs } 'selected full run attempt'
+}
+finally {
+    [Globalization.CultureInfo]::CurrentCulture = $cultureBeforeTimestampTests
+    Set-Item -Path Function:\Invoke-NativeCommand -Value $nativeBeforeTimestampTests
+    if ($converterBeforeTimestampTests.CommandType -eq 'Function') {
+        Set-Item -Path Function:\ConvertFrom-Json -Value $converterBeforeTimestampTests.ScriptBlock
+    }
+    else { Remove-Item -Path Function:\ConvertFrom-Json -ErrorAction SilentlyContinue }
+}
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-release-tests-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
@@ -406,15 +491,21 @@ try {
             }
             if ($joined -match '^api repos/.+/actions/runs/4242/attempts/(\d+)/jobs\?') {
                 $attempt = [int]$Matches[1]
-                $jobs = @(@('build', 'managed-setup-install', 'setup-shortcut-choices', 'portable-distribution') | ForEach-Object {
+                $jobs = @(@('build', 'managed-setup-install', 'setup-shortcut-choices', 'portable-distribution', 'managed-startup') | ForEach-Object {
                     @{ name = $_; run_id = 4242; run_attempt = $attempt; status = 'completed'; conclusion = 'success'
                         started_at = '2026-09-15T10:00:00Z'; completed_at = '2026-09-15T10:10:00Z' }
                 })
                 if ($script:fixtureGate -eq 'missing-install-job') { $jobs = @($jobs[0], $jobs[2]) }
                 if ($script:fixtureGate -eq 'failed-install-job') { $jobs[1].conclusion = 'failure' }
                 if ($script:fixtureGate -eq 'skipped-shortcut-job') { $jobs[2].conclusion = 'skipped' }
-                if ($script:fixtureGate -eq 'missing-portable-job') { $jobs = @($jobs[0..2]) }
+                if ($script:fixtureGate -eq 'missing-portable-job') { $jobs = @($jobs | Where-Object { $_.name -cne 'portable-distribution' }) }
                 if ($script:fixtureGate -eq 'failed-portable-job') { $jobs[3].conclusion = 'failure' }
+                if ($script:fixtureGate -eq 'missing-startup-job') { $jobs = @($jobs[0..3]) }
+                if ($script:fixtureGate -eq 'failed-startup-job') { $jobs[4].conclusion = 'failure' }
+                if ($script:fixtureGate -eq 'skipped-startup-job') { $jobs[4].conclusion = 'skipped' }
+                if ($script:fixtureGate -eq 'pending-startup-job') { $jobs[4].status = 'in_progress' }
+                if ($script:fixtureGate -eq 'wrong-attempt-startup-job') { $jobs[4].run_attempt = $attempt + 1 }
+                if ($script:fixtureGate -eq 'wrong-run-startup-job') { $jobs[4].run_id = 4243 }
                 return [pscustomobject]@{ ExitCode = 0; Output = (@{ total_count = $jobs.Count; jobs = $jobs } | ConvertTo-Json -Depth 30) }
             }
             if ($joined -match '^api repos/.+/actions/runs/4242/artifacts\?') {
@@ -599,6 +690,12 @@ try {
         @{ Gate = 'skipped-shortcut-job'; Error = 'not a completed success' },
         @{ Gate = 'missing-portable-job'; Error = 'required job' },
         @{ Gate = 'failed-portable-job'; Error = 'not a completed success' },
+        @{ Gate = 'missing-startup-job'; Error = "required job 'managed-startup'" },
+        @{ Gate = 'failed-startup-job'; Error = "job 'managed-startup' is not a completed success" },
+        @{ Gate = 'skipped-startup-job'; Error = "job 'managed-startup' is not a completed success" },
+        @{ Gate = 'pending-startup-job'; Error = "job 'managed-startup' is not a completed success" },
+        @{ Gate = 'wrong-attempt-startup-job'; Error = "job 'managed-startup' is not a completed success" },
+        @{ Gate = 'wrong-run-startup-job'; Error = "job 'managed-startup' is not a completed success" },
         @{ Gate = 'missing-artifact'; Error = 'exactly one' },
         @{ Gate = 'duplicate-artifact'; Error = 'exactly one' },
         @{ Gate = 'expired-artifact'; Error = 'expired, empty' },

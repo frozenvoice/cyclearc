@@ -11,12 +11,12 @@ A native Windows tray app for checking each account's usage, remaining allowance
 
 ## Get started
 
-The .NET 10 requirements below describe the 0.10.0 source build. As of 2026-10-09, the published stable release is 0.10.0. The latest-release link serves the published version; its release notes identify the bundled runtime.
+The .NET 10 requirements below describe the 0.10.1 source build. Starting with v0.10.1, a release offers both installer and portable downloads. The latest-release link serves the published version; its release notes identify the bundled runtime.
 
-**Windows x64:** use a supported Windows 11 release or Windows 10 Enterprise LTSC 1809 or Enterprise/IoT Enterprise LTSC 21H2 edition. The Windows API minimum remains 1809; ordinary Windows 10 editions are outside .NET 10 vendor support. See [OS compatibility](docs/DOTNET10-MIGRATION.md#operating-systems). The 0.10.0 source build bundles the .NET 10 runtime; no separate .NET installation is needed.
+**Windows x64:** use a supported Windows 11 release or Windows 10 Enterprise LTSC 1809 or Enterprise/IoT Enterprise LTSC 21H2 edition. The Windows API minimum remains 1809; ordinary Windows 10 editions are outside .NET 10 vendor support. See [OS compatibility](docs/DOTNET10-MIGRATION.md#operating-systems). Both distributions bundle the .NET 10 runtime; no separate .NET installation is needed.
 
 1. Download **`CycleArc-Setup.exe`** from the [latest release](https://github.com/frozenvoice/cyclearc/releases/latest).
-   Starting with the next release produced by this source, the same GitHub Release also offers **`CycleArc-<version>-win-x64-portable.zip`**. Extract it to a writable folder and run its single self-contained `CycleArc.exe` in place; no separate .NET installation is needed. Portable runs do not install themselves, register Windows startup, change installation/tray registry entries, or use the managed in-app updater. The existing 0.10.0 release and its tag remain unchanged.
+   Starting with v0.10.1, the same GitHub Release also offers **`CycleArc-<version>-win-x64-portable.zip`**. Extract it to a writable folder and run its single self-contained `CycleArc.exe` in place; no separate .NET installation is needed. Portable runs do not install themselves, register Windows startup, change installation/tray registry entries, or use the managed in-app updater. The existing 0.10.0 release and its tag remain unchanged.
 2. Run it, review the installation location, optionally select **Create a desktop shortcut**, then choose **Install → Run CycleArc → Finish**. New installations use `%LOCALAPPDATA%\Programs\CycleArc`; existing installations keep their registered location, including `%LOCALAPPDATA%\CycleArc`.
 3. Open the tray icon and **Manage accounts → Add an account**. Connect an existing Codex login or sign in to another account; choose **Connect Claude** or **Connect Cursor** for those providers.
 4. Click the tray icon for details, refresh immediately, or enable the widget in Settings. Installed Windows startup is opt-in; portable startup registration is unavailable. An ordinary launch opens the first running instance and shows its version.

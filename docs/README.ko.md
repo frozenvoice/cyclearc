@@ -16,7 +16,7 @@ Windows 트레이에서 **여러 Codex·Claude·Cursor 프로필의 사용률, �
 
 [최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 **Release · Windows x64** 설치 프로그램을 다운로드해 실행하세요. 새 안정 설치는 `%LOCALAPPDATA%\Programs\CycleArc` 아래에 두며, 기존 설치는 등록된 위치를 유지합니다(예전 `%LOCALAPPDATA%\CycleArc` 포함). 사용자 설정·계정·사용량 캐시는 기존 `%LOCALAPPDATA%\ProMeter`에 유지합니다.
 
-이 소스부터 만드는 **다음 릴리즈**에는 설치형 `CycleArc-Setup.exe`와 설치 없는 `CycleArc-<버전>-win-x64-portable.zip`을 **같은 GitHub Release에 함께 첨부**합니다. 두 배포 파일은 같은 검증된 Windows x64 실행 파일을 사용합니다. 포터블 ZIP은 쓰기 가능한 폴더에 압축을 풀고 단일 self-contained `CycleArc.exe`를 그 자리에서 실행합니다. 별도 .NET 설치나 CycleArc 관리형 설치가 필요 없으며 자신을 설치하거나 시작 메뉴·Windows 설치된 앱 항목·자동 시작 등록을 만들지 않습니다. 설치·트레이 레지스트리 마이그레이션과 Velopack 초기화·업데이트도 수행하지 않습니다. 자동 시작 설정은 포터블에서 사용할 수 없고 기존 저장된 설치형 설정은 유지합니다. 계정/설정은 기존 `%LOCALAPPDATA%\ProMeter`를 공용으로 사용하므로 계정을 격리하는 방식이 아닙니다. 포터블 업데이트는 앱을 종료한 뒤 새 ZIP의 `CycleArc.exe`를 **같은 폴더 경로**에 교체하고 다시 실행하세요. **기존 0.10.0 공개 릴리즈와 태그는 변경하지 않습니다.**
+**v0.10.1부터** 설치형 `CycleArc-Setup.exe`와 설치 없는 `CycleArc-<버전>-win-x64-portable.zip`을 **같은 GitHub Release에 함께 첨부**합니다. 두 배포 파일은 같은 검증된 Windows x64 실행 파일을 사용합니다. 포터블 ZIP은 쓰기 가능한 폴더에 압축을 풀고 단일 self-contained `CycleArc.exe`를 그 자리에서 실행합니다. 별도 .NET 설치나 CycleArc 관리형 설치가 필요 없으며 자신을 설치하거나 시작 메뉴·Windows 설치된 앱 항목·자동 시작 등록을 만들지 않습니다. 설치·트레이 레지스트리 마이그레이션과 Velopack 초기화·업데이트도 수행하지 않습니다. 자동 시작 설정은 포터블에서 사용할 수 없고 기존 저장된 설치형 설정은 유지합니다. 계정/설정은 기존 `%LOCALAPPDATA%\ProMeter`를 공용으로 사용하므로 계정을 격리하는 방식이 아닙니다. 포터블 업데이트는 앱을 종료한 뒤 새 ZIP의 `CycleArc.exe`를 **같은 폴더 경로**에 교체하고 다시 실행하세요. **기존 0.10.0 공개 릴리즈와 태그는 변경하지 않습니다.**
 
 설치 화면에서 위치를 확인하고, 원하면 **바탕화면 바로가기 만들기**를 선택한 뒤 **설치**를 누르세요. 새 설치에서는 기본 해제이며, 재설치에서는 현재 설치의 바탕화면 바로가기 유무를 반영합니다. 선택을 해제하면 현재 설치에 속한 바로가기만 제거합니다. 업데이트나 무인 재설치로 삭제한 바로가기가 다시 생기지 않으며, 시작 메뉴에서는 계속 실행할 수 있습니다. 설치 진행 상태를 확인하고, 완료되면 **CycleArc 실행**을 선택한 상태로 **마침**을 누르세요.
 
@@ -375,7 +375,7 @@ Windows 워크플로 3개는 모두 `workflow_dispatch` 수동 전용입니다. 
 
 `scripts/Verify-InstalledUpdate.ps1`은 설치된 앱을 처음부터 끝까지 검증합니다. 버전과 해시가 실제로 다른 테스트 빌드 3개를 만들어 첫 번째를 실제 `Setup.exe`로 설치하고, 운영 업데이트 창·조정자·업데이터·복구 supervisor를 그대로 거쳐 두 번째로 업데이트한 뒤, 준비 완료 전에 종료하는 빌드를 적용해 supervisor가 이전 버전을 복원·재실행하는지 확인하고, 마지막으로 앱을 제거해 Claude 설정 복원과 데이터 보존을 검사합니다. 현재 Windows 사용자 계정에 실제로 설치·업데이트·제거하며 데이터 루트·제거 레지스트리 항목·바로가기·단일 인스턴스 mutex·데스크톱 IPC는 격리할 수 없으므로, 폐기 가능한 Windows VM이나 전용 테스트 사용자에서 `-ConfirmDisposableEnvironment`와 함께만 실행하세요. 업데이트 피드는 테스트 전용 빌드 플래그에서만 읽는 로컬 디렉터리이며 HTTPS 강제와 패키지 검증은 그대로입니다. Claude 계정은 합성 데이터이며 실제 구독 사용량 검증이 아닙니다.
 
-GitHub Actions는 self-contained 단일 파일 검사물과 설치형·포터블·Velopack 업데이트 자산을 함께 생성합니다. `Windows` full의 설치/복구·바탕화면 바로가기 선택·포터블 단독 실행 job은 같은 run의 `CycleArc-win-x64`를 사용합니다. 포터블 job은 CycleArc가 설치되지 않은 폐기 가능한 새 프로필에서 트레이·위젯·레지스트리 동작을 확인합니다.
+GitHub Actions는 self-contained 단일 파일 검사물과 설치형·포터블·Velopack 업데이트 자산을 함께 생성합니다. `Windows` full의 설치/복구·바탕화면 바로가기 선택·관리형 자동 시작·포터블 단독 실행 job은 같은 run의 `CycleArc-win-x64`를 사용합니다. 포터블 job은 CycleArc가 설치되지 않은 폐기 가능한 새 프로필에서 트레이·위젯·레지스트리 동작을 확인합니다. 관리형 자동 시작 job은 폐기 가능한 프로필에서 사용자 동의·등록·실제 Windows Run 등록 명령 실행·동의 해제 후 등록 제거를 확인합니다. 등록 명령을 직접 실행하는 검증이며 실제 Windows 로그오프·재로그인 전환을 검증했다는 뜻은 아닙니다.
 
 전체 검증이나 산출물 전달이 필요할 때 다음 명령을 명시적으로 실행합니다. 최종 커밋을 포함한 브랜치를 선택하고 대상 SHA를 기록하세요. 실행 전에 브랜치가 바뀌어 다른 SHA를 검증하면 릴리즈 preflight가 거부합니다.
 
@@ -395,7 +395,7 @@ gh workflow run windows-e2e.yml --repo frozenvoice/cyclearc --ref <branch>
 
 정식 릴리즈는 최종 버전 변경의 로컬 full을 통과한 뒤 커밋·푸시하고 해당 SHA의 `Windows` full을 수동 실행합니다. 그 run ID로 `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -Commit <target-sha> -FullRunId <run-id> -NotesPath <notes-file> -Preflight`를 실행하세요. 사전 검증 성공 후 게시가 요청되었을 때 같은 명령에서 `-Preflight`를 제거합니다. 사전 검증은 소스 버전, 원격 커밋·실행·job·artifact와 내려받은 패키지를 확인하며 태그·초안·업로드·공개·로컬 빌드/테스트는 수행하지 않습니다.
 
-`-FullRunId`는 필수입니다. 정확한 `windows.yml` 수동 실행, 대상 SHA, `build`·`managed-setup-install`·`setup-shortcut-choices`·`portable-distribution`의 완료·성공과 만료되지 않은 정확한 `CycleArc-win-x64`·`CycleArc-published-win-x64` 각각 한 개를 확인합니다. 원본 publish EXE·full package 내부 EXE·포터블 ZIP 내부 EXE의 SHA-256과 요청한 FileVersion이 같아야 하며 self-contained·자산·체크섬 검증도 통과해야 합니다. 실패·취소·skip·미완료·누락은 게시를 허용하지 않습니다. 최신 성공 artifact로 대체하거나 다른 run의 파일을 혼합하거나 자동 검증·배포하지 않습니다. 앱 업데이트는 기존처럼 공개된 GitHub Releases를 소비하며 Actions artifact를 직접 찾지 않습니다.
+`-FullRunId`는 필수입니다. 정확한 `windows.yml` 수동 실행, 대상 SHA, `build`·`managed-setup-install`·`setup-shortcut-choices`·`portable-distribution`·`managed-startup`의 완료·성공과 만료되지 않은 정확한 `CycleArc-win-x64`·`CycleArc-published-win-x64` 각각 한 개를 확인합니다. 원본 publish EXE·full package 내부 EXE·포터블 ZIP 내부 EXE의 SHA-256과 요청한 FileVersion이 같아야 하며 self-contained·자산·체크섬 검증도 통과해야 합니다. 실패·취소·skip·미완료·누락은 게시를 허용하지 않습니다. 최신 성공 artifact로 대체하거나 다른 run의 파일을 혼합하거나 자동 검증·배포하지 않습니다. 앱 업데이트는 기존처럼 공개된 GitHub Releases를 소비하며 Actions artifact를 직접 찾지 않습니다.
 
 검증된 publish 폴더 한 개에서 두 배포 파일을 함께 패키징하는 명령:
 
