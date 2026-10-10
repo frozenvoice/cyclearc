@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CycleArc Promo</title>
+<style>
+  :root{
+    --bg:#060a12; --fg:#eef2f8; --muted:#8d97a9; --dim:#5a6476;
+    --teal:#65f0cf; --sky:#38bdf8; --blue:#4b7bff; --ok:#3ddc97; --amber:#f5a524; --orange:#f97316;
+    --grad:linear-gradient(90deg,#65f0cf,#38bdf8 48%,#4b7bff);
+    --ui:"Segoe UI Variable Display","Segoe UI","Inter","Noto Sans CJK KR","DejaVu Sans",sans-serif;
+    --mono:"Cascadia Mono","Consolas","DejaVu Sans Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--ui)}
+  #stage{position:relative;width:1920px;height:1080px;overflow:hidden;background:var(--bg)}
+  canvas{position:absolute;inset:0}
+  .glow{position:absolute;left:0;top:0;border-radius:50%;filter:blur(150px);opacity:.28;will-change:transform}
+  .vignette{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 55%,transparent 45%,rgba(0,0,0,.68) 100%);pointer-events:none}
+  .scene{position:absolute;inset:0;opacity:0}
+  .center{display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .grad{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .mask{display:block;overflow:hidden;padding-bottom:.08em}
+  .mask>span{display:inline-block;will-change:transform}
+  .logo{display:block;overflow:visible}
+
+  /* intro */
+  #intro .logo{width:250px;height:250px;margin-top:-40px}
+  #intro .word{font-size:156px;font-weight:800;letter-spacing:-.035em;margin-top:26px;display:flex}
+  #intro .word span{display:inline-block;will-change:transform,filter}
+  #intro .tag{font-size:36px;color:var(--muted);margin-top:8px;font-weight:400;letter-spacing:.01em}
+
+  /* footage rig: a desktop the production windows sit on */
+  #rig{position:absolute;inset:0;perspective:2400px;perspective-origin:50% 40%;z-index:1}
+  .cap,.traychip,.dots,.realtag{z-index:2}
+  .shot{position:absolute;left:0;top:0;border-radius:14px;transform-origin:50% 50%;will-change:transform}
+  .shot .halo{position:absolute;inset:-2px;border-radius:16px;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 50px 140px rgba(0,0,0,.7)}
+  .shot .tint{position:absolute;left:8%;right:8%;bottom:-70px;height:160px;border-radius:50%;filter:blur(70px);opacity:0}
+  .viewport{position:absolute;inset:0;border-radius:14px;overflow:hidden;background:#0b1220}
+  .desk{position:absolute;left:0;top:0;width:2560px;height:1440px;transform-origin:0 0;will-change:transform;
+        background:radial-gradient(1200px 800px at 18% 22%,rgba(56,189,248,.22),transparent 70%),
+                   radial-gradient(1100px 900px at 82% 78%,rgba(75,123,255,.20),transparent 70%),
+                   radial-gradient(900px 700px at 60% 30%,rgba(101,240,207,.08),transparent 70%),
+                   linear-gradient(160deg,#0d1626,#0a0f1b 60%,#0c1324)}
+  .taskbar{position:absolute;left:0;right:0;bottom:0;height:48px;background:rgba(17,21,30,.94);border-top:1px solid rgba(255,255,255,.07)}
+  .tray{position:absolute;right:28px;top:0;height:48px;display:flex;align-items:center;gap:18px;color:#c8d0dc}
+  .tray .chev{width:14px;height:14px}
+  .tray img{width:24px;height:24px;display:block}
+  .win{position:absolute;left:0;top:0;transform-origin:50% 100%;will-change:transform,opacity;filter:drop-shadow(0 24px 40px rgba(0,0,0,.55))}
+  .pointer{position:absolute;left:0;top:0;width:22px;height:30px;pointer-events:none;filter:drop-shadow(0 2px 3px rgba(0,0,0,.55))}
+  .ripple{position:absolute;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;border:3px solid var(--sky);opacity:0}
+  .sweep{position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.14) 48%,rgba(120,220,255,.07) 53%,transparent 64%);
+         mix-blend-mode:screen;opacity:0;will-change:transform}
+  .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+
+  /* captions */
+  .cap{position:absolute;left:250px;top:58px;opacity:0}
+  .cap.side{top:300px;width:660px}
+  .cap.side h2{font-size:80px;line-height:1.04}
+  .cap.side h2 .mask{display:block}
+  .cap.side p{position:static;white-space:normal;padding-left:0;margin-top:22px;font-size:30px}
+  .traychip{position:absolute;left:250px;top:720px;display:flex;align-items:center;gap:22px;opacity:0}
+  .traychip .box{width:116px;height:116px;border-radius:22px;background:rgba(17,21,30,.94);border:1px solid rgba(255,255,255,.08);display:grid;place-items:center;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+  .traychip img{width:84px;height:84px;display:block}
+  .traychip span{font-size:24px;color:var(--muted);line-height:1.4}
+  .traychip b{display:block;color:var(--fg);font-weight:600}
+  .cap .idx{font-family:var(--mono);font-size:22px;letter-spacing:.18em;color:var(--muted);display:flex;align-items:center;gap:14px}
+  .cap .idx i{display:block;height:2px;width:56px;background:var(--grad);transform-origin:0 50%}
+  .cap h2{font-size:64px;font-weight:800;letter-spacing:-.03em;line-height:1.02;margin-top:10px}
+  .cap h2 .mask{display:inline-block;vertical-align:bottom}
+  .cap p{font-size:26px;color:var(--muted);margin-top:6px;position:absolute;left:100%;top:46px;white-space:nowrap;padding-left:34px}
+  .cap p b{font-weight:600}
+  .realtag{position:absolute;left:250px;top:1028px;font-size:16px;color:var(--dim);letter-spacing:.03em;opacity:0}
+  .dots{position:absolute;left:250px;top:1000px;display:flex;gap:10px;opacity:0}
+  .dots b{display:block;width:34px;height:4px;border-radius:2px;background:#24304a;overflow:hidden;position:relative}
+  .dots b i{position:absolute;inset:0;background:var(--grad);transform-origin:0 50%;transform:scaleX(0)}
+
+  /* manifesto */
+  #man .line{font-size:112px;font-weight:800;letter-spacing:-.035em;line-height:1.1;will-change:transform,filter}
+  #man .sub{margin-top:30px;font-size:30px;color:var(--muted);letter-spacing:.01em}
+
+  /* end */
+  #end .logo{width:170px;height:170px;margin-top:-70px}
+  #end .word{font-size:124px;font-weight:800;letter-spacing:-.035em;margin-top:18px}
+  #end .tag{font-size:34px;color:var(--muted);margin-top:4px}
+  #end .cta{margin-top:46px;border:1px solid #2e3d58;border-radius:16px;padding:18px 36px;font-size:30px;display:flex;align-items:center;gap:18px;background:rgba(15,21,33,.85)}
+  #end .id{margin-top:20px;font-family:var(--mono);font-size:24px;color:var(--dim)}
+</style>
+<script src=".capture/session/clip.js"></script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="arcg" x1="0" y1="0" x2="0.65" y2="1">
+      <stop offset="0" stop-color="#65F0CF"/><stop offset="0.48" stop-color="#38BDF8"/><stop offset="1" stop-color="#4B7BFF"/>
+    </linearGradient>
+  </defs>
+</svg>
+<div id="stage">
+  <div class="glow" id="g1" style="width:1000px;height:1000px;background:#1fa5d6"></div>
+  <div class="glow" id="g2" style="width:900px;height:900px;background:#3f5fe0"></div>
+  <canvas id="bgcanvas" width="1920" height="1080"></canvas>
+  <div class="vignette"></div>
+
+  <!-- intro: the app mark draws itself (geometry from src/CycleArc/Assets/cyclearc.svg) -->
+  <div class="scene center" id="intro">
+    <svg class="logo" viewBox="40 40 176 176"><path id="introArc" d="M 185.34,87.85 A 70,70 0 1 0 185.34,168.15" fill="none" stroke="url(#arcg)" stroke-width="24" stroke-linecap="round" pathLength="1" stroke-dasharray="1 1"/><circle id="introDot" cx="201" cy="128" r="12" fill="#D9FFF5"/></svg>
+    <div class="word" id="introWord"><span>C</span><span>y</span><span>c</span><span>l</span><span>e</span><span>A</span><span>r</span><span>c</span></div>
+    <div class="tag" id="introTag">Your Codex, Claude and Cursor limits, one click away.</div>
+  </div>
+
+  <!-- production CycleArc windows, four beats -->
+  <div class="scene" id="foot">
+    <div class="cap side" id="cap0"><div class="idx">01<i></i></div><h2><span class="mask"><span>One click</span></span><span class="mask"><span>from the tray.</span></span></h2><p>Usage, what's left and reset times for the selected account</p></div>
+    <div class="cap side" id="cap1"><div class="idx">02<i></i></div><h2><span class="mask"><span>Every account,</span></span><span class="mask"><span>its own limits.</span></span></h2><p><b>Codex</b> · <b>Claude</b> · <b>Cursor</b>, each with its own windows and resets</p></div>
+    <div class="traychip" id="traychip"><div class="box"><img id="trayBig" alt=""></div><span><b>Tray icon</b>follows the selected account</span></div>
+    <div class="cap" id="cap2"><div class="idx">03<i></i></div><h2><span class="mask"><span>Keep them on your desktop.</span></span></h2><p>An optional widget, side by side</p></div>
+    <div class="cap" id="cap3"><div class="idx">04<i></i></div><h2><span class="mask"><span>Colors follow every limit.</span></span></h2><p>Amber from 70% used · orange from 85%</p></div>
+    <div class="dots" id="dots"><b><i></i></b><b><i></i></b><b><i></i></b><b><i></i></b></div>
+    <div id="rig">
+      <div class="shot" id="shot">
+        <div class="tint" id="tint"></div>
+        <div class="halo"></div>
+        <div class="viewport">
+          <div class="desk" id="desk">
+            <div class="taskbar"><div class="tray">
+              <svg class="chev" viewBox="0 0 14 14"><path d="M2 9.5 7 4.5l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <img id="trayIcon" alt="">
+            </div></div>
+            <img class="win" id="widget" alt="">
+            <img class="win" id="flyout" alt="">
+            <div class="ripple" id="ripple"></div>
+            <svg class="pointer" id="pointer" viewBox="0 0 22 30"><path d="M2 2v22l6-5.5 4 9 4-1.8-4-8.7h8.2Z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="sweep" id="sweep"></div>
+        </div>
+      </div>
+    </div>
+    <div class="realtag" id="realtag">CycleArc 0.10.1 production views · sample accounts</div>
+  </div>
+
+  <!-- manifesto -->
+  <div class="scene center" id="man">
+    <div class="line" id="m0"><span class="grad">Separate</span> limits.</div>
+    <div class="line" id="m1"><span class="grad">Unknown</span> stays unknown.</div>
+    <div class="line" id="m2"><span class="grad">Native</span> on Windows.</div>
+    <div class="sub" id="msub">Usage, remaining allowance and reset times for each account.</div>
+  </div>
+
+  <!-- end card -->
+  <div class="scene center" id="end">
+    <svg class="logo" viewBox="40 40 176 176"><path id="endArc" d="M 185.34,87.85 A 70,70 0 1 0 185.34,168.15" fill="none" stroke="url(#arcg)" stroke-width="24" stroke-linecap="round" pathLength="1" stroke-dasharray="1 1"/><circle id="endDot" cx="201" cy="128" r="12" fill="#D9FFF5"/></svg>
+    <div class="word">CycleArc</div>
+    <div class="tag">Codex, Claude and Cursor limits in your Windows tray</div>
+    <div class="cta" id="cta"><svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14" stroke="#8d97a9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Download from <b>GitHub Releases</b></span></div>
+    <div class="id">github.com/frozenvoice/cyclearc</div>
+  </div>
+
+  <div class="flash" id="flash"></div>
+</div>
+
+<script>
+const cl=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const P=(t,a,b)=>cl((t-a)/(b-a));
+const eo=x=>1-Math.pow(1-x,3);
+const eo5=x=>1-Math.pow(1-x,5);
+const eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+const win=(t,a,b,c,d)=>Math.min(eo(P(t,a,b)),1-eio(P(t,c,d)));
+const lerp=(a,b,x)=>a+(b-a)*x;
+const $=id=>document.getElementById(id);
+
+/* ---------- perspective floor grid ---------- */
+function floor(ctx,t,alpha){
+  if(alpha<=0)return;
+  const hy=620,vx=960;ctx.save();ctx.lineWidth=1;
+  for(let i=-14;i<=14;i++){
+    ctx.strokeStyle=`rgba(70,150,200,${alpha*(1-Math.abs(i)/15)*.45})`;
+    ctx.beginPath();ctx.moveTo(vx+i*14,hy);ctx.lineTo(vx+i*260,1080);ctx.stroke();
+  }
+  const sp=(t*.35)%1;
+  for(let j=0;j<12;j++){
+    const z=(j+sp)/12,y=hy+Math.pow(z,2.2)*(1080-hy);
+    ctx.strokeStyle=`rgba(70,150,200,${alpha*z*.5})`;
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(1920,y);ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawMark(arc,dot,t0,t){
+  const d=eo5(P(t,t0,t0+.9));arc.style.strokeDashoffset=1-d;arc.style.opacity=d>0?1:0;
+  const p=eo5(P(t,t0+.8,t0+1.1));dot.setAttribute('r',12*p);dot.style.opacity=p;
+}
+
+/* ---------- edit: 120 BPM, every cut on a beat ---------- */
+const BEAT=.5;
+const T_FOOT=2.0, CUTS=[2.0,6.0,10.0,13.0,16.0], T_MAN=16.0, T_END=18.0, DURATION=20.0;
+const NEED=['flyout-open','refresh','refreshed','select-work','select-claude','select-cursor','widget-open','widget-refresh','widget-updated'];
+const MISSING=window.CLIP?NEED.filter(n=>!window.CLIP.marks[n]):NEED;
+const C=MISSING.length?null:window.CLIP;
+if(!C)document.body.insertAdjacentHTML('beforeend','<p style="position:absolute;top:20px;left:20px;color:#f87171;font-size:28px">'+
+  (window.CLIP?'Capture lacks marks: '+MISSING.join(', ')+' — record a new session (see README.md).':'Missing .capture/session — run the capture first (see README.md).')+'</p>');
+const M=n=>C.marks[n].t;
+const CLICK_DELAY=.65;              // the harness clicks this long after each mark
+
+// Desktop layout (DIP). The popup opens above the tray; the widget floats mid-screen.
+const DW=2560,DH=1440,TASK=48;
+const TRAY={x:DW-28-12,y:DH-TASK/2};
+const FLY_RIGHT=DW-12, FLY_BOTTOM=DH-TASK-12;
+const WID={x:0,y:620};
+
+// Each sequence maps video time to clip time through monotone keyframes [video, clip].
+// Idle waits are shortened; refreshes and selections play near real time. Nothing is reordered.
+const V_TRAY=2.5, V_REFRESH=3.4, V_WORK=6.55, V_CLAUDE=7.8, V_CURSOR=9.05, V_WREFRESH=11.3;
+const KEYS=C?{
+  flyout:[[2.0,M('flyout-open')],[2.85,M('flyout-open')+.2],[V_REFRESH,M('refresh')+CLICK_DELAY],[4.6,M('refreshed')+.02],[6.0,M('refreshed')+1.0],
+    [V_WORK,M('select-work')+CLICK_DELAY],[V_CLAUDE,M('select-claude')+CLICK_DELAY],[V_CURSOR,M('select-cursor')+CLICK_DELAY],[10.3,M('select-cursor')+CLICK_DELAY+1.0]],
+  widget:[[10.0,M('widget-open')+.05],[10.6,M('widget-open')+.4],[V_WREFRESH,M('widget-refresh')+CLICK_DELAY],[12.5,M('widget-updated')+.02],[13.0,M('widget-updated')+.4],[16.2,C.frames.widget.at(-1).t]],
+}:{};
+function spline(k){
+  k=k.map(r=>r.slice());for(let i=1;i<k.length;i++)k[i][1]=Math.max(k[i][1],k[i-1][1]+.01);
+  const n=k.length,d=[],m=[];
+  for(let i=0;i<n-1;i++)d.push((k[i+1][1]-k[i][1])/(k[i+1][0]-k[i][0]));
+  m[0]=d[0];m[n-1]=d[n-2];
+  for(let i=1;i<n-1;i++)m[i]=d[i-1]*d[i]<=0?0:3*(d[i-1]+d[i])/((2*d[i]+d[i-1])/d[i-1]+(d[i]+2*d[i-1])/d[i]);
+  return v=>{
+    if(v<=k[0][0])return k[0][1];
+    for(let i=0;i<n-1;i++){const [x0,y0]=k[i],[x1,y1]=k[i+1];
+      if(v<=x1){const h=x1-x0,s=(v-x0)/h,s2=s*s,s3=s2*s;
+        return (2*s3-3*s2+1)*y0+(s3-2*s2+s)*h*m[i]+(-2*s3+3*s2)*y1+(s3-s2)*h*m[i+1]}}
+    return k[n-1][1];
+  };
+}
+const CLIPAT=C?{flyout:spline(KEYS.flyout),widget:spline(KEYS.widget)}:{};
+function frameAt(seq,c){
+  const f=C.frames[seq];let lo=0,hi=f.length-1;
+  while(lo<hi){const mid=(lo+hi+1)>>1;if(f[mid].t<=c)lo=mid;else hi=mid-1}
+  return lo;
+}
+const flyTop=h=>FLY_BOTTOM-h, flyLeft=w=>FLY_RIGHT-w;
+const flyFrameAtMark=n=>C.frames.flyout[frameAt('flyout',M(n))];
+const widFrame0=C?C.frames.widget[0]:{w:953,h:165};
+if(C)WID.x=Math.round((DW-widFrame0.w)/2);
+// Click targets in desktop coordinates, from the recorded button and row boxes.
+const atFly=n=>{const f=flyFrameAtMark(n),m=C.marks[n];return [flyLeft(f.w)+m.x,flyTop(f.h)+m.y]};
+const atWid=n=>{const m=C.marks[n];return [WID.x+m.x,WID.y+m.y]};
+const CLICKS=C?[[V_TRAY,TRAY.x,TRAY.y],[V_REFRESH,...atFly('refresh')],[V_WORK,...atFly('select-work')],
+  [V_CLAUDE,...atFly('select-claude')],[V_CURSOR,...atFly('select-cursor')],[V_WREFRESH,...atWid('widget-refresh')]]:[];
+function pointerAt(t){
+  let px=1500,py=1050,prev=1.9,ripple=null;
+  for(const [ct,x,y] of CLICKS){
+    const e=eio(P(t,Math.max(prev+.12,ct-.55),ct-.04));
+    if(t<ct){return {x:lerp(px,x,e),y:lerp(py,y,e),ripple}}
+    px=x;py=y;prev=ct;ripple=t-ct;
+  }
+  return {x:px,y:py,ripple};
+}
+// The tray shows the selected account, as the app does.
+const TRAYAT=t=>t<V_WORK?'personal':t<V_CLAUDE?'work':t<V_CURSOR?'research':'editor';
+
+// The shot is a portrait window onto the desktop for the tall popup, then widens for the widget.
+const PORTRAIT=[980,40,700,1000], LANDSCAPE=[160,250,1600,620];
+const rectAt=t=>{const e=eio(P(t,10.0,10.45));return PORTRAIT.map((v,i)=>lerp(v,LANDSCAPE[i],e))};
+// Camera keyframes [t, centerX, centerY, stage px per DIP]. The popup is anchored above the tray,
+// so its account list keeps the same distance from the bottom whichever account is selected.
+const CAM=C?(()=>{
+  const f0=C.frames.flyout[0];
+  const fx=flyLeft(f0.w)+f0.w/2,fy=flyTop(f0.h);
+  const tray=[DW-350,DH-500,1.0],head=[fx,fy+330,1.45],full=[fx,DH-520,.97];
+  const wid=[WID.x+widFrame0.w/2,WID.y+widFrame0.h/2,1.5];
+  const m1=C.regions['module-1'];const mod=[WID.x+m1.x+m1.width/2,WID.y+m1.y+m1.height/2,2.45];
+  return [[2.0,...tray],[2.6,...tray],[3.1,...head],[5.7,...head],[6.25,...full],[9.9,...full],[10.0,...wid],[13.0,...wid],[13.75,...mod],[16.0,...mod]];
+})():[];
+function camAt(t,vw,vh){
+  const K=CAM;let v=K[K.length-1].slice(1);
+  if(t<=K[0][0])v=K[0].slice(1);
+  else for(let i=1;i<K.length;i++)if(t<=K[i][0]){const a=K[i-1],z=K[i],e=eio(P(t,a[0],z[0]));v=[1,2,3].map(j=>a[j]+(z[j]-a[j])*e);break}
+  const [cx,cy,s]=v,hw=vw/2/s,hh=vh/2/s;
+  return [cl(cx,hw,DW-hw),cl(cy,hh,DH-hh),s];
+}
+// Accent moments (video time): under-glow and a small zoom punch.
+const ACCENTS=[[4.6,'#3ddc97'],[V_WORK+.05,'#38bdf8'],[V_CLAUDE+.05,'#38bdf8'],[V_CURSOR+.05,'#38bdf8'],[12.5,'#f5a524']];
+
+const shown={flyout:-1,widget:-1,tray:''};
+function show(seq,i){
+  if(i===shown[seq])return Promise.resolve();
+  shown[seq]=i;const img=$(seq),f=C.frames[seq][i];
+  img.src=`.capture/session/${seq}/${String(i).padStart(5,'0')}.png`;
+  img.style.width=f.w+'px';img.style.height=f.h+'px';
+  return img.decode().catch(()=>undefined);
+}
+function showTray(name){
+  if(name===shown.tray)return Promise.resolve();
+  shown.tray=name;const src=`.capture/session/tray/${name}.png`;$('trayIcon').src=src;$('trayBig').src=src;
+  return Promise.all([$('trayIcon').decode(),$('trayBig').decode()]).catch(()=>undefined);
+}
+
+function seek(t){
+  $('g1').style.transform=`translate(${-260+Math.sin(t*.45)*160}px,${-360+Math.cos(t*.35)*110}px)`;
+  $('g2').style.transform=`translate(${1240+Math.cos(t*.4)*150}px,${420+Math.sin(t*.3)*120}px)`;
+  const bg=$('bgcanvas').getContext('2d');bg.clearRect(0,0,1920,1080);
+  floor(bg,t,.5*win(t,1.6,2.4,15.6,16.4)+.32*eo(P(t,T_END,T_END+.8)));
+
+  // ---- intro: the mark draws, the wordmark rises, then everything pushes through the lens
+  const push=eio(P(t,1.6,2.05));
+  $('intro').style.opacity=t<2.05?1-push:0;
+  $('intro').style.transform=`scale(${1+push*.9})`;$('intro').style.filter=`blur(${push*10}px)`;
+  drawMark($('introArc'),$('introDot'),0,t);
+  [...$('introWord').children].forEach((s,i)=>{const e=eo5(P(t,.85+i*.04,1.3+i*.04));s.style.opacity=e;
+    s.style.transform=`translateY(${(1-e)*60}px)`;s.style.filter=`blur(${(1-e)*8}px)`});
+  const tg=eo(P(t,1.2,1.55));$('introTag').style.opacity=tg;$('introTag').style.transform=`translateY(${(1-tg)*18}px)`;
+
+  // ---- footage
+  const pend=[];
+  const inFoot=t>=T_FOOT-.12&&t<T_MAN+.5;
+  $('foot').style.opacity=inFoot?1:0;
+  if(inFoot&&C){
+    const tf=cl(t,T_FOOT,T_MAN-.001);
+    const b=CUTS.findIndex((c,i)=>tf>=c&&tf<CUTS[i+1]);
+    // Popup: opens on the tray click, closes as the widget beat starts.
+    const fi=frameAt('flyout',CLIPAT.flyout(tf)),ff=C.frames.flyout[fi];
+    pend.push(show('flyout',fi));
+    const fo=eo5(P(tf,V_TRAY+.05,V_TRAY+.4)),fc=eio(P(tf,10.0,10.28)),fv=fo*(1-fc);
+    const fl=$('flyout');fl.style.opacity=fv;
+    fl.style.transform=`translate(${flyLeft(ff.w)}px,${flyTop(ff.h)+(1-fo)*60+fc*60}px)`;
+    fl.style.visibility=fv>0?'visible':'hidden';
+    // Widget: appears for beats three and four.
+    const wv=eo5(P(tf,10.1,10.5));
+    const wi=frameAt('widget',CLIPAT.widget(tf)),wf=C.frames.widget[wi];
+    if(wv>0)pend.push(show('widget',wi));
+    const wd=$('widget');wd.style.opacity=wv;wd.style.visibility=wv>0?'visible':'hidden';
+    wd.style.transform=`translate(${WID.x+(widFrame0.w-wf.w)/2}px,${WID.y}px) scale(${lerp(.94,1,wv)})`;
+    pend.push(showTray(TRAYAT(tf)));
+    const [sx,sy,sw0,sh0]=rectAt(tf);
+    const shot=$('shot');shot.style.left=sx+'px';shot.style.top=sy+'px';shot.style.width=sw0+'px';shot.style.height=sh0+'px';
+    $('traychip').style.opacity=eo(P(t,2.9,3.4))*(1-eio(P(t,9.75,10.0)));
+    // Rig: fly in from depth, rest at a slight tilt, whip on every cut, fall away into the manifesto.
+    const land=eo5(P(t,T_FOOT-.12,2.7));
+    let rx=lerp(26,4,land),ry=lerp(-22,-6,land),tz=lerp(-900,0,land),sc=1,op=eo(P(t,T_FOOT-.12,2.15));
+    ry+=Math.sin(t*.6)*1.3;rx+=Math.cos(t*.5)*.7;
+    let blur=(1-eo(P(t,T_FOOT-.12,2.35)))*6;
+    for(const cut of CUTS.slice(1,4)){
+      const k=t-cut;
+      if(k>-.12&&k<.45){const s=k<0?1+k/.12:Math.exp(-k*9)*Math.cos(k*14);ry+=(b%2?1:-1)*8*s;rx+=-3*s;blur+=k<0?3*(1+k/.12):3*Math.exp(-k*14)}
+    }
+    let focus=0;for(const [ac] of ACCENTS)focus=Math.max(focus,win(t,ac,ac+.25,ac+.9,ac+1.4));
+    rx*=1-.65*focus;ry*=1-.65*focus;
+    let punch=0;for(const [ac] of ACCENTS){const k=t-ac;if(k>=0&&k<.6)punch=Math.max(punch,Math.sin(Math.PI*k/.6)*Math.exp(-k*3))}
+    sc*=1+.02*punch;
+    const out=eio(P(t,T_MAN-.12,T_MAN+.22));
+    rx+=out*-38;tz+=out*-700;op*=1-out;blur+=out*8;
+    $('shot').style.transform=`translateZ(${tz}px) rotateX(${rx}deg) rotateY(${ry}deg) scale(${sc})`;
+    $('shot').style.opacity=op;$('shot').style.filter=blur>.05?`blur(${blur}px)`:'none';
+    let tint=0,col='#38bdf8';for(const [ac,cc] of ACCENTS){if(t>=ac-.05){col=cc;tint=Math.exp(-(t-ac)*1.4)}}
+    $('tint').style.background=col;$('tint').style.opacity=.75*tint*(1-out);
+    let sw=-1;for(const cut of CUTS.slice(0,4)){const k=t-cut-.12;if(k>=0&&k<.7)sw=k/.7}
+    $('sweep').style.opacity=sw<0?0:Math.sin(Math.PI*sw);$('sweep').style.transform=`translateX(${lerp(-110,110,sw<0?0:eio(sw))}%)`;
+    // Camera, pointer, click ripple.
+    const [cx,cy,s]=camAt(tf,sw0,sh0);
+    $('desk').style.transform=`translate(${sw0/2-cx*s}px,${sh0/2-cy*s}px) scale(${s})`;
+    const p=pointerAt(tf),ps=1/s;
+    $('pointer').style.transformOrigin='2px 2px';
+    $('pointer').style.transform=`translate(${p.x-2}px,${p.y-2}px) scale(${ps})`;
+    $('pointer').style.opacity=1-eio(P(tf,12.8,13.3));
+    const r=p.ripple;
+    $('ripple').style.opacity=r!==null&&r>=0&&r<.5?(1-r/.5)*.9:0;
+    $('ripple').style.transform=`translate(${p.x}px,${p.y}px) scale(${(.4+1.4*cl((r||0)/.5))*ps})`;
+    $('realtag').style.opacity=eo(P(t,2.6,3.2))*.9*(1-out);
+    for(let i=0;i<4;i++){
+      const a=CUTS[i],z=CUTS[i+1],cap=$('cap'+i);
+      const vis=t>=a&&t<z;cap.style.opacity=vis?1:0;
+      if(!vis)continue;
+      const e=eo5(P(t,a+.05,a+.5)),x=eio(P(t,z-.28,z-.02));
+      cap.querySelectorAll('h2 .mask>span').forEach((m,j)=>{const ej=eo5(P(t,a+.05+j*.08,a+.5+j*.08));m.style.transform=`translateY(${(1-ej)*105+x*-105}%)`});
+      cap.querySelector('.idx').style.opacity=e*(1-x);
+      cap.querySelector('.idx i').style.transform=`scaleX(${e})`;
+      const pe=eo(P(t,a+.25,a+.7));
+      cap.querySelector('p').style.opacity=pe*(1-x);cap.querySelector('p').style.transform=cap.classList.contains('side')?`translateY(${(1-pe)*18}px)`:`translateX(${(1-pe)*-24}px)`;
+    }
+    $('dots').style.opacity=eo(P(t,2.3,2.8))*(1-out);
+    [...$('dots').children].forEach((d,i)=>{d.firstChild.style.transform=`scaleX(${P(t,CUTS[i],CUTS[i+1])})`});
+  }
+  let fl=0;for(const cut of [...CUTS,T_END]){const k=t-cut;if(k>=0&&k<.25)fl=Math.max(fl,(1-k/.25)*(cut===2.0?.22:.1))}
+  $('flash').style.opacity=fl;
+
+  // ---- manifesto: one slam per beat
+  const mx=eio(P(t,T_END-.22,T_END));
+  $('man').style.opacity=t>=T_MAN&&t<T_END?1-mx:0;
+  $('man').style.transform=`scale(${1+mx*.12})`;$('man').style.filter=mx>0?`blur(${mx*10}px)`:'none';
+  [0,1,2].forEach(i=>{const a=T_MAN+.05+i*BEAT,e=eo5(P(t,a,a+.28)),l=$('m'+i);
+    l.style.opacity=e;l.style.transform=`scale(${lerp(1.35,1,e)})`;l.style.filter=`blur(${(1-e)*14}px)`});
+  const ms=eo(P(t,T_MAN+1.55,T_MAN+1.85));$('msub').style.opacity=ms;$('msub').style.transform=`translateY(${(1-ms)*16}px)`;
+
+  // ---- end card
+  const en=eo(P(t,T_END,T_END+.45));
+  $('end').style.opacity=en;$('end').style.transform=`scale(${lerp(1.06,1,en)})`;
+  drawMark($('endArc'),$('endDot'),T_END,t);
+  const ct=eo(P(t,T_END+.55,T_END+1.0));$('cta').style.opacity=ct;$('cta').style.transform=`translateY(${(1-ct)*16}px)`;
+  return Promise.all(pend);
+}
+window.seek=seek;window.DURATION=DURATION;
+// Video-time cue sheet for soundtrack.cjs.
+window.TIMELINE=C?{
+  duration:DURATION,beat:BEAT,drop:T_FOOT,cuts:CUTS.slice(1,4),man:T_MAN,end:T_END,
+  slams:[0,1,2].map(i=>T_MAN+.05+i*BEAT),
+  keys:[],
+  clicks:CLICKS.map(c=>c[0]),
+  success:[4.6,12.5],
+  failure:[],
+  swaps:[V_WORK,V_CLAUDE,V_CURSOR,10.0],
+}:null;
+const q=new URLSearchParams(location.search);
+seek(parseFloat(q.get('t')||'0'));
+if(q.has('play')){const t0=performance.now();(function loop(){seek(((performance.now()-t0)/1000)%DURATION);requestAnimationFrame(loop)})()}
+</script>
+</body>
+</html>

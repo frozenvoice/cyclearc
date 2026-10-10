@@ -1,0 +1,13 @@
+{
+  "name": "cyclearc-promo",
+  "private": true,
+  "description": "Promo video composition and render tooling. Not part of the CycleArc app or its releases.",
+  "scripts": {
+    "capture": "dotnet run --project capture/CycleArc.PromoCapture.csproj -c Release -- .capture/session",
+    "preview": "node render.cjs --preview",
+    "render": "node render.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.55.1"
+  }
+}

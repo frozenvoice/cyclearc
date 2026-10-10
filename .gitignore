@@ -52,3 +52,9 @@ coverage/
 *.tmp
 *.bak
 .tmp/
+
+## Promo video (demo/promo)
+demo/promo/.capture/
+demo/promo/node_modules/
+demo/promo/cyclearc-promo*.mp4
+demo/promo/cyclearc-promo*.jpg
