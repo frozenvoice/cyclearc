@@ -26,3 +26,13 @@ The capture takes about 20 seconds and writes roughly 60 MB to `.capture/session
 - Added in post: the desktop backdrop and taskbar strip, the popup and widget open/close motion, the pointer drawn at the recorded click positions, captions, camera moves, the enlarged tray icon card, light sweeps and the soundtrack. Waits between actions are shortened; nothing is reordered.
 
 Claims stay within the README: separate limits per account, unknown values stay unknown, ring colors by actual usage (amber from 70%, orange from 85%), and no forecasts.
+
+## Site cut (v2)
+
+`cyclearc-promo-v2.html` is a second composition of the same capture: a large usage ring and number repeating the sample value the selected window shows, the popup and widget upright without a desktop backdrop, ring ripples on changes, and `soundtrack-v2.cjs` (arpeggio pulse). Render it with:
+
+```bash
+node demo/promo/render-v2.cjs --html cyclearc-promo-v2.html --soundtrack ./soundtrack-v2.cjs --out demo/promo/.capture/v2/cyclearc-promo-v2.mp4
+```
+
+The published copy is `cyclearc/site-v2/cyclearc-demo.mp4` in `frozenvoice/frozenvoice-assets`.

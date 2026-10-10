@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CycleArc Promo v2 — Rings</title>
+<style>
+  :root{
+    --bg:#070c18; --fg:#eef3fb; --muted:#8a96ab; --dim:#56627a;
+    --teal:#65f0cf; --sky:#38bdf8; --blue:#4b7bff; --amber:#f5a524;
+    --ui:"Segoe UI Variable Display","Segoe UI","Inter",sans-serif;
+    --mono:"Cascadia Mono","Consolas",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--ui)}
+  #stage{position:relative;width:1920px;height:1080px;overflow:hidden;background:var(--bg)}
+  #bg{position:absolute;inset:0}
+  canvas{position:absolute;inset:0}
+  .scene{position:absolute;inset:0;opacity:0}
+
+  .cap{position:absolute;left:96px;top:72px;display:flex;align-items:baseline;gap:22px}
+  .cap .i{font-family:var(--mono);font-size:24px;color:var(--muted);letter-spacing:.12em}
+  .cap h2{font-size:46px;font-weight:750;letter-spacing:-.025em;position:relative;height:56px;width:1300px}
+  .cap h2 span{position:absolute;left:0;top:0;white-space:nowrap;opacity:0}
+  .meta{position:absolute;text-align:center;width:600px;margin-left:-300px}
+  .meta .big{font-size:190px;font-weight:800;letter-spacing:-.05em;line-height:1;font-variant-numeric:tabular-nums}
+  .meta .big small{font-size:.42em;font-weight:700;margin-left:6px;letter-spacing:-.02em}
+  .meta .what{font-size:28px;color:var(--muted);margin-top:10px}
+  .meta .who{display:inline-flex;align-items:center;gap:14px;margin-top:22px;font-size:30px;font-weight:600}
+  .meta .who img{width:44px;height:44px}
+  .meta .who em{font-style:normal;font-size:22px;padding:4px 14px;border-radius:999px;border:1px solid #2b3a5c;color:#cfe0ff;background:rgba(30,50,90,.5)}
+
+  .win{position:absolute;overflow:hidden;border-radius:18px;box-shadow:0 0 0 1px rgba(255,255,255,.07),0 40px 100px rgba(0,0,0,.6);will-change:transform,opacity}
+  .win img{position:absolute;left:0;top:0;transform-origin:0 0;display:block}
+  .pointer{position:absolute;left:0;top:0;width:22px;height:30px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.55));z-index:3}
+  .ripple{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;border:3px solid var(--sky);opacity:0;z-index:3}
+  .tag{position:absolute;left:96px;bottom:44px;font-size:16px;color:var(--dim);letter-spacing:.04em}
+
+  #intro .word{position:absolute;left:0;right:0;top:700px;text-align:center;font-size:128px;font-weight:800;letter-spacing:-.04em}
+  #intro .line{position:absolute;left:0;right:0;top:850px;text-align:center;font-size:34px;color:var(--muted)}
+  #out .st{position:absolute;left:0;right:0;text-align:center;font-size:66px;font-weight:750;letter-spacing:-.03em;opacity:0}
+  #out .word{position:absolute;left:0;right:0;top:690px;text-align:center;font-size:120px;font-weight:800;letter-spacing:-.04em;opacity:0}
+  #out .line{position:absolute;left:0;right:0;top:868px;text-align:center;font-size:32px;color:var(--muted);opacity:0}
+  #out .url{position:absolute;left:0;right:0;top:930px;text-align:center;font-family:var(--mono);font-size:26px;color:#9fb6da;opacity:0}
+</style>
+<script src=".capture/session/clip.js"></script>
+</head>
+<body>
+<div id="stage">
+  <canvas id="bg" width="1920" height="1080"></canvas>
+
+  <div class="scene" id="intro">
+    <div class="word" id="iword">CycleArc</div>
+    <div class="line" id="iline">Your Codex, Claude and Cursor limits, one click away.</div>
+  </div>
+
+  <div class="scene" id="foot">
+    <div class="cap"><span class="i" id="capi">01</span><h2>
+      <span id="c0">One click from the tray.</span>
+      <span id="c1">Every account keeps its own limits.</span>
+      <span id="c2">All of them on your desktop.</span>
+      <span id="c3">Rings change color as limits fill.</span></h2></div>
+    <div class="meta" id="meta">
+      <div class="big" id="big">78<small>%</small></div>
+      <div class="what" id="what">5-hour left</div>
+      <div class="who"><span id="who">Personal</span><em id="prov">Codex</em></div>
+    </div>
+    <div class="win" id="flyWin"><img id="flyout" alt=""></div>
+    <div class="win" id="widWin"><img id="widget" alt=""></div>
+    <svg class="pointer" id="pointer" viewBox="0 0 22 30"><path d="M2 2v22l6-5.5 4 9 4-1.8-4-8.7h8.2Z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></svg>
+    <div class="ripple" id="ripple"></div>
+    <div class="tag" id="tag">CycleArc 0.10.1 production views · sample accounts · large numbers repeat what the window shows</div>
+  </div>
+
+  <div class="scene" id="out">
+    <div class="st" id="s0" style="top:250px">Separate limits per account.</div>
+    <div class="st" id="s1" style="top:350px">Unknown stays unknown.</div>
+    <div class="st" id="s2" style="top:450px">A native Windows tray app.</div>
+    <div class="word" id="oword">CycleArc</div>
+    <div class="line" id="oline">Codex, Claude and Cursor limits in your Windows tray</div>
+    <div class="url" id="ourl">github.com/frozenvoice/cyclearc · GitHub Releases</div>
+  </div>
+</div>
+
+<script>
+const cl=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const P=(t,a,b)=>cl((t-a)/(b-a));
+const eo=x=>1-Math.pow(1-x,3);
+const eo5=x=>1-Math.pow(1-x,5);
+const eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+const lerp=(a,b,x)=>a+(b-a)*x;
+const $=id=>document.getElementById(id);
+
+const BEAT=.5, CUTS=[2.0,6.0,10.0,13.0,16.0], T_OUT=16.0, T_END=18.0, DURATION=20.0;
+const NEED=['flyout-open','refresh','refreshed','select-work','select-claude','select-cursor','widget-open','widget-refresh','widget-updated'];
+const C=window.CLIP&&NEED.every(n=>window.CLIP.marks[n])?window.CLIP:null;
+if(!C)document.body.insertAdjacentHTML('beforeend','<p style="position:absolute;top:20px;left:20px;color:#f87171;font-size:28px">Missing or older capture — run npm run capture.</p>');
+const M=n=>C.marks[n].t;
+const CLICK_DELAY=.65;
+
+// Same footage timing as the first cut.
+const V_REFRESH=3.4, V_WORK=6.55, V_CLAUDE=7.8, V_CURSOR=9.05, V_WREFRESH=11.3, V_UPDATED=12.5;
+function spline(k){k=k.map(r=>r.slice());for(let i=1;i<k.length;i++)k[i][1]=Math.max(k[i][1],k[i-1][1]+.01);
+  const n=k.length,d=[],m=[];for(let i=0;i<n-1;i++)d.push((k[i+1][1]-k[i][1])/(k[i+1][0]-k[i][0]));
+  m[0]=d[0];m[n-1]=d[n-2];for(let i=1;i<n-1;i++)m[i]=d[i-1]*d[i]<=0?0:3*(d[i-1]+d[i])/((2*d[i]+d[i-1])/d[i-1]+(d[i]+2*d[i-1])/d[i]);
+  return v=>{if(v<=k[0][0])return k[0][1];for(let i=0;i<n-1;i++){const [x0,y0]=k[i],[x1,y1]=k[i+1];
+    if(v<=x1){const h=x1-x0,s=(v-x0)/h,s2=s*s,s3=s2*s;return (2*s3-3*s2+1)*y0+(s3-2*s2+s)*h*m[i]+(-2*s3+3*s2)*y1+(s3-s2)*h*m[i+1]}}return k[n-1][1]}}
+const MAP=C?{
+  flyout:spline([[2.0,M('flyout-open')],[2.85,M('flyout-open')+.2],[V_REFRESH,M('refresh')+CLICK_DELAY],[4.6,M('refreshed')+.02],[6.0,M('refreshed')+1.0],
+    [V_WORK,M('select-work')+CLICK_DELAY],[V_CLAUDE,M('select-claude')+CLICK_DELAY],[V_CURSOR,M('select-cursor')+CLICK_DELAY],[10.3,M('select-cursor')+CLICK_DELAY+1.0]]),
+  widget:spline([[10.0,M('widget-open')+.05],[10.6,M('widget-open')+.4],[V_WREFRESH,M('widget-refresh')+CLICK_DELAY],[V_UPDATED,M('widget-updated')+.02],[13.0,M('widget-updated')+.4],[16.2,C.frames.widget.at(-1).t]]),
+}:{};
+function frameAt(seq,c){const f=C.frames[seq];let lo=0,hi=f.length-1;while(lo<hi){const mid=(lo+hi+1)>>1;if(f[mid].t<=c)lo=mid;else hi=mid-1}return lo}
+
+// What the selected account's window shows (sample data), repeated large beside it.
+const STATES=[
+  {t:2.0, v:78, what:'5-hour left', who:'Personal', prov:'Codex', tray:'personal', used:22},
+  {t:V_WORK, v:36, what:'5-hour left', who:'Work', prov:'Codex', tray:'work', used:64},
+  {t:V_CLAUDE, v:54, what:'5-hour left', who:'Research', prov:'Claude', tray:'research', used:46},
+  {t:V_CURSOR, v:61.5, what:'Cursor Models · monthly left', who:'Editor', prov:'Cursor', tray:'editor', used:38.5},
+  {t:10.0, v:36, what:'Work · 5-hour left', who:'Work', prov:'Codex', tray:'work', used:64},
+  {t:V_UPDATED, v:27, what:'Work · 5-hour left', who:'Work', prov:'Codex', tray:'work-climbed', used:73},
+];
+const stateAt=t=>{let s=STATES[0];for(const x of STATES)if(t>=x.t)s=x;return s};
+const prevState=t=>{let p=STATES[0],s=STATES[0];for(const x of STATES)if(t>=x.t){p=s;s=x}return p};
+const bandColor=u=>u>=100?'#ef4444':u>=85?'#f97316':u>=70?'#f5a524':'#4b7bff';
+
+// Layout: ring left with the popup at right (beats 1–2), then ring above the widget (beats 3–4).
+const L1={cx:600,cy:560,r:290,fly:{x:1180,y:120,w:506,h:880,s:1.15}};
+const L2={cx:960,cy:440,r:210};
+const WID={s:1.55};
+
+const shown={flyout:-1,widget:-1,tray:''};
+function show(seq,i){if(i===shown[seq])return Promise.resolve();shown[seq]=i;const img=$(seq),f=C.frames[seq][i],sc=seq==='flyout'?L1.fly.s:WID.s;
+  img.src=`.capture/session/${seq}/${String(i).padStart(5,'0')}.png`;img.style.width=f.w*sc+'px';img.style.height=f.h*sc+'px';return img.decode().catch(()=>undefined)}
+function showTray(n){if(n===shown.tray)return Promise.resolve();shown.tray=n;$('tray').src=`.capture/session/tray/${n}.png`;return $('tray').decode().catch(()=>undefined)}
+
+function drawRing(ctx,cx,cy,r,lw,frac,col,alpha=1){
+  ctx.save();ctx.globalAlpha=alpha;ctx.lineCap='round';
+  ctx.strokeStyle='rgba(120,140,180,.16)';ctx.lineWidth=lw;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();
+  if(frac>0){const g=ctx.createLinearGradient(cx-r,cy-r,cx+r,cy+r);
+    if(col){g.addColorStop(0,col);g.addColorStop(1,col)}else{g.addColorStop(0,'#65F0CF');g.addColorStop(.48,'#38BDF8');g.addColorStop(1,'#4B7BFF')}
+    ctx.strokeStyle=g;ctx.shadowColor=col||'#38BDF8';ctx.shadowBlur=30;ctx.beginPath();ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+Math.PI*2*frac);ctx.stroke()}
+  ctx.restore();
+}
+// App mark: the arc with a gap and the dot (src/CycleArc/Assets/cyclearc.svg), drawn on canvas.
+function drawMark(ctx,cx,cy,r,lw,draw,dot){
+  ctx.save();ctx.lineCap='round';const g=ctx.createLinearGradient(cx-r,cy-r,cx+r*.6,cy+r);g.addColorStop(0,'#65F0CF');g.addColorStop(.48,'#38BDF8');g.addColorStop(1,'#4B7BFF');
+  ctx.strokeStyle=g;ctx.lineWidth=lw;ctx.shadowColor='#38BDF8';ctx.shadowBlur=24;
+  const a0=-35*Math.PI/180,span=-(290*Math.PI/180)*draw;ctx.beginPath();ctx.arc(cx,cy,r,a0,a0+span,true);ctx.stroke();
+  if(dot>0){ctx.shadowBlur=0;ctx.fillStyle='#D9FFF5';ctx.beginPath();ctx.arc(cx+r*1.18,cy,lw*.5*dot,0,Math.PI*2);ctx.fill()}
+  ctx.restore();
+}
+
+function seek(t){
+  const ctx=$('bg').getContext('2d');ctx.clearRect(0,0,1920,1080);
+  const st=stateAt(t),col=bandColor(st.used);
+  // background: deep navy with a slow glow tinted by the current band
+  const gl=ctx.createRadialGradient(560,560,0,560,560,1100);gl.addColorStop(0,col==='#4b7bff'?'rgba(40,80,170,.35)':'rgba(170,110,20,.32)');gl.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=gl;ctx.fillRect(0,0,1920,1080);
+
+  // ---- intro: the mark draws, then the name
+  const inIntro=t<2.1;$('intro').style.opacity=inIntro?1-eio(P(t,1.75,2.05)):0;
+  if(t<2.1){const d=eo5(P(t,0,.9)),dt=eo5(P(t,.8,1.05)),k=1-eio(P(t,1.75,2.05))*.3;drawMark(ctx,960,420,170*k,42*k,d,dt*(1-eio(P(t,1.75,2.05))))}
+  const iw=eo5(P(t,.9,1.3));$('iword').style.opacity=iw;$('iword').style.transform=`translateY(${(1-iw)*30}px)`;$('iline').style.opacity=eo(P(t,1.2,1.55));
+
+  let pend=[];
+  const inFoot=t>=2.0&&t<16.0;$('foot').style.opacity=inFoot?1:0;
+  if(inFoot&&C){
+    const k=eio(P(t,9.85,10.35)); // layout change between beat 2 and 3
+    const cx=lerp(L1.cx,L2.cx,k),cy=lerp(L1.cy,L2.cy,k),r=lerp(L1.r,L2.r,k);
+    // ring follows the shown value; it sweeps on every change
+    const ps=prevState(t),sw=eo5(P(t,st.t,st.t+.6)),v=lerp(ps.v,st.v,st===ps?1:sw);
+    const enter=eo5(P(t,2.0,2.8));
+    drawRing(ctx,cx,cy,r,lerp(46,34,k),v/100*enter,st.used>=70?col:null);
+    // expanding rings on every cut and value change
+    for(const a of [...CUTS.slice(1,4),V_WORK,V_CLAUDE,V_CURSOR,V_UPDATED]){const e=t-a;if(e>=0&&e<1.1){const q=eo(e/1.1);
+      ctx.save();ctx.strokeStyle=st.used>=70?col:'#38BDF8';ctx.globalAlpha=(1-q)*.55;ctx.lineWidth=6*(1-q)+1;ctx.beginPath();ctx.arc(cx,cy,r+q*900,0,Math.PI*2);ctx.stroke();ctx.restore()}}
+    // big number inside the ring
+    const meta=$('meta');meta.style.left=cx+'px';meta.style.top=(cy-lerp(150,135,k))+'px';meta.style.transform=`scale(${lerp(1,.72,k)})`;meta.style.transformOrigin='50% 40%';
+    const settled=st===ps||sw>=1;$('big').firstChild.textContent=settled&&!Number.isInteger(st.v)?st.v.toFixed(1):String(Math.round(v));
+    $('big').style.color=st.used>=70?col:'#eef3fb';$('what').textContent=st.what;$('who').textContent=st.who;$('prov').textContent=st.prov;
+    meta.style.opacity=enter;
+    // popup at right
+    const fi=frameAt('flyout',MAP.flyout(t)),ff=C.frames.flyout[fi];pend.push(show('flyout',fi));
+    const fw=$('flyWin'),fv=eo5(P(t,2.45,2.9))*(1-eio(P(t,9.8,10.15)));
+    const F=L1.fly;fw.style.left=F.x+'px';fw.style.top=F.y+'px';fw.style.width=F.w+'px';fw.style.height=Math.min(F.h,ff.h*F.s)+'px';
+    fw.style.opacity=fv;fw.style.transform=`translateX(${(1-eo5(P(t,2.45,2.9)))*80+eio(P(t,9.8,10.15))*120}px)`;
+    // scroll the popup: detail first, account list for beat 2
+    const scroll=eio(P(t,5.6,6.3))*Math.max(0,ff.h*F.s-F.h);$('flyout').style.transform=`translateY(${-scroll}px)`;
+    // widget below the ring
+    const wi=frameAt('widget',MAP.widget(t)),wf=C.frames.widget[wi];if(t>=9.9)pend.push(show('widget',wi));
+    const ww=$('widWin'),wv=eo5(P(t,10.05,10.55)),W=wf.w*WID.s,H=wf.h*WID.s;
+    ww.style.left=(960-W/2)+'px';ww.style.top='720px';ww.style.width=W+'px';ww.style.height=H+'px';ww.style.opacity=wv;ww.style.transform=`translateY(${(1-wv)*60}px)`;
+    // pointer: glides to recorded click points in whichever window is in front
+    const fp=(n)=>{const m=C.marks[n],f=C.frames.flyout[frameAt('flyout',m.t)];return [F.x+m.x*F.s,F.y+m.y*F.s-(n==='refresh'?0:Math.max(0,f.h*F.s-F.h))]};
+    const wp=(n)=>{const m=C.marks[n];return [960-W/2+m.x*WID.s,720+m.y*WID.s]};
+    const CL=[[V_REFRESH,...fp('refresh')],[V_WORK,...fp('select-work')],[V_CLAUDE,...fp('select-claude')],[V_CURSOR,...fp('select-cursor')],[V_WREFRESH,...wp('widget-refresh')]];
+    let px=1500,py=1040,prev=2.3,rip=null;for(const [ct,x,y] of CL){const e=eio(P(t,Math.max(prev+.12,ct-.55),ct-.04));if(t<ct){px=lerp(px,x,e);py=lerp(py,y,e);break}px=x;py=y;prev=ct;rip=t-ct}
+    $('pointer').style.transform=`translate(${px-2}px,${py-2}px)`;$('pointer').style.opacity=eo(P(t,2.6,3.0))*(1-eio(P(t,12.8,13.2)));
+    $('ripple').style.opacity=rip!==null&&rip<.5?(1-rip/.5)*.9:0;$('ripple').style.transform=`translate(${px}px,${py}px) scale(${.4+1.4*cl((rip||0)/.5)})`;
+    // captions
+    const b=CUTS.findIndex((c,i)=>t>=c&&t<CUTS[i+1]);$('capi').textContent=String(b+1).padStart(2,'0')+' / 04';
+    for(let i=0;i<4;i++){const s=$('c'+i),a=CUTS[i],z=CUTS[i+1],vis=t>=a&&t<z;s.style.opacity=vis?eo(P(t,a+.05,a+.35))*(1-eio(P(t,z-.2,z))):0;s.style.transform=`translateY(${vis?(1-eo5(P(t,a+.05,a+.45)))*20:0}px)`}
+    $('tag').style.opacity=eo(P(t,2.6,3.2))*(1-eio(P(t,15.6,16.0)));
+    $('foot').style.opacity=1-eio(P(t,15.7,16.0));
+  }
+
+  // ---- outro: three lines, then the mark closes into the logo
+  const inOut=t>=15.9;$('out').style.opacity=inOut?1:0;
+  [0,1,2].forEach(i=>{const a=16.05+i*.5,e=eo5(P(t,a,a+.3)),x=eio(P(t,17.7,17.95)),el=$('s'+i);el.style.opacity=e*(1-x);el.style.transform=`translateY(${(1-e)*24}px)`});
+  if(t>=17.9){const d=eo5(P(t,17.95,18.7)),dt=eo5(P(t,18.6,18.85));drawMark(ctx,960,420,150,38,d,dt)}
+  const ow=eo5(P(t,18.35,18.75));$('oword').style.opacity=ow;$('oword').style.transform=`translateY(${(1-ow)*24}px)`;
+  $('oline').style.opacity=eo(P(t,18.6,18.95));$('ourl').style.opacity=eo(P(t,18.9,19.25));
+  return Promise.all(pend);
+}
+window.seek=seek;window.DURATION=DURATION;
+window.TIMELINE=C?{duration:DURATION,beat:BEAT,drop:2.0,cuts:CUTS.slice(1,4),man:T_OUT,end:T_END,
+  slams:[16.05,16.55,17.05],keys:[],clicks:[V_REFRESH,V_WORK,V_CLAUDE,V_CURSOR,V_WREFRESH],success:[4.6],failure:[],swaps:[10.0],
+  values:[V_WORK,V_CLAUDE,V_CURSOR,V_UPDATED],warn:[V_UPDATED]}:null;
+const q=new URLSearchParams(location.search);
+seek(parseFloat(q.get('t')||'0'));
+if(q.has('play')){const t0=performance.now();(function loop(){seek(((performance.now()-t0)/1000)%DURATION);requestAnimationFrame(loop)})()}
+</script>
+</body>
+</html>
