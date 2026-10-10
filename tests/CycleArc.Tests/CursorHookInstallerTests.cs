@@ -297,6 +297,27 @@ public sealed class CursorHookInstallerTests : IDisposable
         Assert.DoesNotContain("secret", File.ReadAllText(new CursorActivityStore(_data).Path), StringComparison.Ordinal);
     }
 
+    // Shape observed from Cursor 3.24.12 on Windows (values synthetic): stdin starts with a UTF-8
+    // byte order mark, and stop also carries session and token fields.
+    [Theory]
+    [InlineData("beforeSubmitPrompt", """{"conversation_id":"c","generation_id":"g","model":"claude-opus-5-5-medium","model_id":"claude-opus-5-5","model_params":[{"id":"context","value":"300k"},{"id":"effort","value":"medium"},{"id":"fast","value":"false"}],"composer_mode":"agent","prompt":"보냈어","attachments":[{"type":"file","file_path":"e:/x/a.cs"}],"session_id":"s","hook_event_name":"beforeSubmitPrompt","cursor_version":"3.24.12","workspace_roots":["e:/x"],"user_email":"a@example.com","transcript_path":"c:/t.jsonl"}""")]
+    [InlineData("stop", """{"conversation_id":"c","generation_id":"g","model":"claude-opus-5-5-medium","model_id":"claude-opus-5-5","model_params":[{"id":"effort","value":"medium"}],"status":"completed","loop_count":0,"input_tokens":10,"output_tokens":20,"cache_read_tokens":0,"cache_write_tokens":0,"session_id":"s","hook_event_name":"stop","cursor_version":"3.24.12","workspace_roots":["e:/x"],"user_email":"a@example.com","transcript_path":"c:/t.jsonl"}""")]
+    public async Task ReceiverRecordsCursorWindowsInputWithAByteOrderMark(string hookEvent, string json)
+    {
+        var payload = CursorHookInstaller.Payload(new(1, hookEvent, _exe, _data, false, false, false));
+        var input = new MemoryStream([.. new UTF8Encoding(true).GetPreamble(), .. Encoding.UTF8.GetBytes(json)]);
+
+        Assert.Equal(0, await CursorHookCommand.RunAsync(payload, input, new StringWriter(), new FixedClock(Now)));
+
+        var entry = Assert.Single(new CursorActivityStore(_data).Read()!.Entries);
+        Assert.Equal(hookEvent == "stop" ? CursorActivityKind.Completion : CursorActivityKind.Request, entry.Kind);
+        Assert.Equal("claude-opus-5-5", entry.ModelId);
+        Assert.Equal("medium", entry.Effort);
+        var stored = File.ReadAllText(new CursorActivityStore(_data).Path);
+        foreach (var secret in new[] { "보냈어", "a@example.com", "a.cs", "t.jsonl", "input_tokens" })
+            Assert.DoesNotContain(secret, stored, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ReceiverIgnoresMismatchedEventMissingDataRootOversizedAndBadPayloads()
     {

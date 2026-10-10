@@ -48,6 +48,8 @@ public static class CursorHookEvent
 
     public static CursorActivityEntry? Parse(ReadOnlySpan<byte> json, DateTimeOffset receivedAt)
     {
+        // Cursor on Windows starts hook stdin with a UTF-8 byte order mark, which Utf8JsonReader rejects.
+        if (json.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF])) json = json[3..];
         try
         {
             var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = 64 });
