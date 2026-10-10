@@ -19,6 +19,17 @@
     widget zoom, DPI/layout and settings checks. Host WPF DPI was **100%**; injected
     100–200% layouts do not establish physical mixed-DPI monitor behavior. Production
     widget renders were visually inspected in both languages and Dark/Light.
+  - Real-profile validation used a temporary self-contained executable from product
+    commit `40623e25d3c013fe4b989ba11ae3560b35098b37`. The actual settings UI applied
+    three off/on cycles: one widget HWND alternated hidden/visible, with saved position
+    `(6534, 1878.4)` and native bounds `(6534, 1878)-(7678, 2110)` unchanged. The
+    initial narrower startup layout had settled back to those bounds at the first off check.
+  - The temporary desktop exited normally and the original managed v0.10.1 desktop
+    was restored. All preference hashes except normal `UsageAlertMarks` bookkeeping,
+    account-registry/binding hashes, HKCU startup command, original position and installed
+    executable SHA-256 matched the pre-test baseline. Evidence:
+    `artifacts/verification/widget-toggle-summary.json`. This is an unreleased source fix;
+    v0.10.1 assets/tags were not replaced, and no new installer or release was delivered.
 
 - UI update and Cursor client lifetime trimming (unreleased, 2026-10-10, Linux agent host):
   - Each refresh-state change reached the desktop twice (manager `Changed` and the
