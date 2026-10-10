@@ -127,12 +127,18 @@ public partial class App : Application
         }
         if (accounts.RecoveredFromBackup) _log.Warn("Account registry restored from backup");
         _refresh = _codex.Refresh;
-        _codex.Changed += () => Dispatcher.BeginInvoke(RefreshSnapshot);
-        _refresh.StateChanged += () => Dispatcher.BeginInvoke(() =>
+        // The manager forwards every refresh-state change as Changed too, so both events
+        // share one pending projection instead of each scheduling its own.
+        var snapshotUpdate = new CoalescedUpdate(run => Dispatcher.BeginInvoke(run), RefreshSnapshot);
+        _codex.Changed += snapshotUpdate.Request;
+        _refresh.StateChanged += () =>
         {
-            if (!_refresh.IsRefreshing && !IsExiting) ApplyRefreshSchedule();
-            RefreshSnapshot();
-        });
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!_refresh.IsRefreshing && !IsExiting) ApplyRefreshSchedule();
+            });
+            snapshotUpdate.Request();
+        };
         ApplyRefreshSchedule();
         _codexTimer.Tick += async (_, _) => await RefreshCodexAsync(automatic: true);
 
