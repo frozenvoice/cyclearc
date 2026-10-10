@@ -3759,3 +3759,25 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   the feature and the test data root was isolated), real Korean IME composition, and CPU,
   memory or responsiveness measurements. The released Claude statusLine wrapper also reads
   `$input` and may share the code page problem; it was not changed here.
+
+### Earlier-format Cursor hook entries, 2026-10-10
+
+- Defect (review): after the byte-copy wrapper, ownership still compared only with the current
+  command, so entries written by the earlier wrapper (`f61e941` to `ea83c50`, unreleased) were
+  no longer CycleArc's: they showed as disconnected, turning the option off skipped them and
+  turning it on added a second entry beside them.
+- `CursorHookInstaller.TryRead` now also accepts that one earlier format when the decoded options
+  regenerate it byte for byte; `ReadStatus` reports `Outdated`; connection replaces it in place;
+  removal and uninstall delete it. With the option on, startup replaces it once.
+- Regressions register entries in the earlier format (a fixture independent of the installer,
+  matched line by line against the `ea83c50` source) and then check, with the new code:
+  recognition and rejection of edited variants, in-place replacement next to another tool's
+  hooks and restoration of the original content, removal by option off and by uninstall, and
+  another existing installation's earlier entry being kept. With earlier-format recognition
+  disabled, four of the five fail.
+- Windows 11, 96 DPI, final code: Release build; full unit suite 2,121 of 2,121; argument-free
+  UiSmoke exited 0 with `[ui-smoke] COMPLETE all default suites`, including
+  `cursor-hook-process` with the byte-copy wrapper. The 607 ms median above was measured with
+  the earlier wrapper; inside Cursor the byte-copy wrapper took 1.0 to 1.4 s per prompt.
+- Not verified: the startup replacement in the desktop (`App`) has no automated test, and no
+  real earlier-format entry from an installed build was upgraded.
