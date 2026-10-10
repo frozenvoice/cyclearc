@@ -49,9 +49,8 @@ public partial class App : Application
     private CursorActivityIntegration _cursorIntegration = CursorActivityIntegration.Off;
     private (DateTime Written, long Length)? _cursorHooksStamp;
     private bool _cursorHooksChecked;
-    private Task _cursorHookTask = Task.CompletedTask;
-    private bool _cursorHookPending;
-    private bool _cursorActivityApplied;
+    private CursorHookSynchronizer? _cursorHookSync;
+    private bool _cursorActivityRequested;
     private string _dataRoot = "";
     public bool IsExiting { get; private set; }
 
@@ -154,7 +153,9 @@ public partial class App : Application
         _displayTimer.Tick += (_, _) => RefreshSnapshot();
         _displayTimer.Start();
         _dataRoot = accounts.RootDirectory;
-        _cursorActivityApplied = _settings.CursorActivityEnabled;
+        _cursorActivityRequested = _settings.CursorActivityEnabled;
+        _cursorHookSync = new CursorHookSynchronizer(() => _settings.CursorActivityEnabled, ApplyCursorHooksAsync,
+            _lifetime.Token);
         _cursorActivity = new CursorActivityMonitor(_dataRoot);
         _cursorActivity.Poll();
         UpdateCursorIntegration();
@@ -386,27 +387,20 @@ public partial class App : Application
         return previous != _cursorIntegration;
     }
 
-    private void ApplyCursorActivitySetting()
+    // Changes only CycleArc's own entries in Cursor's hooks.json, off the UI thread. A failure
+    // leaves Cursor's file as it was and never affects usage checks. Called only by _cursorHookSync,
+    // which reruns it with the latest setting when the option changed meanwhile.
+    private async Task ApplyCursorHooksAsync(bool enable, CancellationToken cancellation)
     {
         if (IsExiting) return;
-        if (!_cursorHookTask.IsCompleted) { _cursorHookPending = true; return; }
-        var enable = _settings.CursorActivityEnabled;
-        _cursorActivityApplied = enable;
         var executable = CursorHookExecutable;
         var status = executable is null ? CursorHookStatus.Unavailable
             : CursorHookInstaller.ReadStatus(CursorHookInstaller.DefaultPath, executable);
         if (enable ? status == CursorHookStatus.Installed : status == CursorHookStatus.NotInstalled)
         {
-            UpdateCursorIntegration(force: true);
+            if (UpdateCursorIntegration(force: true)) RefreshSnapshot();
             return;
         }
-        _cursorHookTask = ApplyCursorHooksAsync(enable, executable);
-    }
-
-    // Changes only CycleArc's own entries in Cursor's hooks.json, off the UI thread. A failure
-    // leaves Cursor's file as it was and never affects usage checks.
-    private async Task ApplyCursorHooksAsync(bool enable, string? executable)
-    {
         CursorHookFailure? failure = null;
         try
         {
@@ -414,10 +408,10 @@ public partial class App : Application
             var path = CursorHookInstaller.DefaultPath;
             var root = _dataRoot;
             await Task.Run(() => enable
-                ? CursorHookInstaller.InstallAsync(path, executable, root, _lifetime.Token)
+                ? CursorHookInstaller.InstallAsync(path, executable, root, cancellation)
                 : CursorHookInstaller.RemoveAsync(path,
-                    owned => string.Equals(owned, executable, StringComparison.OrdinalIgnoreCase), _lifetime.Token),
-                _lifetime.Token);
+                    owned => string.Equals(owned, executable, StringComparison.OrdinalIgnoreCase), cancellation),
+                cancellation);
         }
         catch (OperationCanceledException) { return; }
         catch (CursorHookException ex) { failure = ex.Failure; }
@@ -431,10 +425,11 @@ public partial class App : Application
         {
             // Only the failure category: never the file's content or path.
             _log.Warn($"Cursor hook {(enable ? "connection" : "removal")} failed: {reason}");
-            if (enable)
+            // A connection that failed turns the option off, unless it was already turned off meanwhile.
+            if (enable && _settings.CursorActivityEnabled)
             {
                 _settings.CursorActivityEnabled = false;
-                _cursorActivityApplied = false;
+                _cursorActivityRequested = false;
                 try { _settingsStore.Save(_settings); }
                 catch (Exception ex) { _log.Error("Settings could not be saved", ex); }
             }
@@ -442,11 +437,6 @@ public partial class App : Application
         }
         UpdateCursorIntegration(force: true);
         RefreshSnapshot();
-        if (_cursorHookPending && !IsExiting)
-        {
-            _cursorHookPending = false;
-            ApplyCursorActivitySetting();
-        }
     }
 
     private static string CursorHookFailureText(bool enable, CursorHookFailure failure)
@@ -617,8 +607,13 @@ public partial class App : Application
             _settings = settings;
             _settingsStore.Save(settings);
             // Only a change of the option edits Cursor's file; saving other settings never re-adds
-            // entries a person removed.
-            if (settings.CursorActivityEnabled != _cursorActivityApplied) ApplyCursorActivitySetting();
+            // entries a person removed. The window edits _settings in place, so compare with the
+            // last value handed to the synchronizer.
+            if (settings.CursorActivityEnabled != _cursorActivityRequested && !IsExiting)
+            {
+                _cursorActivityRequested = settings.CursorActivityEnabled;
+                _cursorHookSync?.Request();
+            }
             else UpdateCursorIntegration(force: true);
             ApplyRefreshSchedule();
             // Disabling clears the live anchors before theme/layout callbacks can save them again.
