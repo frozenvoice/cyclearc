@@ -15,6 +15,7 @@ using CycleArc.Providers.Usage;
 using CycleArc.Services;
 using CycleArc.UI;
 using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 
 namespace CycleArc.UiSmoke;
 
@@ -140,13 +141,19 @@ internal static class ManagedStartupChecks
                 "Registered --autorun command opened the detail/settings window.");
             Check(ReadRunCommand() == registered && SnapshotUnrelatedRun() == unrelated,
                 "Registered startup command changed startup registration or unrelated Run values.");
+            var duplicateBudget = Stopwatch.StartNew();
             using (var duplicate = Start(parsed.Executable, parsed.Arguments, work, ProcessWindowStyle.Normal))
             {
-                Check(duplicate.WaitForExit(15_000) && duplicate.ExitCode == 0, "Duplicate autorun launcher failed.");
-                var same = PortableDistributionChecks.Request(DesktopInstanceCommand.Status);
-                Check(same.Succeeded && same.ProcessId == desktop.Id && same.InstanceId == autorun.Ready.InstanceId,
-                    "Duplicate autorun started a second desktop or replaced the first.");
-                Check(FindWindow(desktop.Id, "CycleArc") == 0, "Duplicate --autorun unexpectedly activated the detail window.");
+                Check(duplicate.WaitForExit(RemainingDuplicateBudget(duplicateBudget)) && duplicate.ExitCode == 0,
+                    "Duplicate autorun launcher failed.");
+                WaitForForwardingChildren(current, Path.Combine(installRoot, "Update.exe"), desktop.Id, duplicateBudget, () =>
+                {
+                    var same = PortableDistributionChecks.Request(DesktopInstanceCommand.Status, autorun.Ready);
+                    Check(same.Succeeded && same.ProcessId == desktop.Id && same.InstanceId == autorun.Ready.InstanceId,
+                        "Duplicate autorun started a second desktop or replaced the first.");
+                    Check(FindWindow(desktop.Id, "CycleArc") == 0 && FindWindow(desktop.Id, "CycleArc · Settings") == 0,
+                        "Duplicate --autorun unexpectedly activated the detail/settings window.");
+                });
             }
             Shutdown(desktop, autorun.Ready, installRoot, work);
             desktop.Dispose();
@@ -255,22 +262,46 @@ internal static class ManagedStartupChecks
 
     private static void RunWindowed(string executable, string[] arguments, string workingDirectory, int milliseconds)
     {
-        using var process = Start(executable, arguments, workingDirectory);
+        using var process = Start(executable, arguments, workingDirectory, captureOutput: true);
+        var standardOutput = ReadBoundedOutput(process.StandardOutput);
+        var standardError = ReadBoundedOutput(process.StandardError);
         if (!process.WaitForExit(milliseconds))
         {
             process.Kill(true);
             process.WaitForExit(5_000);
-            throw new TimeoutException("Managed installer/updater exceeded its bounded wait.");
+            PrintBoundedOutput(standardOutput, standardError);
+            throw new TimeoutException("Managed installer/updater/release probe exceeded its bounded wait.");
         }
-        Check(process.ExitCode == 0, $"Managed installer/updater exited {process.ExitCode}.");
+        PrintBoundedOutput(standardOutput, standardError);
+        Check(process.ExitCode == 0, $"Managed installer/updater/release probe exited {process.ExitCode}.");
+    }
+
+    private static void PrintBoundedOutput(Task<string> standardOutput, Task<string> standardError)
+    {
+        Check(Task.WhenAll(standardOutput, standardError).Wait(5_000),
+            "Managed helper output remained open after its process exited.");
+        foreach (var (name, value) in new[] { ("stdout", standardOutput.Result), ("stderr", standardError.Result) })
+            if (!string.IsNullOrWhiteSpace(value))
+                Console.WriteLine($"[managed-startup-helper {name}] {value[..Math.Min(value.Length, 32_768)]}");
+    }
+
+    private static async Task<string> ReadBoundedOutput(StreamReader reader)
+    {
+        var result = new StringBuilder();
+        var buffer = new char[1024];
+        int count;
+        while ((count = await reader.ReadAsync(buffer)) > 0)
+            if (result.Length < 32_768) result.Append(buffer, 0, Math.Min(count, 32_768 - result.Length));
+        return result.ToString();
     }
 
     private static Process Start(string executable, string[] arguments, string work,
-        ProcessWindowStyle windowStyle = ProcessWindowStyle.Hidden)
+        ProcessWindowStyle windowStyle = ProcessWindowStyle.Hidden, bool captureOutput = false)
     {
         var start = new ProcessStartInfo(executable)
         {
-            UseShellExecute = false, CreateNoWindow = true, WindowStyle = windowStyle, WorkingDirectory = work
+            UseShellExecute = false, CreateNoWindow = true, WindowStyle = windowStyle, WorkingDirectory = work,
+            RedirectStandardOutput = captureOutput, RedirectStandardError = captureOutput
         };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         start.Environment["PATH"] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32");
@@ -308,12 +339,21 @@ internal static class ManagedStartupChecks
 
     private static void Shutdown(Process desktop, DesktopInstanceResponse ready, string installRoot, string work)
     {
+        PrintProcessSnapshot("before-shutdown", Path.Combine(installRoot, "current", "CycleArc.exe"), Path.Combine(installRoot, "Update.exe"));
         var result = PortableDistributionChecks.Request(DesktopInstanceCommand.Shutdown, ready);
         Check(result.Succeeded && result.ProcessId == desktop.Id && desktop.WaitForExit(25_000) && desktop.ExitCode == 0,
             "Managed desktop did not shut down cleanly.");
-        RunWindowed(PowerShellPath(), ["-NoProfile", "-NonInteractive", "-File",
-            Path.Combine(Directory.GetCurrentDirectory(), "scripts", "Verify-ManagedStartupRelease.ps1"),
-            "-InstallRoot", installRoot, "-ProcessId", desktop.Id.ToString()], work, 45_000);
+        try
+        {
+            RunWindowed(PowerShellPath(), ["-NoProfile", "-NonInteractive", "-File",
+                Path.Combine(Directory.GetCurrentDirectory(), "scripts", "Verify-ManagedStartupRelease.ps1"),
+                "-InstallRoot", installRoot, "-ProcessId", desktop.Id.ToString()], work, 45_000);
+        }
+        catch
+        {
+            PrintProcessSnapshot("release-probe-failed", Path.Combine(installRoot, "current", "CycleArc.exe"), Path.Combine(installRoot, "Update.exe"));
+            throw;
+        }
     }
 
     private static void RetainExitStatus(Process process)
@@ -323,6 +363,121 @@ internal static class ManagedStartupChecks
         // ExitCode remains available after shutdown, even after the PID vanishes.
         Check(!process.SafeHandle.IsInvalid && !process.SafeHandle.IsClosed,
             "Could not retain the observed desktop's process handle for exit-status verification.");
+    }
+
+    private static int RemainingDuplicateBudget(Stopwatch budget)
+        => Math.Max(0, 15_000 - (int)budget.ElapsedMilliseconds);
+
+    private static void WaitForForwardingChildren(string current, string updater, int primaryId,
+        Stopwatch budget, Action verifyPrimary, Action<string[]>? snapshotObserved = null)
+    {
+        var observed = new Dictionary<int, Process>();
+        var completed = new HashSet<int>();
+        var emptyInventories = 0;
+        try
+        {
+            while (RemainingDuplicateBudget(budget) > 0)
+            {
+                verifyPrimary();
+                using var snapshot = new ForwardingSnapshot(current, updater);
+                snapshotObserved?.Invoke(snapshot.Processes.Where(process => process.Id != primaryId)
+                    .Select(process => snapshot.Paths[process.Id]).ToArray());
+                foreach (var candidate in snapshot.Processes.Where(process => process.Id != primaryId))
+                    if (!observed.ContainsKey(candidate.Id))
+                    {
+                        snapshot.Transfer(candidate);
+                        observed.Add(candidate.Id, candidate);
+                        Console.WriteLine($"[managed-startup-forwarding] observed PID {candidate.Id} {snapshot.Paths[candidate.Id]}");
+                    }
+                var nodeExited = false;
+                foreach (var process in observed.Values.Where(process => !completed.Contains(process.Id)))
+                {
+                    // HasExited can expose the final exit code before the native
+                    // process handle is signalled. That is still closing, not a
+                    // failed child: wait for signal within the same overall budget.
+                    if (!process.WaitForExit(0)) continue;
+                    Check(process.ExitCode == 0,
+                        $"Forwarded duplicate process {process.Id} exited with code {process.ExitCode}.");
+                    nodeExited |= completed.Add(process.Id);
+                }
+                if (snapshot.Processes.All(process => process.Id == primaryId) && !nodeExited
+                    && observed.Keys.All(completed.Contains))
+                {
+                    // An updater can exit after the inventory was taken and spawn
+                    // current after that inventory. Re-enumerate, rather than treating
+                    // an exited updater or the old zero-child list as completion.
+                    if (++emptyInventories >= 2)
+                    {
+                        verifyPrimary();
+                        Console.WriteLine("[managed-startup-forwarding] updater/current child chain completed before primary shutdown");
+                        return;
+                    }
+                    continue;
+                }
+                emptyInventories = 0;
+                Thread.Sleep(50);
+            }
+            PrintProcessSnapshot("duplicate-forwarding-timeout", current, updater);
+            throw new TimeoutException("Duplicate registered command's updater/current child chain did not finish within its 15-second budget.");
+        }
+        finally { foreach (var process in observed.Values) process.Dispose(); }
+    }
+
+    private sealed class ForwardingSnapshot : IDisposable
+    {
+        public List<Process> Processes { get; } = [];
+        public Dictionary<int, string> Paths { get; } = [];
+        private readonly HashSet<int> _transferred = [];
+        public ForwardingSnapshot(string current, string updater)
+        {
+            foreach (var process in Process.GetProcesses())
+            {
+                var retained = false;
+                try
+                {
+                    if (!new[] { Path.GetFileNameWithoutExtension(current), Path.GetFileNameWithoutExtension(updater) }
+                        .Contains(process.ProcessName, StringComparer.OrdinalIgnoreCase)) continue;
+                    if (process.HasExited) continue;
+                    var path = QueryImagePath(process);
+                    if (path.Equals(current, StringComparison.OrdinalIgnoreCase) || path.Equals(updater, StringComparison.OrdinalIgnoreCase))
+                    {
+                        RetainExitStatus(process);
+                        Processes.Add(process);
+                        Paths.Add(process.Id, path);
+                        retained = true;
+                    }
+                }
+                catch (Exception) when (process.HasExited) { }
+                finally { if (!retained) process.Dispose(); }
+            }
+        }
+        public void Transfer(Process process) => _transferred.Add(process.Id);
+        public void Dispose() { foreach (var process in Processes.Where(process => !_transferred.Contains(process.Id))) process.Dispose(); }
+    }
+
+    private static void PrintProcessSnapshot(string stage, string current, string updater)
+    {
+        try
+        {
+            using var snapshot = new ForwardingSnapshot(current, updater);
+            Console.WriteLine($"[managed-startup-processes {stage}] " + string.Join("; ",
+                snapshot.Processes.Select(process => $"PID {process.Id} {snapshot.Paths[process.Id]}")));
+        }
+        catch (Exception failure) { Console.WriteLine($"[managed-startup-processes {stage}] query failed: {failure.Message}"); }
+    }
+
+    private static string QueryImagePath(Process process)
+    {
+        // A freshly created apphost can have no MainModule yet. Query the kernel
+        // image identity rather than depending on the child having initialized
+        // its module list before the forwarding inventory runs.
+        RetainExitStatus(process);
+        var path = new StringBuilder(32_768);
+        var length = path.Capacity;
+        if (!QueryFullProcessImageName(process.SafeHandle, 0, path, ref length))
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(),
+                $"Could not query possible forwarded process {process.Id}'s executable identity.");
+        return path.ToString();
     }
 
     private static string PowerShellPath()
@@ -461,6 +616,134 @@ internal static class ManagedStartupChecks
         return Application.Current.Run(window);
     }
 
+    internal static void RunForwardingContract()
+    {
+        var work = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), ".tmp", "managed-startup-forwarding"));
+        Check(!Directory.Exists(work), "Synthetic forwarding fixture already exists.");
+        var currentDirectory = Path.Combine(work, "current");
+        Directory.CreateDirectory(currentDirectory);
+        Process? primary = null;
+        try
+        {
+            File.WriteAllText(Path.Combine(work, "fixture-marker"), "CycleArc.UiSmoke synthetic forwarding fixture");
+            foreach (var file in Directory.GetFiles(AppContext.BaseDirectory))
+            {
+                File.Copy(file, Path.Combine(work, Path.GetFileName(file)));
+                File.Copy(file, Path.Combine(currentDirectory, Path.GetFileName(file)));
+            }
+            var appHost = Path.Combine(AppContext.BaseDirectory, "CycleArc.UiSmoke.exe");
+            var launcher = Path.Combine(work, "CycleArc.exe");
+            var updater = Path.Combine(work, "Update.exe");
+            var current = Path.Combine(currentDirectory, "CycleArc.exe");
+            foreach (var path in new[] { launcher, updater, current }) File.Copy(appHost, path, true);
+            primary = Start(current, ["--managed-startup-forwarding-child", "primary", work], work, ProcessWindowStyle.Normal);
+            Await(() => File.Exists(Path.Combine(work, "primary-ready")), "Synthetic primary did not report readiness.");
+            var primaryId = primary.Id;
+            var duplicateBudget = Stopwatch.StartNew();
+            using (var stub = Start(launcher, ["--managed-startup-forwarding-child", "stub", work], work, ProcessWindowStyle.Normal))
+                Check(stub.WaitForExit(RemainingDuplicateBudget(duplicateBudget)) && stub.ExitCode == 0, "Synthetic async stub did not exit successfully.");
+            Await(() => File.Exists(Path.Combine(work, "updater-ready")), "Synthetic updater did not reach its forwarding barrier.");
+            using var updaterObserved = new ManualResetEventSlim();
+            using var childObserved = new ManualResetEventSlim();
+            var completion = Task.Run(() => WaitForForwardingChildren(current, updater, primaryId, duplicateBudget,
+                () => Check(!primary.HasExited && File.Exists(Path.Combine(work, "primary-ready"))
+                    && FindWindow(primaryId, "CycleArc") == 0,
+                    "Synthetic primary lost readiness/quiet state while its duplicate was forwarding."),
+                paths =>
+                {
+                    if (paths.Contains(updater, StringComparer.OrdinalIgnoreCase)) updaterObserved.Set();
+                    if (paths.Contains(current, StringComparer.OrdinalIgnoreCase)) childObserved.Set();
+                }));
+            var sawUpdater = updaterObserved.Wait(5_000);
+            if (completion.IsFaulted) completion.GetAwaiter().GetResult();
+            Check(sawUpdater && !completion.IsCompleted,
+                "Forwarding wait returned while the async updater was still pending.");
+            Console.WriteLine("[managed-startup-forwarding] reproduced: stub exited 0 while updater is still alive");
+            File.WriteAllText(Path.Combine(work, "updater-release"), "release");
+            var sawChild = childObserved.Wait(5_000);
+            if (completion.IsFaulted) completion.GetAwaiter().GetResult();
+            Check(sawChild && !completion.IsCompleted,
+                "Forwarding wait returned before the updater-to-current child handoff completed.");
+            File.WriteAllText(Path.Combine(work, "duplicate-release"), "release");
+            Check(completion.Wait(RemainingDuplicateBudget(duplicateBudget)), "Synthetic forwarding exceeded the existing 15-second budget.");
+            completion.GetAwaiter().GetResult();
+            Check(!primary.HasExited, "Forwarding completion replaced the primary instance.");
+            File.WriteAllText(Path.Combine(work, "primary-release"), "release");
+            Check(primary.WaitForExit(5_000) && primary.ExitCode == 0, "Synthetic primary did not shut down successfully.");
+            var rejected = false;
+            try
+            {
+                RunWindowed(current, ["--managed-startup-forwarding-child", "helper-failure", work], work, 5_000);
+            }
+            catch (InvalidOperationException failure) when (failure.Message.Contains("exited 23", StringComparison.Ordinal))
+            {
+                rejected = true;
+            }
+            Check(rejected, "Synthetic helper failure lost its nonzero exit status.");
+            Console.WriteLine("PASS: helper stderr captured and nonzero exit23 rejected as expected.");
+            Console.WriteLine("PASS: async stub/updater/current handoff awaited within 15 seconds; primary stays ready/quiet until all duplicate children exit.");
+        }
+        finally
+        {
+            // Only processes whose executable path is exactly inside this newly
+            // created fixture are eligible for synthetic-failure cleanup.
+            using var snapshot = new ForwardingSnapshot(Path.Combine(currentDirectory, "CycleArc.exe"), Path.Combine(work, "Update.exe"));
+            foreach (var child in snapshot.Processes)
+                if (!child.HasExited) { child.Kill(true); child.WaitForExit(5_000); }
+            primary?.Dispose();
+            foreach (var trace in Directory.GetFiles(work, "*-trace.txt"))
+                Console.WriteLine($"[managed-startup-synthetic {Path.GetFileName(trace)}] {File.ReadAllText(trace)}");
+            Directory.Delete(work, true);
+        }
+    }
+
+    internal static int RunForwardingChild(string role, string work)
+    {
+        Check(Path.IsPathFullyQualified(work) && Path.GetFileName(work) == "managed-startup-forwarding"
+            && File.ReadAllText(Path.Combine(work, "fixture-marker")) == "CycleArc.UiSmoke synthetic forwarding fixture",
+            "Synthetic forwarding child requires its owned isolated fixture.");
+        var trace = Path.Combine(work, role + "-trace.txt");
+        File.WriteAllText(trace, $"PID {Environment.ProcessId}: started\n");
+        try
+        {
+            var result = RunForwardingChildCore(role, work);
+            File.AppendAllText(trace, $"PID {Environment.ProcessId}: returning {result}\n");
+            return result;
+        }
+        catch (Exception failure)
+        {
+            File.AppendAllText(trace, failure + "\n");
+            return 1;
+        }
+    }
+
+    private static int RunForwardingChildCore(string role, string work)
+    {
+        if (role == "helper-failure")
+        {
+            Console.Error.WriteLine("synthetic-helper-failure-marker: deliberate exit23");
+            return 23;
+        }
+        if (role == "stub")
+        {
+            using var updater = Start(Path.Combine(work, "Update.exe"),
+                ["--managed-startup-forwarding-child", "updater", work], work, ProcessWindowStyle.Normal);
+            return 0;
+        }
+        if (role == "updater")
+        {
+            File.WriteAllText(Path.Combine(work, "updater-ready"), "ready");
+            Await(() => File.Exists(Path.Combine(work, "updater-release")), "Synthetic updater barrier was not released.");
+            using var duplicate = Start(Path.Combine(work, "current", "CycleArc.exe"),
+                ["--managed-startup-forwarding-child", "duplicate", work], work, ProcessWindowStyle.Normal);
+            return 0;
+        }
+        Check(role is "primary" or "duplicate", "Unknown synthetic forwarding role.");
+        File.WriteAllText(Path.Combine(work, role + "-ready"), "ready");
+        Await(() => File.Exists(Path.Combine(work, role + "-release")), "Synthetic child barrier was not released.");
+        return 0;
+    }
+
     private static void UiA(Action operation)
     {
         // UI Automation clients must use an MTA thread separate from the WPF dispatcher.
@@ -511,4 +794,6 @@ internal static class ManagedStartupChecks
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out int processId);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint window, StringBuilder text, int maximum);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint window);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool QueryFullProcessImageName(SafeProcessHandle process, uint flags, StringBuilder path, ref int length);
 }

@@ -32,6 +32,13 @@ internal static class Program
             ManagedStartupChecks.RunUiContract();
             return 0;
         }
+        if (args is ["--managed-startup-forwarding"])
+        {
+            ManagedStartupChecks.RunForwardingContract();
+            return 0;
+        }
+        if (args is ["--managed-startup-forwarding-child", var forwardingRole, var forwardingFixture])
+            return ManagedStartupChecks.RunForwardingChild(forwardingRole, forwardingFixture);
         if (args is ["--portable-distribution", var portableAssets])
         {
             PortableDistributionChecks.Run(portableAssets);
