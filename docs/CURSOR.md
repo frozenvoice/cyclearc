@@ -8,9 +8,12 @@ Cursor provider. Local implementation checks and remaining gaps are recorded in
 
 Source: the official [Cursor hooks reference](https://cursor.com/docs/agent/hooks), checked
 2026-10-10. No Cursor API reports the latest model per account; hooks are the only documented
-local source. Real hook events could not be captured in the development environment used for
-this change (a temporary project `hooks.json` never fired there), so the field shapes below
-come from the documentation and are exercised only by synthetic fixtures.
+local source. Cursor 3.24.12 on Windows was observed on 2026-10-10 with the user-level
+`hooks.json` (only top-level key names, types and the model fields were inspected):
+`beforeSubmitPrompt` and `stop` both carried `model`, `model_id`, `model_params`
+(context, `effort`, fast), `user_email`, `session_id` and `generation_id`; `stop` added
+`status`, token counts and `loop_count`. Stdin begins with a UTF-8 byte order mark, and
+Cursor reloads `hooks.json` without a restart.
 
 | Question | Documented evidence | Handling |
 | --- | --- | --- |
@@ -30,8 +33,14 @@ Contract:
   keys, malformed JSON, concurrent edits and another existing installation's entry abort the
   write. Removal (setting off or Velopack uninstall, the latter limited to executables inside the
   removed installation within 5 seconds) deletes only owned entries and the containers/file
-  CycleArc created, while empty. A removed or edited entry is shown as **Disconnected** and is
-  never re-added automatically; only a change of the option edits the file.
+  CycleArc created, while empty. Rewrites keep the file's line endings, final newline and
+  unescaped non-ASCII text, so removing from a two-space indented file restores its bytes; the
+  previous file is kept beside it as `hooks.json.cyclearc.bak`. A removed or edited entry is
+  shown as **Disconnected** and is never re-added automatically; only a change of the option
+  edits the file.
+- The command runs Windows PowerShell with an encoded script that copies stdin bytes to the
+  receiver. PowerShell's `$input` would decode them with the console code page (CP949 on a
+  Korean system), corrupting the byte order mark and non-ASCII text.
 - The receiver `CycleArc.exe --cursor-hook` runs before WPF, the mutex or account startup, reads
   at most 8 MiB of stdin within 3 seconds, parses only top-level fields, never writes the
   prompt, attachments, paths, transcript, conversation/generation IDs or raw email, never
@@ -48,8 +57,8 @@ Contract:
   Off saved while a connection is still being written removes the entries right after it, and
   On saved during a removal adds them again.
 - Trade-off: each prompt waits for PowerShell and the receiver to start (bounded by the
-  five-second hook timeout, fail-open). On a development build this took about 0.6 s per prompt
-  (synthetic events, 2026-10-10, see [Validation](VALIDATION.md)).
+  five-second hook timeout, fail-open). Inside Cursor on a development build this took 1.0 to
+  1.4 s per prompt (2026-10-10, see [Validation](VALIDATION.md)).
 
 ## Selected-account on-demand card (2026-10-01)
 

@@ -3728,3 +3728,34 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
 - Still not verified: a real Cursor event (the user's Cursor configuration was not changed),
   the installed-app path, real Korean IME composition in the accounts window, and CPU, memory or
   responsiveness measurements of the earlier UI update trimming.
+
+### Real Cursor hook events, 2026-10-10
+
+- With the user's approval, the user-level `%USERPROFILE%\.cursor\hooks.json` of Cursor 3.24.12
+  on Windows received CycleArc entries pointing at a copied Release build with an isolated data
+  root. Cursor ran them, but the first builds recorded nothing. Two causes, both invisible to
+  the earlier synthetic checks:
+  - Cursor starts hook stdin with a UTF-8 byte order mark, which `Utf8JsonReader` rejects.
+    `CursorHookEvent.Parse` now skips it.
+  - The wrapper piped PowerShell's `$input`, which decodes with the console code page. The
+    agent shell used UTF-8, but the console Cursor gives hooks used CP949, which corrupted the
+    byte order mark and Korean prompt text. The wrapper now copies stdin bytes to the receiver.
+- Real receipt after both fixes: a completion and the next request were recorded with model
+  `claude-opus-5-5` and effort `medium` under a hashed account; the stored file held no prompt,
+  email, path or token count. Only key names, types and model fields of Cursor's hook log were
+  inspected. Each prompt waited 1.0 to 1.4 s for the hook inside Cursor.
+- Install and removal on the real file converted its LF line endings to CRLF and escaped
+  non-ASCII text. Rewrites now keep line endings, the final newline and unescaped text, so a
+  two-space indented file returns byte for byte after removal. The user's file was restored
+  from a copy and matched its original SHA-256.
+- New regressions: `ReceiverRecordsCursorWindowsInputWithAByteOrderMark` and
+  `RemoveRestoresTheExactBytesOfAFileInTheSameLayout` (both fail on the previous code), and
+  the UiSmoke `--cursor-hook-process` mode, which runs the generated commands through
+  `cmd.exe` under code page 949 with a byte order mark, Korean text and a data path containing a
+  space, apostrophe, `$` and backtick; it fails with the previous wrapper.
+- Windows 11, 96 DPI: Release build; full unit suite 2,116 of 2,116; argument-free UiSmoke
+  (now including `cursor-hook-process`) exited 0 with `[ui-smoke] COMPLETE all default suites`.
+- Not verified: display of real receipts in an installed build (the installed 0.10.0 predates
+  the feature and the test data root was isolated), real Korean IME composition, and CPU,
+  memory or responsiveness measurements. The released Claude statusLine wrapper also reads
+  `$input` and may share the code page problem; it was not changed here.
