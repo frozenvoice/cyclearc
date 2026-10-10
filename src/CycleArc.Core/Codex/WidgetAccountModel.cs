@@ -100,7 +100,7 @@ public sealed record WidgetAccountModel(
             snapshot.Status == CodexQuotaStatus.Stale,
             selected,
             CursorUsagePresentation.IsCursor(snapshot)
-                ? account.DisplayName + Environment.NewLine + CursorTooltip(snapshot, ring, at, cursorProtected)
+                ? account.DisplayName + Environment.NewLine + CursorTooltip(snapshot, ring, at, cursorProtected, account.CursorActivity)
                 : account.DisplayName + Environment.NewLine + CycleArcPresentation.Tooltip(ringSnapshot, preference));
 
         return model with
@@ -226,7 +226,7 @@ public sealed record WidgetAccountModel(
     }
 
     private static string CursorTooltip(CodexQuotaSnapshot snapshot, CodexRingPresentation ring,
-        DateTimeOffset at, bool protectedSnapshot)
+        DateTimeOffset at, bool protectedSnapshot, Providers.Cursor.CursorActivityView? activity)
     {
         var lines = new List<string>();
         var status = CursorStatusText(snapshot, at);
@@ -240,6 +240,7 @@ public sealed record WidgetAccountModel(
             ? CursorUsagePresentation.QuotaLabel(ring.Window.LimitId)
             : UiText.T("unknown", "확인 불가");
         lines.Add(UiText.T($"Ring target: {ringTarget}", $"링 대상: {ringTarget}"));
+        if (Providers.Cursor.CursorActivityPresentation.TooltipLine(activity, at) is { } recent) lines.Add(recent);
 
         if (!protectedSnapshot)
             lines.AddRange(snapshot.Windows.Select(CursorWindowTooltip));
