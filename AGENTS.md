@@ -6,8 +6,11 @@ Visual Studio 2022 with the Desktop development with C++ workload (the setup win
 AOT); running the shipped installer does not. The solution is `CycleArc.sln`;
 `src/CycleArc` is the desktop app, `src/CycleArc.Core` holds provider/shared logic,
 and `tests/CycleArc.Tests` / `tests/CycleArc.UiSmoke` cover unit / production WPF checks.
-Ship the Windows x64 `CycleArc-Setup.exe` Velopack installer for the stable channel. Keep the
-development publish check for one self-contained `CycleArc.exe`. A new installation goes to
+Ship both the Windows x64 `CycleArc-Setup.exe` Velopack installer and
+`CycleArc-<version>-win-x64-portable.zip` in one stable GitHub Release, built from the
+same verified self-contained `CycleArc.exe`. Portable runs without managed
+installation or Velopack updates and shares the existing user settings.
+Keep the development publish check for one self-contained `CycleArc.exe`. A new installation goes to
 `%LOCALAPPDATA%\Programs\CycleArc`; an installation that already exists keeps its own
 location, found by its registered uninstall entry and then at either known root, so the former
 `%LOCALAPPDATA%\CycleArc` stays in use where it is. Never assume a root - resolve it with
