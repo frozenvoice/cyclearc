@@ -285,10 +285,14 @@ public class CodexAppServerClientTests(ITestOutputHelper output)
     public async Task HangProcess_CancelOrTimeoutCleansTree(bool cancelAfterReady)
     {
         var (node, hang) = RequireNode("hang-codex-app-server.js");
-        var fixture = new CodexProcessFixture();
+        using var fixture = new CodexProcessFixture();
         var command = new CodexLaunchCommand(node, $"\"{hang}\" {fixture.Arguments}", hang, false);
         using var cts = new CancellationTokenSource();
         Process? child = null;
+        // Prepare this one real parent/descendant pair under its own fixed 10s
+        // fixture budget. The client claims the same process once; no relaunch.
+        // Cold product startup/timeout is independently exercised by CodexColdStartTests.
+        await fixture.BootstrapAsync(command);
         var elapsed = Stopwatch.StartNew();
         var pending = new CodexAppServerClient(fixture).ReadQuotaAsync(command, "1.0.0", cts.Token);
         await RunWithCleanupAsync(async () =>
@@ -317,7 +321,11 @@ public class CodexAppServerClientTests(ITestOutputHelper output)
             catch (TimeoutException) { Assert.Fail($"descendant-exit pid={child.Id}; {fixture.Describe()}"); }
         }, output.WriteLine,
             ("cancel", () => { cts.Cancel(); return Task.CompletedTask; }),
-            ("protocol-completion", async () => { await pending.WaitAsync(TimeSpan.FromSeconds(5)); }),
+            ("protocol-completion", async () =>
+            {
+                var completed = await pending.WaitAsync(TimeSpan.FromSeconds(5));
+                output.WriteLine("cleanup protocol result: " + Describe(completed, elapsed.Elapsed) + fixture.Describe());
+            }),
             ("descendant-exit", async () =>
             {
                 if (child is { HasExited: false })
