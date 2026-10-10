@@ -33,10 +33,162 @@ internal static class WidgetRecoveryChecks
                 UiText.SetLanguage(language);
                 applyTheme.Invoke(null, [theme]);
                 CheckLifecycle(directory, language, theme, screen, focusWindow);
+                FocusFixture(focusWindow);
+                CheckFractionalPositionPreservation(language, theme, screen);
             }
         }
         finally { focusWindow.Close(); }
-        Console.WriteLine($"PASS: widget lifecycle recovery in both languages/dark/light on {System.Windows.Forms.Screen.AllScreens.Length} monitor(s); native hide/minimize/topmost, closed window, resume/display recreation, saved preferences, account availability and shutdown.");
+        Console.WriteLine($"PASS: widget lifecycle recovery in both languages/dark/light on {System.Windows.Forms.Screen.AllScreens.Length} monitor(s); native hide/minimize/topmost, closed window, resume/display recreation, fractional saved coordinates through three off/on cycles, saved preferences, account availability and shutdown.");
+    }
+
+    private static void CheckFractionalPositionPreservation(UiLanguage language, AppTheme theme,
+        System.Windows.Forms.Screen screen)
+    {
+        // Explicit fixture path: never use the real user's default SettingsStore/AppPaths.
+        // Reuse one file across all monitor/language/theme cases and remove only files we own.
+        var path = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, ".tmp", "widget-recovery-settings.json"));
+        var store = new SettingsStore(path);
+        Check(!File.Exists(path) && !File.Exists(store.BackupPath),
+            "Refusing to overwrite an existing widget position settings fixture.");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var pixelLeft = screen.WorkingArea.Left + 100;
+        var pixelTop = screen.WorkingArea.Top + 100;
+        var savedLeft = pixelLeft + .25;
+        var savedTop = pixelTop + .4;
+        var settings = new AppSettings
+        {
+            FloatingWidgetEnabled = true, WidgetLeft = savedLeft, WidgetTop = savedTop,
+            WidgetPixelLeft = pixelLeft, WidgetPixelTop = pixelTop, WidgetZoomPercent = 90,
+            WidgetOpacity = .73, WidgetAlwaysOnTop = true, WidgetClickThrough = false,
+            SnapWindowsToScreenEdges = true, WidgetHorizontalAnchor = HorizontalEdgeAnchor.None,
+            WidgetVerticalAnchor = VerticalEdgeAnchor.None, FlyoutZoomPercent = 130, FlyoutPinned = true,
+            StartWithWindows = true, UiLanguage = language, Theme = theme
+        };
+        var now = DateTimeOffset.Now;
+        var snapshot = new CodexQuotaSnapshot(CodexQuotaStatus.Available, null, now, now,
+            null, null, null, [new("weekly", 25, 10080, now.AddDays(7), CodexWindowKind.Weekly)], null);
+        var account = new CodexAccountView(new CodexAccountProfile("synthetic-widget-position", "", "Work"), snapshot);
+        var overview = UsageAccountOverview.Create([account], account.Profile.Id);
+        var configured = 0;
+        var moved = 0;
+        var trace = $"{language}/{theme}/{screen.DeviceName}";
+        FloatingWidgetController? controller = null;
+        try
+        {
+            store.Save(settings);
+            var originalJson = File.ReadAllText(path);
+            settings = store.Load();
+            controller = new FloatingWidgetController(window =>
+            {
+                configured++;
+                // The production app persists this event, including both DIP and native
+                // coordinates. An unconditional restore notification would round the DIP
+                // value and rewrite the user's settings even without any actual movement.
+                window.Moved += (left, top) =>
+                {
+                    if (!ReferenceEquals(controller?.CurrentWindow, window)) return;
+                    moved++;
+                    settings.WidgetLeft = left;
+                    settings.WidgetTop = top;
+                    settings.WidgetHorizontalAnchor = window.EdgeAnchors.Horizontal;
+                    settings.WidgetVerticalAnchor = window.EdgeAnchors.Vertical;
+                    if (window.PixelPosition is { } pixels)
+                    {
+                        settings.WidgetPixelLeft = pixels.X;
+                        settings.WidgetPixelTop = pixels.Y;
+                    }
+                    store.Save(settings);
+                };
+            });
+
+            void CheckPreserved(string stage, bool enabled)
+            {
+                var loaded = store.Load();
+                var window = controller.CurrentWindow!;
+                Check(settings.WidgetLeft == savedLeft && settings.WidgetTop == savedTop
+                    && loaded.WidgetLeft == savedLeft && loaded.WidgetTop == savedTop,
+                    $"{trace}/{stage}: saved fractional DIP position changed "
+                    + $"({savedLeft:R},{savedTop:R} -> {loaded.WidgetLeft:R},{loaded.WidgetTop:R}).");
+                Check(loaded.WidgetPixelLeft == pixelLeft && loaded.WidgetPixelTop == pixelTop
+                    && window.PixelPosition == (pixelLeft, pixelTop),
+                    $"{trace}/{stage}: saved/native physical position changed.");
+                Check(loaded.FloatingWidgetEnabled == enabled && loaded.WidgetZoomPercent == 90
+                    && loaded.WidgetOpacity == .73 && loaded.WidgetAlwaysOnTop && !loaded.WidgetClickThrough
+                    && loaded.SnapWindowsToScreenEdges && loaded.WidgetHorizontalAnchor == HorizontalEdgeAnchor.None
+                    && loaded.WidgetVerticalAnchor == VerticalEdgeAnchor.None
+                    && window.EdgeAnchors == default && window.ZoomPercent == 90
+                    && window.Opacity == 1 && Math.Abs(window.BackgroundOpacity - .73) < .001,
+                    $"{trace}/{stage}: saved or applied widget preferences changed.");
+                Check(moved == 0, $"{trace}/{stage}: restoring a position reported {moved} movement(s).");
+                if (enabled)
+                    Check(File.ReadAllText(path) == originalJson,
+                        $"{trace}/{stage}: re-enabling/restoring changed unrelated persisted settings.");
+            }
+
+            controller.Update(settings, overview, applySettings: true);
+            Pump();
+            var window = controller.CurrentWindow!;
+            var hwnd = Handle(window);
+            Check(Visible(window), $"{trace}: fractional-coordinate widget was not visible initially.");
+            CheckPreserved("initial show", enabled: true);
+            for (var cycle = 1; cycle <= 3; cycle++)
+            {
+                settings = store.Load();
+                settings.FloatingWidgetEnabled = false;
+                store.Save(settings);
+                controller.Update(settings, overview, applySettings: true);
+                Pump();
+                controller.MaintainVisibility();
+                Check(Handle(controller.CurrentWindow!) == hwnd && !IsWindowVisible(hwnd),
+                    $"{trace}/off {cycle}: disabling did not hide and retain the same HWND.");
+                CheckPreserved($"off {cycle}", enabled: false);
+
+                settings = store.Load();
+                settings.FloatingWidgetEnabled = true;
+                store.Save(settings);
+                controller.Update(settings, overview, applySettings: true);
+                Pump();
+                controller.MaintainVisibility();
+                Check(Handle(controller.CurrentWindow!) == hwnd && configured == 1 && Visible(window),
+                    $"{trace}/on {cycle}: re-enabling recreated or failed to show the retained HWND.");
+                CheckPreserved($"on {cycle}", enabled: true);
+            }
+
+            controller.RecoverAfterEnvironmentChange();
+            controller.RecoverAfterEnvironmentChange();
+            Pump();
+            window = controller.CurrentWindow!;
+            Check(configured == 2 && Handle(window) != hwnd && Visible(window),
+                $"{trace}: environment recovery did not recreate the widget once.");
+            CheckPreserved("environment recreation", enabled: true);
+
+            // Removing the restore notification must not silence genuine recovery writes.
+            // Put the actual HWND outside every work area, then invoke production recovery.
+            hwnd = Handle(window);
+            var screens = System.Windows.Forms.Screen.AllScreens;
+            var outsideX = screens.Max(s => s.WorkingArea.Right) + 400;
+            var outsideY = screens.Max(s => s.WorkingArea.Bottom) + 400;
+            Check(SetWindowPos(hwnd, IntPtr.Zero, outsideX, outsideY, 0, 0, 0x0015),
+                $"{trace}: offscreen movement fixture failed."); // NOSIZE | NOZORDER | NOACTIVATE
+            Check(window.PixelPosition == (outsideX, outsideY), $"{trace}: offscreen fixture did not move the HWND.");
+            window.RecoverPosition();
+            Pump();
+            var recovered = store.Load();
+            Check(moved > 0 && window.PixelPosition is { } recoveredPixels
+                && recovered.WidgetPixelLeft == recoveredPixels.X && recovered.WidgetPixelTop == recoveredPixels.Y
+                && recovered.WidgetLeft == window.Left && recovered.WidgetTop == window.Top,
+                $"{trace}: genuine offscreen recovery did not persist the corrected DIP/native position.");
+            Check(window.PixelPosition != (outsideX, outsideY) && Visible(window)
+                && recovered.WidgetZoomPercent == 90 && recovered.WidgetOpacity == .73
+                && recovered.FlyoutZoomPercent == 130 && recovered.FlyoutPinned && recovered.StartWithWindows,
+                $"{trace}: offscreen recovery lost visibility or unrelated preferences.");
+        }
+        finally
+        {
+            controller?.Dispose();
+            File.Delete(path);
+            File.Delete(store.BackupPath);
+        }
     }
 
     private static void CheckLifecycle(string? directory, UiLanguage language, AppTheme theme, System.Windows.Forms.Screen screen, Window focusWindow)

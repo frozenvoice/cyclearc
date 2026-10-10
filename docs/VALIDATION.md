@@ -2,6 +2,35 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Fractional widget position preservation (unreleased, 2026-10-11 Asia/Seoul):
+  - Restoring saved native pixels emitted an unconditional `Moved` event after layout.
+    The desktop persists that event, so WPF's integer-pixel restoration could overwrite
+    the saved fractional DIP coordinates without a user move. Restoration now stays
+    silent; genuine drag, edge-anchor placement and off-screen recovery still save.
+  - The production controller regression uses an explicit isolated SettingsStore and
+    its real persistence callback. Initial display, three disable/enable cycles and
+    environment recreation retain exact DIP/native coordinates and unrelated settings.
+    A real off-screen HWND move still produces a recovery event and saves the correction.
+    The old implementation fails on its first unnecessary restore notification; the
+    corrected implementation passes EN/KO, Dark/Light and all three host monitors.
+  - Windows PowerShell 7.6.5 and .NET 10.0.401: Release solution build and **86 relevant
+    unit tests passed, zero skipped**. The final argument-free UiSmoke exited 0 at
+    `[ui-smoke] COMPLETE all default suites`, including drag/edge snap, monitor recovery,
+    widget zoom, DPI/layout and settings checks. Host WPF DPI was **100%**; injected
+    100–200% layouts do not establish physical mixed-DPI monitor behavior. Production
+    widget renders were visually inspected in both languages and Dark/Light.
+  - Real-profile validation used a temporary self-contained executable from product
+    commit `40623e25d3c013fe4b989ba11ae3560b35098b37`. The actual settings UI applied
+    three off/on cycles: one widget HWND alternated hidden/visible, with saved position
+    `(6534, 1878.4)` and native bounds `(6534, 1878)-(7678, 2110)` unchanged. The
+    initial narrower startup layout had settled back to those bounds at the first off check.
+  - The temporary desktop exited normally and the original managed v0.10.1 desktop
+    was restored. All preference hashes except normal `UsageAlertMarks` bookkeeping,
+    account-registry/binding hashes, HKCU startup command, original position and installed
+    executable SHA-256 matched the pre-test baseline. Evidence:
+    `artifacts/verification/widget-toggle-summary.json`. This is an unreleased source fix;
+    v0.10.1 assets/tags were not replaced, and no new installer or release was delivered.
+
 - UI update and Cursor client lifetime trimming (unreleased, 2026-10-10, Linux agent host):
   - Each refresh-state change reached the desktop twice (manager `Changed` and the
     desktop's own `StateChanged` handler), so each scheduled a full `RefreshSnapshot`.
