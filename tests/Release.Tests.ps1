@@ -160,6 +160,18 @@ try {
     Set-Content -LiteralPath $manifestPath -Value ((Get-Content -Raw $manifestPath) + 'tampered') -NoNewline
     Assert-Throws { Assert-ChecksumManifest -ManifestPath $manifestPath -ExecutablePath $exePath } 'one SHA-256 entry'
 
+function New-PortableFixtureArchive {
+    param([string]$Path)
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $zip = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $entryStream = $zip.CreateEntry('CycleArc.exe').Open()
+        try { $entryStream.Write([byte[]](1, 2, 3, 4), 0, 4) }
+        finally { $entryStream.Dispose() }
+    }
+    finally { $zip.Dispose(); $stream.Dispose() }
+}
+
     # The CI artifact now contains installer, full package, feed, and a
     # checksum entry for every shipped asset. Exercise the feed and package
     # checks in isolation so a malformed or missing artifact fails before gh.
@@ -183,7 +195,9 @@ try {
     $fullSha256 = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash
     @{ Assets = @(@{ PackageId = 'CycleArc'; Version = '0.6.0'; Type = 'Full'; FileName = $fullName; SHA1 = $fullSha1; SHA256 = $fullSha256; Size = (Get-Item $fullPath).Length }) } |
         ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $feedPath -Encoding utf8
-    $assetFiles = @($setup, $fullPath, $feedPath)
+    $portable = Join-Path $packaged 'CycleArc-0.6.0-win-x64-portable.zip'
+    New-PortableFixtureArchive -Path $portable
+    $assetFiles = @($setup, $fullPath, $portable, $feedPath)
     $manifestLines = foreach ($asset in $assetFiles) {
         "$( (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant() )  $(Split-Path -Leaf $asset)"
     }
@@ -216,6 +230,7 @@ try {
     Assert-Equal 'CycleArc-Setup.exe' (Get-ExpectedReleaseAssetNames -VersionValue '0.6.0')[0] 'setup asset name'
     $expectedAssets = @(Get-ExpectedReleaseAssetNames -VersionValue '0.6.0')
     Assert-True ($expectedAssets -contains 'CycleArc-0.6.0-full.nupkg') 'full package asset name'
+    Assert-True ($expectedAssets -contains 'CycleArc-0.6.0-win-x64-portable.zip') 'portable asset name'
     Assert-True ($expectedAssets -contains 'releases.win.json') 'feed asset name'
     Assert-True ($expectedAssets -contains 'SHA256SUMS.txt') 'checksum asset name'
 
@@ -262,7 +277,8 @@ try {
             [Parameter(Mandatory)][string]$Directory,
             [switch]$OmitOptional,
             [switch]$AddStrayFile,
-            [switch]$OmitFeed
+            [switch]$OmitFeed,
+            [switch]$OmitPortable
         )
         New-Item -ItemType Directory -Path $Directory -Force | Out-Null
         [IO.File]::WriteAllBytes((Join-Path $Directory 'CycleArc-Setup.exe'), [byte[]](4, 5, 6, 7))
@@ -275,6 +291,9 @@ try {
             try { $entryStream.Write([byte[]](1, 2, 3, 4), 0, 4) } finally { $entryStream.Dispose() }
         }
         finally { $archive.Dispose(); $stream.Dispose() }
+        if (!$OmitPortable) {
+            New-PortableFixtureArchive -Path (Join-Path $Directory "CycleArc-$script:fixtureVersion-win-x64-portable.zip")
+        }
         if (!$OmitFeed) {
             $feed = @{ Assets = @(@{
                 PackageId = 'CycleArc'
@@ -399,7 +418,9 @@ try {
     # A representative fixture cannot carry real PE version metadata; that check has its own
     # coverage above and is not what these cases decide.
     function Assert-FullPackageFileVersion {
-        param([string]$PackagePath, [string]$ExpectedFileVersion)
+        param([string]$PackagePath, [string]$ExpectedFileVersion, [string]$ExpectedSha256)
+        $fixtureHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]](1, 2, 3, 4)))
+        if ($ExpectedSha256 -cne $fixtureHash) { throw 'Portable archive executable differs from full package fixture' }
     }
 
     $script:fixtureVersion = $assetVersion
@@ -410,6 +431,7 @@ try {
             [switch]$OmitOptional,
             [switch]$AddStrayFile,
             [switch]$OmitFeed,
+            [switch]$OmitPortable,
             [switch]$Public,
             [string]$CorruptName,
             [string]$WrongSizeName,
@@ -420,7 +442,7 @@ try {
         $caseRoot = Join-Path $assetTestRoot $Name
         $script:fixtureArtifact = Join-Path $caseRoot 'artifact'
         New-StagedArtifact -Directory $script:fixtureArtifact -OmitOptional:$OmitOptional `
-            -AddStrayFile:$AddStrayFile -OmitFeed:$OmitFeed
+            -AddStrayFile:$AddStrayFile -OmitFeed:$OmitFeed -OmitPortable:$OmitPortable
         $assets = @(New-ReleaseAssetsFrom -Directory $script:fixtureArtifact -Only $ReleaseOnly `
             -CorruptName $CorruptName -WrongSizeName $WrongSizeName)
         if ($ExtraReleaseAssets) { $assets = @($assets + $ExtraReleaseAssets) }
@@ -493,7 +515,7 @@ try {
     # The release itself is clean here, so the stray reaches the build-output check.
     Assert-Throws {
         Invoke-PreflightFixture -Name 'stray-artifact-file' -AddStrayFile -ReleaseOnly @(
-            'CycleArc-Setup.exe', "CycleArc-$assetVersion-full.nupkg", 'releases.win.json',
+            'CycleArc-Setup.exe', "CycleArc-$assetVersion-full.nupkg", "CycleArc-$assetVersion-win-x64-portable.zip", 'releases.win.json',
             'SHA256SUMS.txt', 'assets.win.json', 'RELEASES')
     } 'unexpected file'
     # ...and on the release being inspected.
@@ -510,6 +532,7 @@ try {
 
     # A build output missing a required file never reaches a release at all.
     Assert-Throws { Invoke-PreflightFixture -Name 'artifact-missing-required' -OmitFeed } 'release feed'
+    Assert-Throws { Invoke-PreflightFixture -Name 'artifact-missing-portable' -OmitPortable } 'portable archive'
 
     # Digest and size verification against the uploaded assets stays in force, including for
     # an optional asset.
