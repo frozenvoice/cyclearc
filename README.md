@@ -35,6 +35,7 @@ Release artifacts are unsigned unless an approved code-signing pipeline is confi
 - **Codex not found:** install the CLI, or select its executable in **Settings → Connection**. **Login changed / Check connection:** [reconnect the affected profile](docs/README.en.md#codex-connection-recovery); account selection does not change another app's login.
 - **Claude awaiting usage or stale data:** sign into the same Claude Desktop account and refresh. Local receipts keep their original time; unknown reset times stay unknown. Repeated server throttling can require a longer interval in **Settings → Connection**. [Claude connection and recovery](docs/README.en.md#claude-code-connection).
 - **Cursor login changed:** sign back into the original account in Cursor to reconnect the profile. [Cursor connection and quota details](docs/CURSOR.md).
+- **Cursor recent request shows Disconnected:** CycleArc's entries are no longer in Cursor's `hooks.json`. Turn **Settings → Connection → Cursor recent request** off, apply, then turn it on again to reconnect; remaining usage is unaffected. [What the recent request means](docs/README.en.md#cursor-connection).
 - **Widget missing:** enable **Show widget**, check that an account is displayable, then reset its position in **Settings → Widget**. [Controls and widget recovery](docs/README.en.md#controls).
 - **Report a failure:** include the running version, error and reproduction steps in an [issue](https://github.com/frozenvoice/cyclearc/issues). Omit credentials and conversation content.
 

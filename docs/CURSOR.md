@@ -4,6 +4,49 @@ This file records the read-only interface research and contract used by the Wind
 Cursor provider. Local implementation checks and remaining gaps are recorded in
 [Validation](VALIDATION.md).
 
+## Recent request model from Cursor hooks (2026-10-10)
+
+Source: the official [Cursor hooks reference](https://cursor.com/docs/agent/hooks), checked
+2026-10-10. No Cursor API reports the latest model per account; hooks are the only documented
+local source. Real hook events could not be captured in the development environment used for
+this change (a temporary project `hooks.json` never fired there), so the field shapes below
+come from the documentation and are exercised only by synthetic fixtures.
+
+| Question | Documented evidence | Handling |
+| --- | --- | --- |
+| Which event | `beforeSubmitPrompt` runs after the user sends and before the backend request. `stop` runs when the agent loop ends, with `status` `completed`, `aborted` or `error` | Submit = **Last request**. Only `stop` + `completed` for the same `generation_id` as the latest request = **Last completed**. Aborted/error stops are ignored. Neither is a billing record |
+| Model | Common `model` ("legacy model slug configured for the composer"); optional `model_id` and `model_params` (`[{id, value}]`, e.g. `effort`, `thinking`, context) | Show `model_id`, else `model`, else "Model not provided". Keep only `effort` / `thinking` values. Nothing for a model Auto chose internally is documented, so none is shown |
+| Account | Common `user_email` (string or null) | SHA-256 of the normalized email, matched against the server-verified email held in memory. Null, unmatched, protected-identity or duplicate-email accounts get no receipt |
+| Time | No timestamp field | Local receipt time, captured before stdin is read; a later receipt replaces an earlier one only if received later |
+| Scope | Hooks run in this Cursor installation | Always labelled "this PC" |
+| Model → allowance | No official mapping of models (including Auto) to Cursor Models / Other Models / Grok Bot | Always "Limit link unconfirmed"; the ring keeps its representative limit |
+
+Contract:
+
+- Opt-in setting `CursorActivityEnabled`. Entries go to `%USERPROFILE%\.cursor\hooks.json` only
+  when the `.cursor` folder exists and the file is absent or has a positive integer `version`.
+  Entries are `{command, timeout: 5}`; a CycleArc entry is recognised only when its encoded
+  command regenerates byte for byte. Other hooks, properties and order are preserved; duplicate
+  keys, malformed JSON, concurrent edits and another existing installation's entry abort the
+  write. Removal (setting off or Velopack uninstall, the latter limited to executables inside the
+  removed installation within 5 seconds) deletes only owned entries and the containers/file
+  CycleArc created, while empty. A removed or edited entry is shown as **Disconnected** and is
+  never re-added automatically; only a change of the option edits the file.
+- The receiver `CycleArc.exe --cursor-hook` runs before WPF, the mutex or account startup, reads
+  at most 8 MiB of stdin within 3 seconds, parses only top-level fields, never writes the
+  prompt, attachments, paths, transcript, conversation/generation IDs or raw email, never
+  creates the data folder, makes no network request and always replies `{"continue":true}`
+  (`{}` for `stop`). Any failure exits 0 or 1, never Cursor's blocking code 2.
+- `cursor-activity.json` keeps at most one request and one completion for each of eight hashed
+  accounts. Duplicate generations and late receipts are ignored; concurrent hooks serialise
+  through a one-second lock and replace the file atomically.
+- The desktop rereads the file only when its stamp changes on the existing two-second local
+  loop and only rebinds the popup row and widget tooltip. Receipts are never part of the quota
+  snapshot, freshness, alerts, account management, selection or caches, and never trigger a
+  usage request.
+- Trade-off: each prompt waits for PowerShell and the receiver to start (bounded by the
+  five-second hook timeout, fail-open).
+
 ## Selected-account on-demand card (2026-10-01)
 
 | Contract | Evidence and handling |
