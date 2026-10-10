@@ -2,6 +2,24 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Fractional widget position preservation (unreleased, 2026-10-11 Asia/Seoul):
+  - Restoring saved native pixels emitted an unconditional `Moved` event after layout.
+    The desktop persists that event, so WPF's integer-pixel restoration could overwrite
+    the saved fractional DIP coordinates without a user move. Restoration now stays
+    silent; genuine drag, edge-anchor placement and off-screen recovery still save.
+  - The production controller regression uses an explicit isolated SettingsStore and
+    its real persistence callback. Initial display, three disable/enable cycles and
+    environment recreation retain exact DIP/native coordinates and unrelated settings.
+    A real off-screen HWND move still produces a recovery event and saves the correction.
+    The old implementation fails on its first unnecessary restore notification; the
+    corrected implementation passes EN/KO, Dark/Light and all three host monitors.
+  - Windows PowerShell 7.6.5 and .NET 10.0.401: Release solution build and **86 relevant
+    unit tests passed, zero skipped**. The final argument-free UiSmoke exited 0 at
+    `[ui-smoke] COMPLETE all default suites`, including drag/edge snap, monitor recovery,
+    widget zoom, DPI/layout and settings checks. Host WPF DPI was **100%**; injected
+    100–200% layouts do not establish physical mixed-DPI monitor behavior. Production
+    widget renders were visually inspected in both languages and Dark/Light.
+
 - UI update and Cursor client lifetime trimming (unreleased, 2026-10-10, Linux agent host):
   - Each refresh-state change reached the desktop twice (manager `Changed` and the
     desktop's own `StateChanged` handler), so each scheduled a full `RefreshSnapshot`.
