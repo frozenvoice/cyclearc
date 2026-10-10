@@ -671,8 +671,6 @@ public partial class FlyoutWindow : Window
             : Visibility.Visible;
         ClaudeUsageScope.ToolTip = healthy && !string.IsNullOrWhiteSpace(CodexStatusText.Text)
             ? MakeTooltip(CodexStatusText.Text) : null;
-        CodexRows.Items.Clear();
-        CodexSecondaryRows.Items.Clear();
         var cursor = CursorUsagePresentation.IsCursor(snapshot.Provider);
         // The ring's limit sits beside the ring; other limits and the check time go full width below.
         var detailSnapshot = cursor ? snapshot with
@@ -681,11 +679,22 @@ public partial class FlyoutWindow : Window
         } : snapshot;
         var (primary, secondary, primaryStart) = CodexDisplayFormatting.DetailSections(detailSnapshot,
             CodexRingPresentation.FromDetail(snapshot, UsagePeriod).Window);
-        var beside = primary.Select(item => AddDetailRow(CodexRows, item, stacked: cursor)).ToArray();
+        // Rows draw with the brushes and style resolved when they were made, so a theme change
+        // (new brush instances) rebuilds them just like changed text does.
+        var view = new DetailRowsView(primary.ToArray(), secondary.ToArray(), primaryStart, cursor,
+            [FindResource("MutedBrush"), FindResource("TextBrush"), FindResource("DangerBrush"),
+                FindResource("LineBrush"), FindResource("FlyoutValueText")]);
+        if (!view.Equals(_detailRowsView))
+        {
+            CodexRows.Items.Clear();
+            CodexSecondaryRows.Items.Clear();
+            var beside = primary.Select(item => AddDetailRow(CodexRows, item, stacked: cursor)).ToArray();
+            var below = secondary.Select(item => AddDetailRow(CodexSecondaryRows, item, stacked: false)).ToArray();
+            DetailRows = below.Take(primaryStart).Concat(beside).Concat(below.Skip(primaryStart)).ToArray();
+            _detailRowsView = view;
+        }
         CodexRowsEmptyText.Text = UiText.T("No usage values yet", "아직 사용량 값이 없습니다");
-        CodexRowsEmptyText.Visibility = beside.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        var below = secondary.Select(item => AddDetailRow(CodexSecondaryRows, item, stacked: false)).ToArray();
-        DetailRows = below.Take(primaryStart).Concat(beside).Concat(below.Skip(primaryStart)).ToArray();
+        CodexRowsEmptyText.Visibility = primary.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         CodexSecondaryRowsHost.Visibility = secondary.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         ApplyCodexRing(snapshot);
@@ -758,11 +767,38 @@ public partial class FlyoutWindow : Window
     // Every detail row in CodexDisplayFormatting.Rows order, whichever list shows it.
     internal IReadOnlyList<Border> DetailRows { get; private set; } = [];
 
+    // What the current detail and reset-credit rows were built from. An equal output keeps
+    // the existing elements instead of clearing and recreating them on every bind.
+    private DetailRowsView? _detailRowsView;
+    private CreditRowsView? _creditRowsView;
+
+    private sealed record DetailRowsView(CodexDisplayRow[] Primary, CodexDisplayRow[] Secondary, int PrimaryStart,
+        bool Stacked, object[] Resources)
+    {
+        public bool Equals(DetailRowsView? other) => other is not null && PrimaryStart == other.PrimaryStart
+            && Stacked == other.Stacked && Primary.AsSpan().SequenceEqual(other.Primary)
+            && Secondary.AsSpan().SequenceEqual(other.Secondary) && SameReferences(Resources, other.Resources);
+        public override int GetHashCode() => HashCode.Combine(Primary.Length, Secondary.Length, PrimaryStart);
+    }
+
+    private sealed record CreditRowsView(CodexCreditExpiryRow[] Rows, string UseText, string UnavailableText,
+        bool CanUse, object[] Resources)
+    {
+        public bool Equals(CreditRowsView? other) => other is not null && UseText == other.UseText
+            && UnavailableText == other.UnavailableText && CanUse == other.CanUse
+            && Rows.AsSpan().SequenceEqual(other.Rows) && SameReferences(Resources, other.Resources);
+        public override int GetHashCode() => HashCode.Combine(Rows.Length, UseText, CanUse);
+    }
+
+    private static bool SameReferences(object[] left, object[] right) =>
+        left.Length == right.Length && left.Zip(right).All(pair => ReferenceEquals(pair.First, pair.Second));
+
     private void BindCreditCard(CodexQuotaSnapshot snapshot)
     {
         if (snapshot.Provider != UsageProviderId.Codex)
         {
             CreditExpiryRows.Items.Clear();
+            _creditRowsView = null;
             if (_creditHelpTip is not null) _creditHelpTip.IsOpen = false;
             return;
         }
@@ -771,6 +807,30 @@ public partial class FlyoutWindow : Window
             && !UsageCreditPresentation.Hidden(snapshot)
             && !WidgetStatusPresentation.From(snapshot, snapshot.LastAttemptedRefresh ?? DateTimeOffset.UtcNow).IsWarning;
         ResetCreditsCount.Text = credits.CountText;
+        var canUse = !_redeemingCredit && !_refreshActive && snapshot.Status == CodexQuotaStatus.Available
+            && (RedeemCredit is not null || RedeemAccountCredit is not null);
+        var useText = _redeemingCredit ? UiText.T("Processing…", "처리 중…") : UiText.T("Use reset", "리셋권 사용");
+        var unavailableText = UiText.T("Refresh to enable use.", "새로고침 후 사용할 수 있습니다.");
+        var creditView = new CreditRowsView(credits.Rows.ToArray(), useText, unavailableText, canUse,
+            [FindResource("MutedBrush"), FindResource("LineBrush"), FindResource("CreditUseButton")]);
+        if (!creditView.Equals(_creditRowsView))
+        {
+            BindCreditRows(credits, useText, unavailableText, canUse);
+            _creditRowsView = creditView;
+        }
+        CreditListBorder.Visibility = credits.Rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        CreditExpiryNotice.Text = credits.Notice;
+        CreditExpiryNotice.Visibility = credits.Notice is null ? Visibility.Collapsed : Visibility.Visible;
+        // The first row is the nearest expiry; without rows the notice explains why.
+        CreditSummaryText.Text = credits.Rows.Count > 0 ? credits.Rows[0].Text : credits.Notice ?? "";
+        CreditSummaryText.ToolTip = string.IsNullOrEmpty(CreditSummaryText.Text) ? null : CreditSummaryText.Text;
+        System.Windows.Automation.AutomationProperties.SetName(ResetCreditsCard,
+            ResetCreditsTitle.Text + ": " + credits.CountText + " · " + CreditSummaryText.Text);
+        ApplyCreditExpansion();
+    }
+
+    private void BindCreditRows(CodexCreditCard credits, string useText, string unavailableText, bool canUse)
+    {
         CreditExpiryRows.Items.Clear();
         for (var index = 0; index < credits.Rows.Count; index++)
         {
@@ -795,12 +855,11 @@ public partial class FlyoutWindow : Window
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var use = new System.Windows.Controls.Button
             {
-                Content = _redeemingCredit ? UiText.T("Processing…", "처리 중…") : UiText.T("Use reset", "리셋권 사용"),
+                Content = useText,
                 Style = (Style)FindResource("CreditUseButton"), FontSize = 12,
                 Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(6, 2, 0, 2),
-                IsEnabled = !_redeemingCredit && !_refreshActive && snapshot.Status == CodexQuotaStatus.Available
-                    && item.CreditId is not null && (RedeemCredit is not null || RedeemAccountCredit is not null),
-                ToolTip = item.CreditId is null ? UiText.T("Refresh to enable use.", "새로고침 후 사용할 수 있습니다.") : item.Text
+                IsEnabled = canUse && item.CreditId is not null,
+                ToolTip = item.CreditId is null ? unavailableText : item.Text
             };
             use.Click += async (_, _) => await UseCreditAsync(item);
             Grid.SetColumn(use, 2); row.Children.Add(use);
@@ -811,15 +870,6 @@ public partial class FlyoutWindow : Window
                 BorderThickness = index + 1 < credits.Rows.Count ? new Thickness(0, 0, 0, 1) : new Thickness(0)
             });
         }
-        CreditListBorder.Visibility = credits.Rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        CreditExpiryNotice.Text = credits.Notice;
-        CreditExpiryNotice.Visibility = credits.Notice is null ? Visibility.Collapsed : Visibility.Visible;
-        // The first row is the nearest expiry; without rows the notice explains why.
-        CreditSummaryText.Text = credits.Rows.Count > 0 ? credits.Rows[0].Text : credits.Notice ?? "";
-        CreditSummaryText.ToolTip = string.IsNullOrEmpty(CreditSummaryText.Text) ? null : CreditSummaryText.Text;
-        System.Windows.Automation.AutomationProperties.SetName(ResetCreditsCard,
-            ResetCreditsTitle.Text + ": " + credits.CountText + " · " + CreditSummaryText.Text);
-        ApplyCreditExpansion();
     }
 
     private async Task UseCreditAsync(CodexCreditExpiryRow item)

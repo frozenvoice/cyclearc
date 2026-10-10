@@ -39,6 +39,9 @@ internal static class AccountSummary
         return true;
     }
 
+    /// <summary>Makes the next Update render the row even when its output is unchanged.</summary>
+    public static void Invalidate(Button button) => button.ClearValue(RenderedProperty);
+
     private sealed record QuotaRowView(string Label, string Value, bool Cursor, double? Remaining, string FillBrush, string Tooltip);
 
     private sealed record QuotaRowViews(QuotaRowView[] Items)

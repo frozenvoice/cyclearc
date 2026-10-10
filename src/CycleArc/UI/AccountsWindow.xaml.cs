@@ -114,100 +114,204 @@ public partial class AccountsWindow : Window
         _selected = selected;
         AccountsHeading.Text = UiText.T($"Registered profiles · {accounts.Count}", $"등록된 프로필 · {accounts.Count}");
         EmptyAccountsHint.Visibility = accounts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        AccountRows.Items.Clear();
+        var present = accounts.Select(account => account.Profile.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var (id, row) in _rows.Where(pair => !present.Contains(pair.Key)).ToArray())
+        {
+            AccountRows.Items.Remove(row.Content);
+            _rows.Remove(id);
+            _labels.Remove(id);
+        }
         for (var index = 0; index < accounts.Count; index++)
         {
             var account = accounts[index];
             var id = account.Profile.Id;
-            var content = new StackPanel();
-            var summary = AccountSummary.Create(account, selected == id, () => SelectAccount?.Invoke(id));
-            summary.IsEnabled = _operation is null && UsageAccountOverview.CanDisplay(account);
-            if (!UsageAccountOverview.CanDisplay(account))
+            if (_rows.TryGetValue(id, out var row) && !row.Matches(account.Profile))
             {
-                summary.ToolTip = UiText.T("Connect this profile to show it in the main view.", "이 프로필을 연결하면 메인 화면에 표시됩니다.");
-                ToolTipService.SetShowOnDisabled(summary, true);
+                AccountRows.Items.Remove(row.Content);
+                _rows.Remove(id);
+                row = null;
             }
-            content.Children.Add(summary);
-            var source = account.Profile.Provider == UsageProviderId.Claude ? ClaudeSource(account)
-                : CursorUsagePresentation.IsCursor(account.Profile.Provider) ? CursorUsagePresentation.Title
-                : account.Profile.IsManaged ? UiText.T("Signed in through CycleArc", "CycleArc에서 로그인")
-                : UiText.T("Linked from Codex on this PC", "이 PC의 기존 Codex에서 연결");
-            var identity = new TextBlock { Text = (account.Email is not null && account.Email != account.DisplayName ? account.Email + " · " : "") + source,
-                FontSize = 11, Margin = new Thickness(4, 0, 4, 6), TextTrimming = TextTrimming.CharacterEllipsis,
-                ToolTip = account.Profile.Provider == UsageProviderId.Claude ? ClaudeHint.Text
-                    : CursorUsagePresentation.IsCursor(account.Profile.Provider) ? CursorHint.Text : account.Profile.HomePath };
-            identity.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-            content.Children.Add(identity);
-            var caption = new TextBlock { Text = UiText.T("Nickname in CycleArc", "CycleArc에서 쓸 별명"),
-                FontSize = 11, Margin = new Thickness(4, 2, 4, 5) };
-            caption.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-            var editHeading = new Grid { Margin = new Thickness(0, 0, 0, 5) };
-            editHeading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            editHeading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            editHeading.Children.Add(caption);
-            var order = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, IsEnabled = !busy };
-            var orderLabel = new TextBlock { Text = UiText.T("Order", "순서"), FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
-            orderLabel.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-            order.Children.Add(orderLabel);
-            order.Children.Add(MoveButton(id, account.DisplayName, -1, index > 0));
-            order.Children.Add(MoveButton(id, account.DisplayName, 1, index < accounts.Count - 1));
-            Grid.SetColumn(order, 1);
-            editHeading.Children.Add(order);
-            content.Children.Add(editHeading);
-            var actions = new DockPanel { Margin = new Thickness(0, 0, 0, 20), IsEnabled = _operation is null };
-            var remove = ActionButton(UiText.T("Remove", "제거"), () =>
+            if (row is null)
             {
-                if (RemoveAccount?.Invoke(id) == false)
-                    OperationStatus.Text = UiText.T("Wait for this account's operation to finish.", "이 계정의 작업이 끝난 뒤 다시 시도하세요.");
-            });
-            remove.ToolTip = UiText.T("Remove from this list. The provider login and saved data are kept.", "목록에서 제거합니다. 서비스 로그인과 저장된 데이터는 유지합니다.");
-            DockPanel.SetDock(remove, Dock.Right); actions.Children.Add(remove);
-            if (account.Profile.Provider == UsageProviderId.Claude)
-            {
-                var connection = ActionButton(account.IsConnected ? UiText.T("Connection", "연결 관리") : UiText.T("Connect", "연결"),
-                    () => ConfigureClaude?.Invoke(id));
-                connection.Tag = "ConfigureClaude";
-                DockPanel.SetDock(connection, Dock.Right); actions.Children.Add(connection);
+                row = CreateRow(account, selected);
+                _rows.Add(id, row);
             }
-            else if (CursorUsagePresentation.IsCursor(account.Profile.Provider))
+            UpdateRow(row, account, selected, index, accounts.Count, busy);
+            // Only a changed order moves a row; any other update keeps the nickname editor's
+            // text, focus, caret and IME composition in place.
+            if (index >= AccountRows.Items.Count || !ReferenceEquals(AccountRows.Items[index], row.Content))
             {
-                var reconnect = ActionButton(UiText.T("Reconnect", "다시 연결"), () => StartCursorConnection(id, account.Profile.Label));
-                reconnect.Tag = "ReconnectCursor";
-                reconnect.ToolTip = CursorHint.Text;
-                DockPanel.SetDock(reconnect, Dock.Right); actions.Children.Add(reconnect);
-                var disconnect = ActionButton(UiText.T("Disconnect", "연결 해제"), () => StartCursorDisconnect(id));
-                disconnect.Tag = "DisconnectCursor";
-                disconnect.ToolTip = UiText.T("Forget this Cursor connection. Cursor keeps its own sign-in.", "이 Cursor 연결을 CycleArc에서 해제합니다. Cursor 로그인은 그대로 유지됩니다.");
-                DockPanel.SetDock(disconnect, Dock.Right); actions.Children.Add(disconnect);
+                if (AccountRows.Items.Contains(row.Content)) AccountRows.Items.Remove(row.Content);
+                AccountRows.Items.Insert(index, row.Content);
             }
-            else
-            {
-                var login = ActionButton(account.Profile.IsManaged ? UiText.T("Sign in again", "다시 로그인")
-                    : UiText.T("Reconnect", "다시 연결"), () => StartLogin(id, account.Profile.Label));
-                login.Tag = "ReconnectCodex";
-                login.ToolTip = account.Profile.IsManaged
-                    ? UiText.T("Renew or change this profile's login in your browser.", "브라우저에서 이 프로필의 로그인을 갱신하거나 변경합니다.")
-                    : UiText.T("Sign in to the intended account. After verification, this profile uses its own login and keeps its nickname and position.",
-                        "사용할 계정으로 로그인하세요. 확인 후 별명과 순서를 유지하며 이 프로필에 독립된 로그인을 연결합니다.");
-                DockPanel.SetDock(login, Dock.Right); actions.Children.Add(login);
-            }
-            var rename = ActionButton(UiText.T("Save name", "별명 저장"), () =>
-            {
-                RenameAccount?.Invoke(id, _labels.GetValueOrDefault(id, account.Profile.Label));
-                OperationStatus.Text = UiText.T("Nickname saved in CycleArc.", "CycleArc 별명을 저장했습니다.");
-            });
-            rename.ToolTip = UiText.T("Use this nickname in CycleArc. Leave it empty to show the reported email or provider/profile label.",
-                "이 앱에서 사용할 별명입니다. 비워서 저장하면 제공된 이메일이나 provider·프로필 이름을 표시합니다.");
-            DockPanel.SetDock(rename, Dock.Right); actions.Children.Add(rename);
-            var label = new TextBox { Text = _labels.GetValueOrDefault(id, account.Profile.Label), MaxLength = 80,
-                MinWidth = 60, Padding = new Thickness(6, 4, 6, 4), VerticalContentAlignment = VerticalAlignment.Center };
-            System.Windows.Automation.AutomationProperties.SetName(label, caption.Text + " · " + account.DisplayName);
-            label.ToolTip = rename.ToolTip;
-            label.TextChanged += (_, _) => _labels[id] = label.Text;
-            actions.Children.Add(label);
-            content.Children.Add(actions);
-            AccountRows.Items.Add(content);
         }
+    }
+
+    private readonly Dictionary<string, AccountRow> _rows = new(StringComparer.Ordinal);
+
+    private sealed class AccountRow(CodexAccountProfile profile, CodexAccountView account)
+    {
+        public CodexAccountView Account { get; set; } = account;
+        public StackPanel Content { get; } = new();
+        public Button Summary { get; set; } = null!;
+        public bool SummaryUnavailable { get; set; }
+        public TextBlock Identity { get; set; } = null!;
+        public TextBlock Caption { get; set; } = null!;
+        public StackPanel Order { get; set; } = null!;
+        public TextBlock OrderLabel { get; set; } = null!;
+        public Button Up { get; set; } = null!;
+        public Button Down { get; set; } = null!;
+        public DockPanel Actions { get; set; } = null!;
+        public Button Remove { get; set; } = null!;
+        public Button? ClaudeConnection { get; set; }
+        public Button? CursorReconnect { get; set; }
+        public Button? CursorDisconnect { get; set; }
+        public Button? CodexLogin { get; set; }
+        public Button Rename { get; set; } = null!;
+        public TextBox Label { get; set; } = null!;
+        public bool SyncingLabel { get; set; }
+
+        public bool Matches(CodexAccountProfile current) =>
+            current.Provider == profile.Provider && current.IsManaged == profile.IsManaged;
+    }
+
+    private AccountRow CreateRow(CodexAccountView account, string selected)
+    {
+        var id = account.Profile.Id;
+        var row = new AccountRow(account.Profile, account);
+        row.Summary = AccountSummary.Create(account, selected == id, () => SelectAccount?.Invoke(id));
+        row.Content.Children.Add(row.Summary);
+        row.Identity = new TextBlock { FontSize = 11, Margin = new Thickness(4, 0, 4, 6), TextTrimming = TextTrimming.CharacterEllipsis };
+        row.Identity.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        row.Content.Children.Add(row.Identity);
+        row.Caption = new TextBlock { FontSize = 11, Margin = new Thickness(4, 2, 4, 5) };
+        row.Caption.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        var editHeading = new Grid { Margin = new Thickness(0, 0, 0, 5) };
+        editHeading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        editHeading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        editHeading.Children.Add(row.Caption);
+        row.Order = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        row.OrderLabel = new TextBlock { FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        row.OrderLabel.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        row.Order.Children.Add(row.OrderLabel);
+        row.Up = MoveButton(id, -1);
+        row.Down = MoveButton(id, 1);
+        row.Order.Children.Add(row.Up);
+        row.Order.Children.Add(row.Down);
+        Grid.SetColumn(row.Order, 1);
+        editHeading.Children.Add(row.Order);
+        row.Content.Children.Add(editHeading);
+        row.Actions = new DockPanel { Margin = new Thickness(0, 0, 0, 20) };
+        row.Remove = ActionButton("", () =>
+        {
+            if (RemoveAccount?.Invoke(id) == false)
+                OperationStatus.Text = UiText.T("Wait for this account's operation to finish.", "이 계정의 작업이 끝난 뒤 다시 시도하세요.");
+        });
+        DockPanel.SetDock(row.Remove, Dock.Right); row.Actions.Children.Add(row.Remove);
+        // Actions read the row's current account when clicked, never the account it was built from.
+        if (account.Profile.Provider == UsageProviderId.Claude)
+        {
+            row.ClaudeConnection = ActionButton("", () => ConfigureClaude?.Invoke(id));
+            row.ClaudeConnection.Tag = "ConfigureClaude";
+            DockPanel.SetDock(row.ClaudeConnection, Dock.Right); row.Actions.Children.Add(row.ClaudeConnection);
+        }
+        else if (CursorUsagePresentation.IsCursor(account.Profile.Provider))
+        {
+            row.CursorReconnect = ActionButton("", () => StartCursorConnection(id, row.Account.Profile.Label));
+            row.CursorReconnect.Tag = "ReconnectCursor";
+            DockPanel.SetDock(row.CursorReconnect, Dock.Right); row.Actions.Children.Add(row.CursorReconnect);
+            row.CursorDisconnect = ActionButton("", () => StartCursorDisconnect(id));
+            row.CursorDisconnect.Tag = "DisconnectCursor";
+            DockPanel.SetDock(row.CursorDisconnect, Dock.Right); row.Actions.Children.Add(row.CursorDisconnect);
+        }
+        else
+        {
+            row.CodexLogin = ActionButton("", () => StartLogin(id, row.Account.Profile.Label));
+            row.CodexLogin.Tag = "ReconnectCodex";
+            DockPanel.SetDock(row.CodexLogin, Dock.Right); row.Actions.Children.Add(row.CodexLogin);
+        }
+        row.Rename = ActionButton("", () =>
+        {
+            RenameAccount?.Invoke(id, _labels.GetValueOrDefault(id, row.Account.Profile.Label));
+            OperationStatus.Text = UiText.T("Nickname saved in CycleArc.", "CycleArc 별명을 저장했습니다.");
+        });
+        DockPanel.SetDock(row.Rename, Dock.Right); row.Actions.Children.Add(row.Rename);
+        row.Label = new TextBox { Text = _labels.GetValueOrDefault(id, account.Profile.Label), MaxLength = 80,
+            MinWidth = 60, Padding = new Thickness(6, 4, 6, 4), VerticalContentAlignment = VerticalAlignment.Center };
+        row.Label.TextChanged += (_, _) =>
+        {
+            if (!row.SyncingLabel) _labels[id] = row.Label.Text;
+        };
+        row.Actions.Children.Add(row.Label);
+        row.Content.Children.Add(row.Actions);
+        return row;
+    }
+
+    private void UpdateRow(AccountRow row, CodexAccountView account, string selected, int index, int count, bool busy)
+    {
+        var id = account.Profile.Id;
+        row.Account = account;
+        var displayable = UsageAccountOverview.CanDisplay(account);
+        // The unavailable hint replaces the summary's own tooltip, so leaving that state
+        // renders the summary again to restore it.
+        if (row.SummaryUnavailable && displayable) AccountSummary.Invalidate(row.Summary);
+        AccountSummary.Update(row.Summary, account, selected == id);
+        row.Summary.IsEnabled = !busy && displayable;
+        if (!displayable)
+        {
+            row.Summary.ToolTip = UiText.T("Connect this profile to show it in the main view.", "이 프로필을 연결하면 메인 화면에 표시됩니다.");
+            ToolTipService.SetShowOnDisabled(row.Summary, true);
+        }
+        else if (row.SummaryUnavailable) row.Summary.ClearValue(ToolTipService.ShowOnDisabledProperty);
+        row.SummaryUnavailable = !displayable;
+
+        var source = account.Profile.Provider == UsageProviderId.Claude ? ClaudeSource(account)
+            : CursorUsagePresentation.IsCursor(account.Profile.Provider) ? CursorUsagePresentation.Title
+            : account.Profile.IsManaged ? UiText.T("Signed in through CycleArc", "CycleArc에서 로그인")
+            : UiText.T("Linked from Codex on this PC", "이 PC의 기존 Codex에서 연결");
+        row.Identity.Text = (account.Email is not null && account.Email != account.DisplayName ? account.Email + " · " : "") + source;
+        row.Identity.ToolTip = account.Profile.Provider == UsageProviderId.Claude ? ClaudeHint.Text
+            : CursorUsagePresentation.IsCursor(account.Profile.Provider) ? CursorHint.Text : account.Profile.HomePath;
+        row.Caption.Text = UiText.T("Nickname in CycleArc", "CycleArc에서 쓸 별명");
+        row.OrderLabel.Text = UiText.T("Order", "순서");
+        row.Order.IsEnabled = !busy;
+        UpdateMoveButton(row.Up, account.DisplayName, -1, index > 0);
+        UpdateMoveButton(row.Down, account.DisplayName, 1, index < count - 1);
+        row.Actions.IsEnabled = !busy;
+        row.Remove.Content = UiText.T("Remove", "제거");
+        row.Remove.ToolTip = UiText.T("Remove from this list. The provider login and saved data are kept.", "목록에서 제거합니다. 서비스 로그인과 저장된 데이터는 유지합니다.");
+        if (row.ClaudeConnection is { } connection)
+            connection.Content = account.IsConnected ? UiText.T("Connection", "연결 관리") : UiText.T("Connect", "연결");
+        if (row.CursorReconnect is { } reconnect)
+        {
+            reconnect.Content = UiText.T("Reconnect", "다시 연결");
+            reconnect.ToolTip = CursorHint.Text;
+        }
+        if (row.CursorDisconnect is { } disconnect)
+        {
+            disconnect.Content = UiText.T("Disconnect", "연결 해제");
+            disconnect.ToolTip = UiText.T("Forget this Cursor connection. Cursor keeps its own sign-in.", "이 Cursor 연결을 CycleArc에서 해제합니다. Cursor 로그인은 그대로 유지됩니다.");
+        }
+        if (row.CodexLogin is { } login)
+        {
+            login.Content = account.Profile.IsManaged ? UiText.T("Sign in again", "다시 로그인") : UiText.T("Reconnect", "다시 연결");
+            login.ToolTip = account.Profile.IsManaged
+                ? UiText.T("Renew or change this profile's login in your browser.", "브라우저에서 이 프로필의 로그인을 갱신하거나 변경합니다.")
+                : UiText.T("Sign in to the intended account. After verification, this profile uses its own login and keeps its nickname and position.",
+                    "사용할 계정으로 로그인하세요. 확인 후 별명과 순서를 유지하며 이 프로필에 독립된 로그인을 연결합니다.");
+        }
+        row.Rename.Content = UiText.T("Save name", "별명 저장");
+        row.Rename.ToolTip = UiText.T("Use this nickname in CycleArc. Leave it empty to show the reported email or provider/profile label.",
+            "이 앱에서 사용할 별명입니다. 비워서 저장하면 제공된 이메일이나 provider·프로필 이름을 표시합니다.");
+        // An untouched editor follows the saved nickname; one the person edited keeps their text.
+        if (!_labels.ContainsKey(id) && row.Label.Text != account.Profile.Label)
+        {
+            row.SyncingLabel = true;
+            try { row.Label.Text = account.Profile.Label; }
+            finally { row.SyncingLabel = false; }
+        }
+        System.Windows.Automation.AutomationProperties.SetName(row.Label, row.Caption.Text + " · " + account.DisplayName);
+        row.Label.ToolTip = row.Rename.ToolTip;
     }
 
     private static string ClaudeSource(CodexAccountView account)
@@ -224,7 +328,7 @@ public partial class AccountsWindow : Window
         return UiText.T("Via Claude Code statusLine", "Claude Code statusLine 수신");
     }
 
-    private Button MoveButton(string id, string name, int direction, bool enabled)
+    private Button MoveButton(string id, int direction)
     {
         var button = ActionButton(direction < 0 ? "↑" : "↓", () =>
         {
@@ -232,13 +336,17 @@ public partial class AccountsWindow : Window
                 OperationStatus.Text = UiText.T("Account order saved. The usage popup follows the same order.", "계정 순서를 저장했습니다. 사용량 팝업에도 같은 순서로 표시됩니다.");
         });
         button.Tag = direction < 0 ? "MoveAccountUp" : "MoveAccountDown";
-        button.IsEnabled = enabled;
         button.Padding = new Thickness(8, 3, 8, 3);
         button.MinWidth = 30;
         button.MinHeight = 28;
+        return button;
+    }
+
+    private static void UpdateMoveButton(Button button, string name, int direction, bool enabled)
+    {
+        button.IsEnabled = enabled;
         button.ToolTip = direction < 0 ? UiText.T($"Move {name} up", $"{name} 위로 이동") : UiText.T($"Move {name} down", $"{name} 아래로 이동");
         System.Windows.Automation.AutomationProperties.SetName(button, (string)button.ToolTip);
-        return button;
     }
 
     public void BrowserOpened()

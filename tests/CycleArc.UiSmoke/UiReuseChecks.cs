@@ -28,6 +28,8 @@ internal static class UiReuseChecks
             UiText.SetLanguage(language);
             applyTheme.Invoke(null, [theme]);
             CheckAccountRows(theme => applyTheme.Invoke(null, [theme]), theme);
+            CheckDetailRows(theme => applyTheme.Invoke(null, [theme]), theme);
+            CheckAccountEditing(theme => applyTheme.Invoke(null, [theme]), theme);
             CheckWidgetAvatars();
             CheckTrayIcons();
             CheckAnimationClocks();
@@ -37,7 +39,171 @@ internal static class UiReuseChecks
         UiText.SetLanguage(UiLanguage.English);
         applyTheme.Invoke(null, [AppTheme.Dark]);
         Console.WriteLine("PASS: popup rows, avatars and tray icons are reused only for identical output; a hidden popup is rebuilt before it shows, and at once for withdrawn accounts.");
+        Console.WriteLine("PASS: popup detail/credit rows and account-management rows are kept for identical output and rewritten for quota, theme, language and busy changes; nickname editing keeps text, focus and caret through usage updates.");
     }
+
+    // Detail and reset-credit rows of an open popup: identical output (including another
+    // account's quota change) keeps the elements; any change of the selected account's
+    // values, theme, language or busy state rebuilds them, and handlers never accumulate.
+    private static void CheckDetailRows(Action<AppTheme> applyTheme, AppTheme theme)
+    {
+        var flyout = new FlyoutWindow();
+        try
+        {
+            var prompts = 0;
+            typeof(FlyoutWindow).GetProperty("ConfirmCreditForTest", PrivateInstance)!
+                .SetValue(flyout, (Func<string, bool>)(_ => { prompts++; return false; }));
+            flyout.RedeemAccountCredit = (_, _) => Task.FromResult(CreditRedemptionOutcome.Unavailable);
+            var accounts = Accounts(3);
+            accounts[0] = accounts[0] with { Snapshot = CreditSnapshot(40) };
+            var id = accounts[0].Profile.Id;
+            flyout.BindAccounts(accounts, id, false);
+            var details = flyout.DetailRows.ToArray();
+            var credits = CreditRows(flyout);
+            Require(details.Length > 0 && credits.Length == 1 && CreditButton(credits[0]).IsEnabled,
+                "The popup did not show detail rows and a usable reset credit.");
+
+            for (var bind = 0; bind < 10; bind++) flyout.BindAccounts(Copies(accounts), id, false);
+            accounts[1] = accounts[1] with { Snapshot = Snapshot(88) };
+            flyout.BindAccounts(accounts, id, false);
+            Require(flyout.DetailRows.SequenceEqual(details) && CreditRows(flyout).SequenceEqual(credits),
+                "An unchanged selected account rebuilt its detail or credit rows.");
+            CreditButton(credits[0]).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Require(prompts == 1, "Repeated binds accumulated reset-credit handlers.");
+
+            accounts[0] = accounts[0] with { Snapshot = CreditSnapshot(65) };
+            flyout.BindAccounts(accounts, id, false);
+            var expected = CodexDisplayFormatting.DetailSections(accounts[0].Snapshot,
+                CodexRingPresentation.FromDetail(accounts[0].Snapshot, UsagePeriodPreference.Auto).Window);
+            Require(!flyout.DetailRows.SequenceEqual(details) && flyout.DetailRows.Count == expected.Primary.Count + expected.Secondary.Count
+                && flyout.DetailRows.SelectMany(AccountUiChecks.Descendants<TextBlock>).Any(text =>
+                    expected.Primary.Concat(expected.Secondary).Any(row => row.Value == text.Text && text.Text.Length > 0)),
+                "A quota change kept the previous detail values.");
+            details = flyout.DetailRows.ToArray();
+            credits = CreditRows(flyout);
+
+            flyout.BindAccounts(accounts, id, true);
+            Require(!CreditRows(flyout).SequenceEqual(credits) && !CreditButton(CreditRows(flyout)[0]).IsEnabled
+                && flyout.DetailRows.SequenceEqual(details), "Refreshing did not disable reset use, or rebuilt detail rows.");
+            flyout.BindAccounts(accounts, id, false);
+            Require(CreditButton(CreditRows(flyout)[0]).IsEnabled, "Reset use stayed disabled after refresh.");
+            credits = CreditRows(flyout);
+
+            var language = UiText.Language;
+            UiText.SetLanguage(language == UiLanguage.English ? UiLanguage.Korean : UiLanguage.English);
+            try
+            {
+                flyout.BindAccounts(accounts, id, false);
+                Require(!flyout.DetailRows.SequenceEqual(details) && !CreditRows(flyout).SequenceEqual(credits)
+                    && (string)CreditButton(CreditRows(flyout)[0]).Content == UiText.T("Use reset", "리셋권 사용"),
+                    "A language change kept detail or credit text.");
+            }
+            finally { UiText.SetLanguage(language); }
+            flyout.BindAccounts(accounts, id, false);
+            details = flyout.DetailRows.ToArray();
+
+            applyTheme(theme == AppTheme.Dark ? AppTheme.Light : AppTheme.Dark);
+            try
+            {
+                flyout.BindAccounts(accounts, id, false);
+                var label = (TextBlock)((Grid)flyout.DetailRows[0].Child).Children[0];
+                Require(!flyout.DetailRows.SequenceEqual(details)
+                    && ReferenceEquals(label.Foreground, Application.Current.Resources["MutedBrush"])
+                    && ReferenceEquals(flyout.DetailRows[0].BorderBrush, Application.Current.Resources["LineBrush"]),
+                    "Detail rows kept the previous theme's brushes.");
+            }
+            finally { applyTheme(theme); }
+        }
+        finally { flyout.Close(); }
+    }
+
+    // Account management: quota, selection, other accounts' renames and removal update rows in
+    // place, so an open nickname editor keeps its text, focus and caret (and with them an IME
+    // composition, which only lives while the same focused editor is untouched).
+    private static void CheckAccountEditing(Action<AppTheme> applyTheme, AppTheme theme)
+    {
+        var window = new AccountsWindow { ShowActivated = true, Left = 40, Top = 40, Width = 700, Height = 800 };
+        try
+        {
+            var renamed = new List<(string Id, string Label)>();
+            var removed = new List<string>();
+            window.RenameAccount = (id, label) => renamed.Add((id, label));
+            window.RemoveAccount = id => { removed.Add(id); return true; };
+            var accounts = Accounts(4);
+            window.Bind(accounts, accounts[0].Profile.Id);
+            window.Show();
+            Pump();
+            var rows = ManageRows(window);
+            var editor = Editor(rows[1]);
+            var summaries = rows.Select(row => row.Children.OfType<Button>().Single()).ToArray();
+            var contents = summaries.Select(summary => summary.Content).ToArray();
+            editor.Focus();
+            editor.Text = "Partial 별명";
+            editor.Select(2, 5);
+            Require(editor.IsFocused, "The nickname editor could not take focus.");
+
+            for (var bind = 0; bind < 10; bind++)
+            {
+                accounts[1] = accounts[1] with { Snapshot = Snapshot(20 + bind) };
+                window.Bind(accounts.ToArray(), accounts[bind % 2].Profile.Id);
+            }
+            accounts[3] = accounts[3] with { Profile = accounts[3].Profile with { Label = "Delta saved" } };
+            window.Bind(accounts.ToArray(), accounts[1].Profile.Id);
+            Pump();
+            var current = ManageRows(window);
+            Require(current.SequenceEqual(rows) && ReferenceEquals(Editor(current[1]), editor)
+                && editor.Text == "Partial 별명" && editor.SelectionStart == 2 && editor.SelectionLength == 5 && editor.IsFocused,
+                "A usage update interrupted nickname editing.");
+            Require(!ReferenceEquals(summaries[1].Content, contents[1]) && ReferenceEquals(summaries[2].Content, contents[2])
+                && System.Windows.Automation.AutomationProperties.GetName(summaries[1]).Contains(
+                    AccountSummary.QuotaLabel(accounts[1].Snapshot.Windows[0], UsageProviderId.Codex)),
+                "The account summary was not updated in place for only the changed account.");
+            Require(Editor(current[3]).Text == "Delta saved", "An untouched nickname editor kept the old saved name.");
+
+            for (var bind = 0; bind < 5; bind++) window.Bind(Copies(accounts), accounts[1].Profile.Id);
+            ActionButtons(current[1]).Single(button => (string)button.Content == UiText.T("Save name", "별명 저장"))
+                .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            ActionButtons(current[2]).Single(button => (string)button.Content == UiText.T("Remove", "제거"))
+                .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Require(renamed.SequenceEqual([(accounts[1].Profile.Id, "Partial 별명")]) && removed.SequenceEqual([accounts[2].Profile.Id]),
+                "Repeated binds accumulated or retargeted account actions.");
+
+            var remaining = accounts.Where(account => account.Profile.Id != accounts[2].Profile.Id).ToArray();
+            window.Bind(remaining, accounts[1].Profile.Id);
+            Require(ManageRows(window).SequenceEqual([rows[0], rows[1], rows[3]]) && ReferenceEquals(Editor(rows[1]), editor)
+                && editor.Text == "Partial 별명", "Removing another account rebuilt or reset the remaining rows.");
+
+            applyTheme(theme == AppTheme.Dark ? AppTheme.Light : AppTheme.Dark);
+            try
+            {
+                var identity = rows[0].Children.OfType<TextBlock>().First();
+                Require(ReferenceEquals(identity.Foreground, Application.Current.Resources["MutedBrush"]),
+                    "A kept account-management row did not follow the live theme.");
+            }
+            finally { applyTheme(theme); }
+        }
+        finally { window.Close(); }
+    }
+
+    private static StackPanel[] ManageRows(AccountsWindow window) =>
+        ((ItemsControl)window.FindName("AccountRows")).Items.Cast<StackPanel>().ToArray();
+
+    private static TextBox Editor(StackPanel row) =>
+        row.Children.OfType<DockPanel>().Single().Children.OfType<TextBox>().Single();
+
+    private static Button[] ActionButtons(StackPanel row) =>
+        row.Children.OfType<DockPanel>().Single().Children.OfType<Button>().ToArray();
+
+    private static Border[] CreditRows(FlyoutWindow flyout) =>
+        ((ItemsControl)flyout.FindName("CreditExpiryRows")).Items.Cast<Border>().ToArray();
+
+    private static Button CreditButton(Border row) => ((Grid)row.Child).Children.OfType<Button>().Single();
+
+    private static CodexQuotaSnapshot CreditSnapshot(double used) => Snapshot(used) with
+    {
+        ResetCreditsAvailable = 1,
+        RedeemableCredits = [new CodexResetCredit("synthetic-credit", Now.AddDays(20))]
+    };
 
     private static void CheckAccountRows(Action<AppTheme> applyTheme, AppTheme theme)
     {
