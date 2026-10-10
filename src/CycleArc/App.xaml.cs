@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Windows.Media;
@@ -44,6 +45,14 @@ public partial class App : Application
     private ClaudeConnectionWindow? _claudeWindow;
     private FloatingWidgetController? _widgetController;
     private DesktopEnvironmentMonitor? _environment;
+    private CursorActivityMonitor? _cursorActivity;
+    private CursorActivityIntegration _cursorIntegration = CursorActivityIntegration.Off;
+    private (DateTime Written, long Length)? _cursorHooksStamp;
+    private bool _cursorHooksChecked;
+    private Task _cursorHookTask = Task.CompletedTask;
+    private bool _cursorHookPending;
+    private bool _cursorActivityApplied;
+    private string _dataRoot = "";
     public bool IsExiting { get; private set; }
 
     protected override void OnStartup(StartupEventArgs e)
@@ -144,10 +153,17 @@ public partial class App : Application
 
         _displayTimer.Tick += (_, _) => RefreshSnapshot();
         _displayTimer.Start();
+        _dataRoot = accounts.RootDirectory;
+        _cursorActivityApplied = _settings.CursorActivityEnabled;
+        _cursorActivity = new CursorActivityMonitor(_dataRoot);
+        _cursorActivity.Poll();
+        UpdateCursorIntegration();
         _passiveTimer.Tick += (_, _) =>
         {
             if (!IsExiting) _widgetController?.MaintainVisibility();
             if (!IsExiting && _passiveTask.IsCompleted) _passiveTask = ReadPassiveUsageAsync();
+            // Local file stamps only. A receipt rebinds the display; it never starts a usage request.
+            if (!IsExiting && ((_cursorActivity?.Poll() == true) | UpdateCursorIntegration())) RefreshSnapshot();
         };
         _passiveTimer.Start();
         RefreshSnapshot();
@@ -323,7 +339,7 @@ public partial class App : Application
     {
         if (IsExiting || _codex is null || _refresh is null) return;
         var accounts = _codex.Accounts;
-        var overview = UsageAccountOverview.Create(accounts, _codex.SelectedId, _settings.UsagePeriod);
+        var overview = UsageAccountOverview.Create(DisplayAccounts(accounts), _codex.SelectedId, _settings.UsagePeriod);
         _tray.Update(overview, _settings.TrayIconStyle);
         NotifyUsageAlerts(accounts);
         // A hidden popup is rebuilt just before it is shown, so quota changes do not rebuild it
@@ -334,6 +350,125 @@ public partial class App : Application
             QueueHiddenFlyoutSelectionBind();
         _accountsWindow?.Bind(accounts, overview.SelectedId);
         _widgetController?.Update(_settings, overview, refreshing: _refresh.IsRefreshing);
+    }
+
+    // Recent Cursor activity is a display-only projection for the popup, tray and widget. Alerts,
+    // account management, selection and caches keep working from the accounts themselves.
+    private IReadOnlyList<CodexAccountView> DisplayAccounts(IReadOnlyList<CodexAccountView> accounts) =>
+        CursorActivityAttribution.Attach(accounts, _cursorIntegration, _cursorActivity?.Current);
+
+    private static string? CursorHookExecutable =>
+        ClaudeConnectionPaths.Normalize(InstalledApp.CallbackPath ?? Environment.ProcessPath);
+
+    /// <summary>Rechecks Cursor's hooks.json only when its stamp changed. Returns true when the integration state changed.</summary>
+    private bool UpdateCursorIntegration(bool force = false)
+    {
+        var previous = _cursorIntegration;
+        if (!_settings.CursorActivityEnabled || CursorHookExecutable is not { } executable)
+        {
+            _cursorIntegration = CursorActivityIntegration.Off;
+            _cursorHooksChecked = false;
+            return previous != _cursorIntegration;
+        }
+        (DateTime, long)? stamp = null;
+        try
+        {
+            var info = new FileInfo(CursorHookInstaller.DefaultPath);
+            if (info.Exists) stamp = (info.LastWriteTimeUtc, info.Length);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
+        if (!force && _cursorHooksChecked && stamp == _cursorHooksStamp) return false;
+        _cursorHooksStamp = stamp;
+        _cursorHooksChecked = true;
+        // Entries a person removed or edited are reported as disconnected, never silently re-added.
+        _cursorIntegration = CursorHookInstaller.ReadStatus(CursorHookInstaller.DefaultPath, executable) == CursorHookStatus.Installed
+            ? CursorActivityIntegration.Connected : CursorActivityIntegration.Disconnected;
+        return previous != _cursorIntegration;
+    }
+
+    private void ApplyCursorActivitySetting()
+    {
+        if (IsExiting) return;
+        if (!_cursorHookTask.IsCompleted) { _cursorHookPending = true; return; }
+        var enable = _settings.CursorActivityEnabled;
+        _cursorActivityApplied = enable;
+        var executable = CursorHookExecutable;
+        var status = executable is null ? CursorHookStatus.Unavailable
+            : CursorHookInstaller.ReadStatus(CursorHookInstaller.DefaultPath, executable);
+        if (enable ? status == CursorHookStatus.Installed : status == CursorHookStatus.NotInstalled)
+        {
+            UpdateCursorIntegration(force: true);
+            return;
+        }
+        _cursorHookTask = ApplyCursorHooksAsync(enable, executable);
+    }
+
+    // Changes only CycleArc's own entries in Cursor's hooks.json, off the UI thread. A failure
+    // leaves Cursor's file as it was and never affects usage checks.
+    private async Task ApplyCursorHooksAsync(bool enable, string? executable)
+    {
+        CursorHookFailure? failure = null;
+        try
+        {
+            if (executable is null) throw new CursorHookException(CursorHookFailure.InvalidSettings);
+            var path = CursorHookInstaller.DefaultPath;
+            var root = _dataRoot;
+            await Task.Run(() => enable
+                ? CursorHookInstaller.InstallAsync(path, executable, root, _lifetime.Token)
+                : CursorHookInstaller.RemoveAsync(path,
+                    owned => string.Equals(owned, executable, StringComparison.OrdinalIgnoreCase), _lifetime.Token),
+                _lifetime.Token);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (CursorHookException ex) { failure = ex.Failure; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            failure = CursorHookFailure.SettingsChanged;
+        }
+        catch (InvalidOperationException) { failure = CursorHookFailure.InvalidSettings; }
+        if (IsExiting) return;
+        if (failure is { } reason)
+        {
+            // Only the failure category: never the file's content or path.
+            _log.Warn($"Cursor hook {(enable ? "connection" : "removal")} failed: {reason}");
+            if (enable)
+            {
+                _settings.CursorActivityEnabled = false;
+                _cursorActivityApplied = false;
+                try { _settingsStore.Save(_settings); }
+                catch (Exception ex) { _log.Error("Settings could not be saved", ex); }
+            }
+            System.Windows.MessageBox.Show(CursorHookFailureText(enable, reason), UiText.ProductName);
+        }
+        UpdateCursorIntegration(force: true);
+        RefreshSnapshot();
+        if (_cursorHookPending && !IsExiting)
+        {
+            _cursorHookPending = false;
+            ApplyCursorActivitySetting();
+        }
+    }
+
+    private static string CursorHookFailureText(bool enable, CursorHookFailure failure)
+    {
+        var reason = failure switch
+        {
+            CursorHookFailure.CursorNotFound => UiText.T("Cursor's user folder (.cursor) was not found. Start Cursor once, then try again.",
+                "Cursor 사용자 폴더(.cursor)를 찾지 못했습니다. Cursor를 한 번 실행한 뒤 다시 시도하세요."),
+            CursorHookFailure.AlreadyLinked => UiText.T("Another CycleArc installation is already linked in Cursor's hooks.json.",
+                "Cursor hooks.json에 다른 CycleArc 설치가 이미 연결되어 있습니다."),
+            CursorHookFailure.SettingsChanged => UiText.T("hooks.json changed or was in use while CycleArc was updating it. Try again.",
+                "CycleArc가 수정하는 동안 hooks.json이 바뀌었거나 사용 중이었습니다. 다시 시도하세요."),
+            _ => UiText.T("Cursor's hooks.json could not be read safely (for example, it has no valid \"version\" or has repeated keys).",
+                "Cursor hooks.json을 안전하게 읽지 못했습니다(예: 올바른 \"version\"이 없거나 중복 키가 있음).")
+        };
+        return (enable
+            ? UiText.T("Cursor recent request was not connected. hooks.json was not changed.",
+                "Cursor 최근 요청을 연결하지 못했습니다. hooks.json은 바뀌지 않았습니다.")
+            : UiText.T("CycleArc's entries could not be removed from Cursor's hooks.json. It was not changed.",
+                "Cursor hooks.json에서 CycleArc 항목을 제거하지 못했습니다. 파일은 바뀌지 않았습니다."))
+            + Environment.NewLine + reason + Environment.NewLine
+            + UiText.T("Remaining usage checks are not affected.", "잔여량 조회에는 영향이 없습니다.");
     }
 
     // A different selected account replaces the whole detail section, and laying that out
@@ -347,7 +482,7 @@ public partial class App : Application
         {
             _hiddenFlyoutSelectionBindQueued = false;
             if (IsExiting || _codex is null || _refresh is null || _flyout is not { IsVisible: false } flyout) return;
-            var overview = UsageAccountOverview.Create(_codex.Accounts, _codex.SelectedId, _settings.UsagePeriod);
+            var overview = UsageAccountOverview.Create(DisplayAccounts(_codex.Accounts), _codex.SelectedId, _settings.UsagePeriod);
             if (overview.SelectedId != (flyout.SelectedProfileId ?? ""))
                 flyout.BindAccounts(overview.Accounts, overview.SelectedId, _refresh.IsRefreshing, overview.Preference);
         }));
@@ -481,6 +616,10 @@ public partial class App : Application
             }
             _settings = settings;
             _settingsStore.Save(settings);
+            // Only a change of the option edits Cursor's file; saving other settings never re-adds
+            // entries a person removed.
+            if (settings.CursorActivityEnabled != _cursorActivityApplied) ApplyCursorActivitySetting();
+            else UpdateCursorIntegration(force: true);
             ApplyRefreshSchedule();
             // Disabling clears the live anchors before theme/layout callbacks can save them again.
             _flyout?.ApplyEdgeSnapSettings(settings);

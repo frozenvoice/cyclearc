@@ -482,11 +482,12 @@ public sealed class WidgetPeriodLineView : StackPanel
     public void Bind(WidgetPeriodLine line, bool isCursor = false, bool startsGroup = false)
     {
         PeriodText.Text = line.PeriodLabel;
-        // Match the named allowance to the ring visually as well as in its tooltip.
+        // The ring's allowance is named in ordinary text with the ring's own colour on its marker.
+        // An accent-coloured name read as "the model used last", which the summary cannot know.
         // Other providers retain their existing period typography.
         PeriodText.FontWeight = isCursor && line.IsRepresentative ? FontWeights.SemiBold : FontWeights.Normal;
         PeriodText.SetResourceReference(TextBlock.ForegroundProperty,
-            isCursor && line.IsRepresentative ? "AccentBrush" : "MutedBrush");
+            isCursor && line.IsRepresentative ? "TextBrush" : "MutedBrush");
         PeriodText.TextWrapping = isCursor ? TextWrapping.Wrap : TextWrapping.NoWrap;
         PeriodText.TextTrimming = isCursor ? TextTrimming.None : TextTrimming.CharacterEllipsis;
         // Cursor's cadence is shared once above each group. Keep the actual allowance
@@ -518,7 +519,10 @@ public sealed class WidgetPeriodLineView : StackPanel
         ResetText.ToolTip = line.ResetTooltip is null ? null : UiText.WidgetReset + " " + line.ResetTooltip;
         // Reserve the marker gutter so both period names start in the same column.
         _representative.Visibility = line.IsRepresentative ? Visibility.Visible : Visibility.Hidden;
-        _representative.ToolTip = line.IsRepresentative
-            ? UiText.T("Shown in the ring", "링에 표시되는 기간") : null;
+        if (line.IsRepresentative) _representative.SetResourceReference(Shape.FillProperty, line.BarBrushKey);
+        _representative.ToolTip = !line.IsRepresentative ? null
+            : isCursor ? UiText.T("Shown in the ring as the representative limit. It does not mean the model used last.",
+                "링에 표시하는 대표 한도입니다. 최근 사용한 모델을 뜻하지 않습니다.")
+            : UiText.T("Shown in the ring", "링에 표시되는 기간");
     }
 }

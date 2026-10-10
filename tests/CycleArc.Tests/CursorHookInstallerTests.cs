@@ -230,6 +230,41 @@ public sealed class CursorHookInstallerTests : IDisposable
     }
 
     [Fact]
+    public async Task UninstallRemovesOnlyEntriesInsideTheInstallationBeingRemoved()
+    {
+        File.WriteAllText(_hooks, UserHooks);
+        await CursorHookInstaller.InstallAsync(_hooks, _exe, _data, CancellationToken.None);
+        var otherRoot = Path.Combine(_root, "elsewhere");
+
+        Assert.False(await CursorHookInstaller.RemoveForUninstallAsync(_hooks, otherRoot));
+        Assert.Equal(CursorHookStatus.Installed, CursorHookInstaller.ReadStatus(_hooks, _exe));
+        Assert.False(await CursorHookInstaller.RemoveForUninstallAsync(_hooks, "relative"));
+
+        Assert.True(await CursorHookInstaller.RemoveForUninstallAsync(_hooks, Path.Combine(_root, "app")));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(UserHooks), Read()));
+    }
+
+    [Fact]
+    public async Task UninstallCleanupIsTimeBoxedAndNeverThrows()
+    {
+        File.WriteAllText(_hooks, UserHooks);
+        await CursorHookInstaller.InstallAsync(_hooks, _exe, _data, CancellationToken.None);
+        var before = File.ReadAllText(_hooks);
+        using (new FileStream(Path.Combine(_cursor, ".cyclearc-hooks.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.False(await CursorHookInstaller.RemoveForUninstallAsync(_hooks, Path.Combine(_root, "app"),
+                TimeSpan.FromMilliseconds(200)));
+        }
+        Assert.Equal(before, File.ReadAllText(_hooks));
+
+        File.WriteAllText(_hooks, "{");
+        Assert.False(await CursorHookInstaller.RemoveForUninstallAsync(_hooks, Path.Combine(_root, "app")));
+        Directory.Delete(_cursor, true);
+        Assert.False(await CursorHookInstaller.RemoveForUninstallAsync(_hooks, Path.Combine(_root, "app")));
+        Assert.False(Directory.Exists(_cursor));
+    }
+
+    [Fact]
     public void CommandRoundTripsAndRejectsTamperedPayloads()
     {
         var options = new CursorHookOptions(1, CursorHookEvent.StopEvent, _exe, _data, false, false, true);

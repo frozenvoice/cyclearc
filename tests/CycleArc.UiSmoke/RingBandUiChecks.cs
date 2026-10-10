@@ -176,7 +176,7 @@ internal static class RingBandUiChecks
             var isRepresentativeCursor = sample.Provider == UsageProviderId.Cursor
                 && module.Model!.Periods[index].IsRepresentative;
             Check(ReferenceEquals(line.PeriodText.Foreground,
-                    module.FindResource(isRepresentativeCursor ? "AccentBrush" : "MutedBrush")),
+                    module.FindResource(isRepresentativeCursor ? "TextBrush" : "MutedBrush")),
                 label + ": widget period label color changed.");
         }
         // The accent marks selection through the short pill only; the surface border stays neutral.

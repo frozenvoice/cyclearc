@@ -331,6 +331,17 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
+                            <TextBlock x:Name="CursorActivityTitle" Style="{StaticResource SettingsSection}"/>
+                            <Border Style="{StaticResource SettingsGroup}">
+                                <Grid Style="{StaticResource SettingsRow}" MinHeight="72">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center" Margin="0,12,16,12">
+                                        <TextBlock x:Name="CursorActivityLabel" Style="{StaticResource SettingsLabel}"/>
+                                        <TextBlock x:Name="CursorActivityHint" Style="{StaticResource SettingsHint}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                    <CheckBox x:Name="CursorActivityBox" Grid.Column="1" Style="{StaticResource SettingsSwitch}" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
                             <TextBlock x:Name="CodexTitle" Style="{StaticResource SettingsSection}"/>
                             <Border Style="{StaticResource SettingsGroup}" Padding="16">
                                 <StackPanel>

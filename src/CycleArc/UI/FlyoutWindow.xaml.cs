@@ -24,6 +24,7 @@ public partial class FlyoutWindow : Window
     public Func<string, string, Task<CreditRedemptionOutcome>>? RedeemAccountCredit { get; set; }
     private bool _redeemingCredit;
     private CodexQuotaSnapshot? _creditSnapshot;
+    private CursorActivityView? _cursorActivity;
     // Injectable only for offline UI tests. Production always asks the user.
     internal Func<string, bool>? ConfirmCreditForTest { get; set; }
     internal Action<string>? OpenExternalForTest { get; set; }
@@ -282,6 +283,7 @@ public partial class FlyoutWindow : Window
 
     public void Bind(CodexQuotaSnapshot snapshot, bool refreshing = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
     {
+        _cursorActivity = null;
         BindSnapshot(snapshot, refreshing, preference);
     }
 
@@ -325,6 +327,7 @@ public partial class FlyoutWindow : Window
         selectedId = overview.SelectedId;
         SelectedProfileId = selectedId.Length == 0 ? null : selectedId;
         var selected = overview.Selected;
+        _cursorActivity = selected?.CursorActivity;
         BindSnapshot(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing, overview.Preference);
         _displayedIdentities.Record(accounts);
         AccountSection.Visibility = Visibility.Visible;
@@ -677,8 +680,11 @@ public partial class FlyoutWindow : Window
         {
             Windows = snapshot.Windows.Where(window => window.LimitId != "cursor-on-demand").ToArray()
         } : snapshot;
-        var (primary, secondary, primaryStart) = CodexDisplayFormatting.DetailSections(detailSnapshot,
-            CodexRingPresentation.FromDetail(snapshot, UsagePeriod).Window);
+        var ringWindow = CodexRingPresentation.FromDetail(snapshot, UsagePeriod).Window;
+        var (primary, secondary, primaryStart) = CodexDisplayFormatting.DetailSections(detailSnapshot, ringWindow);
+        // The recent request sits after the check time: it is a local receipt, not quota freshness.
+        if (cursor && CursorActivityPresentation.Row(_cursorActivity, ringWindow?.LimitId, DateTimeOffset.Now) is { } recent)
+            secondary = [.. secondary, recent];
         // Rows draw with the brushes and style resolved when they were made, so a theme change
         // (new brush instances) rebuilds them just like changed text does.
         var view = new DetailRowsView(primary.ToArray(), secondary.ToArray(), primaryStart, cursor,

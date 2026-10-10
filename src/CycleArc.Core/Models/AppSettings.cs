@@ -35,6 +35,8 @@ public sealed class AppSettings
     public int BodyFetchDelayMilliseconds { get; set; } = 250;
     public bool StartWithWindows { get; set; }
     public bool FloatingWidgetEnabled { get; set; }
+    // Opt-in: CycleArc adds its own entries to Cursor's user hooks.json only while this is on.
+    public bool CursorActivityEnabled { get; set; }
     // Deprecated JSON compatibility only; unsafe taskbar overlays are never created.
     public bool TaskbarStatusEnabled { get; set; }
     public string? CodexExePath { get; set; }

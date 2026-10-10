@@ -130,6 +130,7 @@ internal static class CursorUiChecks
             CheckNamedAllowanceLayout(snapshot, language, theme, directory);
             CheckLargeMonetaryWidget(snapshot, language, theme, directory);
             CheckWidgetPercentRounding(snapshot, language, theme, directory);
+            CheckRecentActivity(snapshot, now, language, theme, directory);
         }
         if (directory is not null)
             Console.WriteLine($"PASS: Cursor popup, widget and account controls EN/KO + Dark/Light; previews: {directory}");
@@ -437,6 +438,98 @@ internal static class CursorUiChecks
                 _ => window
             }).ToArray()
         };
+
+    // A hook receipt adds one popup row and one widget tooltip line. It must not move the ring,
+    // the selection, the freshness status or the widget's size, and says only what it proves.
+    private static void CheckRecentActivity(CodexQuotaSnapshot snapshot, DateTimeOffset now,
+        UiLanguage language, AppTheme theme, string? directory)
+    {
+        var profile = new CodexAccountProfile("cursor-recent", "", UiText.T("Cursor account", "Cursor 계정"))
+        {
+            Provider = UsageProviderId.Cursor
+        };
+        var plain = new CodexAccountView(profile, snapshot, "cursor@example.invalid") { IsConnected = true };
+        var request = new CursorRecentActivity(CursorActivityKind.Request, "claude-4.5-sonnet", null, "high", null,
+            now.AddMinutes(-4));
+        var states = new (string Name, CursorActivityView View, string Value)[]
+        {
+            ("request", new(CursorActivityIntegration.Connected, true, request), "claude-4.5-sonnet"),
+            ("none", new(CursorActivityIntegration.Connected, true, null), UiText.T("None yet", "아직 없음")),
+            ("unverified", new(CursorActivityIntegration.Connected, false, null), UiText.T("Account not verified yet", "계정 확인 전")),
+            ("disconnected", new(CursorActivityIntegration.Disconnected, true, request), UiText.T("Disconnected", "연동 끊김"))
+        };
+        var flyout = new FlyoutWindow { ShowActivated = false };
+        var widget = new FloatingWidget { ShowActivated = false };
+        try
+        {
+            flyout.BindAccounts([plain], profile.Id, false);
+            var baseRows = RowTexts(flyout);
+            var baseStatus = FlyoutHeaderChecks.Status(flyout);
+            var baseRing = ((TextBlock)flyout.FindName("CodexRingValueText"))?.Text;
+            WidgetFixture.BindOne(widget, plain);
+            WidgetFixture.RenderWidget(widget, null);
+            var baseSize = ((FrameworkElement)widget.Content).DesiredSize;
+            var baseRingText = WidgetFixture.RingValue(widget);
+            Check(!baseRows.Any(row => row.Label.Contains(UiText.T("this PC", "이 PC"), StringComparison.Ordinal)),
+                "Cursor popup shows recent activity while the integration is off.");
+
+            foreach (var (name, view, value) in states)
+            {
+                var account = plain with { CursorActivity = view };
+                flyout.BindAccounts([account], profile.Id, false);
+                var rows = RowTexts(flyout);
+                Check(rows.Count == baseRows.Count + 1 && rows.Take(baseRows.Count).SequenceEqual(baseRows),
+                    $"Cursor recent activity ({name}) changed the limit rows instead of adding one row.");
+                var recent = rows[^1];
+                Check(recent.Label == UiText.T("Last request · this PC", "최근 요청 · 이 PC") && recent.Value == value,
+                    $"Cursor recent activity ({name}) row says '{recent.Label}: {recent.Value}'.");
+                Check(FlyoutHeaderChecks.Status(flyout) == baseStatus,
+                    $"Cursor recent activity ({name}) changed the usage freshness status.");
+                Check(((TextBlock)flyout.FindName("CodexRingValueText"))?.Text == baseRing,
+                    $"Cursor recent activity ({name}) moved the popup ring.");
+                Check(flyout.SelectedProfileId == profile.Id, $"Cursor recent activity ({name}) changed the selection.");
+
+                WidgetFixture.BindOne(widget, account);
+                WidgetFixture.RenderWidget(widget, directory is null || name != "request" ? null
+                    : Path.Combine(directory, $"cursor-recent-widget-{language}-{theme}.png".ToLowerInvariant()));
+                var size = ((FrameworkElement)widget.Content).DesiredSize;
+                Check(Math.Abs(size.Width - baseSize.Width) < 0.5 && Math.Abs(size.Height - baseSize.Height) < 0.5,
+                    $"Cursor recent activity ({name}) resized the widget.");
+                Check(WidgetFixture.RingValue(widget) == baseRingText, $"Cursor recent activity ({name}) moved the widget ring.");
+                Check(WidgetFixture.Tooltip(widget).Contains(UiText.T("Last request · this PC", "최근 요청 · 이 PC"), StringComparison.Ordinal),
+                    $"Cursor widget tooltip ({name}) omits the recent request line.");
+            }
+
+            var shown = plain with { CursorActivity = states[0].View };
+            flyout.BindAccounts([shown], profile.Id, false);
+            var flyoutContent = (FrameworkElement)flyout.Content;
+            flyoutContent.Measure(new Size(440, 1000));
+            flyoutContent.Arrange(new Rect(0, 0, 440, 1000));
+            flyoutContent.UpdateLayout();
+            var row = flyout.DetailRows[^1];
+            Check(row.ActualWidth > 0 && Descendants<TextBlock>(row).All(text => text.ActualWidth + 0.5 >= text.DesiredSize.Width),
+                "Cursor recent request row is clipped.");
+            var detail = string.Join(" ", Descendants<TextBlock>(row).Select(text => text.Text));
+            Check(detail.Contains(CursorActivityPresentation.LinkText, StringComparison.Ordinal),
+                "Cursor recent request row does not say its limit link is unconfirmed.");
+            if (directory is not null)
+                AccountUiChecks.Render(flyout, 440, null,
+                    Path.Combine(directory, $"cursor-recent-popup-{language}-{theme}.png".ToLowerInvariant()));
+        }
+        finally
+        {
+            flyout.Close();
+            widget.CloseWithoutActivation();
+        }
+    }
+
+    private static IReadOnlyList<(string Label, string Value)> RowTexts(FlyoutWindow flyout) =>
+        flyout.DetailRows.Select(border => (Grid)border.Child).Select(grid =>
+        {
+            var label = grid.Children.OfType<TextBlock>().First().Text;
+            var value = grid.Children.OfType<StackPanel>().Single().Children.OfType<TextBlock>().First().Text;
+            return (label, value);
+        }).ToArray();
 
     private static void CheckWidgetPercentRounding(CodexQuotaSnapshot source,
         UiLanguage language, AppTheme theme, string? directory)

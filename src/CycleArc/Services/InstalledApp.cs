@@ -23,7 +23,11 @@ public static class InstalledApp
             // its result and then deletes the installation root. Uninstall can be neither cancelled
             // nor retried from here, so the cleanup is time-boxed and never throws. Velopack calls
             // Environment.Exit right after the hook: no WPF, login, model request or network use.
-            .OnBeforeUninstallFastCallback(_ => RemoveOwnedClaudeCallbacks())
+            .OnBeforeUninstallFastCallback(_ =>
+            {
+                RemoveOwnedCursorHooks();
+                RemoveOwnedClaudeCallbacks();
+            })
             .Run();
         var locator = VelopackLocator.Current;
         IsManaged = locator.AppId == "CycleArc" && locator.CurrentlyInstalledVersion is not null
@@ -34,6 +38,22 @@ public static class InstalledApp
         // The root stub launches asynchronously via Update.exe. Claude needs the real
         // process's stdin/stdout and exit code, so use the stable 'current' path instead.
         CallbackPath = Path.Combine(locator.RootAppDir!, "current", "CycleArc.exe");
+    }
+
+    // Independent of the data location: the entries live in Cursor's own hooks.json.
+    private static void RemoveOwnedCursorHooks()
+    {
+        try
+        {
+            if (VelopackLocator.Current.RootAppDir is not { } root) return;
+            Providers.Cursor.CursorHookInstaller.RemoveForUninstallAsync(
+                Providers.Cursor.CursorHookInstaller.DefaultPath, root).GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
+            or InvalidOperationException or NotSupportedException)
+        {
+            // Removal continues regardless; another owner's entries were never candidates.
+        }
     }
 
     private static void RemoveOwnedClaudeCallbacks()

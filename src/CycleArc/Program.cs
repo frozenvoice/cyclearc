@@ -43,6 +43,22 @@ public static class Program
             }
             catch { return 1; }
         }
+        if (args.FirstOrDefault() == Providers.Cursor.CursorHookCommand.Argument)
+        {
+            // Cursor treats exit code 2 as "block the prompt"; every failure here exits 1 so Cursor continues.
+            try
+            {
+                using var output = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
+                if (args is not [Providers.Cursor.CursorHookCommand.Argument, var payload])
+                {
+                    output.WriteLine(Providers.Cursor.CursorHookCommand.ContinueResponse);
+                    return 1;
+                }
+                using var input = Console.OpenStandardInput();
+                return Providers.Cursor.CursorHookCommand.RunAsync(payload, input, output).GetAwaiter().GetResult();
+            }
+            catch { return 1; } // Never emit prompt input, exception text or paths.
+        }
         if (args.FirstOrDefault() == ClaudeStatusLineCommand.Argument)
         {
             // Run before WPF, the single-instance mutex, settings, tray or Codex startup.

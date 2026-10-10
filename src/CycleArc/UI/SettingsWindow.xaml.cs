@@ -53,6 +53,12 @@ public partial class SettingsWindow : Window
         UsageAlertsHint.Text = UiText.T("Notify once when a limit reaches 85% and again at 100%, per account and period.",
             "계정·기간마다 한도가 85%에 닿을 때와 100%일 때 한 번씩 알립니다.");
         UsageAlertsBox.IsChecked = settings.UsageAlertsEnabled;
+        CursorActivityTitle.Text = UiText.T("Cursor recent request", "Cursor 최근 요청");
+        CursorActivityLabel.Text = UiText.T("Show the model of the last Cursor request on this PC", "이 PC의 최근 Cursor 요청 모델 표시");
+        CursorActivityHint.Text = UiText.T(
+            "Adds CycleArc's entries to Cursor's user hooks.json and keeps your other hooks. Only the model, reasoning setting, a hashed account and the receipt time are kept; prompts, code and tool output are not. Turning this off removes only CycleArc's entries. Remaining usage is still checked on the usual schedule.",
+            "Cursor 사용자 hooks.json에 CycleArc 항목만 추가하고 기존 훅은 그대로 둡니다. 모델·추론 설정·해시된 계정·수신 시각만 보관하며 대화·코드·도구 출력은 보관하지 않습니다. 끄면 CycleArc 항목만 제거합니다. 잔여량은 기존 주기대로 확인합니다.");
+        CursorActivityBox.IsChecked = settings.CursorActivityEnabled;
         EdgeSnapBox.ToolTip = UiText.T("Applies to the widget and detail popup. Hold Shift when releasing a drag to skip snapping.",
             "위젯과 상세 팝업에 적용합니다. Shift를 누른 채 드래그를 끝내면 이번 정렬을 생략합니다.");
         EdgeSnapHint.Text = UiText.T("Widget and detail popup. Hold Shift to skip a snap.", "위젯과 상세 팝업에 적용 · Shift를 누르면 이번 정렬 생략");
@@ -118,6 +124,7 @@ public partial class SettingsWindow : Window
         SetName(IconBox, IconLabel.Text); SetName(StartupBox, StartupLabel.Text);
         SetName(EdgeSnapBox, EdgeSnapLabel.Text);
         SetName(UsageAlertsBox, UsageAlertsLabel.Text);
+        SetName(CursorActivityBox, CursorActivityLabel.Text);
         SetName(WidgetBox, WidgetLabel.Text); SetName(WidgetTopBox, WidgetTopLabel.Text);
         SetName(WidgetClickThroughBox, WidgetClickThroughLabel.Text);
         SetName(WidgetOpacityBox, WidgetOpacityLabel.Text); SetName(CodexExeBox, CodexExeLabel.Text);
@@ -156,7 +163,8 @@ public partial class SettingsWindow : Window
         || (WidgetTopBox.IsChecked == true) != _settings.WidgetAlwaysOnTop
         || (WidgetClickThroughBox.IsChecked == true) != _settings.WidgetClickThrough
         || (EdgeSnapBox.IsChecked == true) != _settings.SnapWindowsToScreenEdges
-        || (UsageAlertsBox.IsChecked == true) != _settings.UsageAlertsEnabled;
+        || (UsageAlertsBox.IsChecked == true) != _settings.UsageAlertsEnabled
+        || (CursorActivityBox.IsChecked == true) != _settings.CursorActivityEnabled;
 
     private void UpdateApplyState()
     {
@@ -207,6 +215,7 @@ public partial class SettingsWindow : Window
         _settings.WidgetClickThrough = WidgetClickThroughBox.IsChecked == true;
         _settings.SnapWindowsToScreenEdges = EdgeSnapBox.IsChecked == true;
         _settings.UsageAlertsEnabled = UsageAlertsBox.IsChecked == true;
+        _settings.CursorActivityEnabled = CursorActivityBox.IsChecked == true;
         if (!_settings.SnapWindowsToScreenEdges) _settings.ClearWindowEdgeAnchors();
         Saved?.Invoke(_settings);
     }

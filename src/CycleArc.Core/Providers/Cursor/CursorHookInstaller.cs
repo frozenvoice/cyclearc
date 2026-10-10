@@ -220,6 +220,29 @@ public static class CursorHookInstaller
         return true;
     }
 
+    public static readonly TimeSpan UninstallBudget = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Uninstall cleanup: removes only entries whose executable is inside the installation being
+    /// removed. Time-boxed, never throws and never creates Cursor's folder or file.
+    /// </summary>
+    public static async Task<bool> RemoveForUninstallAsync(string hooksPath, string installationRoot, TimeSpan? budget = null)
+    {
+        try
+        {
+            if (ClaudeConnectionPaths.Normalize(installationRoot) is null) return false;
+            using var timeout = new CancellationTokenSource(budget ?? UninstallBudget);
+            return await RemoveAsync(hooksPath,
+                executable => ClaudeUninstallCleanup.IsInsideInstallation(installationRoot, executable),
+                timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is CursorHookException or IOException or UnauthorizedAccessException
+            or OperationCanceledException or InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
     private static IEnumerable<(JsonNode Node, CursorHookOptions Options)> OwnedEntries(JsonObject settings, string name)
     {
         if (settings["hooks"] is not JsonObject hooks || hooks[name] is not JsonArray list) yield break;

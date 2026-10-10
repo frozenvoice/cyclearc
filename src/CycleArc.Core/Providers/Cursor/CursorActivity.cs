@@ -418,7 +418,7 @@ public static class CursorActivityPresentation
         var label = Label(view);
         if (view.Integration == CursorActivityIntegration.Disconnected)
             return new(label, UiText.T("Disconnected", "연동 끊김"), false,
-                UiText.T("Reconnect in Settings", "설정에서 다시 연결하세요"), DisconnectedTooltip);
+                UiText.T("Turn off, apply, then on in Settings", "설정에서 끄고 적용한 뒤 다시 켜세요"), DisconnectedTooltip);
         if (!view.AccountVerified)
             return new(label, UiText.T("Account not verified yet", "계정 확인 전"), false,
                 UiText.T("Shown after this account's Cursor usage is checked", "이 계정의 Cursor 사용량을 확인한 뒤 표시합니다"),
@@ -466,8 +466,8 @@ public static class CursorActivityPresentation
         RingText(ringLimitId));
 
     private static string DisconnectedTooltip => UiText.T(
-        "CycleArc's entries are no longer in Cursor's hooks.json. Remaining usage is unaffected. Turn the option off and on again in Settings to reconnect.",
-        "Cursor hooks.json에서 CycleArc 항목을 찾을 수 없습니다. 잔여량 조회에는 영향이 없습니다. 설정에서 옵션을 껐다 켜면 다시 연결합니다.");
+        "CycleArc's entries are no longer in Cursor's hooks.json. Remaining usage is unaffected. To reconnect, turn the option off and apply in Settings, then turn it on again.",
+        "Cursor hooks.json에서 CycleArc 항목을 찾을 수 없습니다. 잔여량 조회에는 영향이 없습니다. 다시 연결하려면 설정에서 옵션을 끄고 적용한 뒤 다시 켜세요.");
 
     private static string Tooltip(CursorRecentActivity latest, string? ringLimitId)
     {
