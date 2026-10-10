@@ -329,7 +329,7 @@ public static class CursorHookInstaller
     private static void Write(string file, byte[]? original, JsonObject settings, CancellationToken token)
     {
         if (original is not null && JsonNode.DeepEquals(Parse(original), settings)) return;
-        var output = Encoding.UTF8.GetBytes(settings.ToJsonString(JsonOptions) + Environment.NewLine);
+        var output = Encoding.UTF8.GetBytes(Format(settings, original));
         if (output.Length > MaxSettingsBytes) throw new CursorHookException(CursorHookFailure.InvalidSettings);
         var temporary = file + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -348,6 +348,20 @@ public static class CursorHookInstaller
         {
             if (File.Exists(temporary)) File.Delete(temporary);
         }
+    }
+
+    // Keeps the file's line endings, final newline and readable characters such as && or Korean text,
+    // so other tools' entries keep their bytes and removal restores a file in this layout exactly.
+    private static string Format(JsonObject settings, byte[]? original)
+    {
+        var text = original is null ? null : Encoding.UTF8.GetString(original);
+        var newLine = text is null || !text.Contains('\n') ? Environment.NewLine : text.Contains("\r\n") ? "\r\n" : "\n";
+        var json = settings.ToJsonString(new JsonSerializerOptions(JsonOptions)
+        {
+            NewLine = newLine,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        });
+        return text is null || text.EndsWith('\n') ? json + newLine : json;
     }
 
     private static async Task<FileStream> LeaseAsync(string directory, CancellationToken token)

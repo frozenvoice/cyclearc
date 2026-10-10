@@ -80,6 +80,34 @@ public sealed class CursorHookInstallerTests : IDisposable
         Assert.Equal(CursorHookStatus.NotInstalled, CursorHookInstaller.ReadStatus(_hooks, _exe));
     }
 
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public async Task RemoveRestoresTheExactBytesOfAFileInTheSameLayout(string newLine)
+    {
+        var original = string.Join(newLine,
+            "{",
+            "  \"version\": 1,",
+            "  \"hooks\": {",
+            "    \"stop\": [",
+            "      {",
+            "        \"command\": \"tool.cmd && echo 완료 > nul\"",
+            "      }",
+            "    ]",
+            "  }",
+            "}") + newLine;
+        var bytes = new UTF8Encoding(false).GetBytes(original);
+        File.WriteAllBytes(_hooks, bytes);
+
+        await CursorHookInstaller.InstallAsync(_hooks, _exe, _data, CancellationToken.None);
+        var installed = File.ReadAllText(_hooks);
+        Assert.Contains("tool.cmd && echo 완료 > nul", installed, StringComparison.Ordinal);
+        Assert.Equal(newLine == "\r\n", installed.Contains("\r\n", StringComparison.Ordinal));
+        Assert.True(await CursorHookInstaller.RemoveAsync(_hooks, _ => true, CancellationToken.None));
+
+        Assert.Equal(bytes, File.ReadAllBytes(_hooks));
+    }
+
     [Fact]
     public async Task FileCreatedByCycleArcIsDeletedAgainWhenOnlyItsEntriesWereThere()
     {
