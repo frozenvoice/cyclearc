@@ -172,7 +172,7 @@ function New-PortableFixtureArchive {
     finally { $zip.Dispose(); $stream.Dispose() }
 }
 
-    # The CI artifact now contains installer, full package, feed, and a
+    # The CI artifact now contains installer, full package, portable ZIP, feed, and a
     # checksum entry for every shipped asset. Exercise the feed and package
     # checks in isolation so a malformed or missing artifact fails before gh.
     $packaged = Join-Path $testRoot 'packaged'
@@ -307,7 +307,7 @@ try {
             $feed | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Directory 'releases.win.json') -Encoding utf8
         }
         if (!$OmitOptional) {
-            # Exactly the two extra outputs Package.ps1 already accepts next to the required four.
+            # Exactly the two extra outputs Package.ps1 already accepts next to the required five.
             @(@{ RelativeFileName = 'CycleArc-Setup.exe'; Type = 'Setup' }) |
                 ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Directory 'assets.win.json') -Encoding utf8
             Set-Content -LiteralPath (Join-Path $Directory 'RELEASES') -Value "0000 $fullName 4" -Encoding utf8
@@ -473,9 +473,9 @@ try {
         Assert-Equal 0 $mutations.Count "Preflight must not change anything on GitHub (saw: $shown)"
     }
 
-    # A normally produced draft carries six files; the name check must not reject it.
+    # A normally produced draft carries seven files; the name check must not reject it.
     $draft = Invoke-PreflightFixture -Name 'draft-six-files'
-    Assert-Equal 'Preflight' $draft.Status 'a six-file draft passes preflight'
+    Assert-Equal 'Preflight' $draft.Status 'a seven-file draft passes preflight'
     Assert-Equal 4242 $draft.FullRunId 'preflight records the selected run ID'
     Assert-Equal 555 $draft.ArtifactId 'preflight records the selected exact artifact ID'
     Assert-NoRemoteMutation
@@ -499,16 +499,16 @@ try {
         Assert-NoRemoteMutation
     }
 
-    # The same six files, already public and matching, need no further work.
+    # The same seven files, already public and matching, need no further work.
     $complete = Invoke-PreflightFixture -Name 'public-six-files' -Public
-    Assert-Equal 'AlreadyComplete' $complete.Status 'a matching public six-file release is already complete'
+    Assert-Equal 'AlreadyComplete' $complete.Status 'a matching public seven-file release is already complete'
     Assert-NoRemoteMutation
 
     # A package without the optional outputs is still a complete package.
     Assert-Equal 'Preflight' (Invoke-PreflightFixture -Name 'draft-four-files' -OmitOptional).Status `
-        'a four-file package is handled by the same contract'
+        'a five-file package is handled by the same contract'
     Assert-Equal 'AlreadyComplete' (Invoke-PreflightFixture -Name 'public-four-files' -OmitOptional -Public).Status `
-        'a matching public four-file release is already complete'
+        'a matching public five-file release is already complete'
     Assert-NoRemoteMutation
 
     # Anything outside required-plus-optional is still refused, in the build output...
