@@ -37,7 +37,13 @@ Contract:
   unescaped non-ASCII text, so removing from a two-space indented file restores its bytes; the
   previous file is kept beside it as `hooks.json.cyclearc.bak`. A removed or edited entry is
   shown as **Disconnected** and is never re-added automatically; only a change of the option
-  edits the file.
+  edits the file, with one exception below.
+- Entries in the earlier command format (which piped PowerShell's decoded `$input`, written by
+  unreleased builds before the byte copy) are recognised only when they regenerate byte for byte
+  from their own options; an edited one is not CycleArc's. They count as **Disconnected**
+  (`Outdated`), are deleted by turning the option off or by uninstall, and connecting replaces
+  them in place rather than adding a second entry. When the option is already on, startup
+  replaces them once; a failed replacement keeps the option and only logs the failure category.
 - The command runs Windows PowerShell with an encoded script that copies stdin bytes to the
   receiver. PowerShell's `$input` would decode them with the console code page (CP949 on a
   Korean system), corrupting the byte order mark and non-ASCII text.
