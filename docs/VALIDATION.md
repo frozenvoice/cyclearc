@@ -2,6 +2,32 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- UI update and Cursor client lifetime trimming (unreleased, 2026-10-10, Linux agent host):
+  - Each refresh-state change reached the desktop twice (manager `Changed` and the
+    desktop's own `StateChanged` handler), so each scheduled a full `RefreshSnapshot`.
+    Both now share one pending projection (`CoalescedUpdate`), cleared before it reads
+    state so a change during a projection schedules another. Synthetic manager wiring,
+    one manual refresh: 2 state changes, 4 projections before, 2 after. This counts
+    scheduled projections only; rendering, CPU, latency and resident memory were not measured.
+  - Account management rebuilt every row per change, replacing the nickname editor.
+    Rows are now kept per profile and updated in place; only a changed order moves one.
+    The open popup keeps detail and reset-credit rows while their values, resolved
+    theme resources, language and busy state are equal.
+  - Cursor services never released the `HttpClient`-owning client the provider created.
+    Removal, replacement, failed creation and shutdown now release only that owned
+    client, after any in-flight live request or connection check finishes; factory-injected
+    clients are never disposed. The post-request binding re-check is unchanged.
+  - Local checks: 8 new unit tests (coalescing order/concurrency/failed post, refresh
+    projection count; Cursor deferred release, injected client, failed creation,
+    manager removal/shutdown) pass. Full unit suite on Linux: 1,985 passed, 59 failed —
+    the same 59 test names fail on base `a73ee0c` (Codex/Windows-only environment).
+    Desktop and UiSmoke compile with `EnableWindowsTargeting`; new `--ui-reuse` checks
+    cover detail/credit row reuse, handler counts, theme/language/busy rebuilds and
+    nickname text/focus/caret across usage updates, removal and repeated binds.
+  - Not run (Linux host has no WPF runtime): any UiSmoke mode including the default
+    full suite, visual inspection, IdleMeasure render/allocation/CPU comparisons, real
+    IME composition, installed app, real accounts and remote CI.
+
 - Deferred popup preparation test ordering (0.10.0 preparation, 2026-10-09 Asia/Seoul):
   - [Windows 37873976560](https://github.com/frozenvoice/cyclearc/actions/runs/37873976560)
     passed **2,036 unit tests** but failed the default `ui-reuse` check: the hidden popup
