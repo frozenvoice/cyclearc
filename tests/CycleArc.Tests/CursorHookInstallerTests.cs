@@ -292,6 +292,111 @@ public sealed class CursorHookInstallerTests : IDisposable
         Assert.False(Directory.Exists(_cursor));
     }
 
+    // The exact command builds before the stdin byte copy wrote, kept here as a fixture independent
+    // of the installer. "tail" lets a test produce a near-identical edited variant.
+    private static string EarlierCommand(CursorHookOptions options, string tail = "")
+    {
+        var path = options.CycleArcExecutable.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
+        var script = "# CycleArc Cursor hook v1\n$options='" + CursorHookInstaller.Payload(options) + "'; "
+            + "Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop; "
+            + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; "
+            + "$input | & '" + path + "' '" + CursorHookCommand.Argument + "' $options"
+            + " | & { process { [Console]::Out.WriteLine($_) } }; if ($LASTEXITCODE -eq 0) { exit 0 } else { exit 1 }" + tail;
+        return "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+    }
+
+    // Puts the hooks.json into the state an earlier build left: same entries, earlier command format.
+    private void RegisterWithEarlierBuild(string executable, string tail = "")
+    {
+        CursorHookInstaller.InstallAsync(_hooks, executable, _data, CancellationToken.None).GetAwaiter().GetResult();
+        var settings = Read();
+        foreach (var name in CursorHookInstaller.Events)
+            foreach (var entry in settings["hooks"]![name]!.AsArray().OfType<JsonObject>())
+                if (CursorHookInstaller.TryRead((string)entry["command"]!, out var options))
+                    entry["command"] = EarlierCommand(options!, tail);
+        File.WriteAllText(_hooks, settings.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    [Fact]
+    public void EarlierFormatIsRecognisedOnlyWhenItRegeneratesExactly()
+    {
+        var options = new CursorHookOptions(1, CursorHookEvent.StopEvent, _exe, _data, false, false, true);
+
+        Assert.True(CursorHookInstaller.TryRead(EarlierCommand(options), out var parsed, out var current));
+        Assert.Equal(options, parsed);
+        Assert.False(current);
+        Assert.True(CursorHookInstaller.TryRead(CursorHookInstaller.Command(options), out _, out current));
+        Assert.True(current);
+        Assert.False(CursorHookInstaller.TryRead(EarlierCommand(options, " "), out _, out _));
+        Assert.False(CursorHookInstaller.TryRead(EarlierCommand(options, "; notify.cmd"), out _, out _));
+    }
+
+    [Fact]
+    public async Task ConnectingReplacesAnEarlierBuildsEntriesInPlace()
+    {
+        File.WriteAllText(_hooks, UserHooks);
+        RegisterWithEarlierBuild(_exe);
+        Assert.Equal(CursorHookStatus.Outdated, CursorHookInstaller.ReadStatus(_hooks, _exe));
+
+        await CursorHookInstaller.InstallAsync(_hooks, _exe, _data, CancellationToken.None);
+
+        Assert.Equal(CursorHookStatus.Installed, CursorHookInstaller.ReadStatus(_hooks, _exe));
+        var hooks = Read()["hooks"]!;
+        var submit = hooks["beforeSubmitPrompt"]!.AsArray();
+        Assert.Equal(2, submit.Count);
+        Assert.Equal("./audit.sh", (string)submit[0]!["command"]!);
+        Assert.True(CursorHookInstaller.TryRead((string)submit[1]!["command"]!, out _, out var current) && current);
+        Assert.Single(hooks["stop"]!.AsArray());
+        Assert.Equal("format.cmd", (string)hooks["afterFileEdit"]![0]!["command"]!);
+
+        Assert.True(await CursorHookInstaller.RemoveAsync(_hooks, _ => true, CancellationToken.None));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(UserHooks), Read()));
+    }
+
+    [Fact]
+    public async Task TurningOffAndUninstallingRemoveAnEarlierBuildsEntries()
+    {
+        File.WriteAllText(_hooks, UserHooks);
+        RegisterWithEarlierBuild(_exe);
+        Assert.True(await CursorHookInstaller.RemoveAsync(_hooks,
+            owned => string.Equals(owned, _exe, StringComparison.OrdinalIgnoreCase), CancellationToken.None));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(UserHooks), Read()));
+        Assert.Equal(CursorHookStatus.NotInstalled, CursorHookInstaller.ReadStatus(_hooks, _exe));
+
+        RegisterWithEarlierBuild(_exe);
+        Assert.True(await CursorHookInstaller.RemoveForUninstallAsync(_hooks, Path.Combine(_root, "app")));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(UserHooks), Read()));
+    }
+
+    [Fact]
+    public async Task EditedEarlierFormatEntriesAreNotOwned()
+    {
+        File.WriteAllText(_hooks, UserHooks);
+        RegisterWithEarlierBuild(_exe, "; notify.cmd");
+        var before = File.ReadAllText(_hooks);
+
+        Assert.Equal(CursorHookStatus.NotInstalled, CursorHookInstaller.ReadStatus(_hooks, _exe));
+        Assert.False(await CursorHookInstaller.RemoveAsync(_hooks, _ => true, CancellationToken.None));
+        Assert.Equal(before, File.ReadAllText(_hooks));
+    }
+
+    [Fact]
+    public async Task AnotherExistingInstallationsEarlierEntryIsKept()
+    {
+        var otherExe = Path.Combine(_root, "other", "CycleArc.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(otherExe)!);
+        File.WriteAllText(otherExe, "");
+        RegisterWithEarlierBuild(otherExe);
+        var before = File.ReadAllText(_hooks);
+
+        var error = await Assert.ThrowsAsync<CursorHookException>(() =>
+            CursorHookInstaller.InstallAsync(_hooks, _exe, _data, CancellationToken.None));
+
+        Assert.Equal(CursorHookFailure.AlreadyLinked, error.Failure);
+        Assert.Equal(before, File.ReadAllText(_hooks));
+        Assert.Equal(CursorHookStatus.Outdated, CursorHookInstaller.ReadStatus(_hooks, otherExe));
+    }
+
     [Fact]
     public void CommandRoundTripsAndRejectsTamperedPayloads()
     {

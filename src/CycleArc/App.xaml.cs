@@ -49,6 +49,7 @@ public partial class App : Application
     private CursorActivityIntegration _cursorIntegration = CursorActivityIntegration.Off;
     private (DateTime Written, long Length)? _cursorHooksStamp;
     private bool _cursorHooksChecked;
+    private CursorHookStatus _cursorHookStatus = CursorHookStatus.NotInstalled;
     private CursorHookSynchronizer? _cursorHookSync;
     private bool _cursorActivityRequested;
     private string _dataRoot = "";
@@ -159,6 +160,9 @@ public partial class App : Application
         _cursorActivity = new CursorActivityMonitor(_dataRoot);
         _cursorActivity.Poll();
         UpdateCursorIntegration();
+        // An earlier build's entries stop receiving events under some console code pages; replace
+        // them while the option is on. Removed or edited entries are still never re-added.
+        if (_cursorHookStatus == CursorHookStatus.Outdated) _ = _cursorHookSync?.Request();
         _passiveTimer.Tick += (_, _) =>
         {
             if (!IsExiting) _widgetController?.MaintainVisibility();
@@ -368,6 +372,7 @@ public partial class App : Application
         if (!_settings.CursorActivityEnabled || CursorHookExecutable is not { } executable)
         {
             _cursorIntegration = CursorActivityIntegration.Off;
+            _cursorHookStatus = CursorHookStatus.NotInstalled;
             _cursorHooksChecked = false;
             return previous != _cursorIntegration;
         }
@@ -382,7 +387,8 @@ public partial class App : Application
         _cursorHooksStamp = stamp;
         _cursorHooksChecked = true;
         // Entries a person removed or edited are reported as disconnected, never silently re-added.
-        _cursorIntegration = CursorHookInstaller.ReadStatus(CursorHookInstaller.DefaultPath, executable) == CursorHookStatus.Installed
+        _cursorHookStatus = CursorHookInstaller.ReadStatus(CursorHookInstaller.DefaultPath, executable);
+        _cursorIntegration = _cursorHookStatus == CursorHookStatus.Installed
             ? CursorActivityIntegration.Connected : CursorActivityIntegration.Disconnected;
         return previous != _cursorIntegration;
     }
@@ -401,6 +407,7 @@ public partial class App : Application
             if (UpdateCursorIntegration(force: true)) RefreshSnapshot();
             return;
         }
+        var upgrade = enable && status == CursorHookStatus.Outdated;
         CursorHookFailure? failure = null;
         try
         {
@@ -424,16 +431,21 @@ public partial class App : Application
         if (failure is { } reason)
         {
             // Only the failure category: never the file's content or path.
-            _log.Warn($"Cursor hook {(enable ? "connection" : "removal")} failed: {reason}");
-            // A connection that failed turns the option off, unless it was already turned off meanwhile.
-            if (enable && _settings.CursorActivityEnabled)
+            _log.Warn($"Cursor hook {(upgrade ? "upgrade" : enable ? "connection" : "removal")} failed: {reason}");
+            // A failed upgrade keeps the option and its earlier-format entries, shown as disconnected;
+            // turning the option off still removes them.
+            if (!upgrade)
             {
-                _settings.CursorActivityEnabled = false;
-                _cursorActivityRequested = false;
-                try { _settingsStore.Save(_settings); }
-                catch (Exception ex) { _log.Error("Settings could not be saved", ex); }
+                // A connection that failed turns the option off, unless it was already turned off meanwhile.
+                if (enable && _settings.CursorActivityEnabled)
+                {
+                    _settings.CursorActivityEnabled = false;
+                    _cursorActivityRequested = false;
+                    try { _settingsStore.Save(_settings); }
+                    catch (Exception ex) { _log.Error("Settings could not be saved", ex); }
+                }
+                System.Windows.MessageBox.Show(CursorHookFailureText(enable, reason), UiText.ProductName);
             }
-            System.Windows.MessageBox.Show(CursorHookFailureText(enable, reason), UiText.ProductName);
         }
         UpdateCursorIntegration(force: true);
         RefreshSnapshot();

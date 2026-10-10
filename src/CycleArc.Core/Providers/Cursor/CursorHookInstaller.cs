@@ -31,6 +31,8 @@ public enum CursorHookStatus
 {
     NotInstalled,
     Installed,
+    /// <summary>Every event has this executable's entry, but at least one in an earlier command format.</summary>
+    Outdated,
     Partial,
     Unavailable
 }
@@ -38,7 +40,8 @@ public enum CursorHookStatus
 /// <summary>
 /// Adds and removes CycleArc's entries in Cursor's user <c>hooks.json</c>. The file belongs to
 /// the person: every other hook, property and order is preserved, an entry is ours only when it
-/// decodes to exactly the command CycleArc would write, and a concurrent edit aborts the write.
+/// decodes to exactly the command CycleArc writes or wrote in its earlier format, and a concurrent
+/// edit aborts the write. Connecting replaces an earlier-format entry in place.
 /// </summary>
 public static class CursorHookInstaller
 {
@@ -81,20 +84,42 @@ public static class CursorHookInstaller
     public static string Command(CursorHookOptions options)
     {
         if (!Valid(options)) throw new CursorHookException(CursorHookFailure.InvalidSettings);
-        var path = options.CycleArcExecutable.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
-        var script = Marker + OptionsPrefix + Payload(options) + "'; "
-            + "try { $p = New-Object System.Diagnostics.Process; $s = $p.StartInfo; $s.FileName = '" + path + "'; "
-            + "$s.Arguments = '" + CursorHookCommand.Argument + " ' + $options; $s.UseShellExecute = $false; $s.RedirectStandardInput = $true; "
-            + "$null = $p.Start(); [Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream); $p.StandardInput.Close(); "
-            + "$p.WaitForExit(); if ($p.ExitCode -eq 0) { exit 0 } } catch { }; exit 1";
-        var command = Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        var command = Encode(options, CurrentBody);
         if (command.Length > MaxCommandLength) throw new CursorHookException(CursorHookFailure.CommandTooLong);
         return command;
     }
 
-    public static bool TryRead(string command, out CursorHookOptions? options)
+    private static string CurrentBody(string path) =>
+        "try { $p = New-Object System.Diagnostics.Process; $s = $p.StartInfo; $s.FileName = '" + path + "'; "
+        + "$s.Arguments = '" + CursorHookCommand.Argument + " ' + $options; $s.UseShellExecute = $false; $s.RedirectStandardInput = $true; "
+        + "$null = $p.Start(); [Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream); $p.StandardInput.Close(); "
+        + "$p.WaitForExit(); if ($p.ExitCode -eq 0) { exit 0 } } catch { }; exit 1";
+
+    // The earlier format, which piped PowerShell's decoded $input. Recognised only so that existing
+    // entries are replaced on connection and deleted on removal; never written.
+    private static string LegacyBody(string path) =>
+        "Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop; "
+        + "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; "
+        + "$input | & '" + path + "' '" + CursorHookCommand.Argument + "' $options"
+        + " | & { process { [Console]::Out.WriteLine($_) } }; if ($LASTEXITCODE -eq 0) { exit 0 } else { exit 1 }";
+
+    private static string Encode(CursorHookOptions options, Func<string, string> body)
+    {
+        var path = options.CycleArcExecutable.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal);
+        var script = Marker + OptionsPrefix + Payload(options) + "'; " + body(path);
+        return Prefix + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+    }
+
+    public static bool TryRead(string command, out CursorHookOptions? options) => TryRead(command, out options, out _);
+
+    /// <summary>
+    /// Recognises a command only when its decoded options regenerate it byte for byte, in the current
+    /// format or the single earlier one; <paramref name="current"/> tells which.
+    /// </summary>
+    public static bool TryRead(string command, out CursorHookOptions? options, out bool current)
     {
         options = null;
+        current = false;
         try
         {
             if (!command.StartsWith(Prefix, StringComparison.Ordinal) || command.Length > MaxCommandLength) return false;
@@ -104,7 +129,8 @@ public static class CursorHookInstaller
             var end = script.IndexOf('\'', start);
             if (end < 0) return false;
             var parsed = Decode(script[start..end]);
-            if (!string.Equals(Command(parsed), command, StringComparison.Ordinal)) return false;
+            current = string.Equals(Encode(parsed, CurrentBody), command, StringComparison.Ordinal);
+            if (!current && !string.Equals(Encode(parsed, LegacyBody), command, StringComparison.Ordinal)) return false;
             options = parsed;
             return true;
         }
@@ -118,10 +144,12 @@ public static class CursorHookInstaller
             var settings = Parse(ReadBytes(hooksPath));
             if (settings is null) return CursorHookStatus.NotInstalled;
             var normalized = ClaudeConnectionPaths.Normalize(executable);
-            var present = Events.Count(name => OwnedEntries(settings, name).Any(item =>
-                string.Equals(item.Options.CycleArcExecutable, normalized, StringComparison.OrdinalIgnoreCase)));
+            var mine = Events.Select(name => OwnedEntries(settings, name).Where(item =>
+                string.Equals(item.Options.CycleArcExecutable, normalized, StringComparison.OrdinalIgnoreCase)).ToArray()).ToArray();
+            var present = mine.Count(entries => entries.Length > 0);
             return present == 0 ? CursorHookStatus.NotInstalled
-                : present == Events.Count ? CursorHookStatus.Installed : CursorHookStatus.Partial;
+                : present != Events.Count ? CursorHookStatus.Partial
+                : mine.All(entries => entries.All(item => item.Current)) ? CursorHookStatus.Installed : CursorHookStatus.Outdated;
         }
         catch (Exception ex) when (ex is CursorHookException or IOException or UnauthorizedAccessException
             or InvalidOperationException or ArgumentException)
@@ -200,7 +228,7 @@ public static class CursorHookInstaller
         foreach (var name in Events)
         {
             if (hooks[name] is not JsonArray list) continue;
-            foreach (var (node, options) in OwnedEntries(settings, name).Where(item => owns(item.Options.CycleArcExecutable)).ToArray())
+            foreach (var (node, options, _) in OwnedEntries(settings, name).Where(item => owns(item.Options.CycleArcExecutable)).ToArray())
             {
                 list.Remove(node);
                 removed = true;
@@ -246,7 +274,7 @@ public static class CursorHookInstaller
         }
     }
 
-    private static IEnumerable<(JsonNode Node, CursorHookOptions Options)> OwnedEntries(JsonObject settings, string name)
+    private static IEnumerable<(JsonNode Node, CursorHookOptions Options, bool Current)> OwnedEntries(JsonObject settings, string name)
     {
         if (settings["hooks"] is not JsonObject hooks || hooks[name] is not JsonArray list) yield break;
         foreach (var node in list)
@@ -254,8 +282,8 @@ public static class CursorHookInstaller
             if (node is not JsonObject item || item.Count != 2
                 || item["timeout"] is not JsonValue timeout || !timeout.TryGetValue<int>(out var seconds) || seconds != TimeoutSeconds
                 || item["command"] is not JsonValue command || !command.TryGetValue<string>(out var text)
-                || !TryRead(text, out var options) || options!.Event != name) continue;
-            yield return (item, options);
+                || !TryRead(text, out var options, out var current) || options!.Event != name) continue;
+            yield return (item, options, current);
         }
     }
 
