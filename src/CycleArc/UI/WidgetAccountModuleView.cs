@@ -519,7 +519,8 @@ public sealed class WidgetPeriodLineView : StackPanel
         ResetText.ToolTip = line.ResetTooltip is null ? null : UiText.WidgetReset + " " + line.ResetTooltip;
         // Reserve the marker gutter so both period names start in the same column.
         _representative.Visibility = line.IsRepresentative ? Visibility.Visible : Visibility.Hidden;
-        if (line.IsRepresentative) _representative.SetResourceReference(Shape.FillProperty, line.BarBrushKey);
+        if (line.IsRepresentative)
+            _representative.SetResourceReference(Shape.FillProperty, isCursor ? line.BarBrushKey : "AccentBrush");
         _representative.ToolTip = !line.IsRepresentative ? null
             : isCursor ? UiText.T("Shown in the ring as the representative limit. It does not mean the model used last.",
                 "링에 표시하는 대표 한도입니다. 최근 사용한 모델을 뜻하지 않습니다.")

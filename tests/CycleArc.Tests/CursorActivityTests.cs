@@ -234,6 +234,26 @@ public sealed class CursorActivityTests : IDisposable
     }
 
     [Fact]
+    public async Task RestartReadsTheSavedReceiptAndLaterHooksStillOrderByReceiptTime()
+    {
+        var key = CursorActivityAttribution.AccountKey("person@example.com")!;
+        await new CursorActivityStore(_root).RecordAsync(Parse(Submit(generation: "g1"), Now)!, CancellationToken.None);
+
+        var restarted = new CursorActivityMonitor(_root);
+        Assert.True(restarted.Poll());
+        Assert.Equal("claude-4.5-sonnet", CursorActivityAttribution.Latest(restarted.Current!, key)!.Model);
+
+        // Each hook is a separate process with its own store instance.
+        await new CursorActivityStore(_root).RecordAsync(Parse(Submit(model: "old", generation: "g0"), Now.AddSeconds(-5))!,
+            CancellationToken.None);
+        await new CursorActivityStore(_root).RecordAsync(Parse(Submit(model: "gpt-5", generation: "g2"), Now.AddSeconds(5))!,
+            CancellationToken.None);
+        Assert.True(restarted.Poll());
+        Assert.Equal("gpt-5", CursorActivityAttribution.Latest(restarted.Current!, key)!.Model);
+        Assert.Equal(Now.AddSeconds(5), CursorActivityAttribution.Latest(restarted.Current!, key)!.ReceivedAt);
+    }
+
+    [Fact]
     public void CompletionIsShownOnlyForTheSameGenerationAsTheLatestRequest()
     {
         var key = CursorActivityAttribution.AccountKey("person@example.com")!;

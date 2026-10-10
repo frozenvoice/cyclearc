@@ -3673,7 +3673,8 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
 - Added an opt-in Cursor hook receipt that shows the composer model of the last request (or
   its completion) received on this PC, with the limit link reported as unconfirmed. The widget
   keeps its size; the representative Cursor allowance is now named in ordinary bold text with a
-  ring-coloured marker instead of the accent colour that read as "the model used last".
+  ring-coloured marker instead of the accent colour that read as "the model used last". Codex
+  and Claude modules keep their accent marker.
   Contract and evidence: [Cursor](CURSOR.md#recent-request-model-from-cursor-hooks-2026-10-10).
 - **Real events: not verified.** The development environment was a Linux cloud VM. A
   temporary project `hooks.json` there never received an event, so no real Cursor hook payload,
@@ -3681,18 +3682,18 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   observed. Field handling follows the official hooks reference only. The user's Cursor
   configuration was not read or changed.
 - Synthetic unit tests (Linux, `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release`):
-  60 new `CursorActivityTests` / `CursorHookInstallerTests` cases pass. They cover documented
+  61 new `CursorActivityTests` / `CursorHookInstallerTests` cases pass. They cover documented
   request/completed/aborted/error payloads, missing and duplicate fields, malformed or unsafe
   model text, prompt/attachment/path/email absence in the stored file, duplicate and late
   events, parallel sessions, account switching, eight-account cap, concurrent hook processes,
-  corrupt inboxes, monitor change detection, unverified/protected/ambiguous accounts,
+  corrupt inboxes, monitor change detection, restart from the saved inbox, unverified/protected/ambiguous accounts,
   disconnected/off states, EN/KO wording, widget periods/status unchanged, hooks.json
   preservation, idempotent install/remove, created-file cleanup, invalid/duplicate-key
   refusal, missing `.cursor`, concurrent edit, another installation's entry, edited
   lookalikes, partial status, command round trip, receiver responses, oversized input, missing
   data root, a locked inbox, and time-boxed, non-throwing uninstall cleanup.
-- The full unit suite ran 2,096 tests: 2,037 pass and the same 59 Codex/Claude/settings tests
-  fail as on the unchanged base commit (2,036 tests, 59 failures) in this Linux environment,
+- Rebased on `7f55059`, the full unit suite ran 2,105 tests: 2,046 pass and the same 59
+  Codex/Claude/settings/shortcut tests fail as on that base (2,044 tests, 59 failures) in this Linux environment,
   where Codex executable discovery and Windows file semantics are unavailable. They are not
   evidence about this change and need the Windows run.
 - `src/CycleArc` and `tests/CycleArc.UiSmoke` compile on Linux with
