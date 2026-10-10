@@ -294,6 +294,7 @@ internal static class ManagedStartupChecks
                 var process = Process.GetProcessById(ready.ProcessId);
                 try
                 {
+                    RetainExitStatus(process);
                     Check(process.MainModule?.FileName?.Equals(current, StringComparison.OrdinalIgnoreCase) == true,
                         "Managed startup PID does not match the registered installation.");
                     return (process, ready);
@@ -313,6 +314,15 @@ internal static class ManagedStartupChecks
         RunWindowed(PowerShellPath(), ["-NoProfile", "-NonInteractive", "-File",
             Path.Combine(Directory.GetCurrentDirectory(), "scripts", "Verify-ManagedStartupRelease.ps1"),
             "-InstallRoot", installRoot, "-ProcessId", desktop.Id.ToString()], work, 45_000);
+    }
+
+    private static void RetainExitStatus(Process process)
+    {
+        // GetProcessById only attaches an ID; MainModule opens a temporary query
+        // handle. Keep this Process object's handle while the desktop is alive so
+        // ExitCode remains available after shutdown, even after the PID vanishes.
+        Check(!process.SafeHandle.IsInvalid && !process.SafeHandle.IsClosed,
+            "Could not retain the observed desktop's process handle for exit-status verification.");
     }
 
     private static string PowerShellPath()
@@ -420,9 +430,15 @@ internal static class ManagedStartupChecks
             try
             {
                 var handle = AwaitWindow(child.Id, "CycleArc · Settings");
+                using var observed = Process.GetProcessById(child.Id);
+                RetainExitStatus(observed);
+                Check(observed.MainModule?.FileName == child.MainModule?.FileName,
+                    "Synthetic child's observed PID does not match its executable.");
                 UiA(() => ToggleAndSave(AutomationElement.FromHandle(handle), enabled));
                 Check(child.WaitForExit(10_000), "Synthetic Settings UIA child did not close after Save.");
                 Check(child.ExitCode == 0, "Synthetic Settings UIA child failed: " + errors.GetAwaiter().GetResult());
+                Check(observed.WaitForExit(10_000) && observed.ExitCode == 0,
+                    "Observed synthetic child's exit status was not available or unsuccessful.");
                 Console.Write(output.GetAwaiter().GetResult());
             }
             finally
@@ -430,7 +446,7 @@ internal static class ManagedStartupChecks
                 if (!child.HasExited) { child.Kill(true); child.WaitForExit(5_000); }
             }
         }
-        Console.WriteLine("PASS: external MTA UIA production Settings startup toggle/save with OfflineApp children; no registry or shared-profile access.");
+        Console.WriteLine("PASS: external MTA UIA production Settings startup toggle/save and attached-process exit status with OfflineApp children; no registry or shared-profile access.");
     }
 
     internal static int RunUiChild(bool enabled)
