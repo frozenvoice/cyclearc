@@ -178,6 +178,41 @@ function Invoke-VpkPack {
     if ($exitCode -ne 0) { throw "Velopack packaging failed with exit code $exitCode" }
 }
 
+function New-PortableArchive {
+    param(
+        [Parameter(Mandatory)][string]$PublishedApp,
+        [Parameter(Mandatory)][string]$ArchivePath
+    )
+    if (Test-Path -LiteralPath $ArchivePath) {
+        throw "Refusing to overwrite a portable archive: $ArchivePath"
+    }
+    # This is the original self-contained publish, not Velopack's managed launcher.
+    # No setup, registry entry, updater, account data or user profile is bundled.
+    $zip = [IO.Compression.ZipFile]::Open($ArchivePath, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip, $PublishedApp, 'CycleArc.exe', [IO.Compression.CompressionLevel]::Optimal)
+    }
+    finally { $zip.Dispose() }
+
+    $readback = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $entries = @($readback.Entries)
+        if ($entries.Count -ne 1 -or $entries[0].FullName -cne 'CycleArc.exe') {
+            throw 'Portable archive must contain exactly one root CycleArc.exe'
+        }
+        $stream = $entries[0].Open()
+        try { $insideHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) }
+        finally { $stream.Dispose() }
+    }
+    finally { $readback.Dispose() }
+    $sourceHash = (Get-FileHash -LiteralPath $PublishedApp -Algorithm SHA256).Hash
+    if ($insideHash -ine $sourceHash) {
+        throw 'Portable archive executable does not match the validated published executable'
+    }
+    $ArchivePath
+}
+
 function Get-HashManifest {
     param(
         [Parameter(Mandatory)][string]$Directory,
@@ -346,6 +381,9 @@ function Assert-PackageOutput {
     if (!(Test-Path -LiteralPath $package -PathType Leaf)) { throw "Missing full package: $packageName" }
     $feedName = "releases.$ChannelName.json"
     $feed = Join-Path $Directory $feedName
+    $portableName = "$PackageId-$PackageVersion-win-x64-portable.zip"
+    $portable = Join-Path $Directory $portableName
+    if (!(Test-Path -LiteralPath $portable -PathType Leaf)) { throw "Missing portable archive: $portableName" }
     if (!(Test-Path -LiteralPath $feed -PathType Leaf)) { throw "Missing release feed: $feedName" }
     $deltas = @(Get-ChildItem -LiteralPath $Directory -File | Where-Object { $_.Name -match '(?i)-delta\.nupkg$' })
     if ($deltas.Count -gt 0) { throw "Delta packages are not allowed: $($deltas.Name -join ', ')" }
@@ -354,7 +392,7 @@ function Assert-PackageOutput {
     $generatedFiles = @(Get-ChildItem -LiteralPath $Directory -File)
     $manifestNames = @($generatedFiles | Where-Object { $_.Name -cne 'SHA256SUMS.txt' } | Select-Object -ExpandProperty Name)
     Get-HashManifest -Directory $Directory -FileNames $manifestNames | Out-Null
-    $required = @($setup.Name, $packageName, $feedName, 'SHA256SUMS.txt')
+    $required = @($setup.Name, $packageName, $feedName, $portableName, 'SHA256SUMS.txt')
     $unexpected = @($generatedFiles | Where-Object {
         $_.Name -notin $required -and $_.Name -notmatch '^(assets\.' + [regex]::Escape($ChannelName) + '\.json|RELEASES)$'
     })
@@ -364,6 +402,7 @@ function Assert-PackageOutput {
     [pscustomobject]@{
         Setup = (Join-Path $Directory $expectedSetupName)
         FullPackage = $package
+        PortableArchive = $portable
         Feed = $feed
         Manifest = (Join-Path $Directory 'SHA256SUMS.txt')
         Files = @(Get-ChildItem -LiteralPath $Directory -File | Select-Object -ExpandProperty FullName)
@@ -407,6 +446,8 @@ function Invoke-Package {
         $NotesPath = $notes.FullName
     }
     Invoke-VpkPack -Command $Command -PackIdValue $PackageIdValue -PackVersion $version -PackDirectory $publishedFull -OutputDirectory $output -EntryPoint $EntryPoint -ChannelName $ChannelName -NotesPath $NotesPath -IconFile $IconFile
+    $portableName = "$PackageIdValue-$version-win-x64-portable.zip"
+    New-PortableArchive -PublishedApp $published -ArchivePath (Join-Path $output $portableName) | Out-Null
     # The distributed installer is the setup window with the engine inside it. -NoSetupUi
     # leaves the bare engine in place, for tests that only exercise the packaging contract.
     $wrap = if ($NoSetupUi) { $null } else {
