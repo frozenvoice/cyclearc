@@ -407,7 +407,8 @@ function Assert-PackagedReleaseFeed {
 function Assert-FullPackageFileVersion {
     param(
         [Parameter(Mandatory)][string]$PackagePath,
-        [Parameter(Mandatory)][string]$ExpectedFileVersion
+        [Parameter(Mandatory)][string]$ExpectedFileVersion,
+        [string]$ExpectedSha256
     )
     $checkRoot = Join-Path ([IO.Path]::GetTempPath()) ('CycleArc-package-check-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $checkRoot -Force | Out-Null
@@ -426,10 +427,28 @@ function Assert-FullPackageFileVersion {
         if ($actual -ne $ExpectedFileVersion) {
             throw "Full package CycleArc.exe FileVersion is '$actual', expected '$ExpectedFileVersion'"
         }
+        if ($ExpectedSha256 -and (Get-FileHash -LiteralPath $extracted -Algorithm SHA256).Hash -ine $ExpectedSha256) {
+            throw 'Full package CycleArc.exe does not match portable archive executable'
+        }
     }
     finally {
         if (Test-Path -LiteralPath $checkRoot) { Remove-Item -LiteralPath $checkRoot -Recurse -Force }
     }
+}
+
+function Get-PortableArchiveExeSha256 {
+    param([Parameter(Mandatory)][string]$ArchivePath)
+    $zip = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $entries = @($zip.Entries)
+        if ($entries.Count -ne 1 -or $entries[0].FullName -cne 'CycleArc.exe') {
+            throw 'Portable archive must contain exactly one root CycleArc.exe'
+        }
+        $stream = $entries[0].Open()
+        try { [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) }
+        finally { $stream.Dispose() }
+    }
+    finally { $zip.Dispose() }
 }
 
 function Get-PackagedArtifact {
@@ -445,10 +464,12 @@ function Get-PackagedArtifact {
     $setup = @($files | Where-Object { $_.Name -ceq "$PackageId-Setup.exe" })
     $packageName = "$PackageId-$VersionValue-full.nupkg"
     $full = @($files | Where-Object { $_.Name -ceq $packageName })
+    $portableName = "$PackageId-$VersionValue-win-x64-portable.zip"
+    $portable = @($files | Where-Object { $_.Name -ceq $portableName })
     $feedName = "releases.$Channel.json"
     $feed = @($files | Where-Object { $_.Name -ceq $feedName })
     $manifest = @($files | Where-Object { $_.Name -ceq 'SHA256SUMS.txt' })
-    foreach ($record in @(@{ Name = 'Setup'; Items = $setup }, @{ Name = 'full package'; Items = $full }, @{ Name = 'release feed'; Items = $feed }, @{ Name = 'checksum manifest'; Items = $manifest })) {
+    foreach ($record in @(@{ Name = 'Setup'; Items = $setup }, @{ Name = 'full package'; Items = $full }, @{ Name = 'portable archive'; Items = $portable }, @{ Name = 'release feed'; Items = $feed }, @{ Name = 'checksum manifest'; Items = $manifest })) {
         if ($record.Items.Count -ne 1) { throw "Expected exactly one $($record.Name) in CI artifact" }
     }
     $deltas = @($files | Where-Object { $_.Name -match '(?i)-delta\.nupkg$' })
@@ -465,7 +486,8 @@ function Get-PackagedArtifact {
     Assert-PackagedReleaseFeed -FeedPath $feed[0].FullName -VersionValue $VersionValue -PackageId $PackageId -PackageName $packageName -PackagePath $full[0].FullName | Out-Null
     $assetPaths = @($files | Where-Object { $_.Name -cne 'SHA256SUMS.txt' } | ForEach-Object { $_.FullName })
     Assert-PackagedChecksumManifest -ManifestPath $manifest[0].FullName -AssetPaths $assetPaths | Out-Null
-    Assert-FullPackageFileVersion -PackagePath $full[0].FullName -ExpectedFileVersion $ExpectedFileVersion
+    $portableExeSha256 = Get-PortableArchiveExeSha256 -ArchivePath $portable[0].FullName
+    Assert-FullPackageFileVersion -PackagePath $full[0].FullName -ExpectedFileVersion $ExpectedFileVersion -ExpectedSha256 $portableExeSha256
     Get-LocalAssetMap -Paths @($files | ForEach-Object { $_.FullName })
 }
 
@@ -623,6 +645,7 @@ function Get-ExpectedReleaseAssetNames {
     @(
         "$PackageId-Setup.exe",
         "$PackageId-$VersionValue-full.nupkg",
+        "$PackageId-$VersionValue-win-x64-portable.zip",
         "releases.$Channel.json",
         'SHA256SUMS.txt'
     )
