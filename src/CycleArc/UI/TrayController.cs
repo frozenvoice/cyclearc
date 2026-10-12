@@ -14,6 +14,7 @@ public sealed class TrayController : IDisposable
 
     public event Action? LeftClick;
     public event Action? OpenRequested;
+    public event Action? ShowWidgetRequested;
     public event Action? SyncRequested;
     public event Action? SettingsRequested;
     public event Action? OpenLogsRequested;
@@ -68,6 +69,8 @@ public sealed class TrayController : IDisposable
             menu.Items.Add(new ToolStripSeparator());
         }
         menu.Items.Add(UiText.OpenApp, null, (_, _) => OpenRequested?.Invoke());
+        if (!forWidget)
+            menu.Items.Add(UiText.T("Show widget", "위젯 표시"), null, (_, _) => ShowWidgetRequested?.Invoke());
         menu.Items.Add(UiText.RefreshAll, null, (_, _) => SyncRequested?.Invoke());
         menu.Items.Add(UiText.Settings, null, (_, _) => SettingsRequested?.Invoke());
         menu.Items.Add(UiText.OpenLogs, null, (_, _) => OpenLogsRequested?.Invoke());
