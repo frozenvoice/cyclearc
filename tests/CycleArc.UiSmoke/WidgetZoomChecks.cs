@@ -333,6 +333,9 @@ internal static class WidgetZoomChecks
                 WidgetMultiAccountChecks.CheckAlignment(widget, $"{suffix}: {where}");
 
                 var header = (FrameworkElement)widget.FindName("WidgetHeader");
+                var content = (FrameworkElement)widget.Content;
+                var firstModuleBox = widget.Modules[0].TransformToAncestor(content)
+                    .TransformBounds(new Rect(widget.Modules[0].RenderSize));
                 var boxes = order.Select(name =>
                 {
                     var control = (FrameworkElement)widget.FindName(name);
@@ -344,9 +347,15 @@ internal static class WidgetZoomChecks
                 {
                     Check(control.Visibility == Visibility.Visible, $"{name} is not shown with {where}.");
                     Check(box.Width > 0 && box.Height > 0, $"{name} collapsed to nothing with {where}.");
-                    Check(box.Left >= -0.1 && box.Top >= -0.1
-                        && box.Right <= header.ActualWidth + 0.1 && box.Bottom <= header.ActualHeight + 0.1,
-                        $"{name} is clipped with {where}.");
+                    // The taller targets use the existing padding and module gap around the
+                    // unchanged 22-DIP header row. Require actual content containment and no
+                    // module input overlap rather than restricting targets to the row itself.
+                    var contentBox = control.TransformToAncestor(content).TransformBounds(new Rect(control.RenderSize));
+                    Check(box.Left >= -0.1 && box.Right <= header.ActualWidth + 0.1
+                        && contentBox.Left >= -0.1 && contentBox.Top >= -0.1
+                        && contentBox.Right <= content.ActualWidth + 0.1 && contentBox.Bottom <= content.ActualHeight + 0.1
+                        && contentBox.Bottom <= firstModuleBox.Top + 0.1,
+                        $"{name} is clipped or overlaps module input with {where}.");
                     checks++;
                 }
 
@@ -432,7 +441,8 @@ internal static class WidgetZoomChecks
                         Check(Contains(new Rect(header.RenderSize), percentBox)
                             && outBox.Right <= percentBox.Left + 0.1
                             && percentBox.Right <= inBox.Left + 0.1,
-                            $"The zoom percentage is clipped or overlaps its controls ({percentContext}).");
+                            $"The zoom percentage is clipped or overlaps its controls ({percentContext}); "
+                            + $"header={header.RenderSize}, percent={percentBox}, out={outBox}, in={inBox}.");
                         var formattingMode = TextOptions.GetTextFormattingMode(percentText);
                         var textSize = new FormattedText(percentText.Text,
                             System.Globalization.CultureInfo.CurrentUICulture, percentText.FlowDirection,

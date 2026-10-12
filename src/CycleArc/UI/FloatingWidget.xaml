@@ -19,29 +19,85 @@
         LostMouseCapture="OnLostMouseCapture" MouseDown="OnMouseDown">
     <Window.Resources>
         <Style x:Key="WidgetIconButton" TargetType="Button">
-            <Setter Property="Width" Value="22"/>
-            <Setter Property="Height" Value="22"/>
+            <Setter Property="Width" Value="26"/>
+            <Setter Property="Height" Value="28"/>
+            <!-- Use the header's existing vertical breathing room, keeping its layout at 22 DIP. -->
+            <Setter Property="Margin" Value="0,-3,0,-3"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Focusable" Value="True"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Tag" Value="{DynamicResource {x:Static SystemParameters.HighContrastKey}}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="WidgetIconChrome" Background="{TemplateBinding Background}" CornerRadius="6">
+                        <Border x:Name="WidgetIconChrome" Background="{TemplateBinding Background}" CornerRadius="6"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource GhostBrush}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource GhostBrush}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource SelectionBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="WidgetIconChrome" Property="Background" Value="Transparent"/>
                                 <Setter Property="Opacity" Value="0.45"/>
                                 <Setter Property="Cursor" Value="Arrow"/>
                             </Trigger>
+                            <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"/>
+                            </DataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding IsKeyboardFocused, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="BorderThickness" Value="2"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding IsEnabled, RelativeSource={RelativeSource Self}}" Value="False"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Opacity" Value="1"/>
+                                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+                                <Setter TargetName="WidgetIconChrome" Property="BorderThickness" Value="1"/>
+                            </MultiDataTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -51,7 +107,7 @@
     <!-- The opacity setting applies to this ground only; names, numbers and rings stay opaque. -->
     <!-- The zoom scales the whole root, so the ground and content grow together and the
          root still reports its unscaled layout size, as the single panel did before. -->
-    <Grid x:Name="WidgetRoot" RenderTransformOrigin="0,0">
+    <Grid x:Name="WidgetRoot" RenderTransformOrigin="0,0" KeyboardNavigation.TabNavigation="Cycle">
     <Grid.LayoutTransform>
         <ScaleTransform x:Name="WidgetScale" ScaleX="1" ScaleY="1"/>
     </Grid.LayoutTransform>
@@ -72,7 +128,7 @@
             MinWidth="168">
         <StackPanel x:Name="WidgetStatusStack">
             <!-- One header for the whole widget; never repeated per account. -->
-            <Grid x:Name="WidgetHeader" Margin="0,0,0,7">
+            <Grid x:Name="WidgetHeader" Height="22" Margin="0,0,0,7">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*" MinWidth="0"/>
@@ -98,36 +154,36 @@
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
                            Foreground="{DynamicResource MutedBrush}"/>
                 <Button x:Name="WidgetZoomOutButton" Grid.Column="2" Style="{StaticResource WidgetIconButton}"
-                        Click="OnZoomOutClick" Margin="0,0,2,0">
+                        Click="OnZoomOutClick">
                     <Path x:Name="WidgetZoomOutIcon" Width="16" Height="16"
-                          Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.4"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.4"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                           Data="M10.5,6 A4.5,4.5 0 1 1 1.5,6 A4.5,4.5 0 1 1 10.5,6 M9.3,9.3 L14,14 M3.75,6 L8.25,6"/>
                 </Button>
-                <TextBlock x:Name="WidgetZoomPercentText" Grid.Column="3" Text="100%" Width="34" Height="16" Margin="0,0,2,0"
+                <TextBlock x:Name="WidgetZoomPercentText" Grid.Column="3" Text="100%" Width="30" Height="16" Margin="0,0,2,0"
                            FontSize="10.5" TextAlignment="Center" VerticalAlignment="Center"
                            Foreground="{DynamicResource MutedBrush}" Typography.NumeralAlignment="Tabular"/>
                 <Button x:Name="WidgetZoomInButton" Grid.Column="4" Style="{StaticResource WidgetIconButton}"
-                        Click="OnZoomInClick" Margin="0,0,2,0">
+                        Click="OnZoomInClick">
                     <Path x:Name="WidgetZoomInIcon" Width="16" Height="16"
-                          Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.4"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.4"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                           Data="M10.5,6 A4.5,4.5 0 1 1 1.5,6 A4.5,4.5 0 1 1 10.5,6 M9.3,9.3 L14,14 M3.75,6 L8.25,6 M6,3.75 L6,8.25"/>
                 </Button>
                 <Button x:Name="WidgetRefreshButton" Grid.Column="5" Style="{StaticResource WidgetIconButton}"
-                        Click="OnRefreshClick" Margin="0,0,2,0">
+                        Click="OnRefreshClick">
                     <TextBlock x:Name="WidgetRefreshGlyph" Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="12"
-                               Foreground="{DynamicResource MutedBrush}"/>
+                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                 </Button>
                 <Button x:Name="WidgetSettingsButton" Grid.Column="6" Style="{StaticResource WidgetIconButton}"
-                        Click="OnSettingsClick" Margin="0,0,2,0">
+                        Click="OnSettingsClick">
                     <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="12"
-                               Foreground="{DynamicResource MutedBrush}"/>
+                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                 </Button>
                 <Button x:Name="WidgetCloseButton" Grid.Column="7" Style="{StaticResource WidgetIconButton}"
                         Click="OnCloseClick">
                     <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="12"
-                               Foreground="{DynamicResource MutedBrush}"/>
+                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                 </Button>
             </Grid>
             <!-- Modules wrap into rows; only a grid taller than the work area scrolls. -->

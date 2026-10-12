@@ -14,23 +14,68 @@
     repeated show, close/reopen on the same HWND, native-hide recovery, pending refresh,
     accountless/exit guards and no extra provider request or selection change. An initial
     default UiSmoke run passed with exit 0 and `[ui-smoke] COMPLETE all default suites`.
-    After tightening test-fixture cleanup, the final default run passed the new tray suite
+    Before integration with the widget-button change, tightening fixture cleanup was
+    followed by a default run that passed the new tray suite
     but failed in the existing widget-recovery suite: SettingsStore's File.Replace threw
     `IOException: 바꿀 파일을 제거할 수 없습니다.` on re-enabling the fixture. The focused
     `--widget-recovery artifacts/previews` reproduction passed without source changes.
     A separate 1,000-operation .NET File.Replace probe, using only three isolated files
     under `.tmp`, reproduced the same error at operation 320 with HResult -2147023721
     (0x80070497 / Windows error 1175). The responsible process/filter remains unknown;
-    this is neither a demonstrated tray regression nor a final full-suite PASS. No retries,
+    that run was neither a demonstrated tray regression nor a final full-suite PASS. No retries,
     longer timeouts or atomic-storage changes were added. Host WPF DPI was 150%.
   - Both production native-menu captures were visually inspected. Optional widget captures
     showed partial retained visuals despite passing native lifecycle checks; that collector
     was removed from this menu-focused check rather than used as visual evidence. Existing
     widget layout/DPI suites remain in the default gate. Temporary fixture/captures were
     removed; logs remain in `artifacts/tray-widget-{build,ui,default,recovery}.log`.
+  - Final integration with widget-button `main` at `a03fca4`: Release build passed with
+    zero errors and six existing warnings (three xUnit1031 and three UiReuseChecks
+    nullable warnings). All 11 WidgetInteractionTests passed without skips, and the
+    focused EN/KO System/Dark/Light tray checks passed again. The argument-free integrated
+    UiSmoke exited 0 with `[ui-smoke] COMPLETE all default suites` at host DPI 150%;
+    evidence is `artifacts/tray-widget-integrated-default.log`. The earlier Windows 1175
+    failure did not recur in this run; its underlying cause was not changed or resolved.
   - The sandbox's first restore exited 1 without diagnostics; the development build passed
     outside it. Verification used isolated settings and fake providers only. No installed
     app, real-account request, packaging, remote CI, installer or release was exercised.
+
+- Widget button accessibility (unreleased, 2026-10-12 Asia/Seoul):
+  - The production header buttons now expose 26×28 DIP targets instead of 22×22;
+    area increases 50.4% while zoom paths remain 16×16 DIP and other glyphs remain
+    12 DIP. Existing header padding/gap contains the larger targets without overlap.
+    BEFORE/AFTER shown-HWND measurements match outer, header and module bounds in
+    all 36 EN/KO, Dark/Light, 1/3/5-account, 80/100/150% app-zoom fixtures. At the
+    host's 150% DPI, the one-account 100% widget remains 254×165.33 DIP / 381×248 px.
+  - Header keyboard focus stays visible through zoom. Settings/Close and initial
+    Refresh labels are localized; disabled actions reject automation. Tab reaches
+    account modules and Enter/Space or UIA Invoke selects the account and opens the
+    existing detail popup. Focus loss or rebinding cancels pending Space/Invoke.
+    Modules remain Borders, preserving existing mouse click/drag classification.
+    No provider, authentication, updater or settings schema was changed.
+  - Release solution build passed with zero errors and three existing nullable
+    warnings in UiReuseChecks. All 103 relevant unit tests passed, zero skipped.
+    `--widget-buttons artifacts/previews` passed target-edge hit tests, unchanged
+    geometry/icon size, WPF focus traversal and Enter/Space class handlers, module
+    automation/rebinding and live local high-contrast resource fixtures. Injected
+    100/125/150/175/200% layout checks passed; they are not physical monitor tests.
+    All 982 independent zoom checks, 151 layout checks and 180 DPI/layout renders
+    passed, including native placement on two monitors. A measured 0.33-DIP
+    overlap at injected 150% DPI was fixed by restoring the percentage label's
+    original 2-DIP gap. Header containment assertions now check actual widget bounds
+    and module input overlap; horizontal order and text/icon clipping remain tested.
+    Production renders were visually inspected in EN/KO Dark/Light, including focus
+    and pressed contrast. Light-theme pressed icons use TextBrush on SelectionBrush.
+  - Final argument-free UiSmoke on the integrated source exited 0 with
+    `[ui-smoke] COMPLETE all default suites`, including Pin/Hide, account activation,
+    widget recovery/restart, drag/snap, zoom, DPI, settings and status freshness checks.
+  - Actual OS high contrast was **False**; a real OS high-contrast session was not
+    exercised. Optional `--widget-buttons-native artifacts/previews` exited 1 at
+    `Could not foreground synthetic widget for native input.` before any SendInput.
+    Native click/drag/Tab delivery is therefore **unverified**, not a pass. No guard
+    was weakened, and no actual-account access, install, restart or remote CI ran.
+    Evidence: `artifacts/widget-buttons-{build,unit,before,after,native,default}.log`
+    and the [paired measurements](measurements/widget-buttons-2026-10-12.csv).
 
 - Portable installer-hook routing (unreleased, 2026-10-12 Asia/Seoul):
   - The 2026-10-12 build-local run showed `Unknown or incomplete CycleArc launch argument.`

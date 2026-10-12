@@ -174,6 +174,21 @@ internal static class Program
                 WidgetLayoutChecks.Run(widgetLayoutDirectory);
                 return 0;
             }
+            if (args is ["--widget-buttons"] or ["--widget-buttons", _])
+            {
+                WidgetButtonChecks.Run(args.Length == 2 ? args[1] : "artifacts/previews");
+                return 0;
+            }
+            if (args is ["--widget-buttons-baseline"] or ["--widget-buttons-baseline", _])
+            {
+                WidgetButtonChecks.Run(args.Length == 2 ? args[1] : "artifacts/previews", baseline: true);
+                return 0;
+            }
+            if (args is ["--widget-buttons-native"] or ["--widget-buttons-native", _])
+            {
+                WidgetButtonChecks.RunNative(args.Length == 2 ? args[1] : "artifacts/previews");
+                return 0;
+            }
             if (args is ["--edge-snap-native", var nativeSnapDirectory])
             {
                 NativeEdgeSnapChecks.Run(nativeSnapDirectory);
@@ -403,6 +418,8 @@ internal static class Program
             WidgetMultiAccountChecks.Run();
             Begin("widget-layout");
             WidgetLayoutChecks.Run();
+            Begin("widget-buttons");
+            WidgetButtonChecks.Run();
             Begin("widget-zoom");
             WidgetZoomChecks.Run();
             Begin("settings-window");
