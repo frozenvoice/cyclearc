@@ -33,6 +33,10 @@ The independent portable distribution contains only the same verified self-conta
 `CycleArc.exe` as the Velopack full package. A loose executable runs in place, without
 self-installation or Velopack initialization. Portable startup skips installation/autorun/tray
 registry migration, does not register Windows startup and has no managed update actions.
+Explicit Velopack/Squirrel fast-exit installer hooks still delegate version validation and
+exit to the SDK in unmanaged layouts, without registering managed uninstall cleanup.
+The package verification's disposable `.portable` updater fixture requires these hooks;
+they never reach desktop argument parsing, WPF or account startup.
 The explicit `dev-run.ps1` deployment still owns the separate development installation.
 Portable users exit the desktop before manually replacing the executable with a new ZIP.
 Both distributions share `%LOCALAPPDATA%\ProMeter`, its backups and the legacy desktop mutex;

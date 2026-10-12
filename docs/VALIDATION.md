@@ -2,6 +2,30 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Portable installer-hook routing (unreleased, 2026-10-12 Asia/Seoul):
+  - The 2026-10-12 build-local run showed `Unknown or incomplete CycleArc launch argument.`
+    before Setup. The independent portable distribution change skipped Velopack startup in
+    the package verification's `.portable` fixture, so Update.exe's obsolete/updated hooks
+    reached the desktop parser. Update.exe ignores hook failures; package apply still passed.
+    The actual managed installation completed and its EXE matched the published SHA-256.
+  - Before the fix, the production framework entry point with `--veloapp-obsolete 0.5.9
+    --quiet` exited 1 with that exact error. The new process check also rejects the original
+    self-contained publish on its first installer hook (exit 1).
+  - Recognized unmanaged installer hooks now delegate version validation and fast exit to
+    Velopack 1.2.0 without registering managed uninstall cleanup. Ordinary portable launches
+    still skip Velopack. The existing package-verify path now asserts production hook exits
+    before apply, so an ignored hook failure cannot produce a false pass.
+  - Windows, PowerShell 7 and .NET 10.0.401: Release solution build and **37 relevant unit
+    tests passed, zero skipped**. Production process checks passed both from the loose
+    framework build and a disposable `.portable` layout using the real package manifest and
+    updater. Checks cover install/obsolete/updated/uninstall, legacy/case-insensitive hooks
+    and malformed-version failure. Evidence: `artifacts/installer-hooks-development.log`,
+    `artifacts/installer-hooks-before.log`, `artifacts/installer-hooks-process.log` and
+    `artifacts/installer-hooks-portable.log`. The disposable fixture was removed.
+  - The sandbox's initial restore exited 1 without diagnostic output; the same development
+    check passed outside it. No installed app, real account, installer, updater or remote CI
+    was run during verification. No new installer/release was delivered or installed.
+
 - Fractional widget position preservation (unreleased, 2026-10-11 Asia/Seoul):
   - Restoring saved native pixels emitted an unconditional `Moved` event after layout.
     The desktop persists that event, so WPF's integer-pixel restoration could overwrite

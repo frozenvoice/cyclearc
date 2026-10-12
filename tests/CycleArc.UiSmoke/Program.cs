@@ -22,6 +22,11 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--installer-hooks", var hookExecutable])
+        {
+            InstallerHookProcessChecks.Run(hookExecutable);
+            return 0;
+        }
         if (args is ["--managed-startup", var managedStartupAssets])
         {
             ManagedStartupChecks.Run(managedStartupAssets);

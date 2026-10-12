@@ -19,7 +19,15 @@ public static class InstalledApp
     public static void Initialize(string[] args)
     {
         IsPortable = !DesktopDistribution.IsDevelopmentInstall(Environment.ProcessPath, DesktopBootstrap.ExecutablePath);
-        if (!DesktopDistribution.HasManagedLayout(Environment.ProcessPath)) return;
+        if (!DesktopDistribution.HasManagedLayout(Environment.ProcessPath))
+        {
+            // Update.exe still sends fast-exit hooks to a Velopack portable fixture.
+            // Let the SDK validate and exit, without registering managed uninstall
+            // cleanup or running its lifecycle on ordinary standalone launches.
+            if (DesktopDistribution.IsInstallerHook(args))
+                VelopackApp.Build().SetArgs(args).SetAutoApplyOnStartup(false).Run();
+            return;
+        }
         VelopackApp.Build().SetArgs(args).SetAutoApplyOnStartup(false)
             .OnFirstRun(_ => IsFirstRun = true)
             // Velopack 1.2.0 stops the app, runs this hook from the installed executable, ignores
