@@ -304,6 +304,7 @@ Usage comes from the Desktop live profile/usage check when available, then the o
 | Tab in the widget | Move through the header controls, then the account modules in account order, with a visible focus indicator |
 | Enter or Space on a focused widget account module | Select that account and open its existing detail popup, just like a mouse click |
 | Right-click the widget | Open its menu, including Close widget |
+| Right-click the tray icon → Show widget | Enable and reopen the widget at its saved position and size; it stays hidden when no account is displayable |
 
 Drop the widget or detail popup near a screen edge, or push it partly past one, to align it with a 2-DIP inset on the monitor where you release it, keeping its size. Hold **Shift** when releasing a drag to skip snapping for that move. Attached edges keep their inset when you zoom or the content changes. Turn this off in **Settings → General → Snap windows to screen edges**.
 

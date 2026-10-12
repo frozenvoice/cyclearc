@@ -2,6 +2,44 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Tray widget action (unreleased, 2026-10-12 Asia/Seoul):
+  - The native tray menu now offers **Show widget / 위젯 표시** after Open CycleArc.
+    It saves the enabled preference and reuses the production widget controller, preserving
+    position, size, account selection and shared-refresh busy state. Closing the widget
+    persists TrayOnly; showing it persists TrayAndWidget. Accountless and exiting desktops
+    cannot create or revive a widget window.
+  - Windows, PowerShell 7.6.5 and .NET 10.0.401: Release solution build passed with zero
+    errors and three existing nullable warnings in UiReuseChecks. The focused synthetic
+    `--tray-widget` check passed in EN/KO and System/Dark/Light, covering settings reload,
+    repeated show, close/reopen on the same HWND, native-hide recovery, pending refresh,
+    accountless/exit guards and no extra provider request or selection change. An initial
+    default UiSmoke run passed with exit 0 and `[ui-smoke] COMPLETE all default suites`.
+    Before integration with the widget-button change, tightening fixture cleanup was
+    followed by a default run that passed the new tray suite
+    but failed in the existing widget-recovery suite: SettingsStore's File.Replace threw
+    `IOException: 바꿀 파일을 제거할 수 없습니다.` on re-enabling the fixture. The focused
+    `--widget-recovery artifacts/previews` reproduction passed without source changes.
+    A separate 1,000-operation .NET File.Replace probe, using only three isolated files
+    under `.tmp`, reproduced the same error at operation 320 with HResult -2147023721
+    (0x80070497 / Windows error 1175). The responsible process/filter remains unknown;
+    that run was neither a demonstrated tray regression nor a final full-suite PASS. No retries,
+    longer timeouts or atomic-storage changes were added. Host WPF DPI was 150%.
+  - Both production native-menu captures were visually inspected. Optional widget captures
+    showed partial retained visuals despite passing native lifecycle checks; that collector
+    was removed from this menu-focused check rather than used as visual evidence. Existing
+    widget layout/DPI suites remain in the default gate. Temporary fixture/captures were
+    removed; logs remain in `artifacts/tray-widget-{build,ui,default,recovery}.log`.
+  - Final integration with widget-button `main` at `a03fca4`: Release build passed with
+    zero errors and six existing warnings (three xUnit1031 and three UiReuseChecks
+    nullable warnings). All 11 WidgetInteractionTests passed without skips, and the
+    focused EN/KO System/Dark/Light tray checks passed again. The argument-free integrated
+    UiSmoke exited 0 with `[ui-smoke] COMPLETE all default suites` at host DPI 150%;
+    evidence is `artifacts/tray-widget-integrated-default.log`. The earlier Windows 1175
+    failure did not recur in this run; its underlying cause was not changed or resolved.
+  - The sandbox's first restore exited 1 without diagnostics; the development build passed
+    outside it. Verification used isolated settings and fake providers only. No installed
+    app, real-account request, packaging, remote CI, installer or release was exercised.
+
 - Widget button accessibility (unreleased, 2026-10-12 Asia/Seoul):
   - The production header buttons now expose 26×28 DIP targets instead of 22×22;
     area increases 50.4% while zoom paths remain 16×16 DIP and other glyphs remain

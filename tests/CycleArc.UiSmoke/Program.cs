@@ -158,6 +158,11 @@ internal static class Program
                 TrayIconChecks.Run(trayDirectory);
                 return 0;
             }
+            if (args is ["--tray-widget"] or ["--tray-widget", _])
+            {
+                TrayWidgetChecks.Run(app, args.Length == 2 ? args[1] : "artifacts/previews");
+                return 0;
+            }
             if (args is ["--widget-accounts", var widgetAccountsDirectory])
             {
                 WidgetMultiAccountChecks.Run(widgetAccountsDirectory);
@@ -399,6 +404,8 @@ internal static class Program
             FlyoutHeaderChecks.Run();
             Begin("ui-reuse");
             UiReuseChecks.Run(app);
+            Begin("tray-widget");
+            TrayWidgetChecks.Run(app);
             Begin("environment-callbacks");
             CheckEnvironmentCallbacks(app);
             Begin("widget-recovery-basic");

@@ -90,6 +90,7 @@ public partial class App : Application
         _tray.RebuildMenu(_settings.StartWithWindows);
         _tray.LeftClick += ToggleFlyout;
         _tray.OpenRequested += ShowMain;
+        _tray.ShowWidgetRequested += ShowWidget;
         _tray.SyncRequested += () => _ = RefreshCodexAsync();
         // Resets the widget only; the detail window keeps its own scale.
         _tray.ResetWidgetZoomRequested += () => _widgetController?.CurrentWindow?.SetZoom(FlyoutZoom.DefaultPercent);
@@ -746,9 +747,19 @@ public partial class App : Application
         });
     }
 
+    private void ShowWidget()
+    {
+        if (IsExiting) return;
+        _settings.FloatingWidgetEnabled = true;
+        _settings.DisplayMode = DisplayMode.TrayAndWidget;
+        _settingsStore.Save(_settings);
+        ApplyWidget();
+    }
+
     private void CloseWidget()
     {
         _settings.FloatingWidgetEnabled = false;
+        _settings.DisplayMode = DisplayMode.TrayOnly;
         _settingsStore.Save(_settings);
         ApplyWidget();
     }
@@ -794,7 +805,7 @@ public partial class App : Application
         if (recreateWidget)
             _widgetController.Recreate(_settings, overview);
         else
-            _widgetController.Update(_settings, overview, applySettings: true);
+            _widgetController.Update(_settings, overview, applySettings: true, refreshing: _refresh?.IsRefreshing == true);
     }
 
     private static void ApplyTheme(AppTheme theme)

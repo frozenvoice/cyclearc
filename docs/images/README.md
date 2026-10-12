@@ -420,6 +420,13 @@ selected profile, data source and separate Claude periods.
 
 ## Widget button and keyboard previews
 
+The production native tray menu now offers **Show widget / 위젯 표시** after Open
+CycleArc. `tray-widget-menu-{en,ko}.png` shows the menu from 0.10.1 development source
+on 2026-10-12; only that menu was rendered, without desktop or real-account capture.
+After a Release build, reproduce with `--tray-widget artifacts/previews`.
+
+![Korean tray menu with Show widget](tray-widget-menu-ko.png)
+
 `widget-buttons-{en,ko}-{dark,light}.png` renders the production widget with synthetic
 accounts and the Refresh button focused. These five button/focus previews and
 `widget.png` were refreshed from **0.10.1 development source on 2026-10-12**;
