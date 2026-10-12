@@ -167,8 +167,22 @@ public partial class FloatingWidget : Window
 
     private void EnsureModules(int count)
     {
-        while (_modules.Count < count) _modules.Add(new WidgetAccountModuleView());
+        while (_modules.Count < count)
+        {
+            var module = new WidgetAccountModuleView();
+            module.DetailsRequested += () =>
+            {
+                if (!_closed && _modules.Contains(module)) OpenAccountDetails(module.ProfileId);
+            };
+            _modules.Add(module);
+        }
         if (_modules.Count > count) _modules.RemoveRange(count, _modules.Count - count);
+    }
+
+    private void OpenAccountDetails(string profileId)
+    {
+        AccountSelected?.Invoke(profileId);
+        FlyoutRequested?.Invoke();
     }
 
     private static ScreenRect ScaleWorkArea(ScreenRect area, double factor) =>
@@ -504,6 +518,12 @@ public partial class FloatingWidget : Window
         WidgetZoomOutButton.ToolTip = zoomOut;
         System.Windows.Automation.AutomationProperties.SetName(WidgetZoomInButton, zoomIn);
         System.Windows.Automation.AutomationProperties.SetName(WidgetZoomOutButton, zoomOut);
+        WidgetSettingsButton.ToolTip = UiText.Settings;
+        System.Windows.Automation.AutomationProperties.SetName(WidgetSettingsButton, UiText.Settings);
+        var close = UiText.T("Close widget", "위젯 닫기");
+        WidgetCloseButton.ToolTip = close;
+        System.Windows.Automation.AutomationProperties.SetName(WidgetCloseButton, close);
+        UpdateRefreshLabel(!WidgetRefreshButton.IsEnabled);
     }
 
     /// <summary>
@@ -539,14 +559,22 @@ public partial class FloatingWidget : Window
         SetZoom(FlyoutZoom.Adjust(ZoomPercent, increase: true));
         // A header button takes focus inside this window, so the keyboard shortcuts keep
         // working here afterwards rather than falling back to whatever was focused before.
-        TakeKeyboardFocus();
+        FocusHeaderButton(sender);
     }
 
     private void OnZoomOutClick(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
         SetZoom(FlyoutZoom.Adjust(ZoomPercent, increase: false));
-        TakeKeyboardFocus();
+        FocusHeaderButton(sender);
+    }
+
+    private void FocusHeaderButton(object sender)
+    {
+        if (_closed || !IsVisible) return;
+        if (!IsActive) Activate();
+        if (sender is System.Windows.Controls.Button { IsEnabled: true } button) button.Focus();
+        else Focus();
     }
 
     /// <summary>
@@ -577,6 +605,11 @@ public partial class FloatingWidget : Window
     public void SetRefreshing(bool refreshing)
     {
         WidgetRefreshButton.IsEnabled = !refreshing;
+        UpdateRefreshLabel(refreshing);
+    }
+
+    private void UpdateRefreshLabel(bool refreshing)
+    {
         var label = refreshing ? UiText.CodexRefreshing : UiText.RefreshAll;
         WidgetRefreshButton.ToolTip = label;
         System.Windows.Automation.AutomationProperties.SetName(WidgetRefreshButton, label);
@@ -916,8 +949,7 @@ public partial class FloatingWidget : Window
         if (!string.IsNullOrEmpty(pressed))
         {
             // Selecting reuses the existing selection state; it never starts a login or a request.
-            AccountSelected?.Invoke(pressed);
-            FlyoutRequested?.Invoke();
+            OpenAccountDetails(pressed);
             return;
         }
 

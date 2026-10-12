@@ -6,7 +6,7 @@ They are not captures of a user's account or fabricated UI mockups. The sample p
 reset times and credits illustrate the layout; they do not promise specific plan entitlements.
 
 Current overview, account/Claude detail, Cursor popup/widget, ring-band detail/widget,
-`widget.png` and the two guide settings previews are generated from the **0.10.0
+and the two guide settings previews are generated from the **0.10.0
 development source**. The published stable release checked on **2026-10-05** is **0.9.1**;
 these previews do not describe a newly published release. Current popup and widget captures
 show the visible zoom percentages described below. The window headers use
@@ -417,6 +417,37 @@ View previews use WPF `RenderTargetBitmap` at 2x resolution under the smoke harn
 Neither takes a desktop screenshot. Each image must be visually inspected before
 replacing the checked-in file. Keep English and Korean captions consistent with the account counts,
 selected profile, data source and separate Claude periods.
+
+## Widget button and keyboard previews
+
+`widget-buttons-{en,ko}-{dark,light}.png` renders the production widget with synthetic
+accounts and the Refresh button focused. These five button/focus previews and
+`widget.png` were refreshed from **0.10.1 development source on 2026-10-12**;
+the earlier dated widget captures retain their original headers as evidence.
+Header hit targets are 26×28 DIP instead of 22×22 DIP, with unchanged icons.
+The 36 matching before/after WPF fixtures retain their outer widget and account-module
+bounds. Tab follows the header controls and then the account modules; Enter or Space
+on a module opens its existing detail popup. The focus preview
+`widget-buttons-focus-ko-dark-hc-fixture.png` uses a local high-contrast resource override.
+
+![Keyboard focus on the compact Korean dark widget](widget-buttons-ko-dark.png)
+
+Reproduce the production layout, keyboard/automation and preview checks after a Release build:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --widget-buttons artifacts/previews
+```
+
+The host was at 150% Windows DPI. Injected 100/125/150/175/200% layout checks do not
+establish physical-monitor behavior at those DPIs. The opt-in
+`--widget-buttons-baseline <directory>` collector must run against the original
+pre-edit production source; current source cannot supply the before artifact.
+
+The separate optional `--widget-buttons-native artifacts/previews` mode guards synthetic
+HWNDs before sending native input. The latest attempt failed at `SetForegroundWindow`
+before any input was sent, so native mouse/keyboard delivery remains unverified.
+Windows high contrast was false and actual OS high-contrast behavior remains untested;
+the local resource override does not change or establish that Windows setting.
 
 ## Historical opened window-options menu (removed 2026-10-08)
 

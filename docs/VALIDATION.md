@@ -2,6 +2,43 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Widget button accessibility (unreleased, 2026-10-12 Asia/Seoul):
+  - The production header buttons now expose 26×28 DIP targets instead of 22×22;
+    area increases 50.4% while zoom paths remain 16×16 DIP and other glyphs remain
+    12 DIP. Existing header padding/gap contains the larger targets without overlap.
+    BEFORE/AFTER shown-HWND measurements match outer, header and module bounds in
+    all 36 EN/KO, Dark/Light, 1/3/5-account, 80/100/150% app-zoom fixtures. At the
+    host's 150% DPI, the one-account 100% widget remains 254×165.33 DIP / 381×248 px.
+  - Header keyboard focus stays visible through zoom. Settings/Close and initial
+    Refresh labels are localized; disabled actions reject automation. Tab reaches
+    account modules and Enter/Space or UIA Invoke selects the account and opens the
+    existing detail popup. Focus loss or rebinding cancels pending Space/Invoke.
+    Modules remain Borders, preserving existing mouse click/drag classification.
+    No provider, authentication, updater or settings schema was changed.
+  - Release solution build passed with zero errors and three existing nullable
+    warnings in UiReuseChecks. All 103 relevant unit tests passed, zero skipped.
+    `--widget-buttons artifacts/previews` passed target-edge hit tests, unchanged
+    geometry/icon size, WPF focus traversal and Enter/Space class handlers, module
+    automation/rebinding and live local high-contrast resource fixtures. Injected
+    100/125/150/175/200% layout checks passed; they are not physical monitor tests.
+    All 982 independent zoom checks, 151 layout checks and 180 DPI/layout renders
+    passed, including native placement on two monitors. A measured 0.33-DIP
+    overlap at injected 150% DPI was fixed by restoring the percentage label's
+    original 2-DIP gap. Header containment assertions now check actual widget bounds
+    and module input overlap; horizontal order and text/icon clipping remain tested.
+    Production renders were visually inspected in EN/KO Dark/Light, including focus
+    and pressed contrast. Light-theme pressed icons use TextBrush on SelectionBrush.
+  - Final argument-free UiSmoke on the integrated source exited 0 with
+    `[ui-smoke] COMPLETE all default suites`, including Pin/Hide, account activation,
+    widget recovery/restart, drag/snap, zoom, DPI, settings and status freshness checks.
+  - Actual OS high contrast was **False**; a real OS high-contrast session was not
+    exercised. Optional `--widget-buttons-native artifacts/previews` exited 1 at
+    `Could not foreground synthetic widget for native input.` before any SendInput.
+    Native click/drag/Tab delivery is therefore **unverified**, not a pass. No guard
+    was weakened, and no actual-account access, install, restart or remote CI ran.
+    Evidence: `artifacts/widget-buttons-{build,unit,before,after,native,default}.log`
+    and the [paired measurements](measurements/widget-buttons-2026-10-12.csv).
+
 - Portable installer-hook routing (unreleased, 2026-10-12 Asia/Seoul):
   - The 2026-10-12 build-local run showed `Unknown or incomplete CycleArc launch argument.`
     before Setup. The independent portable distribution change skipped Velopack startup in
