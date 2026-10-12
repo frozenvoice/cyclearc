@@ -4,6 +4,33 @@ namespace CycleArc.Tests;
 
 public sealed class DesktopDistributionTests
 {
+    [Theory]
+    [InlineData("--veloapp-install")]
+    [InlineData("--veloapp-updated")]
+    [InlineData("--veloapp-obsolete")]
+    [InlineData("--veloapp-uninstall")]
+    [InlineData("--squirrel-install")]
+    [InlineData("--squirrel-updated")]
+    [InlineData("--squirrel-obsolete")]
+    [InlineData("--squirrel-uninstall")]
+    [InlineData("--VELOAPP-OBSOLETE")]
+    public void InstallerHooksRequireTheSdkArgumentShape(string hook)
+    {
+        Assert.True(DesktopDistribution.IsInstallerHook([hook, "0.5.9"]));
+        Assert.True(DesktopDistribution.IsInstallerHook([hook, "0.5.9", "--quiet"]));
+        Assert.False(DesktopDistribution.IsInstallerHook([hook]));
+        Assert.False(DesktopDistribution.IsInstallerHook(["--show", hook, "0.5.9"]));
+    }
+
+    [Theory]
+    [InlineData("--veloapp-unknown")]
+    [InlineData("--autorun")]
+    [InlineData("--claude-statusline")]
+    [InlineData("--cursor-hook")]
+    [InlineData("--apply-update")]
+    public void DesktopAndHeadlessArgumentsAreNotInstallerHooks(string argument)
+        => Assert.False(DesktopDistribution.IsInstallerHook([argument, "payload"]));
+
     [Fact]
     public void StandaloneAndVelopackPortableNeverAdoptAManagedInstallation()
     {

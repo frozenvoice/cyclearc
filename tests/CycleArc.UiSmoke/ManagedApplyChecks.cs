@@ -71,6 +71,10 @@ internal static class ManagedApplyChecks
         File.Copy(Path.Combine(currentDirectory, "Squirrel.exe"), Path.Combine(installationRoot, "Update.exe"));
         File.Copy(Path.Combine(currentDirectory, "CycleArc_ExecutionStub.exe"), Path.Combine(installationRoot, "CycleArc.exe"));
 
+        // The updater ignores hook failures. Verify the real app's fast exits first
+        // so a warning dialog or rejected hook cannot hide behind a successful apply.
+        InstallerHookProcessChecks.Run(Path.Combine(currentDirectory, MainExecutable));
+
         var snapshot = UpdateRecoverySnapshot.Create(installationRoot,
             Path.Combine(Path.GetDirectoryName(installationRoot)!, "recovery"), OldVersion);
 
