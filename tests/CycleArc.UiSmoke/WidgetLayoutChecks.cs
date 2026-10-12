@@ -95,10 +95,18 @@ internal static class WidgetLayoutChecks
                     $"Header order is not refresh, settings, close at {accountCount} account(s).");
                 checks++;
 
-                // Nothing in the header may be clipped by the widget at any account count.
-                Check(buttonBox.Left >= -0.1 && buttonBox.Top >= -0.1
-                    && buttonBox.Right <= header.ActualWidth + 0.1 && buttonBox.Bottom <= header.ActualHeight + 0.1,
-                    $"The widget refresh button is clipped at {accountCount} account(s).");
+                // Targets use existing header padding/gap above and below the 22-DIP row.
+                // Check actual widget clipping and module input overlap, not row containment.
+                var content = (FrameworkElement)widget.Content;
+                var moduleBox = widget.Modules[0].TransformToAncestor(content).TransformBounds(new Rect(widget.Modules[0].RenderSize));
+                foreach (var action in new[] { button, settings, close })
+                {
+                    var actionBox = action.TransformToAncestor(content).TransformBounds(new Rect(action.RenderSize));
+                    Check(actionBox.Left >= -0.1 && actionBox.Top >= -0.1
+                        && actionBox.Right <= content.ActualWidth + 0.1 && actionBox.Bottom <= content.ActualHeight + 0.1
+                        && actionBox.Bottom <= moduleBox.Top + 0.1,
+                        $"{action.Name} is clipped or overlaps module input at {accountCount} account(s).");
+                }
                 checks++;
 
                 // A click on the button is not a window drag and not an account press.

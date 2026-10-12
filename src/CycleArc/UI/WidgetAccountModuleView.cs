@@ -1,4 +1,10 @@
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
+using KeyEventArgs = System.Windows.Input.KeyEventArgs;
+using SystemColors = System.Windows.SystemColors;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using CycleArc.Codex;
@@ -14,6 +20,11 @@ namespace CycleArc.UI;
 /// </summary>
 public sealed class WidgetAccountModuleView : Border
 {
+    private static readonly DependencyProperty HighContrastProperty = DependencyProperty.Register(
+        "IsHighContrast", typeof(bool), typeof(WidgetAccountModuleView),
+        new PropertyMetadata(false, (owner, _) => ((WidgetAccountModuleView)owner).ApplySurface()));
+    private string? _spacePressedProfile;
+    public event Action? DetailsRequested;
     // Two 30-DIP period lines and their 4-DIP gap share the ring's vertical extent.
     internal const double RingDiameter = 64;
     private const double RingStroke = 6;
@@ -137,7 +148,9 @@ public sealed class WidgetAccountModuleView : Border
         Padding = SurfacePadding;
         CornerRadius = new CornerRadius(8);
         BorderThickness = new Thickness(SurfaceBorder);
-        Focusable = false;
+        Focusable = true;
+        KeyboardNavigation.SetIsTabStop(this, true);
+        SetResourceReference(HighContrastProperty, SystemParameters.HighContrastKey);
         _selectionPill.SetResourceReference(Border.BackgroundProperty, "AccentBrush");
         ApplySurface();
 
@@ -236,13 +249,81 @@ public sealed class WidgetAccountModuleView : Border
                 : "WidgetModuleHoverBrush");
         // Transparent, not null, so the whole module still takes clicks and drags.
         else Background = System.Windows.Media.Brushes.Transparent;
-        if (IsSelected) SetResourceReference(BorderBrushProperty, "LineBrush");
+        if (IsKeyboardFocused) SetResourceReference(BorderBrushProperty,
+            (bool)GetValue(HighContrastProperty) ? SystemColors.HighlightBrushKey : "AccentBrush");
+        else if (IsSelected) SetResourceReference(BorderBrushProperty, "LineBrush");
         else BorderBrush = System.Windows.Media.Brushes.Transparent;
         _selectionPill.Visibility = IsSelected ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    protected override void OnGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        base.OnGotKeyboardFocus(e);
+        ApplySurface();
+    }
+
+    protected override void OnLostKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        _spacePressedProfile = null;
+        base.OnLostKeyboardFocus(e);
+        ApplySurface();
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (Keyboard.Modifiers != ModifierKeys.None) return;
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            if (!e.IsRepeat) RequestDetails();
+        }
+        else if (e.Key == Key.Space)
+        {
+            e.Handled = true;
+            if (!e.IsRepeat) _spacePressedProfile = ProfileId;
+        }
+    }
+
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        base.OnKeyUp(e);
+        if (e.Key != Key.Space || _spacePressedProfile is null) return;
+        var pressed = _spacePressedProfile;
+        _spacePressedProfile = null;
+        e.Handled = true;
+        if (IsKeyboardFocused && Keyboard.Modifiers == ModifierKeys.None && ProfileId == pressed)
+            RequestDetails();
+    }
+
+    private void RequestDetails()
+    {
+        if (IsEnabled && IsVisible && !string.IsNullOrEmpty(ProfileId)) DetailsRequested?.Invoke();
+    }
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new AccountModuleAutomationPeer(this);
+
+    private sealed class AccountModuleAutomationPeer(WidgetAccountModuleView owner)
+        : FrameworkElementAutomationPeer(owner), IInvokeProvider
+    {
+        protected override string GetClassNameCore() => nameof(WidgetAccountModuleView);
+        protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Button;
+        public override object? GetPattern(PatternInterface patternInterface) =>
+            patternInterface == PatternInterface.Invoke ? this : base.GetPattern(patternInterface);
+        public void Invoke()
+        {
+            if (!owner.IsEnabled) throw new ElementNotEnabledException();
+            var requestedProfile = owner.ProfileId;
+            owner.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (owner.ProfileId == requestedProfile) owner.RequestDetails();
+            }));
+        }
+    }
+
     public void Bind(CodexAccountView account, WidgetAccountModel model)
     {
+        if (ProfileId != model.ProfileId) _spacePressedProfile = null;
         Model = model;
         ProfileId = model.ProfileId;
         var avatar = AccountSummary.AvatarFor(account, 22, _avatarHost.Child);
@@ -285,7 +366,9 @@ public sealed class WidgetAccountModuleView : Border
 
         ToolTip = model.Tooltip;
         System.Windows.Automation.AutomationProperties.SetName(this, AutomationText(model));
-        System.Windows.Automation.AutomationProperties.SetHelpText(this, status?.DetailText ?? model.Tooltip);
+        System.Windows.Automation.AutomationProperties.SetHelpText(this, (status?.DetailText ?? model.Tooltip)
+            + Environment.NewLine + UiText.T("Press Enter or Space to open account details.",
+                "Enter 또는 Space를 눌러 계정 상세를 확인하세요."));
 
         // BindAccounts measures immediately, before WPF propagates quota-row changes.
         ((FrameworkElement)Child).InvalidateMeasure();
