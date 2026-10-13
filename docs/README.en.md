@@ -359,6 +359,7 @@ optional-amount observation times and cached last-good values retain their exist
 - Only local preferences, profile references/labels, projected quota metadata, source/receipt metadata, connection paths/identity fingerprints and safe diagnostic logs are retained. Reported emails stay in memory for display. The Desktop token is discarded after the read; raw history, credentials, cookies, prompts, responses and transcripts are never copied into CycleArc.
 
 Settings and quota cache remain under `%LOCALAPPDATA%\ProMeter` for upgrade compatibility. Settings use atomic replacement with a previous-good backup and recovery if the primary file is damaged.
+An open canonical backup can defer its rotation to one fixed `settings.json.bak.next` recovery copy, keeping settings saves working. After the lock is released, the next successful save moves that copy back to the usual backup. Builds that know this recovery copy prefer it over the older backup if the primary is damaged; older builds only know the usual backup.
 The account registry (`codex-accounts.json`) also uses atomic writes and a previous-good backup. The legacy default profile uses `codex-snapshot.json`; new profiles and profiles replaced through **Reconnect** have separate quota caches. Reconnection preserves the old home and cache. Existing preferences and historical files are preserved.
 
 The current source no longer records separate quota-observation history. It does not read,

@@ -82,6 +82,21 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
 
 ### Provider and presentation contracts
 
+- Settings keep the existing `settings.json` schema and canonical `.bak` path. Writes
+  flush a same-directory temporary file before atomic replacement. If Windows 1175
+  prevents removal of an open canonical backup, the commit uses one fixed `.bak.next`
+  recovery slot instead. While present, that slot holds the immediate previous valid
+  settings and is preferred over `.bak` when the primary is missing or damaged.
+  After a successful primary commit, a same-directory rename normalizes it to `.bak`;
+  blocked backup maintenance leaves `.bak.next` intact and sets `BackupRotationDeferred`,
+  rather than reporting the already committed save as a failure. No delay/retry loop,
+  timestamps, new setting or growing backup collection is used. Primary commit failures
+  still propagate, and damaged-primary repair preserves both valid recovery copies.
+  A process-wide settings gate serializes separate stores; the desktop lease provides
+  cross-process ownership. If the active `.bak.next` is also locked, save fails while
+  preserving existing files. Older builds still read the unchanged primary normally,
+  but on primary damage during deferred rotation they only know the older `.bak`.
+
 - Cursor uses `CursorUsageProvider` behind the same account-service boundary. Connection
   verifies the current Windows Cursor login through the first-party profile endpoint, binds
   its identity hash and reads usage without changing Cursor's login or renewing credentials.

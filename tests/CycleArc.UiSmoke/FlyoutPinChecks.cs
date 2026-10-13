@@ -348,9 +348,10 @@ internal static class FlyoutPinChecks
         }
         finally
         {
-            // Only the two explicitly owned fixture files are removed; refuse unknown contents.
+            // Only the explicitly owned settings/backup files are removed; refuse unknown contents.
             File.Delete(Path.Combine(directory, "settings.json"));
             File.Delete(Path.Combine(directory, "settings.json.bak"));
+            File.Delete(Path.Combine(directory, "settings.json.bak.next"));
             Directory.Delete(directory);
         }
     }
