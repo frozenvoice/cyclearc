@@ -79,6 +79,22 @@ internal static class WidgetDpiChecks
                         count++;
                     }
                 }
+                foreach (var deadline in new DateTimeOffset?[] { null, now.AddSeconds(30), now.AddSeconds(-1),
+                             now.AddDays(30).AddHours(23) })
+                {
+                    var varying = accounts.Select(account => account.Profile.Provider == UsageProviderId.Cursor
+                        ? account with { Snapshot = account.Snapshot with
+                        {
+                            Windows = account.Snapshot.Windows.Select(window => window with { ResetsAt = deadline }).ToArray()
+                        } } : account).ToArray();
+                    Bind(widget, varying, CodexQuotaStatus.Available);
+                    content.InvalidateMeasure();
+                    content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    content.Arrange(new Rect(new Point(), content.DesiredSize));
+                    content.UpdateLayout();
+                    AssertModuleLayout(widget, $"{language}/{theme}/{scale}/cursor-deadline={deadline}");
+                    count++;
+                }
             }
             finally { widget.Close(); }
         }
@@ -122,10 +138,10 @@ internal static class WidgetDpiChecks
     private static CodexQuotaSnapshot CursorSnapshot(DateTimeOffset now) =>
         new CodexQuotaSnapshot(CodexQuotaStatus.Available, "pro", now, now, null, null, null,
         [
-            new("cursor-auto", 76.9, null, now.AddDays(12), CodexWindowKind.Other),
-            new("cursor-api", 41.2, null, now.AddDays(12), CodexWindowKind.Other),
+            new("cursor-auto", 76.9, null, now.AddDays(12).AddHours(13), CodexWindowKind.Other),
+            new("cursor-api", 41.2, null, now.AddDays(12).AddHours(13), CodexWindowKind.Other),
             new("cursor-on-demand", null, null, null, CodexWindowKind.Other) { IsEnabled = false },
-            new("cursor-sand", 12.5, null, now.AddDays(5), CodexWindowKind.Other),
+            new("cursor-sand", 12.5, null, now.AddDays(5).AddHours(1), CodexWindowKind.Other),
             new("cursor-team-pool", 22.5, null, now.AddDays(12), CodexWindowKind.Other)
         ], CursorUsagePresentation.LiveDetail) with { Provider = UsageProviderId.Cursor };
 
@@ -165,7 +181,7 @@ internal static class WidgetDpiChecks
                 if (periodRight > remainingLeft + 0.01)
                     throw new InvalidOperationException($"Period label overlaps its remaining value ({context}).");
                 if (line.RemainingText.ActualWidth + 0.5 < line.RemainingText.DesiredSize.Width
-                    || line.ResetText.ActualWidth + 0.5 < line.ResetText.DesiredSize.Width)
+                    || line.ResetText.ActualWidth + line.ResetText.Margin.Left + 0.5 < line.ResetText.DesiredSize.Width)
                     throw new InvalidOperationException($"A quota or reset value is clipped ({context}).");
             }
             if (module.Model?.Provider == UsageProviderId.Cursor)
@@ -177,18 +193,37 @@ internal static class WidgetDpiChecks
                 if (!modelPeriods.Select(line => line.PeriodLabel).SequenceEqual(expected))
                     throw new InvalidOperationException($"Cursor summary order or labels changed ({context}).");
                 if (module.Periods.Zip(modelPeriods).Any(pair => string.IsNullOrEmpty(pair.Second.CadenceLabel)
-                    || !string.IsNullOrEmpty(pair.First.ResetText.Text)
-                    || pair.Second.ResetTooltip is null))
+                    || pair.First.ResetText.Text != pair.Second.ResetText
+                    || pair.Second.ResetTooltip != CodexDeadlineFormatting.ResetStampTooltip(pair.Second.ResetsAt)))
                     throw new InvalidOperationException($"Cursor summary repeated reset text or lost cadence/reset tooltip ({context}).");
                 for (var i = 0; i < module.Periods.Count; i++)
                 {
                     var startsGroup = i == 0
                         || !string.Equals(modelPeriods[i].CadenceLabel, modelPeriods[i - 1].CadenceLabel,
-                            StringComparison.Ordinal);
+                            StringComparison.Ordinal)
+                        || modelPeriods[i].ResetsAt != modelPeriods[i - 1].ResetsAt;
                     var cadence = module.Periods[i].CadenceText;
+                    var reset = module.Periods[i].ResetText;
                     if (cadence.Visibility != (startsGroup ? Visibility.Visible : Visibility.Collapsed)
-                        || startsGroup && cadence.Text != modelPeriods[i].CadenceLabel + UiText.T(" · Left", " · 남음"))
+                        || reset.Visibility != cadence.Visibility
+                        || startsGroup && cadence.Text != modelPeriods[i].CadenceLabel)
                         throw new InvalidOperationException($"Cursor cadence grouping changed ({context}).");
+                    if (startsGroup)
+                    {
+                        var cadenceBounds = cadence.TransformToAncestor(module).TransformBounds(new Rect(cadence.RenderSize));
+                        var resetBounds = reset.TransformToAncestor(module).TransformBounds(new Rect(reset.RenderSize));
+                        var stacked = Grid.GetRow(reset) == 1;
+                        var separated = stacked ? cadenceBounds.Bottom <= resetBounds.Top + 1.01
+                            : Math.Abs(cadenceBounds.Top - resetBounds.Top) <= 1.01
+                                && cadenceBounds.Right <= resetBounds.Left + 1.01;
+                        if (!ReferenceEquals(cadence.Parent, reset.Parent) || !separated
+                            || stacked && cadence.DesiredSize.Width + reset.DesiredSize.Width
+                                <= ((Grid)reset.Parent).ActualWidth
+                            || resetBounds.Right > module.ActualWidth + 1.01
+                            || cadence.ActualWidth + cadence.Margin.Left + 1.01 < cadence.DesiredSize.Width
+                            || reset.ActualWidth + reset.Margin.Left + 1.01 < reset.DesiredSize.Width)
+                            throw new InvalidOperationException($"Cursor heading/countdown overlap or clipping ({context}).");
+                    }
                 }
                 if (module.RingTargetText.Text != "Cursor"
                     || module.RingTargetText.TextWrapping != TextWrapping.NoWrap

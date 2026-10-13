@@ -2,6 +2,41 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Cursor widget reset countdowns (unreleased, 2026-10-14 Asia/Seoul):
+  - Started from clean `f4384f2415c3c0e214d93b8a0a5da8b6119a65c3` with no open PRs;
+    the other checkout and its `main` branch were preserved. This is presentation only:
+    existing reported monthly/weekly deadlines use the Codex/Claude countdown formatter,
+    with no new provider requests, inferred cycles, persisted fields or dependencies.
+  - Matching cadence and exact original deadline share one heading. Different deadlines,
+    including different seconds in the same displayed minute, or known/missing dates are
+    kept independent. Missing dates stay **Reset not provided** and elapsed dates stay
+    **Awaiting refresh**. Exact timestamps and existing stale/identity protection remain.
+  - Release solution build passed; existing unrelated analyzer/nullability warnings remain.
+    All **2,321** unit tests passed (zero failed/skipped), including **45** focused
+    widget/deadline tests. New localized cases cover independent monthly/weekly times,
+    ticking without a new sample, expiry and missing dates without sibling inheritance.
+  - **96** synthetic production WPF Cursor previews passed EN/KO, Dark/Light,
+    80/100/150% zoom, mixed/wrapped accounts, long nicknames, large monetary values,
+    missing/different deadlines, imminent/elapsed resets and authentication/stale states.
+    Actual layout/rebinding checks cover exact-second grouping, missing-date recovery,
+    two-line to one-line recovery and in-place Cursor/other-provider transitions.
+    Four affected documentation PNGs were replaced with inspected production renders.
+  - The final argument-free UiSmoke run exited 0 with
+    `[ui-smoke] COMPLETE all default suites`. It includes monitoring, Claude reset,
+    native focus/recovery, account/zoom/layout, tray and **300** DPI/layout renders at
+    injected 100/125/150/175/200% plus native windows on **3** monitors. Logged host WPF
+    DPI was **100% (96 DPI)**. Fixed 232-DIP modules, 64-DIP rings and existing font sizes
+    remain; normal countdowns share the existing heading row. Long localized state text
+    alone may need another 14-DIP line; an independently dated monthly group needs its
+    own 14-DIP heading and existing 4-DIP gap. Tests reject unnecessary extra lines,
+    overlap, clipping and account/ring misalignment rather than shrinking text.
+  - Runtime work is bounded local formatting and measurement of two existing header
+    texts during layout; no polling, history write cadence, network or disk I/O path
+    changed. No new CPU/memory benchmark, real-account probe, package/install or remote
+    CI run was needed for this display change. Repository workflows are manual-only;
+    the applicable local gate above is the ordinary-development procedure. The running
+    installation was not replaced and no release was published.
+
 - Claude reset continuity and build-local focus attribution (unreleased, 2026-10-13 Asia/Seoul):
   - On the unchanged source, both server→newer Desktop reproduction tests failed with
     expected future dates replaced by null. OAuth absent/null reset fields are a second

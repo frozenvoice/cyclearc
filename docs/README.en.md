@@ -36,7 +36,8 @@ The **Codex**, **Claude** or **Cursor** label on account cards, selected details
 
 [Download for Windows](https://github.com/frozenvoice/cyclearc/releases/latest) · [Multi-account examples](#accounts) · [한국어](README.ko.md) · [Quick start](../README.md) · [Report an issue](https://github.com/frozenvoice/cyclearc/issues)
 
-Current popup, widget and settings previews use the **0.10.0 development source** with
+Except for the Cursor widget previews refreshed on 2026-10-14 from 0.10.1 development
+source, current popup, widget and settings previews use the **0.10.0 development source** with
 synthetic accounts. The published stable release checked on **2026-10-05** is **0.9.1**;
 the latest-release link can change. Historical comparisons and sample update screens are
 labeled separately.
@@ -64,6 +65,8 @@ labeled separately.
 
 The Cursor widget prioritizes **Cursor Models**, **Other Models**, then **Grok Bot**, showing at most three reported allowances under Monthly / Weekly headings. Inside the ring, **Cursor**, **Other** or **Grok Bot** identifies the allowance above what is left of it; the adjacent rows and tooltip retain the full name. The ring prefers a known value in that same order, regardless of response order. Disabled on-demand and other budget rows stay in the tooltip and detail popup, along with exact reset and update times. Healthy server data hides the header status icon; pending, stale-data and authentication states use an icon with their full explanation in the tooltip.
 
+The existing Monthly / Weekly heading row also shows the reset countdown, in the same format as Codex and Claude (for example, **in 12d 3h**). Monthly allowances share one heading only when their reported deadlines match; differing deadlines, or a deadline known for only one allowance, stay separate. Missing dates show **Reset not provided** and passed dates show **Awaiting refresh**. Exact dates and times remain in tooltips and the detail popup. The countdown uses existing server samples and local clock arithmetic, with no additional requests or inferred next cycle. Module width, quota values and rings retain their existing sizes. Normal countdowns keep the existing single heading row; exceptionally long localized missing, elapsed or imminent-reset states use a second line without shrinking or clipping the text.
+
 If only Grok Bot is unavailable, the monthly allowances remain updated and continue refreshing. Grok Bot's retry delay applies only to Grok Bot; its unverified value is omitted, with an explanation in the popup. Account mismatch still respects the configured automatic interval, including after reopening the popup or restarting CycleArc.
 
 In the widget, the allowance the ring shows is marked with a dot in the ring's colour and bold ordinary text. It is the representative limit shown in the ring, not the model used last.
@@ -74,7 +77,7 @@ CycleArc reads only the required access-token key in Cursor's local account data
 
 | Cursor popup | Cursor widget |
 | --- | --- |
-| ![Cursor popup with separate allowances](images/cursor-popup-en-light.png) | ![Compact Cursor widget with exact update time in its tooltip](images/cursor-widget-en-light.png) |
+| ![Cursor popup with separate allowances](images/cursor-popup-en-light.png) | ![Compact Cursor widget with monthly and weekly reset countdowns](images/cursor-widget-en-light.png) |
 
 Production views with synthetic usage values; these images do not show a real account.
 

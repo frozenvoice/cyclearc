@@ -16,6 +16,9 @@ public sealed record WidgetPeriodLine(
     bool IsRepresentative)
 {
     public string? CadenceLabel { get; init; }
+    // Cursor headings may share a countdown only for the same reported deadline,
+    // including its full precision; missing timestamps never inherit a sibling's date.
+    public DateTimeOffset? ResetsAt { get; init; }
     public string? Tooltip { get; init; }
     public string DisplayRemainingText { get; init; } = RemainingText;
     // Validated remainder of this limit for its small bar; unknown usage draws no bar.
@@ -145,7 +148,7 @@ public sealed record WidgetAccountModel(
         if (CursorUsagePresentation.IsCursor(snapshot))
         {
             var cursorWindows = CursorPeriodWindows(snapshot);
-            return cursorWindows.Select(window => CursorLine(window, ring)).ToArray();
+            return cursorWindows.Select(window => CursorLine(window, ring, at)).ToArray();
         }
 
         // The represented period leads so the ring and its line read together; every other
@@ -172,7 +175,7 @@ public sealed record WidgetAccountModel(
         }).ToArray();
     }
 
-    private static WidgetPeriodLine CursorLine(CodexQuotaWindow window, CodexRingPresentation ring)
+    private static WidgetPeriodLine CursorLine(CodexQuotaWindow window, CodexRingPresentation ring, DateTimeOffset at)
     {
         var resetTooltip = CodexDeadlineFormatting.ResetStampTooltip(window.ResetsAt);
         return new WidgetPeriodLine(
@@ -180,11 +183,12 @@ public sealed record WidgetAccountModel(
             window.WindowDurationMinutes,
             CursorUsagePresentation.QuotaLabel(window.LimitId),
             CursorUsagePresentation.RemainingText(window),
-            "",
+            CodexDeadlineFormatting.ResetCountdown(window.ResetsAt, at),
             resetTooltip,
             ReferenceEquals(window, ring.Window))
         {
             CadenceLabel = CursorUsagePresentation.QuotaPeriodLabel(window.LimitId),
+            ResetsAt = window.ResetsAt,
             Tooltip = CursorWindowTooltip(window),
             // Round directly from the percentage, never from an already formatted string.
             // Amounts, disabled/unlimited states and all tooltip text retain their own format.

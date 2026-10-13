@@ -33,7 +33,7 @@ public sealed class CursorWidgetAccountModelTests
             model.Periods.Select(period => period.CadenceLabel));
         Assert.Equal(new[] { "$80", "$70", "$6" },
             model.Periods.Select(period => period.RemainingText));
-        Assert.All(model.Periods, period => Assert.Empty(period.ResetText));
+        Assert.Equal(new[] { "in 1d", "in 2d", "in 3d" }, model.Periods.Select(period => period.ResetText));
         foreach (var period in model.Periods)
         {
             Assert.NotNull(period.Tooltip);
@@ -138,11 +138,56 @@ public sealed class CursorWidgetAccountModelTests
         var unknownLine = Assert.Single(model.Periods, period => period.PeriodLabel == "Cursor Models");
         var knownLine = Assert.Single(model.Periods, period => period.PeriodLabel == "Other Models");
         Assert.Equal("?", unknownLine.RemainingText);
-        Assert.Empty(unknownLine.ResetText);
+        Assert.Equal(UiText.ResetNotProvided, unknownLine.ResetText);
         Assert.Null(unknownLine.ResetTooltip);
         Assert.Equal(CodexDeadlineFormatting.ResetStampTooltip(reset), knownLine.ResetTooltip);
+        Assert.Equal("in 4h", knownLine.ResetText);
         Assert.Equal(unknown, snapshot.Windows[0]);
         Assert.Equal(known, snapshot.Windows[1]);
+    }
+
+    [Theory]
+    [InlineData(UiLanguage.English, "in 12d 13h", "in 3d 1h", "Awaiting refresh")]
+    [InlineData(UiLanguage.Korean, "12일 13시간 후", "3일 1시간 후", "갱신 대기")]
+    public void CursorCountdownsUseReportedMonthlyAndWeeklyDeadlinesAndTickWithoutNewSamples(
+        UiLanguage language, string monthly, string weekly, string awaiting)
+    {
+        UiText.SetLanguage(language);
+        try
+        {
+            var end = Now.AddDays(12).AddHours(13).AddSeconds(29);
+            var snapshot = Snapshot(
+                Window("cursor-auto", 25, null, null, null, end),
+                Window("cursor-api", 35, null, null, null, end),
+                Window("cursor-sand", 10, null, null, null, Now.AddDays(3).AddHours(1)));
+            var account = Account(snapshot);
+            var model = WidgetAccountModel.From(account, false, now: Now);
+            Assert.Equal(new[] { monthly, monthly, weekly }, model.Periods.Select(period => period.ResetText));
+            Assert.Equal(end, model.Periods[0].ResetsAt);
+            Assert.Equal(end, model.Periods[1].ResetsAt);
+            Assert.Equal(snapshot.Windows[2].ResetsAt, model.Periods[2].ResetsAt);
+
+            var later = WidgetAccountModel.From(account, false, now: end);
+            Assert.All(later.Periods, period => Assert.Equal(awaiting, period.ResetText));
+            Assert.Same(snapshot, account.Snapshot);
+            Assert.Equal(model.Periods[0].ResetTooltip, later.Periods[0].ResetTooltip);
+        }
+        finally { UiText.SetLanguage(UiLanguage.English); }
+    }
+
+    [Fact]
+    public void CursorMissingMonthlyResetNeverBorrowsAnotherAllowanceDeadline()
+    {
+        var snapshot = Snapshot(
+            Window("cursor-auto", 25, null, null, null, null),
+            Window("cursor-api", 35, null, null, null, Now.AddDays(12)),
+            Window("cursor-sand", 10, null, null, null, Now.AddDays(3)));
+        var model = WidgetAccountModel.From(Account(snapshot), false, now: Now);
+        Assert.Equal(UiText.ResetNotProvided, model.Periods[0].ResetText);
+        Assert.Null(model.Periods[0].ResetsAt);
+        Assert.Null(model.Periods[0].ResetTooltip);
+        Assert.Equal("in 12d", model.Periods[1].ResetText);
+        Assert.Equal("in 3d", model.Periods[2].ResetText);
     }
 
     [Fact]

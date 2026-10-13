@@ -1129,7 +1129,7 @@ internal static class WidgetLayoutChecks
         foreach (var line in last.Periods)
         {
             Check(line.RemainingText.ActualWidth + 0.5 >= line.RemainingText.DesiredSize.Width
-                && line.ResetText.ActualWidth + 0.5 >= line.ResetText.DesiredSize.Width,
+                && line.ResetText.ActualWidth + line.ResetText.Margin.Left + 0.5 >= line.ResetText.DesiredSize.Width,
                 $"{name}: a quota or reset value is clipped on the last account.");
         }
     }

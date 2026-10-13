@@ -74,15 +74,18 @@ internal static class CursorUiChecks
                         "Cursor widget omits the allowance cadence: " + label);
                     var startsGroup = index == 0
                         || !string.Equals(modelLine.CadenceLabel, module.Model.Periods[index - 1].CadenceLabel,
-                            StringComparison.Ordinal);
-                    var expectedCadence = modelLine.CadenceLabel + UiText.T(" · Left", " · 남음");
+                            StringComparison.Ordinal)
+                        || modelLine.ResetsAt != module.Model.Periods[index - 1].ResetsAt;
+                    var expectedCadence = modelLine.CadenceLabel;
                     Check(line.CadenceText.Visibility == (startsGroup ? Visibility.Visible : Visibility.Collapsed)
                         && (!startsGroup || line.CadenceText.Text == expectedCadence),
                         "Cursor widget does not render the cadence group label: " + label);
                     Check(line.RemainingText.Text == modelLine.DisplayRemainingText,
                         "Cursor widget changed the compact remaining value: " + label);
-                    Check(string.IsNullOrEmpty(line.ResetText.Text),
-                        "Cursor widget repeated reset text on every compact allowance: " + label);
+                    Check(line.ResetText.Text == modelLine.ResetText
+                        && line.ResetText.Visibility == (startsGroup ? Visibility.Visible : Visibility.Collapsed)
+                        && ReferenceEquals(line.ResetText.Parent, line.CadenceText.Parent),
+                        "Cursor widget did not show one countdown in its cadence heading: " + label);
                     Check(modelLine.ResetTooltip == CodexDeadlineFormatting.ResetStampTooltip(window.ResetsAt),
                         "Cursor widget lost the exact reset tooltip: " + label);
                     Check((line.ToolTip as string ?? "").Contains(modelLine.ResetTooltip ?? UiText.ResetNotProvided,

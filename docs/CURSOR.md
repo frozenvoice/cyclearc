@@ -181,6 +181,22 @@ The display names match Plan & Usage: `cursor-auto` is **Cursor Models · Monthl
 `cursor-api` is **Other Models · Monthly**, and `cursor-sand` is **Grok Bot · Weekly**.
 Korean uses the same official names with **월간/주간**. These are presentation labels only;
 no duration or reset is synthesized and the internal keys and selection policy stay unchanged.
+
+Widget reset countdowns (2026-10-14): the existing Monthly / Weekly heading row shows the same `ResetCountdown` format as
+Codex and Claude, calculated from the reported `ResetsAt` and the local clock. Adjacent
+allowances share a heading and countdown only when both their cadence and exact reported
+deadline match; formatted text is not used to decide this. Different monthly deadlines,
+or a deadline missing for only one monthly allowance, receive separate headings. Two
+missing deadlines may share an explicit **Reset not provided** heading. An elapsed
+deadline shows **Awaiting refresh**; no period is added to invent the next reset.
+
+The exact local date/time stays in the allowance tooltip and existing detail popup.
+This changes presentation only: no provider requests, model calls, cache fields or account
+bindings are added. Fixed module width, usage rows and ring dimensions are retained.
+Normal countdowns use the existing single heading row; exceptionally long localized
+missing, elapsed or imminent-reset states use a second line without shrinking or
+clipping text. Independent differing deadlines require additional headings.
+
 Sand failure and retry metadata are persisted independently. A Sand retry deadline skips
 only that request; verified monthly responses continue to update their own timestamp and
 remain available. The popup can explain the missing Grok data without marking the monthly
