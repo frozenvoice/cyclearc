@@ -213,8 +213,7 @@ public sealed class CursorUsageCollector : ICursorUsageSource
             if (window.UsedPercent is { } percent
                 && (!double.IsFinite(percent) || percent is < 0 or > 100)) return false;
             if (window.UsedAmount is { } used && used < 0
-                || window.LimitAmount is { } limit && limit < 0
-                || window.RemainingAmount is { } remaining && remaining < 0) return false;
+                || window.LimitAmount is { } limit && limit < 0) return false;
             if (window.ResetsAt is { } reset && reset <= DateTimeOffset.UnixEpoch) return false;
             if (window.AmountObservedAt is { } amountAt
                 && (amountAt <= DateTimeOffset.UnixEpoch || amountAt > sample.ObservedAt)) return false;
@@ -222,11 +221,16 @@ public sealed class CursorUsageCollector : ICursorUsageSource
         }
         if (sample.BillingCycleStart is { } start && start <= DateTimeOffset.UnixEpoch) return false;
         if (sample.BillingCycleEnd is { } end && end <= DateTimeOffset.UnixEpoch) return false;
+        if (!CursorPlanAmounts.Valid(sample.PlanAmounts, sample.ObservedAt)
+            || sample.PlanAmountsFailure is not (null or "cursor-plan-amounts-unavailable" or "cursor-plan-amounts-not-provided")) return false;
         return true;
     }
 
     private static CursorUsageSample PreserveOnDemand(CursorUsageSample sample, CursorUsageSample? previous)
     {
+        if (sample.PlanAmounts is null && previous?.PlanAmounts is { } previousPlan)
+            sample = sample with { PlanAmounts = previousPlan,
+                PlanAmountsFailure = sample.PlanAmountsFailure ?? "cursor-plan-amounts-not-provided" };
         var lastGood = previous?.Windows.FirstOrDefault(window => window.LimitId == "cursor-on-demand"
             && (window.AmountObservedAt is not null || window.AmountFailure is null));
         if (lastGood is null) return sample;

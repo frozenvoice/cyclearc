@@ -11,6 +11,8 @@ public sealed record ClaudeLiveUsageSample(DateTimeOffset ObservedAt, ClaudeLive
 {
     public ClaudeExtraUsage? ExtraUsage { get; init; }
     public string? ExtraUsageFailure { get; init; }
+    public ClaudeResetCreditInventory? ResetCredits { get; init; }
+    public string? ResetCreditsFailure { get; init; }
 }
 public sealed record ClaudeLiveUsageUpdate(ClaudeLiveUsageSample? Sample, string? Failure = null, DateTimeOffset? AttemptedAt = null);
 
@@ -100,7 +102,7 @@ public sealed class ClaudeLiveUsageCollector : IClaudeLiveUsageSource
             var failure = response.Failure;
             if (!ValidFailure(failure) || (sample is not null && (!ValidSample(sample, _clock.UtcNow)
                 || sample.ObservedAt < binding!.ConnectedAt
-                || sample.ExtraUsage?.ObservedAt < binding.ConnectedAt)) || (sample is null && failure is null))
+                || sample.ExtraUsage?.ObservedAt < binding.ConnectedAt || sample.ResetCredits?.ObservedAt < binding.ConnectedAt)) || (sample is null && failure is null))
             { sample = null; failure = "claude-live-unavailable"; }
             if (failure is not null) sample = null;
             // Subscription quota and extra usage have independent success clocks. A
@@ -108,6 +110,9 @@ public sealed class ClaudeLiveUsageCollector : IClaudeLiveUsageSource
             if (sample is { ExtraUsage: null } && previous?.LastGood?.ExtraUsage is { } previousExtra)
                 sample = sample with { ExtraUsage = previousExtra,
                     ExtraUsageFailure = sample.ExtraUsageFailure ?? "claude-extra-usage-unavailable" };
+            if (sample is { ResetCredits: null } && previous?.LastGood?.ResetCredits is { } previousResets)
+                sample = sample with { ResetCredits = previousResets,
+                    ResetCreditsFailure = sample.ResetCreditsFailure ?? "claude-reset-credits-not-provided" };
             var good = sample ?? previous?.LastGood;
             var retry = failure == "claude-live-rate-limited" ? response.RetryAfter : null;
             if (retry is not null) retry = ClampRetry(retry.Value, _clock.UtcNow);
@@ -140,13 +145,13 @@ public sealed class ClaudeLiveUsageCollector : IClaudeLiveUsageSource
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (stream.Length is <= 0 or > 8192) return false;
+            if (stream.Length is <= 0 or > 65536) return false;
             var value = JsonSerializer.Deserialize<Cache>(stream, Options);
             var now = _clock.UtcNow;
             if (value is not { Version: 1 } || value.ProfileId != _profileId || value.BindingKey != BindingKey(binding)
                 || !ValidFailure(value.Failure) || value.LastAttempted <= DateTimeOffset.UnixEpoch || value.LastAttempted > now
                 || (value.LastGood is { } sample && (!ValidSample(sample, now) || sample.ObservedAt < binding.ConnectedAt
-                    || sample.ExtraUsage?.ObservedAt < binding.ConnectedAt))
+                    || sample.ExtraUsage?.ObservedAt < binding.ConnectedAt || sample.ResetCredits?.ObservedAt < binding.ConnectedAt))
                 || (value.RetryAfter is { } retry && (value.Failure != "claude-live-rate-limited"
                     || retry <= DateTimeOffset.UnixEpoch || retry > value.LastAttempted.AddDays(1)))) return false;
             state = value;
@@ -184,7 +189,10 @@ public sealed class ClaudeLiveUsageCollector : IClaudeLiveUsageSource
         && ValidWindow(sample.FiveHour) && ValidWindow(sample.SevenDay)
         && ClaudeExtraUsage.Valid(sample.ExtraUsage, now)
         && (sample.ExtraUsage is null || sample.ExtraUsage.ObservedAt <= sample.ObservedAt)
-        && sample.ExtraUsageFailure is null or "claude-extra-usage-unavailable";
+        && sample.ExtraUsageFailure is null or "claude-extra-usage-unavailable"
+        && ClaudeResetCreditInventory.Valid(sample.ResetCredits, now)
+        && (sample.ResetCredits is null || sample.ResetCredits.ObservedAt <= sample.ObservedAt)
+        && sample.ResetCreditsFailure is null or "claude-reset-credits-unavailable" or "claude-reset-credits-not-provided";
     private static bool ValidWindow(ClaudeLiveUsageWindow? window) => window is null
         || (double.IsFinite(window.UsedPercentage) && window.UsedPercentage is >= 0 and <= 100
             && (window.ResetsAt is null || window.ResetsAt > DateTimeOffset.UnixEpoch));

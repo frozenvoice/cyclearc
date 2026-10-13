@@ -138,19 +138,31 @@ public sealed class CursorUsageClient : ICursorUsageClient, IDisposable
         var membership = StringProperty(root, "membershipType");
         var limitType = StringProperty(root, "limitType");
         var windows = new List<CodexQuotaWindow>();
+        CursorPlanAmounts? planAmounts = null;
+        string? planAmountsFailure = null;
 
         if (TryObject(root, "individualUsage", out var individual))
         {
             if (TryObject(individual, "plan", out var plan))
             {
+                try
+                {
+                    var hasBreakdown = TryObject(plan, "breakdown", out var breakdown);
+                    planAmounts = new(Amount(plan, "used"), Amount(plan, "limit"), Amount(plan, "remaining", allowNegative: true),
+                        hasBreakdown ? Amount(breakdown, "included") : null,
+                        hasBreakdown ? Amount(breakdown, "bonus") : null,
+                        hasBreakdown ? Amount(breakdown, "total") : null, "USD", Bool(plan, "enabled"),
+                        Bool(plan, "isUnlimited") ?? false, observedAt);
+                }
+                catch (InvalidDataException) { planAmountsFailure = "cursor-plan-amounts-unavailable"; }
                 var auto = PercentProperty(plan, "autoPercentUsed");
                 var api = PercentProperty(plan, "apiPercentUsed");
                 // Cursor reports these as independently billed allowances. A reported plan
                 // total is only a fallback when neither split allowance exists.
                 if (auto.HasValue || api.HasValue)
                 {
-                    windows.Add(Window("cursor-auto", auto, end, plan, "auto"));
-                    windows.Add(Window("cursor-api", api, end, plan, "api"));
+                    windows.Add(Window("cursor-auto", auto, end, plan, "auto", includeAmounts: false));
+                    windows.Add(Window("cursor-api", api, end, plan, "api", includeAmounts: false));
                 }
                 else if (PercentProperty(plan, "totalPercentUsed") is { } total)
                 {
@@ -194,7 +206,8 @@ public sealed class CursorUsageClient : ICursorUsageClient, IDisposable
         var unique = new HashSet<string>(StringComparer.Ordinal);
         if (windows.Any(window => !unique.Add(window.LimitId ?? "")))
             throw new InvalidDataException("Cursor usage contains duplicate allowances.");
-        return new(observedAt, windows, start, end, membership, limitType);
+        return new(observedAt, windows, start, end, membership, limitType)
+            { PlanAmounts = planAmounts, PlanAmountsFailure = planAmountsFailure };
     }
 
     public static CodexQuotaWindow? ParseSand(JsonElement root, DateTimeOffset observedAt)
@@ -368,9 +381,9 @@ public sealed class CursorUsageClient : ICursorUsageClient, IDisposable
     {
         decimal? used = includeAmounts ? Amount(source, amountPrefix is null ? "used" : amountPrefix + "Used") : null;
         decimal? limit = includeAmounts ? Amount(source, amountPrefix is null ? "limit" : amountPrefix + "Limit") : null;
-        decimal? remaining = includeAmounts ? Amount(source, amountPrefix is null ? "remaining" : amountPrefix + "Remaining") : null;
-        var enabled = Bool(source, "enabled");
-        var unlimited = Bool(source, "isUnlimited") ?? false;
+        decimal? remaining = includeAmounts ? Amount(source, amountPrefix is null ? "remaining" : amountPrefix + "Remaining", allowNegative: true) : null;
+        var enabled = includeAmounts ? Bool(source, "enabled") : null;
+        var unlimited = includeAmounts ? Bool(source, "isUnlimited") ?? false : false;
         return new CodexQuotaWindow(id, percent, null, reset, CodexWindowKind.Other)
         {
             UsedAmount = used,
@@ -382,12 +395,12 @@ public sealed class CursorUsageClient : ICursorUsageClient, IDisposable
         };
     }
 
-    private static decimal? Amount(JsonElement source, string name)
+    private static decimal? Amount(JsonElement source, string name, bool allowNegative = false)
     {
         if (source.ValueKind != JsonValueKind.Object || !source.TryGetProperty(name, out var value)
             || value.ValueKind == JsonValueKind.Null) return null;
         if (value.ValueKind != JsonValueKind.Number || !value.TryGetDecimal(out var number)
-            || number < 0) throw new InvalidDataException("Cursor amount is malformed.");
+            || (!allowNegative && number < 0)) throw new InvalidDataException("Cursor amount is malformed.");
         return number / 100m;
     }
 

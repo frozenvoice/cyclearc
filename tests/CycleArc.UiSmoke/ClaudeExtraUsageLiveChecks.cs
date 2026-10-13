@@ -45,6 +45,10 @@ internal static class ClaudeExtraUsageLiveChecks
                     return 1;
                 }
                 var extra = sample.ExtraUsage;
+                Console.WriteLine("Claude reset inventory live read (ordinary existing GET): provided="
+                    + (sample.ResetCredits is not null) + "; eligible=" + (sample.ResetCredits?.Eligible.ToString() ?? "unknown")
+                    + "; optional shape accepted=" + (sample.ResetCreditsFailure is null)
+                    + "; no inventory query or redemption was added.");
                 Console.WriteLine("Claude extra usage live read: identity verified; subscription quota accepted; "
                     + (sample.ExtraUsageFailure is not null ? "optional extra usage shape unavailable."
                         : extra is null ? "extra usage not provided."

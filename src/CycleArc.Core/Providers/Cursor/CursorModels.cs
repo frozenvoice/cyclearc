@@ -211,7 +211,24 @@ public sealed record CursorUsageSample(
     DateTimeOffset? BillingCycleStart = null,
     DateTimeOffset? BillingCycleEnd = null,
     string? MembershipType = null,
-    string? LimitType = null);
+    string? LimitType = null)
+{
+    public CursorPlanAmounts? PlanAmounts { get; init; }
+    public string? PlanAmountsFailure { get; init; }
+}
+
+// Currency counters for the entire personal plan. Auto/API percentages are separate
+// source metrics; no per-lane amount is inferred from these aggregate amounts.
+public sealed record CursorPlanAmounts(decimal? UsedAmount, decimal? LimitAmount, decimal? RemainingAmount,
+    decimal? IncludedAmount, decimal? BonusAmount, decimal? TotalAmount, string Currency,
+    bool? IsEnabled, bool IsUnlimited, DateTimeOffset ObservedAt)
+{
+    public static bool Valid(CursorPlanAmounts? value, DateTimeOffset now) => value is null
+        || (value.ObservedAt > DateTimeOffset.UnixEpoch && value.ObservedAt <= now
+            && value.UsedAmount is null or >= 0 && value.LimitAmount is null or >= 0
+            && value.IncludedAmount is null or >= 0 && value.BonusAmount is null or >= 0
+            && value.TotalAmount is null or >= 0 && value.Currency == "USD");
+}
 
 public sealed record CursorUsageResponse(
     CursorUsageSample? Sample,
