@@ -15,7 +15,8 @@ public sealed class ClaudeUsageProvider(CodexAccountStore accounts, IClock? cloc
         if (profile.Provider != Id) throw new ArgumentException("Wrong usage provider.");
         return new ClaudeQuotaService(new ClaudeStatusLineStore(accounts.ClaudeStatusLinePath(profile.Id), profile.Id), clock,
             () => new ClaudeConnectionStore(accounts, profile.Id).Read(), fingerprint => connections?.Email(profile.Id, fingerprint),
-            new ClaudeFailureStore(accounts), desktopFactory?.Invoke(profile), liveFactory?.Invoke(profile));
+            new ClaudeFailureStore(accounts), desktopFactory?.Invoke(profile), liveFactory?.Invoke(profile),
+            new ClaudeResetTimingStore(accounts, profile.Id));
     }
 }
 
@@ -38,17 +39,19 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
     private readonly Func<string?, string?>? _email;
     private ClaudeConnectionRead? _connection;
     private string? _lastEmail;
+    private readonly ClaudeResetTimingTracker _resets;
 
     public ClaudeQuotaService(ClaudeStatusLineStore store, IClock? clock = null,
         Func<ClaudeConnectionRead>? readConnection = null, Func<string?, string?>? email = null,
         ClaudeFailureStore? failureStore = null, IClaudeDesktopUsageSource? desktop = null,
-        IClaudeLiveUsageSource? live = null)
+        IClaudeLiveUsageSource? live = null, ClaudeResetTimingStore? resetTiming = null)
     {
         _store = store;
         _failureStore = failureStore;
         _desktop = desktop;
         _live = live;
         _clock = clock ?? SystemClock.Instance;
+        _resets = new(resetTiming);
         _readConnection = readConnection;
         _email = email;
         _connection = _readConnection?.Invoke();
@@ -99,6 +102,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             _connection = connection;
             _lastDesktop = desktop;
             if (changed) Apply(read, failure);
+            await PersistResetTimingAsync(token).ConfigureAwait(false);
             var snapshot = Snapshot;
             PublishIfChanged(snapshot);
             return new(snapshot, snapshot.Status != CodexQuotaStatus.Available, snapshot.TechnicalDetail);
@@ -186,6 +190,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             }
             _lastDesktop = desktop;
             Apply(read, failure);
+            await PersistResetTimingAsync(token).ConfigureAwait(false);
             var snapshot = Snapshot;
             PublishIfChanged(snapshot);
             return new(snapshot, snapshot.Status != CodexQuotaStatus.Available, snapshot.TechnicalDetail);
@@ -223,6 +228,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
     {
         _lastRead = read;
         _lastFailureRead = failureRead;
+        _resets.Bind(_connection is { Unavailable: false } ? _connection.Binding : null, _clock.UtcNow);
         if (_connection?.Binding?.Disconnected == true)
         {
             _snapshot = Empty("claude-disconnected") with { Status = CodexQuotaStatus.SignedOut };
@@ -239,7 +245,8 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
         var state = read.State;
         var good = state?.LastGood;
         var binding = _connection?.Binding is { Disconnected: false } currentBinding ? currentBinding : null;
-        if (good is not null && binding is not null && good.ReceivedAt < binding.ConnectedAt) good = null;
+        if (good is not null && (good.ReceivedAt > _clock.UtcNow
+            || binding is not null && good.ReceivedAt < binding.ConnectedAt)) good = null;
         var desktop = _lastDesktop?.Sample;
         if (desktop is not null && (binding is null
             || desktop.ObservedAt < binding.ConnectedAt || desktop.ObservedAt > _clock.UtcNow)) desktop = null;
@@ -352,8 +359,29 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             ClaudeResetCredits = live?.ResetCredits,
             ClaudeResetCreditsFailure = _lastLive?.Failure ?? live?.ResetCreditsFailure,
             IdentityFingerprint = _connection?.Binding?.IdentityFingerprint };
-        PublishIfChanged(Snapshot);
+        var readings = new List<ClaudeResetSourceReading>();
+        if (live is not null) readings.Add(new(ClaudeResetSource.Server, live.ObservedAt, live.FiveHour, live.SevenDay));
+        if (good is not null) readings.Add(new(ClaudeResetSource.StatusLine, good.ReceivedAt,
+            Local(good.FiveHour), Local(good.SevenDay)));
+        if (desktop is not null) readings.Add(new(ClaudeResetSource.Desktop, desktop.ObservedAt,
+            desktop.FiveHour is { } fiveUsed ? new(fiveUsed, null) : null,
+            desktop.SevenDay is { } weekUsed ? new(weekUsed, null) : null));
+        _snapshot = _snapshot with { Windows = _resets.Update(binding, readings,
+            useLive ? ClaudeResetSource.Server : useDesktop ? ClaudeResetSource.Desktop : ClaudeResetSource.StatusLine,
+            received, _snapshot.Windows, live?.ResetCredits, detail, _clock.UtcNow) };
     }
+
+    private async Task PersistResetTimingAsync(CancellationToken token)
+    {
+        if (await _resets.PersistAsync(token, _clock.UtcNow).ConfigureAwait(false)) return;
+        _snapshot = _snapshot with { Windows = _snapshot.Windows.Select(w =>
+            w.ResetObservation is not null
+                ? w with { ResetsAt = null, ResetObservation = w.ResetObservation with { State = ClaudeResetObservationState.NotProvided } }
+                : w).ToArray(), Status = CodexQuotaStatus.Stale, TechnicalDetail = "claude-reset-cache-unavailable" };
+    }
+
+    private static ClaudeLiveUsageWindow? Local(ClaudeRateLimit? limit) => limit is null ? null
+        : new(limit.UsedPercentage, DateTimeOffset.FromUnixTimeSeconds(limit.ResetsAt));
 
     private static bool Valid(ClaudeLiveUsageSample sample, ClaudeConnectionBinding binding, DateTimeOffset now) =>
         sample.ObservedAt > DateTimeOffset.UnixEpoch && sample.ObservedAt <= now
@@ -383,6 +411,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
 
     public static CodexQuotaSnapshot ApplyFreshness(CodexQuotaSnapshot snapshot, DateTimeOffset now)
     {
+        snapshot = ClaudeResetTimingTracker.Age(snapshot, now);
         if (snapshot.Status != CodexQuotaStatus.Available) return snapshot;
         var received = snapshot.LastSuccessfulRefresh;
         if (received is null || received > now)

@@ -40,6 +40,8 @@ public sealed record CodexQuotaWindow(
     public bool? IsEnabled { get; init; }
     public DateTimeOffset? AmountObservedAt { get; init; }
     public string? AmountFailure { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Providers.Claude.ClaudeResetObservation? ResetObservation { get; init; }
 
     public double? RemainingPercent =>
         UsedPercent is { } used
