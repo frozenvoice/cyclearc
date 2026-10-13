@@ -114,8 +114,11 @@ public static class CodexDisplayFormatting
             rows.Add(new CodexDisplayRow(label, value, window.UsedPercent >= 100));
 
             if (WindowRowCount(snapshot, window) == 2)
-                rows.Add(new CodexDisplayRow(UiText.Reset, ResetStamp(window.ResetsAt), false,
-                    CodexDeadlineFormatting.Remaining(window.ResetsAt, at)));
+                rows.Add(new CodexDisplayRow(UiText.Reset,
+                    window.ResetObservation is null ? ResetStamp(window.ResetsAt) : ClaudeResetPresentation.Stamp(window, at), false,
+                    window.ResetObservation?.State is ClaudeResetObservationState.Elapsed or ClaudeResetObservationState.Stale ? null
+                        : CodexDeadlineFormatting.Remaining(window.ResetsAt, at),
+                    window.ResetObservation is null ? null : ClaudeResetPresentation.Tooltip(window, at)));
         }
 
         if (includeResetCredits && snapshot.ResetCreditsAvailable is int credits)
@@ -167,7 +170,7 @@ public static class CodexDisplayFormatting
     private static int WindowRowCount(CodexQuotaSnapshot snapshot, CodexQuotaWindow window) =>
         CursorUsagePresentation.IsCursor(snapshot.Provider)
         || (snapshot.Provider == UsageProviderId.Claude && snapshot.TechnicalDetail == "claude-desktop-history"
-            && window.ResetsAt is null)
+            && window.ResetsAt is null && window.ResetObservation?.LastKnownResetAt is null)
             ? 1 : 2;
 
     private static int IndexOfWindow(CodexQuotaSnapshot snapshot, CodexQuotaWindow window)

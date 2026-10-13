@@ -36,6 +36,10 @@ jobs:
           -TestResultsDirectory TestResults
           -PreviewDirectory artifacts/widget-previews
 
+      - name: Verify controlled foreground recovery
+        shell: pwsh
+        run: dotnet run --project tests/CycleArc.UiSmoke -c Release --no-build -- --widget-recovery-foreground
+
       - name: Upload floating widget previews
         if: always()
         uses: actions/upload-artifact@v6
