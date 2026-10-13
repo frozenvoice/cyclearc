@@ -1,5 +1,20 @@
 # Documentation previews
 
+The `cursor-widget-{en,ko}-{dark,light}.png` previews were refreshed from production WPF
+views on **2026-10-14** with synthetic accounts. Monthly / Weekly heading rows show the
+same reset countdown format as Codex and Claude, once per matching reported deadline;
+exact dates remain in tooltips and details. Missing dates show **Reset not provided**,
+elapsed dates show **Awaiting refresh**, and differing or partly unknown monthly
+deadlines use separate headings. The module width remains fixed and normal countdowns
+keep the existing single heading row. Exceptionally long localized missing, elapsed
+or imminent-reset states use a second line without shrinking or clipping text.
+These captures do not verify a real account's dates or entitlements.
+After a Release build, reproduce the synthetic layouts and previews with:
+
+```powershell
+dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --cursor-widget-summary-previews artifacts/previews
+```
+
 `claude-reset-{en,ko}-{dark,light}-{detail,widget}.png` (2026-10-13) are production WPF
 views with synthetic data. They show latest Desktop percentages with a separately
 preserved server reset, an independent weekly reset, Extra usage and read-only reset
@@ -21,7 +36,8 @@ They show the CycleArc product name, Codex/Claude/Cursor provider labels and cur
 They are not captures of a user's account or fabricated UI mockups. The sample percentages,
 reset times and credits illustrate the layout; they do not promise specific plan entitlements.
 
-Current overview, account/Claude detail, Cursor popup/widget, ring-band detail/widget,
+Except for the newer refreshed previews documented above, current overview,
+account/Claude detail, Cursor popup, ring-band detail/widget,
 and the two guide settings previews are generated from the **0.10.0
 development source**. The published stable release checked on **2026-10-05** is **0.9.1**;
 these previews do not describe a newly published release. Current popup and widget captures

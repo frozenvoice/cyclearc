@@ -492,7 +492,8 @@ public sealed class WidgetAccountModuleView : Border
         for (var i = 0; i < model.Periods.Count; i++)
         {
             var line = model.Periods[i];
-            var startsGroup = isCursor && (i == 0 || line.CadenceLabel != model.Periods[i - 1].CadenceLabel);
+            var startsGroup = isCursor && (i == 0 || line.CadenceLabel != model.Periods[i - 1].CadenceLabel
+                || line.ResetsAt != model.Periods[i - 1].ResetsAt);
             Periods[i].Margin = new Thickness(0, i == 0 ? 0 : isCursor ? startsGroup ? 4 : 0 : 4, 0, 0);
             Periods[i].Bind(line, isCursor, startsGroup);
         }
@@ -505,7 +506,8 @@ public sealed class WidgetPeriodLineView : StackPanel
     public TextBlock CadenceText { get; } = new()
     {
         FontSize = 10.5, LineHeight = 14, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-        Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed
+        Margin = new Thickness(8, 0, 0, 0), HorizontalAlignment = HorizontalAlignment.Left,
+        Visibility = Visibility.Collapsed
     };
     public TextBlock PeriodText { get; } = new()
     {
@@ -529,6 +531,7 @@ public sealed class WidgetPeriodLineView : StackPanel
         Visibility = Visibility.Hidden
     };
     private readonly Grid _head = new();
+    private readonly CadenceHeaderGrid _cadenceHead = new() { Visibility = Visibility.Collapsed };
     private readonly DockPanel _label = new() { LastChildFill = true };
     // A limit that is not in the ring gets a small remaining bar in the otherwise empty
     // space left of its reset countdown, so the line keeps its height.
@@ -577,7 +580,12 @@ public sealed class WidgetPeriodLineView : StackPanel
         _foot.Children.Add(_bar);
         Grid.SetColumn(ResetText, 2);
         _foot.Children.Add(ResetText);
-        Children.Add(CadenceText);
+        _cadenceHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _cadenceHead.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _cadenceHead.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _cadenceHead.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _cadenceHead.Children.Add(CadenceText);
+        Children.Add(_cadenceHead);
         Children.Add(_head);
         Children.Add(_foot);
     }
@@ -598,19 +606,34 @@ public sealed class WidgetPeriodLineView : StackPanel
         _head.ColumnDefinitions[0].Width = isCursor ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
         _head.ColumnDefinitions[1].Width = isCursor ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
         _label.Margin = new Thickness(0, 0, isCursor ? 4 : 0, 0);
-        CadenceText.Text = startsGroup ? line.CadenceLabel + UiText.T(" · Left", " · 남음") : "";
+        CadenceText.Text = startsGroup ? line.CadenceLabel : "";
         CadenceText.Visibility = startsGroup ? Visibility.Visible : Visibility.Collapsed;
+        _cadenceHead.Visibility = startsGroup ? Visibility.Visible : Visibility.Collapsed;
+        // Reuse the countdown's shared style, moving it to the existing cadence heading
+        // for Cursor. Rebinding a tick does not rebuild controls or add a footer row.
+        Grid resetParent = isCursor ? _cadenceHead : _foot;
+        if (!ReferenceEquals(ResetText.Parent, resetParent))
+        {
+            ((Grid)ResetText.Parent).Children.Remove(ResetText);
+            resetParent.Children.Add(ResetText);
+            Grid.SetColumn(ResetText, isCursor ? 1 : 2);
+            Grid.SetRow(ResetText, 0);
+            Grid.SetColumnSpan(ResetText, 1);
+        }
+        ResetText.Margin = isCursor ? new Thickness(4, 0, 0, 0) : new Thickness(0);
         ToolTip = line.Tooltip;
         RemainingText.Text = line.DisplayRemainingText;
         RemainingText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
         ResetText.Text = line.ResetText;
-        ResetText.Visibility = string.IsNullOrEmpty(line.ResetText) ? Visibility.Collapsed : Visibility.Visible;
+        ResetText.Visibility = string.IsNullOrEmpty(line.ResetText) || (isCursor && !startsGroup)
+            ? Visibility.Collapsed : Visibility.Visible;
         // Every limit that is not in the ring gets the same bar when its remainder is known.
         // A missing reset time only removes the countdown text; the bar row then stands alone.
         var showBar = !line.IsRepresentative && line.RemainingPercent is not null;
         _bar.Visibility = showBar ? Visibility.Visible : Visibility.Collapsed;
         // Beside a countdown the bar shares its row; alone it takes a thin row under the value.
-        _bar.Margin = ResetText.Visibility == Visibility.Visible ? new Thickness(12, 0, 6, 0) : new Thickness(12, 2, 6, 0);
+        _bar.Margin = !isCursor && ResetText.Visibility == Visibility.Visible
+            ? new Thickness(12, 0, 6, 0) : new Thickness(12, 2, 6, 0);
         if (showBar)
         {
             var left = line.RemainingPercent!.Value;
@@ -628,5 +651,25 @@ public sealed class WidgetPeriodLineView : StackPanel
             : isCursor ? UiText.T("Shown in the ring as the representative limit. It does not mean the model used last.",
                 "링에 표시하는 대표 한도입니다. 최근 사용한 모델을 뜻하지 않습니다.")
             : UiText.T("Shown in the ring", "링에 표시되는 기간");
+    }
+
+    private sealed class CadenceHeaderGrid : Grid
+    {
+        protected override System.Windows.Size MeasureOverride(System.Windows.Size constraint)
+        {
+            if (Children.Count == 2)
+            {
+                // Most countdowns fit beside the cadence. Long localized unknown/elapsed
+                // states may use a second heading line, preserving full text and font size.
+                foreach (UIElement child in Children)
+                    child.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+                var stacked = Children[0].DesiredSize.Width + Children[1].DesiredSize.Width > constraint.Width;
+                SetColumnSpan(Children[0], stacked ? 2 : 1);
+                SetRow(Children[1], stacked ? 1 : 0);
+                SetColumn(Children[1], stacked ? 0 : 1);
+                SetColumnSpan(Children[1], stacked ? 2 : 1);
+            }
+            return base.MeasureOverride(constraint);
+        }
     }
 }

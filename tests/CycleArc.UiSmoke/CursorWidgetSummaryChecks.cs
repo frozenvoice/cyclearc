@@ -20,8 +20,8 @@ namespace CycleArc.UiSmoke;
 internal static class CursorWidgetSummaryChecks
 {
     private static readonly DateTimeOffset Now = new(2035, 1, 15, 9, 30, 0, TimeSpan.Zero);
-    private static readonly DateTimeOffset MonthlyReset = Now.AddDays(12);
-    private static readonly DateTimeOffset WeeklyReset = Now.AddDays(3);
+    private static readonly DateTimeOffset MonthlyReset = Now.AddDays(12).AddHours(13);
+    private static readonly DateTimeOffset WeeklyReset = Now.AddDays(3).AddHours(1);
 
     public static void Run(string? directory = null)
     {
@@ -35,6 +35,7 @@ internal static class CursorWidgetSummaryChecks
         {
             UiText.SetLanguage(language);
             applyTheme.Invoke(null, [theme]);
+            CheckCountdownRebinding();
             var prefix = $"{language}-{theme}".ToLowerInvariant();
             foreach (var zoom in new[] { 80, 100, 150 })
             {
@@ -117,7 +118,8 @@ internal static class CursorWidgetSummaryChecks
         if (compactStandard)
         {
             var bodyHeight = content.ActualHeight;
-            Check(bodyHeight <= 192 + tolerance,
+            var extraHeadingHeight = widget.Modules.Max(ExtraHeadingHeight);
+            Check(bodyHeight <= 192 + extraHeadingHeight + tolerance,
                 $"{name}: standard Cursor summary body grew beyond 192 DIP ({bodyHeight:0.##}).");
         }
 
@@ -252,7 +254,7 @@ internal static class CursorWidgetSummaryChecks
                 $"{name}: unknown Cursor values were hidden or replaced with zero.");
         if (source.Status == CodexQuotaStatus.Available
             && source.Windows.All(window => window.RemainingAmount is null))
-            Check(module.DesiredSize.Height <= 150,
+            Check(module.DesiredSize.Height <= 150 + ExtraHeadingHeight(module),
                 $"{name}: Cursor summary body expanded beyond its compact module height.");
         if (model.IsStale)
             Check(module.StatusText.Visibility == Visibility.Visible
@@ -304,17 +306,42 @@ internal static class CursorWidgetSummaryChecks
                     $"{name}: Cursor period {index} does not identify the ring's full allowance name.");
                 var cadence = period.CadenceLabel
                     ?? throw new InvalidOperationException($"{name}: Cursor period {index} cadence is missing.");
-                var startsGroup = index == 0 || cadence != model.Periods[index - 1].CadenceLabel;
+                var startsGroup = index == 0 || cadence != model.Periods[index - 1].CadenceLabel
+                    || period.ResetsAt != model.Periods[index - 1].ResetsAt;
                 Check(view.CadenceText.Visibility == (startsGroup ? Visibility.Visible : Visibility.Collapsed),
                     $"{name}: cadence visibility is wrong for Cursor period {index}.");
                 if (startsGroup)
-                    Check(view.CadenceText.Text == cadence + UiText.T(" · Left", " · 남음"),
+                    Check(view.CadenceText.Text == cadence,
                         $"{name}: cadence caption is wrong for Cursor period {index}.");
                 Check(!view.RemainingText.Text.Contains("Left ", StringComparison.Ordinal)
                     && !view.RemainingText.Text.Contains("남음 ", StringComparison.Ordinal),
                     $"{name}: Cursor period {index} embedded a Left label in its raw value.");
-                Check(string.IsNullOrEmpty(view.ResetText.Text) && view.ResetText.Visibility == Visibility.Collapsed,
-                    $"{name}: Cursor period {index} shows a separate reset row.");
+                Check(view.ResetText.Text == period.ResetText
+                    && view.ResetText.Visibility == (startsGroup ? Visibility.Visible : Visibility.Collapsed)
+                    && ReferenceEquals(view.ResetText.Parent, view.CadenceText.Parent),
+                    $"{name}: Cursor period {index} countdown is not in its shared cadence heading.");
+                if (startsGroup)
+                {
+                    var cadenceBounds = Bounds(view.CadenceText, content);
+                    var resetBounds = Bounds(view.ResetText, content);
+                    var stacked = Grid.GetRow(view.ResetText) == 1;
+                    var separated = stacked ? cadenceBounds.Bottom <= resetBounds.Top + tolerance
+                        : Math.Abs(cadenceBounds.Top - resetBounds.Top) <= tolerance
+                            && cadenceBounds.Right <= resetBounds.Left + tolerance;
+                    Check(separated
+                        && resetBounds.Right <= Bounds(module, content).Right + tolerance
+                        && view.CadenceText.ActualWidth + view.CadenceText.Margin.Left + tolerance >= view.CadenceText.DesiredSize.Width
+                        && view.ResetText.ActualWidth + view.ResetText.Margin.Left + tolerance >= view.ResetText.DesiredSize.Width,
+                        $"{name}: Cursor period {index} heading/countdown overlap or clipping: "
+                            + $"cadence={cadenceBounds}, reset={resetBounds}, "
+                            + $"widths={view.CadenceText.ActualWidth}/{view.CadenceText.DesiredSize.Width}, "
+                            + $"{view.ResetText.ActualWidth}/{view.ResetText.DesiredSize.Width}.");
+                    Check(!stacked || view.CadenceText.DesiredSize.Width + view.ResetText.DesiredSize.Width
+                        > ((Grid)view.ResetText.Parent).ActualWidth,
+                        $"{name}: Cursor period {index} added an unnecessary heading line.");
+                    Check((view.ResetText.ToolTip is null) == (period.ResetTooltip is null),
+                        $"{name}: Cursor period {index} has a fabricated or missing reset tooltip.");
+                }
                 var periodTooltip = period.Tooltip;
                 Check(!string.IsNullOrWhiteSpace(periodTooltip)
                     && (view.ToolTip as string ?? "").Contains(periodTooltip, StringComparison.Ordinal),
@@ -330,6 +357,90 @@ internal static class CursorWidgetSummaryChecks
 
     private static Rect Bounds(FrameworkElement element, FrameworkElement ancestor) =>
         element.TransformToAncestor(ancestor).TransformBounds(new Rect(element.RenderSize));
+
+    private static int StackedHeadingCount(WidgetAccountModuleView module) =>
+        module.Periods.Count(view => view.CadenceText.Visibility == Visibility.Visible
+            && view.ResetText.Visibility == Visibility.Visible && Grid.GetRow(view.ResetText) == 1);
+
+    private static int ExtraHeadingHeight(WidgetAccountModuleView module)
+    {
+        var cadenceCount = module.Model!.Periods.Select(period => period.CadenceLabel).Distinct().Count();
+        var headingCount = module.Periods.Count(view => view.CadenceText.Visibility == Visibility.Visible);
+        // Only the newly exposed exceptional cases get space: 14 DIP for an oversized
+        // localized state, or 14 + the existing 4-DIP group gap for a distinct deadline.
+        return StackedHeadingCount(module) * 14 + Math.Max(0, headingCount - cadenceCount) * 18;
+    }
+
+    private static void CheckCountdownRebinding()
+    {
+        var module = new WidgetAccountModuleView();
+        VisualTreeHelper.SetRootDpi(module, new DpiScale(1, 1));
+        void Layout()
+        {
+            module.Measure(new Size(WidgetGridLayout.ModuleWidth, double.PositiveInfinity));
+            module.Arrange(new Rect(0, 0, WidgetGridLayout.ModuleWidth, module.DesiredSize.Height));
+            module.UpdateLayout();
+        }
+        void Bind(CodexQuotaSnapshot snapshot)
+        {
+            var account = CursorAccount(snapshot);
+            module.Bind(account, WidgetAccountModel.From(account, false, now: Now));
+            Layout();
+        }
+        Bind(CursorSnapshot());
+        var views = module.Periods.ToArray();
+        Check(views[0].ResetText.Visibility == Visibility.Visible
+            && views[1].ResetText.Visibility == Visibility.Collapsed
+            && Grid.GetRow(views[0].ResetText) == 0,
+            "Equal reported monthly deadlines did not share one heading.");
+        var different = CursorSnapshot() with
+        {
+            Windows = CursorWindows().Select(window => window.LimitId == "cursor-api"
+                ? window with { ResetsAt = MonthlyReset.AddSeconds(20) } : window).ToArray()
+        };
+        Bind(different);
+        Check(views[1].ResetText.Visibility == Visibility.Visible,
+            "Distinct deadlines in the same formatted minute were incorrectly combined.");
+        Bind(different with
+        {
+            Windows = different.Windows.Select(window => window.LimitId == "cursor-auto"
+                ? window with { ResetsAt = null } : window).ToArray()
+        });
+        Check(views[0].ResetText.Text == UiText.ResetNotProvided
+            && views[0].ResetText.ToolTip is null && views[1].ResetText.Visibility == Visibility.Visible,
+            "Missing monthly reset borrowed the sibling deadline.");
+        Bind(CursorSnapshot());
+        Check(views[1].ResetText.Visibility == Visibility.Collapsed
+            && views.SequenceEqual(module.Periods), "Countdown recovery rebuilt rows or kept duplicate headings.");
+        Bind(CursorSnapshot() with
+        {
+            Windows = CursorWindows().Select(window => window with { ResetsAt = null }).ToArray()
+        });
+        Check(views[0].ResetText.Text == UiText.ResetNotProvided
+            && Grid.GetRow(views[0].ResetText) == (UiText.IsKorean ? 0 : 1),
+            "Full localized unknown state did not fit or wrap at the fixed module width.");
+        Bind(CursorSnapshot());
+        Check(Grid.GetRow(views[0].ResetText) == 0 && Grid.GetColumnSpan(views[0].ResetText) == 1,
+            "Returning to a normal countdown kept the oversized-state heading line.");
+
+        // Keep the row count constant to exercise both directions of in-place provider reuse.
+        var standard = CodexSnapshot() with
+        {
+            Windows = Enumerable.Range(0, 3).Select(index => new CodexQuotaWindow($"standard-{index}",
+                20, CodexWindowClassifier.WeeklyMinutes, MonthlyReset, CodexWindowKind.Weekly)).ToArray()
+        };
+        var standardAccount = new CodexAccountView(
+            new CodexAccountProfile("standard", "", "Codex") { Provider = UsageProviderId.Codex }, standard);
+        module.Bind(standardAccount, WidgetAccountModel.From(standardAccount, false, now: Now));
+        Layout();
+        Check(views.SequenceEqual(module.Periods) && views.All(view => view.ResetText.Visibility == Visibility.Visible
+            && !ReferenceEquals(view.ResetText.Parent, view.CadenceText.Parent)
+            && Grid.GetColumn(view.ResetText) == 2), "Cursor reuse changed other providers' countdown rows.");
+        Bind(CursorSnapshot());
+        Check(views.All(view => ReferenceEquals(view.ResetText.Parent, view.CadenceText.Parent)
+            && Grid.GetColumn(view.ResetText) == 1) && views[1].ResetText.Visibility == Visibility.Collapsed,
+            "Returning to Cursor did not restore shared cadence countdowns.");
+    }
 
     private static void Check(bool condition, string message)
     {
@@ -401,6 +512,25 @@ internal static class CursorWidgetSummaryChecks
             Windows = CursorWindows().Select(window => window.LimitId == "cursor-team-pool" ? window
                 : window with { UsedPercent = null, ResetsAt = null }).ToArray()
         });
+        yield return ("missing-monthly-reset", CursorSnapshot() with
+        {
+            Windows = CursorWindows().Select(window => window.LimitId == "cursor-auto"
+                ? window with { ResetsAt = null } : window).ToArray()
+        });
+        yield return ("different-monthly-resets", CursorSnapshot() with
+        {
+            Windows = CursorWindows().Select(window => window.LimitId == "cursor-api"
+                ? window with { ResetsAt = MonthlyReset.AddHours(1) } : window).ToArray()
+        });
+        foreach (var (name, deadline) in new[]
+        {
+            ("elapsed-reset", Now.AddSeconds(-1)), ("imminent-reset", Now.AddSeconds(30)),
+            ("long-countdown", Now.AddDays(30).AddHours(23))
+        })
+            yield return (name, CursorSnapshot() with
+            {
+                Windows = CursorWindows().Select(window => window with { ResetsAt = deadline }).ToArray()
+            });
         yield return ("budget-first", CursorSnapshot() with
         {
             Windows = CursorWindows().OrderByDescending(window => window.LimitId == "cursor-team-pool").ToArray()
