@@ -1,5 +1,15 @@
 # Documentation previews
 
+The `monitoring-{en,ko}-{dark,light}-{detail,widget}.png` previews render the new credit/spending
+monitor in the 0.10.1 development source on 2026-10-13. Their three accounts, money, reset
+inventory and observed points are explicitly synthetic. They show separate actual spending
+and caps, a read-only Claude reset inventory and an optional one-line widget summary. The
+new summary switches default off; the detail trend panel defaults collapsed. Reproduce with
+`--monitoring artifacts/previews` after a Release build. The focused suite covers EN/KO,
+Dark/Light and 80/100/150% at host 96 DPI. These captures do not demonstrate real account
+entitlements or a public release. Older removed-history evidence below is historical;
+the new `usage-history` monitor does not revive those retired components or files.
+
 These PNGs render the actual production WPF views and native tray icons with synthetic profiles and quota metadata.
 They show the CycleArc product name, Codex/Claude/Cursor provider labels and current connection controls.
 They are not captures of a user's account or fabricated UI mockups. The sample percentages,
@@ -53,7 +63,7 @@ keyboard/automation, isolated persistence and normal/HC fixture checks use:
 dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build -- --flyout-pin artifacts/previews
 ```
 
-The current source removes the usage-history graph, selected-widget sparkline, actual-value
+The 2026-10-07 source removed the earlier usage-history graph, selected-widget sparkline, actual-value
 expander, metric selector and storage warning. The detail header keeps zoom, refresh and
 settings beside direct pin and Close; multi-account details have a display-account dropdown.
 Healthy missing credits remain folded auxiliary rows. The removal refresh, completed

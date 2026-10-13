@@ -82,7 +82,8 @@ Read only the sections relevant to the change:
   exact owned wrapper names this profile, the same configuration directory and an executable inside the
   installation being removed; never delete or rewrite accounts, settings, caches, bindings or credentials, and
   never record an incomplete cleanup as a successful one.
-- Claude storage is limited to projected quota, receipt/source/binding metadata and failure classifications;
+- Claude storage is limited to projected quota/extra-usage/read-only reset inventory,
+  bounded typed measurements, receipt/source/binding metadata and failure classifications;
   keep email in memory. The history reader opens only bounded `plan-usage-history.json`; the separate
   live credential reader opens only Desktop OAuth config and its protected encryption key. Verify
   account identity before accepting any source. Never read CLI credentials, cookies, prompts, responses
@@ -92,7 +93,7 @@ Read only the sections relevant to the change:
   last-success time across restart. Keep atomic settings/cache writes with valid backups and preserve
   `LegacyInstallation` data/mutex/registry identifiers through branding changes.
 - Cursor reads only its exact local access-token database row and verifies the server identity
-  before accepting usage. Never write/renew credentials, read browser cookies or collect history.
+  before accepting usage. Never write/renew credentials, read browser cookies or collect raw activity history.
   Keep derived session headers in memory. Preserve separate Auto/API, on-demand, team and Grok
   limits; unknown caps are not zero or unlimited. See [Cursor evidence](docs/CURSOR.md).
   Account-registry version 3 and its backup protect Cursor profiles from older builds.
@@ -105,7 +106,13 @@ Read only the sections relevant to the change:
 - Windows owns tray placement. Do not restore overlays, Explorer hooks, extensions, WebView2,
   conversation synchronization or active SQLite history collection. Retained legacy code is not a supported runtime.
   Windows startup stays opt-in. Route the bounded headless Claude receiver before WPF/mutex/account startup
-  in the same executable; ship no companion host. Reset-credit actions remain Codex-only.
+  in the same executable; ship no companion host. Reset-redemption requests remain Codex-only.
+  Claude reset inventory is read-only; open the official Usage page for user-initiated use.
+- Keep the new `usage-history` store separate from retired observation files. Save only typed
+  provider/profile/verified-identity-isolated measurements with original timestamps and bounded
+  retention/size/write cadence. Never infer consumption from balance deltas, money from percentages,
+  or unknown observations as zero. Financial alerts must use fresh verified field observations;
+  preserve independent duplicate/recovery/period marks and optional widget defaults.
 
 ## Verification
 

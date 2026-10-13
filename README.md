@@ -2,7 +2,7 @@
 
 **Your Codex, Claude and Cursor limits, one click away.**
 
-A native Windows tray app for checking each account's usage, remaining allowance and reset times. An optional desktop widget compares accounts side by side. Each Codex, Claude and Cursor account shows refresh activity from its queued wait through completion; a retry retains its previous warning and observation time. Accounts keep separate limits and refresh states; unknown values stay unknown. English/Korean and Dark/Light/System themes are included.
+A native Windows tray app for checking each account's usage, credit balance, extra spending and reset times. An optional desktop widget compares accounts side by side. Each Codex, Claude and Cursor account keeps separate limits, observation history and refresh states; unknown values stay unknown. English/Korean and Dark/Light/System themes are included.
 
 [![Windows build](https://github.com/frozenvoice/cyclearc/actions/workflows/windows.yml/badge.svg)](https://github.com/frozenvoice/cyclearc/actions/workflows/windows.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -62,7 +62,9 @@ The popup and widget keep separate saved zoom levels. A small percentage between
 
 In the widget, Tab moves through the header controls and then the account modules, with a visible focus indicator. Press Enter or Space on an account module to select it and open its existing detail popup. Clicking a module does the same; dragging the header or empty area still moves the widget and saves its position.
 
-The popup and widget focus on current quotas, remaining allowance, reset times and check/receipt status. Their current source has no usage-history graph or selected-account sparkline. Current provider source times, last checked/received times and cached last-good values remain available. CycleArc does not provide depletion forecasts or consumption-rate predictions. [Architecture](docs/ARCHITECTURE.md#current-quota-and-retired-observation-history) and [validation evidence](docs/VALIDATION.md) describe the removal; [Claude](docs/CLAUDE-INTEGRATION.md) and [Cursor](docs/CURSOR.md) retain their provider contracts.
+Expand **Observed trends** in an account's detail popup for 24-hour, 7-day and 30-day observed history. Select a metric to keep usage percentages, credit balances, balance changes and actual extra spending separate. Unmeasured time is blank; changes in source, cap or period and failed observations are identified. No balance change is presented as consumed credits, and no depletion forecast is made. Local measurements retain at most 31 days with bounded files and age-based sampling; old conversation/observation files are untouched.
+
+**Settings → Widget** offers optional credit/spending and reset-count summaries, off by default. **Settings → Connection → Credit, spending & expiry alerts** provides independent opt-in Codex low-credit, Claude monthly-cap, Cursor on-demand-cap and reset-expiry warnings with configurable thresholds. The existing usage alerts remain separate. Claude resets are read-only: use the official Usage page. Private program fields may be absent or surface-gated, which is shown as **Not provided**, never zero. Claude prepaid funds and Codex consumed-credit amounts are not available through the current verified paths. [Provider sources and compatibility limits](docs/CREDIT-SOURCES.md).
 
 CycleArc makes no model requests to measure usage and collects no prompts, conversations or telemetry. Credentials used for read-only provider checks stay in memory; projected quotas and local preferences remain local. [Data and privacy details](docs/README.en.md#privacy).
 

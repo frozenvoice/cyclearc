@@ -2,6 +2,31 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Credit, spending, observed trends and read-only reset inventory (unreleased, 2026-10-13 Asia/Seoul):
+  - Verified provider fields stay distinct: raw Codex balance/change, Claude Extra usage
+    spending/cap/room, Cursor personal on-demand and included-plan counters. Claude's private
+    reset inventory is optional and read-only. An explicit unchanged-Desktop-client query
+    returned a surface restriction; ordinary missing inventory remains unknown, not zero.
+  - Account-isolated bounded history provides 24-hour/7-day/30-day observed series without
+    fabricated past values. Optional widget summaries and all new financial/expiry alerts
+    default off. Original timestamps, stale/failure states, identity checks, existing quota
+    alerts and settings/cache data are preserved.
+  - The initial full unit gate passed 2,245 tests without skips; the final notification helper
+    passed its two focused tests. The final shared local `-NoLaunch -Fast` gate on executable
+    source `ee6ef98` exited 0 in 4m32s, including argument-free UiSmoke with
+    `[ui-smoke] COMPLETE all default suites`, Release/native contracts, single-file publish,
+    Velopack packaging and real package recovery verification. The manual Windows CI runs
+    all 2,246 final tests and disposable installer/repair/shortcut/portable/startup checks;
+    its exact SHA, results and run link are recorded in the PR before merge.
+  - Twelve new EN/KO, Dark/Light, 80/100/150% WPF cases passed. Eight production-view captures
+    use synthetic data; the final host was 96 DPI, with separate injected 100–200% checks.
+    No installed application or real user settings were replaced. An isolated 85-second
+    history ON/OFF pilot kept provider-request counts identical and stored 5,473 bytes in
+    seven files. This short pilot does not establish long-duration memory behaviour.
+    See [full evidence and limitations](CREDIT-MONITOR-VALIDATION.md),
+    [provider sources](CREDIT-SOURCES.md) and
+    [capture hashes](measurements/credit-monitor-2026-10-13-previews.csv).
+
 - Per-account widget refresh activity (unreleased, 2026-10-13 Asia/Seoul):
   - The production widget previously inferred refresh activity from the quota snapshot;
     only Codex published that temporary snapshot state. The shared manager now projects
