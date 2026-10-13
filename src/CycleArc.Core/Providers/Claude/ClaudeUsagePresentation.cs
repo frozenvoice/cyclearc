@@ -68,6 +68,7 @@ public static class ClaudeUsagePresentation
         "claude-live-rate-limited" => UiText.T("Claude server rate limited", "Claude 서버 요청 제한"),
         "claude-live-identity-mismatch" => UiText.T("Claude Desktop account changed", "Claude Desktop 계정 변경됨"),
         "claude-live-unavailable" => UiText.T("Live usage unavailable", "실시간 사용량 조회 불가"),
+        "claude-reset-cache-unavailable" => UiText.T("Reset continuity cache unavailable", "리셋 연속성 캐시를 확인할 수 없음"),
         _ => null
     };
 

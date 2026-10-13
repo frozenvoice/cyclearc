@@ -158,8 +158,10 @@ public sealed record WidgetAccountModel(
             window.WindowDurationMinutes,
             CodexDisplayFormatting.DurationLabel(window.WindowDurationMinutes),
             UiText.WidgetLeft(UsagePercentFormatting.DetailRemaining(window)),
-            CodexDeadlineFormatting.ResetCountdown(window.ResetsAt, at),
-            CodexDeadlineFormatting.ResetStampTooltip(window.ResetsAt),
+            window.ResetObservation is null ? CodexDeadlineFormatting.ResetCountdown(window.ResetsAt, at)
+                : ClaudeResetPresentation.Countdown(window, at),
+            window.ResetObservation is null ? CodexDeadlineFormatting.ResetStampTooltip(window.ResetsAt)
+                : ClaudeResetPresentation.Tooltip(window, at),
             ReferenceEquals(window, ring.Window))
         {
             DisplayRemainingText = UiText.WidgetLeft(

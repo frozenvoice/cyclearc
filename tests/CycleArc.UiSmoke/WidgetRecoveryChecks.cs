@@ -3,6 +3,8 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Threading;
 using CycleArc.Codex;
 using CycleArc.Models;
@@ -38,7 +40,19 @@ internal static class WidgetRecoveryChecks
             }
         }
         finally { focusWindow.Close(); }
-        Console.WriteLine($"PASS: widget lifecycle recovery in both languages/dark/light on {System.Windows.Forms.Screen.AllScreens.Length} monitor(s); native hide/minimize/topmost, closed window, resume/display recreation, fractional saved coordinates through three off/on cycles with a locked settings backup, saved preferences, account availability and shutdown.");
+        Console.WriteLine($"PASS: widget lifecycle recovery in both languages/dark/light on {System.Windows.Forms.Screen.AllScreens.Length} monitor(s); native activation/focus/foreground-event proof rejects transient widget activation; native hide/minimize/topmost, closed window, resume/display recreation, fractional saved coordinates through three off/on cycles with a locked settings backup, saved preferences, account availability and shutdown.");
+    }
+
+    public static void RunControlledForeground()
+    {
+        var focusWindow = new Window { Title = "CycleArc controlled recovery focus", Width = 220, Height = 80,
+            ShowInTaskbar = false, ShowActivated = false, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+        try
+        {
+            focusWindow.Show();
+            CheckControlledForegroundRecovery(focusWindow);
+        }
+        finally { focusWindow.Close(); }
     }
 
     private static void CheckFractionalPositionPreservation(UiLanguage language, AppTheme theme,
@@ -215,10 +229,12 @@ internal static class WidgetRecoveryChecks
         var configured = 0;
         var clicks = 0;
         var activations = 0;
+        using var nativeFocus = new WidgetFocusTrace();
         FloatingWidgetController? controller = null;
         controller = new FloatingWidgetController(window =>
         {
             configured++;
+            nativeFocus.Observe(window);
             window.Activated += (_, _) => activations++;
             window.Moved += (left, top) =>
             {
@@ -233,16 +249,19 @@ internal static class WidgetRecoveryChecks
         });
         using (controller)
         {
+            var creationForeground = GetForegroundWindow();
             controller.Update(settings, overview);
             Pump();
             var window = controller.CurrentWindow!;
             var hwnd = Handle(window);
-            Check(Visible(window) && !window.ShowActivated && activations == 0 && GetActiveWindow() == focusHwnd,
-                "Enabled widget was not shown without activation.");
+            Check(Visible(window) && !window.ShowActivated, "Enabled widget was not shown without activation.");
+            CheckPassiveFocus("Enabled widget initial show", creationForeground, focusHwnd, hwnd,
+                0, activations, 0, nativeFocus);
             var savedPosition = window.PixelPosition;
             FocusFixture(focusWindow);
             var positioningForeground = GetForegroundWindow();
             var positioningActivations = activations;
+            var positioningNativeFocus = nativeFocus.Events;
             // Simulate WPF's nested DPI resize even on single-monitor CI desktops.
             var injectDpiResize = true;
             HwndSourceHook dpiResize = (IntPtr h, int message, IntPtr w, IntPtr l, ref bool handled) =>
@@ -259,13 +278,22 @@ internal static class WidgetRecoveryChecks
             try { window.Apply(settings); Pump(); }
             finally { source.RemoveHook(dpiResize); }
             Check(!injectDpiResize, "The nested DPI resize fixture did not run.");
-            Check(GetForegroundWindow() == positioningForeground && GetActiveWindow() == focusHwnd
-                && activations == positioningActivations && IsWindowEnabled(hwnd),
-                $"DPI-style positioning: foregroundSame={GetForegroundWindow() == positioningForeground}, activeSame={GetActiveWindow() == focusHwnd}, activationCounts={positioningActivations}/{activations}, enabled={IsWindowEnabled(hwnd)}.");
+            CheckPassiveFocus("DPI-style positioning", positioningForeground, focusHwnd, hwnd,
+                positioningActivations, activations, positioningNativeFocus, nativeFocus);
+            Check(IsWindowEnabled(hwnd), "DPI-style positioning left the widget disabled.");
             // Activation must work again after both successful and exceptional updates.
+            var injectionForeground = GetForegroundWindow();
+            var injectionActivations = activations;
+            var injectionNativeFocus = nativeFocus.Events;
             SetActiveWindow(hwnd);
             Check(GetActiveWindow() == hwnd, "Widget update leaked its activation guard.");
             FocusFixture(focusWindow);
+            var detectedTransientActivation = false;
+            try { CheckPassiveFocus("Injected transient widget activation", injectionForeground, focusHwnd, hwnd,
+                injectionActivations, activations, injectionNativeFocus, nativeFocus); }
+            catch (InvalidOperationException) { detectedTransientActivation = true; }
+            Check(detectedTransientActivation && nativeFocus.Events > injectionNativeFocus,
+                "The native focus detector accepted transient widget activation after focus was returned.");
             var rejected = false;
             try { window.Apply(null!); }
             catch (NullReferenceException) { rejected = true; }
@@ -284,10 +312,11 @@ internal static class WidgetRecoveryChecks
             FocusFixture(focusWindow);
             var foreground = GetForegroundWindow();
             var activationStart = activations;
+            var nativeFocusStart = nativeFocus.Events;
             controller.MaintainVisibility();
             Check(Visible(window), "Native-hidden widget remained invisible with its setting enabled.");
-            Check(GetForegroundWindow() == foreground && GetActiveWindow() == focusHwnd && activations == activationStart,
-                $"Native visibility repair took keyboard focus: afterWidget={GetForegroundWindow() == hwnd}, activations={activationStart}/{activations}.");
+            CheckPassiveFocus("Native visibility repair", foreground, focusHwnd, hwnd,
+                activationStart, activations, nativeFocusStart, nativeFocus);
 
             window.WindowState = WindowState.Minimized;
             Pump();
@@ -298,14 +327,14 @@ internal static class WidgetRecoveryChecks
             FocusFixture(focusWindow);
             foreground = GetForegroundWindow();
             activationStart = activations;
+            nativeFocusStart = nativeFocus.Events;
             controller.MaintainVisibility();
             Pump();
             Check(Visible(window) && window.WindowState == WindowState.Normal && !IsIconic(hwnd),
                 "Minimized widget did not return to its normal visible state.");
             Check(window.PixelPosition == savedPosition, "Minimize/restore lost the saved location.");
-            var afterRestore = GetForegroundWindow();
-            Check(afterRestore == foreground && GetActiveWindow() == focusHwnd && activations == activationStart,
-                $"Minimize recovery took keyboard focus: beforeWidget={foreground == hwnd}, afterWidget={afterRestore == hwnd}, active={window.IsActive}, activations={activationStart}/{activations}.");
+            CheckPassiveFocus("Minimize recovery", foreground, focusHwnd, hwnd,
+                activationStart, activations, nativeFocusStart, nativeFocus);
 
             SetWindowPos(hwnd, new IntPtr(-2), 0, 0, 0, 0, 0x0013); // Lose native TOPMOST.
             Check((GetWindowLong(hwnd, -20) & 8) == 0, "Native topmost-loss fixture failed.");
@@ -332,12 +361,13 @@ internal static class WidgetRecoveryChecks
                 FocusFixture(focusWindow);
                 foreground = GetForegroundWindow();
                 activationStart = activations;
+                nativeFocusStart = nativeFocus.Events;
                 controller.MaintainVisibility();
                 Pump();
                 Check(!HasVisiblePredecessor(hwnd, ordinaryHwnd) && (GetWindowLong(hwnd, -20) & 8) != 0,
                     "Visibility maintenance did not repair stale TOPMOST z-order.");
-                Check(GetForegroundWindow() == foreground && GetActiveWindow() == focusHwnd && activations == activationStart,
-                    "TOPMOST z-order repair took keyboard focus.");
+                CheckPassiveFocus("TOPMOST z-order repair", foreground, focusHwnd, hwnd,
+                    activationStart, activations, nativeFocusStart, nativeFocus);
                 // Once the widget is back in the topmost band, a legitimate
                 // topmost sibling must stay above it on ordinary timer checks.
                 SetWindowPos(ordinaryHwnd, new IntPtr(-1), 0, 0, 0, 0, 0x0013);
@@ -360,12 +390,13 @@ internal static class WidgetRecoveryChecks
             controller.RecoverAfterEnvironmentChange();
             foreground = GetForegroundWindow();
             activationStart = activations;
+            nativeFocusStart = nativeFocus.Events;
             Pump();
             window = controller.CurrentWindow!;
             Check(configured == 2 && Handle(window) != hwnd && Visible(window),
                 "Repeated desktop notifications did not coalesce into a replacement window.");
-            Check(GetForegroundWindow() == foreground && GetActiveWindow() == focusHwnd && activations == activationStart,
-                $"Desktop recovery took keyboard focus: afterWidget={GetForegroundWindow() == Handle(window)}, active={window.IsActive}, activations={activationStart}/{activations}.");
+            CheckPassiveFocus("Desktop recovery", foreground, focusHwnd, Handle(window),
+                activationStart, activations, nativeFocusStart, nativeFocus);
             Check(window.PixelPosition == savedPosition && window.Opacity == 1 && Math.Abs(window.BackgroundOpacity - .92) < .001
                 && !window.Topmost && (GetWindowLong(Handle(window), -20) & 0x20) != 0,
                 "Resume recovery lost saved position, opacity or interaction settings.");
@@ -429,6 +460,7 @@ internal static class WidgetRecoveryChecks
             settings.WidgetTop = screen.WorkingArea.Top + 40;
             foreground = GetForegroundWindow();
             activationStart = activations;
+            nativeFocusStart = nativeFocus.Events;
             controller.Recreate(settings, overview);
             Pump();
             window = controller.CurrentWindow!;
@@ -444,8 +476,8 @@ internal static class WidgetRecoveryChecks
                 + $"active={WindowIdentity(resetActive)}, fixture={WindowIdentity(focusHwnd)}, "
                 + $"widget={WindowIdentity(resetHwnd)}, activations={activationStart}->{activations}";
             Console.WriteLine("Position reset focus: " + resetFocusTrace);
-            Check(resetForeground == foreground && resetActive == focusHwnd && activations == activationStart,
-                "Position reset focus invariant failed. " + resetFocusTrace);
+            CheckPassiveFocus("Position reset", foreground, focusHwnd, resetHwnd,
+                activationStart, activations, nativeFocusStart, nativeFocus);
             ((Action?)clickEvent.GetValue(window))?.Invoke();
             Check(clicks == 2, "Position reset lost the widget input subscription.");
 
@@ -456,6 +488,281 @@ internal static class WidgetRecoveryChecks
             Pump();
             controller.MaintainVisibility();
             Check(controller.CurrentWindow is null && configured == 4, "Recovery recreated a widget after app shutdown.");
+        }
+    }
+
+    private sealed class WidgetFocusTrace : IDisposable
+    {
+        private readonly HashSet<IntPtr> _widgets = [];
+        private readonly List<FloatingWidget> _windows = [];
+        private readonly WinEventCallback _foregroundCallback;
+        private readonly IntPtr _foregroundHook;
+        public int Events { get; private set; }
+        public bool HasActiveWidget => _windows.Any(window => window.IsActive);
+
+        public WidgetFocusTrace()
+        {
+            _foregroundCallback = (_, _, hwnd, _, _, _, _) =>
+            {
+                if (_widgets.Contains(hwnd)) Events++;
+            };
+            _foregroundHook = SetWinEventHook(3, 3, IntPtr.Zero, _foregroundCallback,
+                (uint)Environment.ProcessId, 0, 0); // EVENT_SYSTEM_FOREGROUND, OUTOFCONTEXT
+            Check(_foregroundHook != IntPtr.Zero, "Cannot observe native widget foreground events.");
+        }
+
+        public void Observe(FloatingWidget window)
+        {
+            _windows.Add(window);
+            window.SourceInitialized += (_, _) =>
+            {
+                _widgets.Add(Handle(window));
+                HwndSource.FromHwnd(Handle(window))!.AddHook(ObserveMessage);
+            };
+        }
+
+        private IntPtr ObserveMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            // Record transient native focus as well as WPF Activated. A widget that takes
+            // and then releases focus must fail even if another app is foreground by the end.
+            if (message == 0x0007 || (message == 0x0006 && (wParam.ToInt64() & 0xFFFF) != 0)) Events++;
+            return IntPtr.Zero;
+        }
+
+        public void Dispose() => UnhookWinEvent(_foregroundHook);
+    }
+
+    private static void CheckPassiveFocus(string phase, IntPtr beforeForeground, IntPtr fixture,
+        IntPtr widget, int beforeActivations, int activations, int beforeNativeFocus, WidgetFocusTrace nativeFocus)
+    {
+        var afterForeground = GetForegroundWindow();
+        var active = GetActiveWindow();
+        var focus = GetFocus();
+        var ourThread = GetWindowThreadProcessId(fixture, out _);
+        var foregroundThread = GetWindowThreadProcessId(afterForeground, out _);
+        // SetActiveWindow establishes this thread's target, not the user's foreground.
+        // Another input thread may legitimately become foreground while Pump dispatches.
+        // Require exact ownership when the synthetic fixture really was foreground.
+        // Background checks use native widget events, not equality between unrelated
+        // user windows. Never forgive activation/focus messages on any widget instance.
+        var externalChurn = afterForeground != IntPtr.Zero && foregroundThread != ourThread
+            && (afterForeground != beforeForeground && active == fixture || active == IntPtr.Zero);
+        var guarded = beforeForeground == fixture;
+        var preserved = !guarded || afterForeground == fixture && active == fixture;
+        var detail = $"{phase}: foreground={WindowIdentity(beforeForeground)}->{WindowIdentity(afterForeground)}, "
+            + $"active={WindowIdentity(active)}, focus={WindowIdentity(focus)}, fixture={WindowIdentity(fixture)}, "
+            + $"widget={WindowIdentity(widget)}, activations={beforeActivations}->{activations}, "
+            + $"nativeFocus={beforeNativeFocus}->{nativeFocus.Events}, guarded={guarded}, externalChurn={externalChurn}";
+        Check(preserved && afterForeground != widget && active != widget
+            && focus != widget && !IsChild(widget, focus) && activations == beforeActivations
+            && !nativeFocus.HasActiveWidget && nativeFocus.Events == beforeNativeFocus,
+            "Passive widget focus invariant failed. " + detail);
+        if (externalChurn) Console.WriteLine("External foreground change without widget activation: " + detail);
+    }
+
+    private static void CheckControlledForegroundRecovery(Window focusWindow)
+    {
+        var originalForeground = GetForegroundWindow();
+        var target = new TextBox { Text = "Synthetic keyboard focus target" };
+        focusWindow.Content = target;
+        var fixture = new WindowInteropHelper(focusWindow).Handle;
+        using var trace = new WidgetFocusTrace();
+        var activations = 0;
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = new CodexQuotaSnapshot(CodexQuotaStatus.Available, null, now, now, null, null,
+            null, [new("weekly", 25, 10080, now.AddDays(7), CodexWindowKind.Weekly)], null);
+        var account = new CodexAccountView(new CodexAccountProfile("synthetic-focus", "", "Focus"), snapshot);
+        var overview = UsageAccountOverview.Create([account], account.Profile.Id);
+        var settings = new AppSettings { FloatingWidgetEnabled = true, WidgetAlwaysOnTop = true,
+            WidgetLeft = 100, WidgetTop = 100 };
+        using var controller = new FloatingWidgetController(window =>
+        {
+            trace.Observe(window);
+            window.Activated += (_, _) => activations++;
+        });
+        try
+        {
+            controller.Update(settings, overview);
+            Pump();
+            var window = controller.CurrentWindow!;
+            var hwnd = Handle(window);
+            void EstablishForeground()
+            {
+                if (!SetForegroundWindow(fixture)) ClickSyntheticForeground(focusWindow, target);
+                focusWindow.Activate();
+                Keyboard.Focus(target);
+                Pump();
+                Check(GetForegroundWindow() == fixture && GetActiveWindow() == fixture
+                    && GetFocus() != IntPtr.Zero && ReferenceEquals(Keyboard.FocusedElement, target),
+                    "Controlled fixture does not own real foreground/native/WPF keyboard focus.");
+            }
+            void Verify(Action repair, string phase)
+            {
+                EstablishForeground();
+                var nativeFocus = GetFocus();
+                var before = trace.Events;
+                var activationStart = activations;
+                repair();
+                Pump();
+                Check(GetForegroundWindow() == fixture && GetActiveWindow() == fixture
+                    && GetFocus() == nativeFocus && ReferenceEquals(Keyboard.FocusedElement, target)
+                    && trace.Events == before && activations == activationStart,
+                    "Controlled foreground/keyboard focus changed during " + phase);
+            }
+            window.WindowState = WindowState.Minimized;
+            Pump();
+            Verify(controller.MaintainVisibility, "minimize recovery");
+            Check(Visible(window), "Controlled minimized widget was not recovered.");
+            ShowWindow(hwnd, 0);
+            Verify(controller.MaintainVisibility, "native hide recovery");
+            Verify(controller.RecoverAfterEnvironmentChange, "environment recreation");
+            window = controller.CurrentWindow!;
+            hwnd = Handle(window);
+
+            // Deterministically reproduce the old failure predicate in background mode:
+            // another input thread switches between its two foreground windows while
+            // the main Dispatcher processes recovery. No widget receives focus.
+            using var external = new OtherInputThreadFixture();
+            window.WindowState = WindowState.Minimized;
+            Pump();
+            external.Activate();
+            Pump();
+            FocusFixture(focusWindow);
+            var beforeForeground = GetForegroundWindow();
+            var beforeNative = trace.Events;
+            var beforeActivations = activations;
+            controller.MaintainVisibility();
+            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(external.ActivateSecond));
+            Pump();
+            Check(GetForegroundWindow() == external.SecondHandle && GetForegroundWindow() != beforeForeground
+                && trace.Events == beforeNative && activations == beforeActivations,
+                "The external foreground-change reproduction did not run without widget activation.");
+            CheckPassiveFocus("Controlled external foreground change", beforeForeground, fixture, hwnd,
+                beforeActivations, activations, beforeNative, trace);
+
+            // Prove external churn cannot mask a genuine (including transient) widget
+            // activation. This explicit test action is outside passive production updates.
+            SetActiveWindow(hwnd);
+            FocusFixture(focusWindow);
+            var rejected = false;
+            try { CheckPassiveFocus("Injected widget activation", beforeForeground, fixture, hwnd,
+                beforeActivations, activations, beforeNative, trace); }
+            catch (InvalidOperationException) { rejected = true; }
+            Check(rejected && trace.Events > beforeNative,
+                "The focus detector accepted injected widget activation during external churn.");
+            Console.WriteLine("PASS: controlled real foreground/native/WPF keyboard focus preserved through hide, minimize and recreation; external foreground churn reproduced and genuine transient widget activation rejected.");
+        }
+        finally
+        {
+            controller.Dispose();
+            if (originalForeground != IntPtr.Zero && GetForegroundWindow() == fixture)
+                SetForegroundWindow(originalForeground);
+            focusWindow.Content = null;
+            FocusFixture(focusWindow);
+        }
+    }
+
+    private sealed class OtherInputThreadFixture : IDisposable
+    {
+        private readonly Thread _thread;
+        private Dispatcher? _dispatcher;
+        private Window? _window;
+        private Window? _secondWindow;
+        public IntPtr Handle { get; private set; }
+        public IntPtr SecondHandle { get; private set; }
+
+        public OtherInputThreadFixture()
+        {
+            using var ready = new ManualResetEventSlim();
+            Exception? failure = null;
+            _thread = new Thread(() =>
+            {
+                try
+                {
+                    _dispatcher = Dispatcher.CurrentDispatcher;
+                    _window = new Window { Title = "Synthetic external input thread", Width = 220, Height = 80,
+                        ShowActivated = false, ShowInTaskbar = false };
+                    _window.Show();
+                    Handle = new WindowInteropHelper(_window).Handle;
+                    _secondWindow = new Window { Title = "Synthetic external input thread second target",
+                        Width = 220, Height = 80, ShowActivated = false, ShowInTaskbar = false };
+                    _secondWindow.Show();
+                    SecondHandle = new WindowInteropHelper(_secondWindow).Handle;
+                }
+                catch (Exception error) { failure = error; }
+                finally { ready.Set(); }
+                if (failure is null) Dispatcher.Run();
+            }) { IsBackground = true };
+            _thread.SetApartmentState(ApartmentState.STA);
+            _thread.Start();
+            Check(ready.Wait(TimeSpan.FromSeconds(5)) && failure is null && Handle != IntPtr.Zero,
+                "Cannot create controlled external input-thread fixture: " + failure);
+        }
+
+        public void Activate() => _dispatcher!.Invoke(() =>
+        {
+            Check(SetForegroundWindow(Handle), "Cannot foreground controlled external input thread.");
+            _window!.Activate();
+        });
+
+        public void ActivateSecond() => _dispatcher!.Invoke(() =>
+        {
+            Check(SetForegroundWindow(SecondHandle), "Cannot switch controlled external input-thread foreground.");
+            _secondWindow!.Activate();
+        });
+
+        public void Dispose()
+        {
+            _dispatcher!.Invoke(() => { _secondWindow!.Close(); _window!.Close();
+                _dispatcher.BeginInvokeShutdown(DispatcherPriority.Send); });
+            Check(_thread.Join(TimeSpan.FromSeconds(5)), "External input-thread fixture did not stop.");
+        }
+    }
+
+    private static void ClickSyntheticForeground(Window window, FrameworkElement target)
+    {
+        // Foreground-lock policy may reject SetForegroundWindow when a developer is
+        // using another app. Exercise the same safe native-fixture input as the button
+        // suite: no input is sent unless the pointer resolves to our synthetic HWND.
+        Check(new[] { 1, 2, 4, 0x10, 0x11, 0x12, 0x5B, 0x5C }
+            .All(key => (GetAsyncKeyState(key) & 0x8000) == 0),
+            "Cannot acquire synthetic foreground while mouse buttons or modifiers are held.");
+        Check(GetCursorPos(out var original), "Cannot read cursor for controlled focus fixture.");
+        var previousTopmost = window.Topmost;
+        NativePoint pointer = default;
+        var moved = false;
+        try
+        {
+            window.Topmost = true;
+            var work = (System.Windows.Forms.Screen.AllScreens.FirstOrDefault(screen => !screen.Primary)
+                ?? System.Windows.Forms.Screen.PrimaryScreen!).WorkingArea;
+            Check(SetWindowPos(new WindowInteropHelper(window).Handle, new IntPtr(-1),
+                work.Left + 40, work.Top + 40, 0, 0, 0x0051),
+                "Cannot place owned synthetic foreground guard in native topmost band.");
+            Pump();
+            var point = target.PointToScreen(new Point(10, 10));
+            pointer = new NativePoint { X = (int)Math.Round(point.X), Y = (int)Math.Round(point.Y) };
+            Check(SetCursorPos(pointer.X, pointer.Y), "Cannot position cursor over synthetic foreground target.");
+            moved = true;
+            Pump();
+            Check(GetCursorPos(out var actual) && actual.X == pointer.X && actual.Y == pointer.Y
+                && WindowFromPoint(actual) == new WindowInteropHelper(window).Handle,
+                $"Refusing native focus click outside the synthetic guard: requested={pointer.X},{pointer.Y}; "
+                + $"actual={actual.X},{actual.Y}; hit={WindowIdentity(WindowFromPoint(actual))}; "
+                + $"guard={WindowIdentity(new WindowInteropHelper(window).Handle)}; "
+                + $"visible={window.IsVisible}; target={target.ActualWidth:F1}x{target.ActualHeight:F1}.");
+            var inputs = new[] { new NativeInput { Data = new NativeInputData { Mouse = new NativeMouse { Flags = 2 } } },
+                new NativeInput { Data = new NativeInputData { Mouse = new NativeMouse { Flags = 4 } } } };
+            var written = SendInput(2, inputs, Marshal.SizeOf<NativeInput>());
+            if (written == 1) SendInput(1, [inputs[1]], Marshal.SizeOf<NativeInput>());
+            Check(written == 2, "Interactive desktop rejected the synthetic foreground click.");
+            Pump();
+        }
+        finally
+        {
+            window.Topmost = previousTopmost;
+            if (moved && GetCursorPos(out var current) && current.X == pointer.X && current.Y == pointer.Y)
+                SetCursorPos(original.X, original.Y);
         }
     }
 
@@ -496,6 +803,26 @@ internal static class WidgetRecoveryChecks
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
     [DllImport("user32.dll")] private static extern IntPtr GetActiveWindow();
+    [DllImport("user32.dll")] private static extern IntPtr GetFocus();
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsChild(IntPtr parent, IntPtr child);
+    private delegate void WinEventCallback(IntPtr hook, uint eventType, IntPtr hwnd, int objectId,
+        int childId, uint threadId, uint eventTime);
+    [DllImport("user32.dll")] private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax,
+        IntPtr module, WinEventCallback callback, uint processId, uint threadId, uint flags);
+    [DllImport("user32.dll")] private static extern bool UnhookWinEvent(IntPtr hook);
+    [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] private struct NativeMouse { public int X, Y; public uint Data, Flags, Time; public UIntPtr Extra; }
+    [StructLayout(LayoutKind.Sequential)] private struct NativeInput { public uint Type; public NativeInputData Data; }
+    [StructLayout(LayoutKind.Explicit)] private struct NativeInputData
+    {
+        [FieldOffset(0)] public NativeMouse Mouse;
+    }
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out NativePoint point);
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(NativePoint point);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, NativeInput[] inputs, int size);
     [DllImport("user32.dll")] private static extern IntPtr SetActiveWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int command);

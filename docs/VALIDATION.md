@@ -2,6 +2,69 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Claude reset continuity and build-local focus attribution (unreleased, 2026-10-13 Asia/Seoul):
+  - On the unchanged source, both server→newer Desktop reproduction tests failed with
+    expected future dates replaced by null. OAuth absent/null reset fields are a second
+    overwrite path. The fix separates percentage arbitration from independent five-hour
+    and weekly reset evidence. [Policy and alternatives](CLAUDE-RESET-CONTINUITY.md).
+  - 72 new reducer/store cases plus 22 existing Claude-reset cases pass (94 reset cases).
+    The earlier provider/history/alert integration checkpoint passed 242 cases. No existing
+    test was removed or weakened. New cases cover actual OAuth parser omission/null,
+    auth/identity/generation boundaries, clock conflicts, grants, invalidation persistence,
+    corrupt primary/backup, CAS and one-minute ordinary write coalescing.
+    A separate two-case pre-fix test reproduced five identical age-transition publications
+    over five polls; the fix publishes once. All 176 focused reset/statusLine/failure cases pass
+    without changing the existing tests, including clock rollback and immutable legacy
+    snapshots. The broader gate initially found six compatibility failures and they were
+    fixed in production code, not by loosening assertions.
+    Final review added two pre-fix failing cases for an implausible date poisoning the
+    other window's restart evidence, and four failing auth/identity recovery cases.
+    The fix rejects bad receipt dates per window and persists failure-time boundaries;
+    recovery/restart cannot revive old dates. Late failure and unchanged-poll disk
+    checks also pass. The automated PR authentication-boundary finding is addressed.
+  - Release build passes. Actual production WPF reset detail/widget checks pass all 60
+    EN/KO × Dark/Light × 80/100/150% × reset-state cases; four native pairs were also
+    shown. Eight previews were inspected, including an English long-label clipping issue
+    corrected to the compact **prior** marker. Rings and financial/reset inventory remain.
+  - Strengthened default widget recovery passes all 12 EN/KO/theme combinations on three
+    local monitors, including rejection of injected transient native activation. The old
+    ambient-foreground equality could attribute an external app change to widget theft;
+    the user's summary alone does not identify which native condition failed there.
+  - Explicit controlled foreground mode fails locally at safe acquisition: the pointer
+    resolves to the Codex host HWND instead of the visible owned guard at the requested
+    physical coordinate. No external click was sent. The manual Windows workflow requires
+    this mode separately; its hosted result is recorded after the final gate.
+    [Windows 38409972099](https://github.com/frozenvoice/cyclearc/actions/runs/38409972099)
+    at `7567d7c` passed this controlled mode and all five workflow jobs. The final
+    auth-boundary/cache isolation follow-up is verified in the exact-head run linked
+    from PR #64, rather than treating that earlier SHA as its CI evidence.
+  - No new request, model turn, credential access, redemption, release or installed-app
+    replacement. Exact-binding typed reset evidence is capped at 8 KiB; ordinary writes
+    are coalesced to one minute, invalidations/new dates are urgent and unchanged passive
+    reads do not write. Existing settings and three provider caches retain their formats.
+  - Final local `dev-run.ps1 -NoLaunch` on production source `e4f2fc7` passes all 2,318 unit cases, every default WPF
+    suite (explicit COMPLETE marker), test-flavour/native dependency checks, single-file
+    publication and real isolated Velopack package/update checks. The previous successful
+    broad runs had 2,309/2,311 cases; the publication and final cache/auth cases were
+    added after reproducing their pre-fix failures. The final gate exited 0 in 7m01.1s
+    at 100% host WPF DPI. One preceding attempt failed the unchanged synthetic
+    installer-hang assertion before unit/WPF execution; the same ThreadJob/native
+    timeout path passed in isolation and the unchanged full gate passed on retry.
+    Its transient cause is unconfirmed; no timeout or assertion was weakened.
+    Installed CycleArc was never replaced or stopped.
+  - One paired synthetic pilot (eight 5-second phases, five-second warmup, monitoring on)
+    compares baseline `e2126f9` with source `00b9f12`. Both pass five-account isolation,
+    visibility and timer assertions; both make four Claude live requests, four Codex quota
+    requests, two Cursor usage requests and 25 passive ticks with 50 change events.
+    Initial tray private memory is 26.75→26.92 MiB; post-refresh widget is 142.15→143.04
+    MiB; after churn it is 211.66→219.72 MiB. Aggregate measured phase CPU is
+    3,515.625→3,828.125 ms. This single short, instrumented WPF run establishes no
+    statistical CPU/memory improvement or installed-app footprint; phase noise and
+    uncollected churn allocations remain. [Paired readings](measurements/claude-reset-2026-10-13-pilot.csv).
+    Disk behavior is verified by unchanged bytes/timestamps over repeated passive polls,
+    bounded ordinary writes and immediate durable invalidations, rather than inferred
+    from those CPU/memory readings.
+
 - Credit, spending, observed trends and read-only reset inventory (unreleased, 2026-10-13 Asia/Seoul):
   - Verified provider fields stay distinct: raw Codex balance/change, Claude Extra usage
     spending/cap/room, Cursor personal on-demand and included-plan counters. Claude's private

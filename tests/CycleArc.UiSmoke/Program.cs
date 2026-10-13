@@ -241,6 +241,16 @@ internal static class Program
                 WidgetRecoveryChecks.Run(recoveryDirectory);
                 return 0;
             }
+            if (args is ["--widget-recovery-foreground"])
+            {
+                WidgetRecoveryChecks.RunControlledForeground();
+                return 0;
+            }
+            if (args is ["--claude-reset"] or ["--claude-reset", _])
+            {
+                ClaudeResetUiChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--usage-period-screenshots", var periodScreenshots])
             {
                 DocumentationScreenshots.Export(periodScreenshots, usagePeriodOnly: true);
@@ -391,6 +401,8 @@ internal static class Program
             UsageCreditUiChecks.Run();
             Begin("monitoring");
             MonitoringUiChecks.Run();
+            Begin("claude-reset");
+            ClaudeResetUiChecks.Run();
             Begin("cursor-widget-summary");
             CursorWidgetSummaryChecks.Run();
             Begin("widget-status-row");

@@ -85,6 +85,8 @@ Assert-Contract ($workflow -notmatch '(?mi)actions/cache@') 'workflow must not a
 Assert-Contract ($build.Contains('./dev-run.ps1 -NoLaunch')) 'CI must call the shared no-launch gate'
 Assert-Contract ($build.Contains('-TestResultsDirectory TestResults')) 'CI must request TRX evidence from the shared gate'
 Assert-Contract ($build.Contains('-PreviewDirectory artifacts/widget-previews')) 'CI must request preview evidence from the shared gate'
+Assert-Contract ($build.Contains('--widget-recovery-foreground')) 'CI must require controlled real foreground and keyboard focus recovery'
+Assert-Contract ($build.IndexOf('--widget-recovery-foreground') -gt $build.IndexOf('./dev-run.ps1 -NoLaunch')) 'controlled focus must use the already verified build'
 Assert-Contract ($build.Contains('path: publish/.dev-velopack/*')) 'CI must upload the shared gate package directory'
 Assert-Contract ($build.Contains('name: CycleArc-win-x64')) 'CI must preserve the release artifact name'
 $installerUpload = Get-Block $workflow '      - name: Upload Windows installer assets' '      - name: Upload failed test results'
