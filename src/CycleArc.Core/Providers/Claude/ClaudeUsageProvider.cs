@@ -60,6 +60,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
         _lastLive = ReadLiveCache(_connection);
         _lastLiveAttemptAt = _lastLive?.AttemptedAt;
         Apply(_lastRead, _lastFailureRead);
+        PublishIfChanged(Snapshot);
     }
 
     private bool HasBoundConnection => _connection is { Unavailable: false, Binding.Disconnected: false };
@@ -245,13 +246,15 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
         var state = read.State;
         var good = state?.LastGood;
         var binding = _connection?.Binding is { Disconnected: false } currentBinding ? currentBinding : null;
-        if (good is not null && (good.ReceivedAt > _clock.UtcNow
-            || binding is not null && good.ReceivedAt < binding.ConnectedAt)) good = null;
+        if (good is not null && binding is not null && good.ReceivedAt < binding.ConnectedAt) good = null;
         var desktop = _lastDesktop?.Sample;
         if (desktop is not null && (binding is null
             || desktop.ObservedAt < binding.ConnectedAt || desktop.ObservedAt > _clock.UtcNow)) desktop = null;
         var live = _lastLive?.Sample;
         if (live is not null && (binding is null || !Valid(live, binding, _clock.UtcNow))) live = null;
+        // Retain the legacy clock-rollback warning/last values if no valid source exists,
+        // but a future local receipt cannot supersede a valid server/Desktop observation.
+        if (good?.ReceivedAt > _clock.UtcNow && (live is not null || desktop is not null)) good = null;
 
         // Never expose a quota after the live endpoint authenticated another account.
         if (string.Equals(_lastLive?.Failure, "claude-live-identity-mismatch", StringComparison.Ordinal))

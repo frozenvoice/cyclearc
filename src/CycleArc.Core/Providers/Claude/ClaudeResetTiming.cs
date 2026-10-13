@@ -53,6 +53,9 @@ internal sealed class ClaudeResetTimingTracker(ClaudeResetTimingStore? store)
         ClaudeResetCreditInventory? inventory, string? failure, DateTimeOffset now)
     {
         Bind(binding, now);
+        // Legacy unbound statusLine projections retain their existing immutable contract.
+        // They cannot supply binding-verified evidence for cross-source borrowing.
+        if (binding is not { Disconnected: false }) return windows;
         if (binding is { Disconnected: false })
         {
             var previousFiveReset = _state.FiveHour.ResetAt;
@@ -150,7 +153,7 @@ internal sealed class ClaudeResetTimingTracker(ClaudeResetTimingStore? store)
             reset = null;
         if (!direct && binding is { Disconnected: false } && !state.Invalidated && state.ResetAt is { } candidate
             && state.ResetObservedAt is { } origin && at is { } usageAt
-            && usageAt > origin && usageAt >= state.ProgressAt && now - usageAt <= ContinuityGap
+            && usageAt > origin && usageAt <= now && usageAt >= state.ProgressAt && now - usageAt <= ContinuityGap
             && candidate > now + BoundaryMargin && window.UsedPercent is { } used && used >= state.Used
             && failure is not "claude-live-auth-required" and not "claude-auth-required"
             && (_state.BlockedThrough is null || origin > _state.BlockedThrough)
