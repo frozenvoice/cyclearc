@@ -43,6 +43,7 @@ public sealed record WidgetAccountModel(
 {
     public string? RingTargetLabel { get; init; }
     public WidgetStatusPresentation? StatusPresentation { get; init; }
+    public bool IsRefreshing { get; init; }
     // Keep the full status for tooltips/accessibility even when the healthy footer is folded.
     public bool ShowStatusRow { get; init; } = !string.IsNullOrEmpty(StatusText);
     // Widget glyphs only: keep the shared ring's precise text, percentage and danger state.
@@ -58,6 +59,20 @@ public sealed record WidgetAccountModel(
         var at = now ?? DateTimeOffset.Now;
         var snapshot = account.Snapshot;
         var statusPresentation = WidgetStatusPresentation.From(snapshot, at, account.IsSigningIn);
+        var refreshing = account.IsRefreshing || snapshot.Status == CodexQuotaStatus.Refreshing;
+        if (refreshing)
+        {
+            var checking = UiText.T("Checking…", "확인 중…");
+            // A retry must retain its previous failure and observation time. Activity only
+            // adds context to the display; it never changes the source snapshot or quota.
+            statusPresentation = statusPresentation with
+            {
+                Summary = statusPresentation.IsWarning ? statusPresentation.Summary : checking,
+                Severity = statusPresentation.IsWarning ? WidgetStatusSeverity.Warning : WidgetStatusSeverity.Pending,
+                DetailText = checking + Environment.NewLine + statusPresentation.DetailText,
+                ShowRow = true
+            };
+        }
         var protectedIdentity = WidgetStatusPresentation.HidesQuota(snapshot);
         var cursorProtected = CursorUsagePresentation.IsCursor(snapshot)
             && CursorIdentityRequiresReconnection(snapshot);
@@ -106,6 +121,7 @@ public sealed record WidgetAccountModel(
         return model with
         {
             StatusPresentation = statusPresentation,
+            IsRefreshing = refreshing,
             ShowStatusRow = statusPresentation.ShowRow,
             Tooltip = model.Tooltip + Environment.NewLine + statusPresentation.DetailText,
             RingTargetLabel = CursorUsagePresentation.IsCursor(snapshot) && !cursorProtected && ring.Window is not null

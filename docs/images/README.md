@@ -321,8 +321,9 @@ Historical percentage-format validation examples (with their original headers/ve
 The earlier 2026-10-03 reserved-footer implementation kept a 30-DIP, two-line status
 area plus a 5-DIP top margin. That implementation is superseded by account-header
 status icons, which remove all 35 DIP of footer space. Healthy server data hides the
-icon; checking shows a rotating arc unless an existing warning takes priority, and
-attention states show a warning triangle. Other states use pending/information icons.
+icon; refresh participation, including a queued wait, shows a rotating arc for each
+provider. A retry keeps its warning color and explanation on the arc; completed attention
+states show a warning triangle. Other states use pending/information icons.
 Full status, original checked/received age and details remain in tooltips and accessible
 name/help. Provider badges and quota presentation keep their own meaning.
 

@@ -2,6 +2,43 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Per-account widget refresh activity (unreleased, 2026-10-13 Asia/Seoul):
+  - The production widget previously inferred refresh activity from the quota snapshot;
+    only Codex published that temporary snapshot state. The shared manager now projects
+    refresh participation separately for every eligible provider, including queued accounts,
+    within the unchanged two-request limit. Each completion/failure/cancellation clears its
+    own flag. Tracked accounts cannot be removed until their work ends.
+  - Nine isolated manager regressions cover queued/executing accounts, individual completion,
+    failure/cancellation, retained quota/time/warnings, automatic skips and cancelled waiters
+    retaining the executing owners' slots. The coalesced-projection regression now checks
+    the additional account notifications while retaining exactly two desktop projections.
+  - The final Release build and all 2,163 unit tests passed without skips. The first full
+    unit run exposed the old raw-event-count assertion; the corrected test verifies the
+    new account activity sequence and unchanged coalesced projection count.
+    Production WPF status transitions passed in EN/KO, Dark/Light and 80/100/150% zoom.
+    Visual inspection confirmed blue healthy-check arcs and amber retry arcs for Claude and
+    Cursor, unchanged compact bounds, and preserved quota/reset rows. Tooltips and the actual
+    account button automation name include activity plus the previous warning. The 340
+    temporary renders and read-only diagnostic project/output were removed after inspection.
+    The final argument-free UiSmoke exited 0 with `[ui-smoke] COMPLETE all default suites`
+    at host DPI 150%. Native widget layout/recovery, Pin/Hide/close/reopen, WPF keyboard/UIA,
+    settings/zoom and injected 100/125/150/175/200% DPI checks passed. OS high contrast was
+    off; resource-injection checks do not establish actual OS high-contrast rendering.
+    Evidence is `artifacts/refresh-feedback-final-build-unit.log`,
+    `artifacts/refresh-feedback-visual.log` and `artifacts/refresh-feedback-ui-full.log`.
+    An earlier source's default run was intentionally stopped for review corrections;
+    it is not a passing full gate. No installed-app replacement/restart, packaging, remote
+    CI or release was performed.
+  - Separately, authorized read-only production-client requests against the existing Cursor
+    connection saw an identity endpoint HTTP 500 once, then verified identity and accepted
+    the monthly summary (HTTP 200), with only the optional Grok Bot request timing out.
+    The running installation subsequently retained updated monthly data with the optional
+    failure. Current and previous Claude live caches both showed successful checks; the
+    original brief Claude failure could not be identified from the retained diagnostics.
+    No token, identity, quota value or raw HTTP body was recorded, and probes wrote no
+    bindings, provider caches or settings. Provider authentication/query behavior is unchanged;
+    actual server failures remain warnings rather than being hidden by the activity fix.
+
 - Settings backup contention (unreleased, 2026-10-13 Asia/Seoul):
   - The reported build-local failure was `widget-recovery` saving its isolated settings:
     `SettingsStore.Save` / `File.Replace` returned Windows 1175 (`0x80070497`). A real

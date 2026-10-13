@@ -162,8 +162,13 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
 - Stale and failed-check presentation uses explicit localized warning text and the shared
   theme-aware warning resource. `WidgetStatusPresentation` classifies the actual state for
   all three providers, keeps a prior warning during retry, and distinguishes awaiting data
-  and local receipt from a successful server check. Rings and bars retain their existing
-  usage bands; amounts and remaining values retain the normal text color. These surfaces
+  and local receipt from a successful server check.
+  The account manager projects refresh participation separately from the source snapshot,
+  including queued eligible accounts within the existing two-request bound. Widget activity
+  ends per account on completion/cancellation/failure; a retry uses a warning-colored arc
+  while preserving its prior warning and observation time in tooltips and the button peer.
+  Rings and bars retain their usage bands; amounts and remaining values retain the normal
+  text color. These surfaces
   retain the original success/receipt date/time. A separate bounded tray formatter places freshness,
   receipt and shared scope ahead of a potentially long nickname; full tooltips also retain
   the Code delivery context. Presentation changes never refresh provider metadata.

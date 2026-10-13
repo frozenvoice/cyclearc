@@ -20,6 +20,8 @@ public sealed record CodexAccountView(CodexAccountProfile Profile, CodexQuotaSna
             : Profile.Provider.Name() + " · " + Profile.Id[..Math.Min(6, Profile.Id.Length)]) : Profile.Label;
     public string ProviderName => Profile.Provider.Name();
     public bool IsConnected { get; init; }
+    // Runtime activity is separate from the last published quota/failure snapshot.
+    public bool IsRefreshing { get; init; }
     // Display-only Cursor hook receipt for this PC. Never part of the quota snapshot or its freshness.
     public Providers.Cursor.CursorActivityView? CursorActivity { get; init; }
     public bool IsAwaitingUsage => IsConnected

@@ -90,7 +90,8 @@ public sealed class CodexAccountManager : IDisposable
                     var connected = !identityConflict && service.IsConnected;
                     return new CodexAccountView(profile, snapshot, email, _loginProfile == profile.Id, hasMatchingIdentity)
                     {
-                        IsConnected = connected
+                        IsConnected = connected,
+                        IsRefreshing = _refreshingProfiles.Contains(profile.Id)
                     };
                 }).ToArray();
             }
@@ -278,7 +279,8 @@ public sealed class CodexAccountManager : IDisposable
             var profile = _configuration.Profiles.First(p => p.Id == id);
             // A passive read of an empty Claude inbox can finish after forgetting the
             // draft. It performs no login, settings write or quota collection.
-            if (service.IsRefreshing && !(discardClaudeDraft && profile.Provider == UsageProviderId.Claude)) return false;
+            if (_refreshingProfiles.Contains(id)
+                || (service.IsRefreshing && !(discardClaudeDraft && profile.Provider == UsageProviderId.Claude))) return false;
             var profiles = _configuration.Profiles.Where(p => p.Id != id).ToArray();
             Save(_configuration with { Profiles = profiles,
                 SelectedId = _configuration.SelectedId == id ? profiles.FirstOrDefault()?.Id ?? "" : _configuration.SelectedId,
@@ -344,22 +346,37 @@ public sealed class CodexAccountManager : IDisposable
         lock (_gate) { profiles = _configuration.Profiles.ToArray(); interval = _automaticInterval; }
         await Task.WhenAll(profiles.Select(async profile =>
         {
-            await _processSlots.WaitAsync(token).ConfigureAwait(false);
+            var tracked = false;
+            var acquired = false;
             try
             {
                 IUsageAccountService? service;
+                token.ThrowIfCancellationRequested();
                 lock (_gate)
                 {
                     if (profile.Id == _loginProfile || !_services.TryGetValue(profile.Id, out service)) return;
                     if (interval is { } age && !service.ShouldRefresh(DateTimeOffset.Now, age)) return;
-                    _refreshingProfiles.Add(profile.Id);
+                    tracked = _refreshingProfiles.Add(profile.Id);
+                }
+                Changed?.Invoke();
+                // Queue participation is visible immediately for every eligible account.
+                // The limit still bounds actual provider requests to two at a time.
+                await _processSlots.WaitAsync(token).ConfigureAwait(false);
+                acquired = true;
+                lock (_gate)
+                {
+                    if (profile.Id == _loginProfile || !_services.TryGetValue(profile.Id, out var current)
+                        || !ReferenceEquals(current, service)) return;
+                    if (interval is { } age && !service.ShouldRefresh(DateTimeOffset.Now, age)) return;
                 }
                 await RefreshActiveAsync(service, token).ConfigureAwait(false);
             }
             finally
             {
-                lock (_gate) _refreshingProfiles.Remove(profile.Id);
-                _processSlots.Release();
+                if (tracked)
+                    lock (_gate) _refreshingProfiles.Remove(profile.Id);
+                if (acquired) _processSlots.Release();
+                if (tracked) Changed?.Invoke();
             }
         })).ConfigureAwait(false);
         return new(Snapshot, Snapshot.Status != CodexQuotaStatus.Available, null);

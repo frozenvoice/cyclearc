@@ -2,7 +2,7 @@
 
 **Your Codex, Claude and Cursor limits, one click away.**
 
-A native Windows tray app for checking each account's usage, remaining allowance and reset times. An optional desktop widget compares accounts side by side. Accounts keep separate limits and refresh states; unknown values stay unknown. English/Korean and Dark/Light/System themes are included.
+A native Windows tray app for checking each account's usage, remaining allowance and reset times. An optional desktop widget compares accounts side by side. Each Codex, Claude and Cursor account shows refresh activity from its queued wait through completion; a retry retains its previous warning and observation time. Accounts keep separate limits and refresh states; unknown values stay unknown. English/Korean and Dark/Light/System themes are included.
 
 [![Windows build](https://github.com/frozenvoice/cyclearc/actions/workflows/windows.yml/badge.svg)](https://github.com/frozenvoice/cyclearc/actions/workflows/windows.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
