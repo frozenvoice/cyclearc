@@ -553,6 +553,34 @@ public class ClaudeResetContinuityTests
         return service.RefreshLiveAsync(default);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AgingResetStateDoesNotPublishTheSameTransitionOnEveryPassivePoll(bool preserved)
+    {
+        using var data = new Data();
+        var service = await Seed(data);
+        if (preserved)
+        {
+            data.Clock.UtcNow = Now.AddMinutes(1);
+            await Observe(data, service, true, 51, 20);
+        }
+        var changes = 0;
+        service.Changed += _ => changes++;
+        data.Clock.UtcNow = preserved ? Now.AddMinutes(17) : Now.AddHours(2).AddSeconds(1);
+        await service.RefreshAsync(default);
+        Assert.Equal(preserved ? ClaudeResetObservationState.Stale : ClaudeResetObservationState.Elapsed,
+            Window(service, CodexWindowKind.FiveHour).ResetObservation!.State);
+        Assert.Equal(1, changes);
+        for (var index = 0; index < 4; index++)
+        {
+            data.Clock.UtcNow = data.Clock.UtcNow.AddSeconds(2);
+            await service.RefreshAsync(default);
+        }
+        Assert.Equal(1, changes);
+        Assert.Equal(1, data.Live.RefreshCalls);
+    }
+
     private static CodexQuotaWindow Window(ClaudeQuotaService service, CodexWindowKind kind) =>
         Assert.Single(service.Snapshot.Windows, window => window.Kind == kind);
 

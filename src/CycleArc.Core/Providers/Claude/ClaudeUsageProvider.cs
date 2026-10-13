@@ -104,7 +104,9 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             _lastDesktop = desktop;
             if (changed) Apply(read, failure);
             await PersistResetTimingAsync(token).ConfigureAwait(false);
-            var snapshot = Snapshot;
+            // Commit the UI-only age transition once under the refresh gate, rather
+            // than recreating and republishing an equal window array every two seconds.
+            var snapshot = _snapshot = Snapshot;
             PublishIfChanged(snapshot);
             return new(snapshot, snapshot.Status != CodexQuotaStatus.Available, snapshot.TechnicalDetail);
         }
@@ -192,7 +194,7 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             _lastDesktop = desktop;
             Apply(read, failure);
             await PersistResetTimingAsync(token).ConfigureAwait(false);
-            var snapshot = Snapshot;
+            var snapshot = _snapshot = Snapshot;
             PublishIfChanged(snapshot);
             return new(snapshot, snapshot.Status != CodexQuotaStatus.Available, snapshot.TechnicalDetail);
         }
