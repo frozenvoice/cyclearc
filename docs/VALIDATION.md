@@ -34,15 +34,24 @@
     resolves to the Codex host HWND instead of the visible owned guard at the requested
     physical coordinate. No external click was sent. The manual Windows workflow requires
     this mode separately; its hosted result is recorded after the final gate.
+    [Windows 38409972099](https://github.com/frozenvoice/cyclearc/actions/runs/38409972099)
+    at `7567d7c` passed this controlled mode and all five workflow jobs. The final
+    auth-boundary/cache isolation follow-up is verified in the exact-head run linked
+    from PR #64, rather than treating that earlier SHA as its CI evidence.
   - No new request, model turn, credential access, redemption, release or installed-app
     replacement. Exact-binding typed reset evidence is capped at 8 KiB; ordinary writes
     are coalesced to one minute, invalidations/new dates are urgent and unchanged passive
     reads do not write. Existing settings and three provider caches retain their formats.
-  - Final local `dev-run.ps1 -NoLaunch` passes all 2,311 unit cases, every default WPF
+  - Final local `dev-run.ps1 -NoLaunch` on production source `e4f2fc7` passes all 2,318 unit cases, every default WPF
     suite (explicit COMPLETE marker), test-flavour/native dependency checks, single-file
     publication and real isolated Velopack package/update checks. The previous successful
-    broad run had 2,309 cases; the final two publication cases were added after reproducing
-    their pre-fix failures. Installed CycleArc was never replaced or stopped.
+    broad runs had 2,309/2,311 cases; the publication and final cache/auth cases were
+    added after reproducing their pre-fix failures. The final gate exited 0 in 7m01.1s
+    at 100% host WPF DPI. One preceding attempt failed the unchanged synthetic
+    installer-hang assertion before unit/WPF execution; the same ThreadJob/native
+    timeout path passed in isolation and the unchanged full gate passed on retry.
+    Its transient cause is unconfirmed; no timeout or assertion was weakened.
+    Installed CycleArc was never replaced or stopped.
   - One paired synthetic pilot (eight 5-second phases, five-second warmup, monitoring on)
     compares baseline `e2126f9` with source `00b9f12`. Both pass five-account isolation,
     visibility and timer assertions; both make four Claude live requests, four Codex quota
