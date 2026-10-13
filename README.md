@@ -31,6 +31,8 @@ For portable updates, exit CycleArc, download the new ZIP from Releases, replace
 
 If replacement or initial desktop readiness fails, a separate recovery process restores and restarts the verified previous app. If recovery is blocked, CycleArc retains the backup and reports its location. Settings, accounts and quota caches stay in `%LOCALAPPDATA%\ProMeter` across installation, update, recovery and removal. [Installation, callbacks and removal details](docs/README.en.md#running-and-updating-versions).
 
+Settings are saved atomically with a previous valid backup. If the usual backup is held open, one additional recovery copy keeps settings saves working; it returns to the usual backup after the lock is released and another save succeeds.
+
 Release artifacts are unsigned unless an approved code-signing pipeline is configured; an installer alone does not remove Windows SmartScreen warnings. [.NET migration, compatibility and signing conditions](docs/DOTNET10-MIGRATION.md).
 
 ## Troubleshooting

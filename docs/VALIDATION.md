@@ -2,6 +2,44 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Settings backup contention (unreleased, 2026-10-13 Asia/Seoul):
+  - The reported build-local failure was `widget-recovery` saving its isolated settings:
+    `SettingsStore.Save` / `File.Replace` returned Windows 1175 (`0x80070497`). A real
+    `FileShare.Read` handle on the canonical `.bak` reproduces the same error, and the
+    new backup-reader regression failed on the original implementation. The process
+    responsible for the original transient lock remains unidentified.
+  - Exact canonical 1175 can now select one fixed `.bak.next` recovery destination.
+    Primary replacement still commits atomically after a flushed temporary write.
+    The active recovery copy always contains the previous valid primary; post-commit
+    normalization either moves it over `.bak` or leaves it intact with
+    `BackupRotationDeferred`. Load prefers primary, then `.bak.next`, then `.bak`.
+    An active recovery-slot or primary lock still propagates a save failure. The
+    schema and primary/canonical paths are unchanged, with no delay/retry loop or
+    growing backup collection. Older builds only know `.bak` if the primary also
+    becomes damaged during deferred rotation; see [the contract](ARCHITECTURE.md#provider-and-presentation-contracts).
+  - All 20 SettingsRecoveryTests passed, including exact native 1175, repeated
+    locked-backup commits, immediate previous-version retention, restart/repair,
+    corrupt recovery-copy fallback, primary/active-slot locks preserving all bytes,
+    unusable recovery destination, pre-commit serialization failure, concurrent
+    store instances, bounded files and temporary cleanup. An introduced fixture
+    used unsupported zoom values; it was corrected to the existing 80–150%,
+    10%-step policy without changing that policy or weakening assertions.
+  - The final Release solution build and all 2,154 unit tests passed with no skips.
+    The production widget-recovery fixture now retains a canonical backup reader
+    through its three off/on cycles and native offscreen recovery. Its refusal and
+    cleanup guards, and the pin fixture cleanup, include the new owned recovery file.
+    Focused evidence: `artifacts/settings-backup-focused.log`; original failure:
+    `artifacts/settings-backup-regression-before.log`.
+  - The final `pwsh -NoProfile -File ./dev-run.ps1 -NoLaunch` passed with exit 0
+    through `package-verify` in 10:05. Its argument-free UiSmoke reached
+    `[ui-smoke] COMPLETE all default suites`, including the deliberately locked
+    backup in EN/KO Dark/Light on two monitors at host WPF DPI 150%. Self-contained
+    production/native-dependency checks and Velopack package component checks passed.
+    Evidence: `artifacts/settings-backup-full.log`. Temporary staging/test-flavour
+    outputs were removed after verification. Tests used isolated settings and
+    synthetic accounts; no installed-app replacement/restart, real-account access,
+    physical input, remote workflow or release was performed.
+
 - Tray widget action (unreleased, 2026-10-12 Asia/Seoul):
   - The native tray menu now offers **Show widget / 위젯 표시** after Open CycleArc.
     It saves the enabled preference and reuses the production widget controller, preserving

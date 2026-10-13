@@ -38,7 +38,7 @@ internal static class WidgetRecoveryChecks
             }
         }
         finally { focusWindow.Close(); }
-        Console.WriteLine($"PASS: widget lifecycle recovery in both languages/dark/light on {System.Windows.Forms.Screen.AllScreens.Length} monitor(s); native hide/minimize/topmost, closed window, resume/display recreation, fractional saved coordinates through three off/on cycles, saved preferences, account availability and shutdown.");
+        Console.WriteLine($"PASS: widget lifecycle recovery in both languages/dark/light on {System.Windows.Forms.Screen.AllScreens.Length} monitor(s); native hide/minimize/topmost, closed window, resume/display recreation, fractional saved coordinates through three off/on cycles with a locked settings backup, saved preferences, account availability and shutdown.");
     }
 
     private static void CheckFractionalPositionPreservation(UiLanguage language, AppTheme theme,
@@ -48,7 +48,7 @@ internal static class WidgetRecoveryChecks
         // Reuse one file across all monitor/language/theme cases and remove only files we own.
         var path = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, ".tmp", "widget-recovery-settings.json"));
         var store = new SettingsStore(path);
-        Check(!File.Exists(path) && !File.Exists(store.BackupPath),
+        Check(!File.Exists(path) && !File.Exists(store.BackupPath) && !File.Exists(store.RecoveryBackupPath),
             "Refusing to overwrite an existing widget position settings fixture.");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var pixelLeft = screen.WorkingArea.Left + 100;
@@ -73,6 +73,7 @@ internal static class WidgetRecoveryChecks
         var moved = 0;
         var trace = $"{language}/{theme}/{screen.DeviceName}";
         FloatingWidgetController? controller = null;
+        FileStream? backupReader = null;
         try
         {
             store.Save(settings);
@@ -145,7 +146,13 @@ internal static class WidgetRecoveryChecks
 
                 settings = store.Load();
                 settings.FloatingWidgetEnabled = true;
+                // Reproduce the build-local failure at the real persistence boundary:
+                // a reader retains the canonical backup without allowing deletion.
+                if (cycle == 1)
+                    backupReader = new FileStream(store.BackupPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 store.Save(settings);
+                Check(store.BackupRotationDeferred && File.Exists(store.RecoveryBackupPath),
+                    $"{trace}/on {cycle}: a locked backup did not retain the previous valid recovery copy.");
                 controller.Update(settings, overview, applySettings: true);
                 Pump();
                 controller.MaintainVisibility();
@@ -185,9 +192,11 @@ internal static class WidgetRecoveryChecks
         }
         finally
         {
+            backupReader?.Dispose();
             controller?.Dispose();
             File.Delete(path);
             File.Delete(store.BackupPath);
+            File.Delete(store.RecoveryBackupPath);
         }
     }
 
