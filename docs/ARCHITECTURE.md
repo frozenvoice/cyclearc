@@ -2,6 +2,12 @@
 
 ## Active product — Codex, Claude and Cursor (2026-10-01)
 
+Claude reset timestamps now use a separate bounded, exact-binding continuity ledger;
+percentage source arbitration does not erase prior verified reset evidence. Per-window
+source/time, durable invalidation, fail-closed cache recovery, CAS saves and one-minute
+ordinary write coalescing are specified in [Claude reset continuity](CLAUDE-RESET-CONTINUITY.md).
+No network request or credential path was added.
+
 ### Desktop startup and installation (0.6.0)
 
 `Program.Main` routes all three headless Claude modes before Velopack startup, desktop argument

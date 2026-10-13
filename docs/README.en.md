@@ -228,6 +228,8 @@ To check current usage independently, choose **Open usage page** on the Claude d
 
 Claude Code statusLine and Desktop subscription history also provide local fallback samples. CycleArc preserves their observation times; rereading a file does not count as a successful server check. Desktop history may be delayed and has no reset timestamps.
 
+Previously supplied resets can survive a continuous source transition with a **prior** marker and their original source/time in the tooltip. Usage decreases, contradictory clocks or a long observation gap invalidate that period; elapsed resets await a new supplied timestamp. See the [reset evidence and cache policy](CLAUDE-RESET-CONTINUITY.md).
+
 If authentication fails, the profile shows **Claude Desktop login required** and keeps the last valid values marked as stale. If the Desktop identity does not match the connected account, CycleArc hides all Claude quota for that profile. Sign in to the intended account in Desktop, then refresh. Rate-limit and request failures also retain previous values and show the reason the check failed.
 
 A Claude plan change keeps the same account when its email and organization match. After sign-in recovery, callbacks from an older connection generation cannot change the latest sample or its receipt time. Older saved bindings are upgraded only after their identity is verified; see [connection compatibility](CLAUDE-INTEGRATION.md#account-identity-compatibility).

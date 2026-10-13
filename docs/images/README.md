@@ -1,5 +1,11 @@
 # Documentation previews
 
+`claude-reset-{en,ko}-{dark,light}-{detail,widget}.png` (2026-10-13) are production WPF
+views with synthetic data. They show latest Desktop percentages with a separately
+preserved server reset, an independent weekly reset, Extra usage and read-only reset
+inventory. Reproduce with `--claude-reset artifacts/previews`; 60 state/locale/theme/zoom
+cases also check original source/time and text clipping. No real account was accessed.
+
 The `monitoring-{en,ko}-{dark,light}-{detail,widget}.png` previews render the new credit/spending
 monitor in the 0.10.1 development source on 2026-10-13. Their three accounts, money, reset
 inventory and observed points are explicitly synthetic. They show separate actual spending
