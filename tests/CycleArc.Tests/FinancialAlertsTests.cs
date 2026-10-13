@@ -245,6 +245,49 @@ public class FinancialAlertsTests
         Assert.Empty(Evaluate(account with { Snapshot = account.Snapshot with { ClaudeResetCredits = null } }).Alerts);
     }
 
+    [Theory]
+    [InlineData(UsageProviderId.Codex)]
+    [InlineData(UsageProviderId.Claude)]
+    public void ExpiryBucketsDoNotRepeatWhenUnrelatedGrantsChangeOrExpire(UsageProviderId provider)
+    {
+        var soon = Now.AddMinutes(1);
+        var retained = Now.AddDays(2);
+        var added = Now.AddDays(2.5);
+        var first = Evaluate(Inventory(soon, retained));
+        Assert.Equal(2, first.Alerts.Count);
+
+        // A new far-future grant changes the inventory, but no already warned bucket.
+        var outsideLead = Evaluate(Inventory(soon, retained, Now.AddDays(20)), first.Marks);
+        Assert.Empty(outsideLead.Alerts);
+        // A new expiry inside the lead produces only that expiry's alert.
+        var insideLead = Evaluate(Inventory(soon, retained, added), outsideLead.Marks);
+        Assert.Equal(added, Assert.Single(insideLead.Alerts).ExpiresAt);
+        // Removing an unrelated grant likewise keeps this date/count announced.
+        var removed = Evaluate(Inventory(retained), insideLead.Marks);
+        Assert.Empty(removed.Alerts);
+
+        // Even without a changed response, time naturally expires the other bucket.
+        var expired = FinancialAlerts.Evaluate([Inventory(soon, retained)], first.Marks, Options, Now.AddMinutes(2));
+        Assert.Empty(expired.Alerts);
+        Assert.Single(expired.Marks);
+
+        // Only an actual count change in the retained bucket announces it again.
+        var changedCount = Evaluate(Inventory(retained, retained), removed.Marks);
+        var changed = Assert.Single(changedCount.Alerts);
+        Assert.Equal(retained, changed.ExpiresAt);
+        Assert.Equal(2, changed.Count);
+
+        CodexAccountView Inventory(params DateTimeOffset[] expiries)
+        {
+            var account = Account("a", provider);
+            return account with { Snapshot = provider == UsageProviderId.Codex
+                ? account.Snapshot with { ResetCreditsAvailable = expiries.Length,
+                    ResetCreditExpirations = expiries.Select(date => (DateTimeOffset?)date).ToArray() }
+                : account.Snapshot with { ClaudeResetCredits = new(true,
+                    expiries.Select(date => Grant(1, Now.AddDays(-1), date)).ToArray(), Now) } };
+        }
+    }
+
     [Fact]
     public void FreshnessBoundaryAndNotificationLimitsAreDeterministic()
     {

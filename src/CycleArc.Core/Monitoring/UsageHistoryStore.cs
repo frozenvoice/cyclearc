@@ -24,6 +24,9 @@ public sealed class UsageHistoryStore(string root)
     public static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(30);
     private readonly object _gate = new();
     private readonly Dictionary<string, State> _states = new(StringComparer.Ordinal);
+    // Clean full histories are evictable; unsaved measured tails and throttle clocks are not.
+    private readonly Dictionary<string, Overlay> _pending = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> _writeTimes = new(StringComparer.Ordinal);
     private readonly string _directory = Path.Combine(root, "usage-history");
     private DateTimeOffset? _lastCleanup;
     private static readonly JsonSerializerOptions Json = new() { MaxDepth = 12 };
@@ -37,6 +40,7 @@ public sealed class UsageHistoryStore(string root)
                 var key = Key(account);
                 if (key is null) continue;
                 var state = Get(key, now);
+                if (state.Rejected) continue;
                 var snapshot = account.Snapshot;
                 var quality = Quality(snapshot, now);
                 var statusAt = quality == UsageHistoryQuality.Failure
@@ -51,12 +55,12 @@ public sealed class UsageHistoryStore(string root)
                     foreach (var point in Project(snapshot, now)) Add(state, point);
                     if (snapshot.CursorPlanAmountsFailure is not null) Gap(state, "cursor-plan-amounts", now, snapshot.LastAttemptedRefresh);
                     // Independently failed money fields retain their own gap, never fresh amounts.
-                    if (snapshot.UsageCreditsFailure is not null) Gap(state, "credits", now, snapshot.LastAttemptedRefresh);
+                    if (snapshot.UsageCreditsFailure is not null) Gap(state, CreditsSeriesId(snapshot, state), now, snapshot.LastAttemptedRefresh);
                     if (snapshot.ExtraUsageFailure is not null) Gap(state, "extra", now, snapshot.LastAttemptedRefresh);
                     foreach (var window in snapshot.Windows.Where(w => w.AmountFailure is not null))
                         Gap(state, WindowId(window), now, snapshot.LastAttemptedRefresh);
                     if (snapshot.UsageCredits?.ObservedAt is { } creditsAt && now - creditsAt > StaleAfter)
-                        Gap(state, "credits", now, now, UsageHistoryQuality.Stale, creditsAt);
+                        Gap(state, CreditsSeriesId(snapshot, state), now, now, UsageHistoryQuality.Stale, creditsAt);
                     if (snapshot.ExtraUsage?.ObservedAt is { } extraAt && now - extraAt > StaleAfter)
                         Gap(state, "extra", now, now, UsageHistoryQuality.Stale, extraAt);
                     if (snapshot.CursorPlanAmounts?.ObservedAt is { } planAt && now - planAt > StaleAfter)
@@ -157,7 +161,7 @@ public sealed class UsageHistoryStore(string root)
         if (snapshot.Provider == UsageProviderId.Codex && snapshot.UsageCreditsFailure is null
             && snapshot.UsageCredits is { Balance: { } balance, ObservedAt: { } creditAt } credits
             && ValidTime(creditAt, now) && now - creditAt <= StaleAfter)
-            yield return Point(creditAt, "credits-" + Hash(credits.LimitId ?? "default"), "Credits", UsageHistoryMetric.CreditBalance,
+            yield return Point(creditAt, CreditsSeriesId(credits), "Credits", UsageHistoryMetric.CreditBalance,
                 balance, "credits", UsageHistorySource.CodexAppServer, null);
         if (snapshot.Provider == UsageProviderId.Claude && snapshot.ExtraUsageFailure is null
             && snapshot.ExtraUsage is { } extra && ClaudeExtraUsage.Valid(extra, now) && now - extra.ObservedAt <= StaleAfter
@@ -178,19 +182,21 @@ public sealed class UsageHistoryStore(string root)
 
     private static void Add(State state, UsageHistoryPoint candidate)
     {
+        var recoveredGap = false;
         if (state.Statuses.LastOrDefault(s => s.SeriesId == candidate.SeriesId) is { Quality: not UsageHistoryQuality.Observed } gap
             && candidate.ObservedAt > gap.At)
         {
             state.Statuses.Add(new(candidate.ObservedAt, UsageHistoryQuality.Observed, candidate.ObservedAt, candidate.SeriesId));
             state.Dirty = true;
+            recoveredGap = true;
         }
         var index = state.Points.FindLastIndex(p => p.SeriesId == candidate.SeriesId && p.Metric == candidate.Metric);
         var previous = index < 0 ? null : state.Points[index];
         if (previous is not null && candidate.ObservedAt <= previous.ObservedAt) return;
-        var changed = previous is null || previous.Value != candidate.Value || previous.Unit != candidate.Unit
+        var changed = recoveredGap || previous is null || previous.Value != candidate.Value || previous.Unit != candidate.Unit
             || previous.Source != candidate.Source || previous.PeriodEndsAt != candidate.PeriodEndsAt;
         if (!changed && candidate.ObservedAt - previous!.ObservedAt < UnchangedInterval) return;
-        var discontinuity = UsageHistoryDiscontinuity.None;
+        var discontinuity = recoveredGap ? UsageHistoryDiscontinuity.Gap : UsageHistoryDiscontinuity.None;
         if (previous is not null)
         {
             if (previous.Source != candidate.Source || previous.Unit != candidate.Unit) discontinuity |= UsageHistoryDiscontinuity.SourceChanged;
@@ -207,10 +213,13 @@ public sealed class UsageHistoryStore(string root)
         var coalesced = previous is not null && candidate.ObservedAt - previous.ObservedAt < ChangedInterval;
         var previousDelta = previous is null ? null : state.Points.LastOrDefault(p => p.SeriesId == candidate.SeriesId
             && p.Metric == UsageHistoryMetric.BalanceChange && p.ObservedAt == previous.ObservedAt);
+        Touch(state, candidate.SeriesId, candidate.Metric, coalesced ? previous!.ObservedAt : candidate.ObservedAt);
         if (coalesced)
         {
             state.Points[index] = candidate with { Discontinuity = candidate.Discontinuity | previous!.Discontinuity };
             state.Points.RemoveAll(p => p.SeriesId == candidate.SeriesId && p.Metric == UsageHistoryMetric.BalanceChange && p.ObservedAt == previous!.ObservedAt);
+            if (candidate.Metric == UsageHistoryMetric.CreditBalance)
+                Touch(state, candidate.SeriesId, UsageHistoryMetric.BalanceChange, previous!.ObservedAt);
         }
         else state.Points.Add(candidate);
         if (candidate.Metric == UsageHistoryMetric.CreditBalance && previous is not null
@@ -220,9 +229,23 @@ public sealed class UsageHistoryStore(string root)
             try
             {
                 var delta = candidate.Value - previous.Value + (coalesced ? previousDelta?.Value ?? 0 : 0);
-                if (delta != 0) state.Points.Add(candidate with { Metric = UsageHistoryMetric.BalanceChange, Value = delta });
+                if (delta != 0)
+                {
+                    Touch(state, candidate.SeriesId, UsageHistoryMetric.BalanceChange, candidate.ObservedAt);
+                    state.Points.Add(candidate with { Metric = UsageHistoryMetric.BalanceChange, Value = delta });
+                }
             }
-            catch (OverflowException) { /* An unrepresentable delta is unknown, not zero. */ }
+            catch (OverflowException)
+            {
+                // Both provider balances remain exact. Their difference can exceed decimal's
+                // representable range; mark that missing delta rather than throwing or inventing zero.
+                var balanceIndex = state.Points.FindLastIndex(point => point.SeriesId == candidate.SeriesId
+                    && point.Metric == UsageHistoryMetric.CreditBalance && point.ObservedAt == candidate.ObservedAt);
+                if (balanceIndex >= 0) state.Points[balanceIndex] = state.Points[balanceIndex] with
+                    { Discontinuity = state.Points[balanceIndex].Discontinuity | UsageHistoryDiscontinuity.Gap };
+                Gap(state, candidate.SeriesId, candidate.ObservedAt, candidate.ObservedAt,
+                    UsageHistoryQuality.Missing, previous.ObservedAt);
+            }
         }
         state.Dirty = true;
     }
@@ -240,7 +263,25 @@ public sealed class UsageHistoryStore(string root)
     private State Get(string key, DateTimeOffset now)
     {
         if (_states.TryGetValue(key, out var state)) return state;
-        if (_states.Count >= MaximumLoadedAccounts) _states.Remove(_states.Keys.First());
+        if (!_pending.ContainsKey(key) && !_writeTimes.ContainsKey(key)
+            && _states.Keys.Concat(_pending.Keys).Concat(_writeTimes.Keys).Distinct(StringComparer.Ordinal).Count() >= MaximumAccounts)
+        {
+            var retired = _writeTimes.Where(pair => !_pending.ContainsKey(pair.Key)
+                    && (!_states.TryGetValue(pair.Key, out var known) || !known.Dirty))
+                .OrderBy(pair => pair.Value).Select(pair => pair.Key).FirstOrDefault();
+            if (retired is null) return new() { Warning = "history-capacity-unavailable", Rejected = true };
+            _states.Remove(retired);
+            _writeTimes.Remove(retired);
+        }
+        if (_states.Count >= MaximumLoadedAccounts)
+        {
+            var oldestKey = _states.Keys.First();
+            var evicted = _states[oldestKey];
+            if (evicted.Dirty)
+                _pending[oldestKey] = new(evicted.Points.Where(point => evicted.PendingFrom.TryGetValue((point.SeriesId, point.Metric), out var from)
+                        && point.ObservedAt >= from).ToList(), evicted.Statuses.ToList(), new(evicted.PendingFrom), evicted.Warning);
+            _states.Remove(oldestKey);
+        }
         var primary = Path.Combine(_directory, key + ".json");
         state = Load(primary, key, now);
         if (state is null)
@@ -248,6 +289,18 @@ public sealed class UsageHistoryStore(string root)
             state = Load(primary + ".bak", key, now);
             if (state is not null) { state.PrimaryValid = false; state.Warning = "history-backup-recovered"; }
             else state = new() { Warning = File.Exists(primary) || File.Exists(primary + ".bak") ? "history-unavailable" : null };
+        }
+        if (_writeTimes.TryGetValue(key, out var writeAt)) state.LastWrite = writeAt;
+        if (_pending.Remove(key, out var overlay))
+        {
+            state.Points.RemoveAll(point => overlay.From.TryGetValue((point.SeriesId, point.Metric), out var from)
+                && point.ObservedAt >= from);
+            state.Points.AddRange(overlay.Points);
+            state.Statuses = overlay.Statuses;
+            state.PendingFrom = overlay.From;
+            state.Warning = overlay.Warning ?? state.Warning;
+            state.Dirty = true;
+            Trim(state, now);
         }
         _states[key] = state;
         return state;
@@ -270,9 +323,11 @@ public sealed class UsageHistoryStore(string root)
                 || document.Statuses.Any(s => s is null || !ValidTime(s.At, now) || !Enum.IsDefined(s.Quality)
                     || s.LastObservedAt is { } observed && !ValidTime(observed, now)
                     || s.SeriesId is { } id && !SafeId(id))) return null;
-            var state = new State { Points = document.Points, Statuses = document.Statuses, PrimaryValid = true };
+            var state = new State { Points = document.Points, Statuses = document.Statuses, PrimaryValid = true,
+                LastWrite = document.WrittenAt is { } written && ValidTime(written, now) ? written : null };
             Trim(state, now);
             state.Dirty = false;
+            state.PendingFrom.Clear();
             return state;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException) { return null; }
@@ -283,11 +338,11 @@ public sealed class UsageHistoryStore(string root)
         string? temporary = null;
         try
         {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(new Document(1, key, state.Points, state.Statuses), Json);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(new Document(1, key, state.Points, state.Statuses, now), Json);
             while (bytes.Length > MaximumFileBytes && state.Points.Count > 0)
             {
                 state.Points = Spread(state.Points, Math.Max(0, state.Points.Count - 128));
-                bytes = JsonSerializer.SerializeToUtf8Bytes(new Document(1, key, state.Points, state.Statuses), Json);
+                bytes = JsonSerializer.SerializeToUtf8Bytes(new Document(1, key, state.Points, state.Statuses, now), Json);
             }
             Directory.CreateDirectory(_directory);
             var path = Path.Combine(_directory, key + ".json");
@@ -300,6 +355,7 @@ public sealed class UsageHistoryStore(string root)
             state.PrimaryValid = true;
             state.LastWrite = now;
             state.Dirty = false;
+            state.PendingFrom.Clear();
             state.Warning = null;
             Cleanup(key, now, firstWrite);
         }
@@ -307,6 +363,14 @@ public sealed class UsageHistoryStore(string root)
         { state.Warning = "history-write-unavailable"; state.LastWrite = now; }
         finally
         {
+            _writeTimes[key] = now;
+            // Record accepts at most64 profiles. Keep clocks bounded if ad-hoc reads introduce more.
+            if (_writeTimes.Count > MaximumAccounts)
+            {
+                var retired = _writeTimes.Where(pair => pair.Key != key && !_states.ContainsKey(pair.Key) && !_pending.ContainsKey(pair.Key))
+                    .OrderBy(pair => pair.Value).Select(pair => pair.Key).FirstOrDefault();
+                if (retired is not null) _writeTimes.Remove(retired);
+            }
             if (temporary is not null)
                 try { if (File.Exists(temporary)) File.Delete(temporary); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
@@ -370,6 +434,10 @@ public sealed class UsageHistoryStore(string root)
         removed += state.Statuses.RemoveAll(s => s.At < now - Retention);
         state.Statuses.Sort((a, b) => a.At.CompareTo(b.At));
         if (state.Statuses.Count > MaximumStatuses) { removed += state.Statuses.Count - MaximumStatuses; state.Statuses.RemoveRange(0, state.Statuses.Count - MaximumStatuses); }
+        var retainedSeries = state.Points.Select(point => (point.SeriesId, point.Metric)).ToHashSet();
+        foreach (var touched in state.PendingFrom.Keys.Where(key => !retainedSeries.Contains(key)
+            && !(key.Item2 == UsageHistoryMetric.BalanceChange && retainedSeries.Contains((key.Item1, UsageHistoryMetric.CreditBalance)))).ToArray())
+            state.PendingFrom.Remove(touched);
         state.Dirty |= removed > 0;
     }
 
@@ -393,6 +461,15 @@ public sealed class UsageHistoryStore(string root)
     private static bool SafeUnit(string? unit) => unit is { Length: > 0 and <= 12 } && unit.All(c => char.IsAsciiLetter(c) || c == '%');
     private static bool SafeId(string? id) => id is { Length: > 0 and <= 100 } && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..16];
+    private static string CreditsSeriesId(CodexUsageCredits credits) => "credits-" + Hash(credits.LimitId ?? "default");
+    private static string CreditsSeriesId(CodexQuotaSnapshot snapshot, State state) => snapshot.UsageCredits is { Balance: not null } credits
+        ? CreditsSeriesId(credits) : state.Points.LastOrDefault(point => point.Metric == UsageHistoryMetric.CreditBalance)?.SeriesId
+            ?? CreditsSeriesId(snapshot.UsageCredits ?? new(false, false, null, null, null));
+    private static void Touch(State state, string series, UsageHistoryMetric metric, DateTimeOffset at)
+    {
+        var key = (series, metric);
+        if (!state.PendingFrom.TryGetValue(key, out var existing) || at < existing) state.PendingFrom[key] = at;
+    }
     private static string WindowId(CodexQuotaWindow window) => window.LimitId switch
     {
         "five_hour" or "seven_day" or "cursor-auto" or "cursor-api" or "cursor-plan" or "cursor-on-demand"
@@ -405,14 +482,19 @@ public sealed class UsageHistoryStore(string root)
         "cursor-team-on-demand" => "Team on-demand", "cursor-team-pool" => "Team pool", "cursor-overall" => "Overall",
         "cursor-grok" => "Grok", _ => window.Kind switch { CodexWindowKind.FiveHour => "5-hour", CodexWindowKind.Weekly => "Weekly", _ => "Other limit" }
     };
-    private sealed record Document(int Version, string Key, List<UsageHistoryPoint> Points, List<UsageHistoryStatus> Statuses);
+    private sealed record Document(int Version, string Key, List<UsageHistoryPoint> Points, List<UsageHistoryStatus> Statuses,
+        DateTimeOffset? WrittenAt = null);
+    private sealed record Overlay(List<UsageHistoryPoint> Points, List<UsageHistoryStatus> Statuses,
+        Dictionary<(string, UsageHistoryMetric), DateTimeOffset> From, string? Warning);
     private sealed class State
     {
         public List<UsageHistoryPoint> Points { get; set; } = [];
-        public List<UsageHistoryStatus> Statuses { get; init; } = [];
+        public List<UsageHistoryStatus> Statuses { get; set; } = [];
+        public Dictionary<(string, UsageHistoryMetric), DateTimeOffset> PendingFrom { get; set; } = [];
         public DateTimeOffset? LastWrite { get; set; }
         public bool PrimaryValid { get; set; }
         public bool Dirty { get; set; }
+        public bool Rejected { get; init; }
         public string? Warning { get; set; }
     }
 }

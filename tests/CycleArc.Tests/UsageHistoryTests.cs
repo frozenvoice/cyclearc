@@ -283,6 +283,93 @@ public sealed class UsageHistoryTests : IDisposable
         Assert.Equal("history-write-unavailable", view.StorageWarning);
     }
 
+    [Fact]
+    public void CreditFailureAndRecoveryUseTheExactBalanceSeriesAndMarkGap()
+    {
+        var store = Store();
+        var initial = Account(Now, credits: 100);
+        store.Record([initial], Now);
+        var failed = Account(Now.AddMinutes(1)) with
+            { Snapshot = Account(Now.AddMinutes(1)).Snapshot with { UsageCreditsFailure = "unavailable" } };
+        store.Record([failed], Now.AddMinutes(1));
+        var recovered = Account(Now.AddMinutes(2), credits: 100);
+        store.Record([recovered], Now.AddMinutes(2));
+        var view = store.Read(recovered, TimeSpan.FromDays(1), Now.AddMinutes(2));
+        var balance = view.Points.Last(point => point.Metric == UsageHistoryMetric.CreditBalance);
+        Assert.Equal(Now.AddMinutes(2), balance.ObservedAt);
+        Assert.True(balance.Discontinuity.HasFlag(UsageHistoryDiscontinuity.Gap));
+        Assert.Contains(view.Statuses, status => status.SeriesId == balance.SeriesId
+            && status.Quality == UsageHistoryQuality.Failure && status.At == Now.AddMinutes(1));
+        Assert.Contains(view.Statuses, status => status.SeriesId == balance.SeriesId
+            && status.Quality == UsageHistoryQuality.Observed && status.At == Now.AddMinutes(2));
+    }
+
+    [Fact]
+    public void UnrepresentableBalanceDeltaKeepsExactBalancesAndMarksMissingGap()
+    {
+        var store = Store();
+        store.Record([Account(Now, credits: decimal.MaxValue)], Now);
+        var minimum = Account(Now.AddMinutes(1), credits: decimal.MinValue);
+        var error = Record.Exception(() => store.Record([minimum], Now.AddMinutes(1)));
+        Assert.Null(error);
+        var view = store.Read(minimum, TimeSpan.FromDays(1), Now.AddMinutes(1));
+        var balances = view.Points.Where(point => point.Metric == UsageHistoryMetric.CreditBalance).ToArray();
+        Assert.Equal(decimal.MaxValue, balances[0].Value);
+        Assert.Equal(decimal.MinValue, balances[1].Value);
+        Assert.True(balances[1].Discontinuity.HasFlag(UsageHistoryDiscontinuity.Gap));
+        Assert.DoesNotContain(view.Points, point => point.Metric == UsageHistoryMetric.BalanceChange);
+        Assert.Contains(view.Statuses, status => status.SeriesId == balances[1].SeriesId
+            && status.At == Now.AddMinutes(1) && status.Quality == UsageHistoryQuality.Missing);
+    }
+
+    [Fact]
+    public void NineteenAccountEvictionsPreservePendingObservationsAndPerKeyWriteThrottle()
+    {
+        var store = Store();
+        CodexAccountView[] Accounts(DateTimeOffset at, decimal balance) => Enumerable.Range(0, 19)
+            .Select(i => Account(at, credits: balance) with { Profile = Account(at).Profile with { Id = "account-" + i } }).ToArray();
+        var initial = Accounts(Now, 100);
+        store.Record(initial, Now);
+        var folder = Path.Combine(_root, "usage-history");
+        var original = Directory.GetFiles(folder, "*.json").ToDictionary(path => path, File.ReadAllBytes);
+        Assert.Equal(19, original.Count);
+        var changed = Accounts(Now.AddSeconds(10), 99);
+        store.Record(changed, Now.AddSeconds(10));
+        for (var pass = 0; pass < 2; pass++)
+            foreach (var account in changed)
+                Assert.Equal(99, store.Read(account, TimeSpan.FromDays(1), Now.AddSeconds(20))
+                    .Points.Last(point => point.Metric == UsageHistoryMetric.CreditBalance).Value);
+        store.Record(changed, Now.AddSeconds(30));
+        foreach (var file in original) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
+        store.Record(changed, Now.AddMinutes(1));
+        var persisted = Store();
+        foreach (var account in changed)
+        {
+            var point = persisted.Read(account, TimeSpan.FromDays(1), Now.AddMinutes(1))
+                .Points.Last(point => point.Metric == UsageHistoryMetric.CreditBalance);
+            Assert.Equal(99, point.Value);
+            Assert.Equal(Now.AddSeconds(10), point.ObservedAt);
+        }
+        var committed = Directory.GetFiles(folder, "*.json").ToDictionary(path => path, File.ReadAllBytes);
+        var next = Accounts(Now.AddMinutes(1).AddSeconds(10), 98);
+        persisted.Record(next, Now.AddMinutes(1).AddSeconds(10));
+        foreach (var file in committed) Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
+        persisted.Record(next, Now.AddMinutes(2));
+        var final = Store();
+        Assert.All(next, account => Assert.Equal(98, final.Read(account, TimeSpan.FromDays(1), Now.AddMinutes(2))
+            .Points.Last(point => point.Metric == UsageHistoryMetric.CreditBalance).Value));
+        var blocked = Path.Combine(_root, "blocked");
+        File.WriteAllText(blocked, "file");
+        var unavailable = new UsageHistoryStore(blocked);
+        unavailable.Record(initial, Now);
+        Assert.All(initial, account =>
+        {
+            var view = unavailable.Read(account, TimeSpan.FromDays(1), Now.AddSeconds(10));
+            Assert.Equal(100, view.Points.Last(point => point.Metric == UsageHistoryMetric.CreditBalance).Value);
+            Assert.Equal("history-write-unavailable", view.StorageWarning);
+        });
+    }
+
     private static CodexAccountView Account(DateTimeOffset at, double percent = 25, decimal? credits = null,
         UsageProviderId provider = UsageProviderId.Codex) => new(
         new CodexAccountProfile("my-account", "", "My secret nickname") { Provider = provider },

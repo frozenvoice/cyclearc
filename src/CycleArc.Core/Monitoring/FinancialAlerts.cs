@@ -136,12 +136,13 @@ public static class FinancialAlerts
                 refreshedExpiryRoots.Add(root + "reset-expiry:");
                 var grouped = entries.GroupBy(x => x.Expiry).OrderBy(x => x.Key)
                     .Select(group => (Expiry: group.Key, Count: group.Sum(x => (long)x.Count))).ToArray();
-                var fingerprint = Hash(string.Join(";", grouped.Select(x => Period(x.Expiry) + ":" + x.Count)));
                 foreach (var item in grouped)
                 {
                     if (item.Expiry - now > TimeSpan.FromDays(options.ResetExpiryLeadDays)) continue;
-                    // Fingerprint only dates/counts; no redeemable credit IDs ever reach disk.
+                    // Each expiry bucket owns its count. Changes to unrelated grants must
+                    // not repeat this bucket's notification. No credit IDs reach disk.
                     var key = root + "reset-expiry:" + Period(item.Expiry);
+                    var fingerprint = Hash(Period(item.Expiry) + ":" + item.Count);
                     EvaluateThreshold(key, fingerprint, "expiry", true, false,
                         new(owner.Profile.Id, owner.DisplayName, owner.ProviderName, FinancialAlertKind.ResetExpiry,
                             ExpiresAt: item.Expiry, Count: (int)Math.Min(int.MaxValue, item.Count)));
