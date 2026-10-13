@@ -1,12 +1,14 @@
 using CycleArc.Codex;
 using CycleArc.Providers.Claude;
+using System.Net.Http;
+using System.Text.Json;
 
 namespace CycleArc.UiSmoke;
 
 /// <summary>Opt-in first-party read-only probe. Never writes bindings, quota caches or settings.</summary>
 internal static class ClaudeExtraUsageLiveChecks
 {
-    public static async Task<int> RunAsync()
+    public static async Task<int> RunAsync(bool programQueryProbe = false)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(50));
         try
@@ -26,7 +28,9 @@ internal static class ClaudeExtraUsageLiveChecks
                 Console.WriteLine("Claude extra usage live read: no existing connected account.");
                 return 2;
             }
-            var client = new ClaudeOAuthUsageClient(new ClaudeDesktopCredentialReader());
+            using var probeHandler = programQueryProbe ? new ResetQueryProbeHandler() : null;
+            using var probeHttp = probeHandler is null ? null : new HttpClient(probeHandler) { Timeout = Timeout.InfiniteTimeSpan };
+            var client = new ClaudeOAuthUsageClient(new ClaudeDesktopCredentialReader(), probeHttp);
             foreach (var binding in bindings)
             {
                 var response = await client.FetchAsync(binding, timeout.Token);
@@ -45,6 +49,13 @@ internal static class ClaudeExtraUsageLiveChecks
                     return 1;
                 }
                 var extra = sample.ExtraUsage;
+                if (programQueryProbe)
+                    Console.WriteLine($"Claude reset opt-in probe: query-sent={probeHandler!.QuerySent}; unchanged-CycleArc-UA=True; "
+                        + $"surface-restricted={probeHandler.SurfaceRestricted}; profile attribution verified; subscription and Extra usage parsers preserved.");
+                Console.WriteLine("Claude reset inventory live read (" + (programQueryProbe ? "opt-in query probe" : "ordinary existing GET") + "): provided="
+                    + (sample.ResetCredits is not null) + "; eligible=" + (sample.ResetCredits?.Eligible.ToString() ?? "unknown")
+                    + "; optional shape accepted=" + (sample.ResetCreditsFailure is null)
+                    + (programQueryProbe ? "; explicit one-shot read-only query probe; no redemption." : "; no inventory query or redemption was added."));
                 Console.WriteLine("Claude extra usage live read: identity verified; subscription quota accepted; "
                     + (sample.ExtraUsageFailure is not null ? "optional extra usage shape unavailable."
                         : extra is null ? "extra usage not provided."
@@ -67,6 +78,41 @@ internal static class ClaudeExtraUsageLiveChecks
             // Exception messages may include request details. Print a fixed summary only.
             Console.WriteLine("Claude extra usage live read: failed; no credentials or raw responses were recorded.");
             return 1;
+        }
+    }
+
+    // Test-only compatibility probe. Production retains its ordinary GET. The existing
+    // client still verifies profile/organization first and bounds the complete operation.
+    private sealed class ResetQueryProbeHandler() : DelegatingHandler(new HttpClientHandler
+        { AllowAutoRedirect = false, UseCookies = false })
+    {
+        public bool QuerySent { get; private set; }
+        public bool SurfaceRestricted { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            if (request.Method == HttpMethod.Get && request.RequestUri?.AbsoluteUri == "https://api.anthropic.com/api/oauth/usage")
+            {
+                if (QuerySent || request.Headers.UserAgent.ToString() != "CycleArc/0.5.9")
+                    throw new InvalidOperationException("Unexpected probe shape.");
+                QuerySent = true;
+                request.RequestUri = new Uri("https://api.anthropic.com/api/oauth/usage?cedar_ember=1");
+                var response = await base.SendAsync(request, token).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    try
+                    {
+                        await response.Content.LoadIntoBufferAsync(65536, token).ConfigureAwait(false);
+                        using var document = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync(token).ConfigureAwait(false),
+                            new JsonDocumentOptions { MaxDepth = 16 });
+                        SurfaceRestricted = document.RootElement.TryGetProperty("cedar_ember", out var program)
+                            && program.ValueKind == JsonValueKind.Object && program.TryGetProperty("ineligible_reason", out var reason)
+                            && reason.ValueKind == JsonValueKind.String && reason.GetString() == "surface";
+                    }
+                    catch { response.Dispose(); throw; }
+                }
+                return response;
+            }
+            return await base.SendAsync(request, token).ConfigureAwait(false);
         }
     }
 }

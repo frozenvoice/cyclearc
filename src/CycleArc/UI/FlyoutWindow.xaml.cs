@@ -301,7 +301,7 @@ public partial class FlyoutWindow : Window
         UsagePeriod = preference;
         _refreshActive = refreshing;
         SelectedProviderBadge.Provider = snapshot.Provider;
-        ResetCreditsCard.Visibility = snapshot.Provider == UsageProviderId.Codex ? Visibility.Visible : Visibility.Collapsed;
+        ResetCreditsCard.Visibility = snapshot.Provider is UsageProviderId.Codex or UsageProviderId.Claude ? Visibility.Visible : Visibility.Collapsed;
         ApplyLocalizedTexts();
         var status = WidgetStatusPresentation.From(snapshot, DateTimeOffset.Now);
         var fresh = HasCurrentHeaderUsage(snapshot);
@@ -329,6 +329,7 @@ public partial class FlyoutWindow : Window
         var selected = overview.Selected;
         _cursorActivity = selected?.CursorActivity;
         BindSnapshot(selected?.Snapshot ?? CodexQuotaSnapshot.Empty(CodexQuotaStatus.SignedOut), refreshing, overview.Preference);
+        BindHistoryAccount(selected);
         _displayedIdentities.Record(accounts);
         AccountSection.Visibility = Visibility.Visible;
         ManageAccountsButton.Content = UiText.T("Manage accounts", "계정 관리");
@@ -801,6 +802,13 @@ public partial class FlyoutWindow : Window
 
     private void BindCreditCard(CodexQuotaSnapshot snapshot)
     {
+        CreditHelpButton.Visibility = Visibility.Visible;
+        ClaudeResetUsageButton.Visibility = snapshot.Provider == UsageProviderId.Claude ? Visibility.Visible : Visibility.Collapsed;
+        if (snapshot.Provider == UsageProviderId.Claude)
+        {
+            BindClaudeResetCard(snapshot);
+            return;
+        }
         if (snapshot.Provider != UsageProviderId.Codex)
         {
             CreditExpiryRows.Items.Clear();

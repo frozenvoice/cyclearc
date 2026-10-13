@@ -127,3 +127,7 @@ identity before usage. It printed only field presence, enablement and normalized
 currency metadata, with no amounts, account email, credentials or raw response,
 and wrote no settings, bindings or quota caches. No disabled account was enabled
 or charged to fabricate coverage.
+
+## Credit and reset inventory extension — 2026-10-13
+
+See [Credit sources](CREDIT-SOURCES.md) for the official reset article, actual upstream implementations, official installed-client version check and the observed CLI-surface compatibility constraint. Only optional data in the existing identity-verified GET is projected. No new request, CLI impersonation, credentials, cookies, redemption or model call is added. Missing inventory is unknown. Prepaid balance is explicitly not provided. Projected inventory retains independent observation/failure metadata and the existing binding/cache guards; no grant ID is stored.

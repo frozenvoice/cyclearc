@@ -207,6 +207,8 @@ public sealed class WidgetAccountModuleView : Border
         var content = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
         content.Children.Add(identity);
         content.Children.Add(body);
+        FinancialSummary.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        content.Children.Add(FinancialSummary);
         StatusArea.Children.Add(StatusWarningIcon);
         StatusArea.Children.Add(StatusActivityIcon);
         StatusArea.Children.Add(StatusInfoIcon);
@@ -224,6 +226,20 @@ public sealed class WidgetAccountModuleView : Border
     }
 
     public bool IsSelected { get; private set; }
+    public TextBlock FinancialSummary { get; } = new()
+    {
+        FontSize = 10, TextTrimming = TextTrimming.CharacterEllipsis,
+        Margin = new Thickness(0, 5, 0, 0), Visibility = Visibility.Collapsed
+    };
+    public void BindFinancialSummary(CodexQuotaSnapshot snapshot, bool money, bool resets, DateTimeOffset now)
+    {
+        var summary = Monitoring.WidgetFinancialSummary.Create(snapshot, money, resets, now);
+        FinancialSummary.Text = summary.Text;
+        FinancialSummary.ToolTip = summary.Tooltip;
+        FinancialSummary.Visibility = summary.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        System.Windows.Automation.AutomationProperties.SetName(FinancialSummary, summary.Text);
+        InvalidateMeasure();
+    }
     internal FrameworkElement SelectionPill => _selectionPill;
 
     protected override void OnMouseEnter(System.Windows.Input.MouseEventArgs e)

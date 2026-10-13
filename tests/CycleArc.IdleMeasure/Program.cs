@@ -147,6 +147,7 @@ internal static class Program
                 Samples = measurements.Samples.Take(measurements.SampleCount).ToArray(),
                 UiProbes = measurements.Probes.Take(measurements.ProbeCount).ToArray(),
                 Counters = fixture.CaptureCounters(), app.PassiveTicks, app.AutomaticTicks, app.DisplayTicks,
+                app.MonitoringEnabled, app.HistoryStorage,
                 UiCreations = app.UiCounts,
                 Assertions = new[] { "five isolated accounts", "latest passive values and original timestamps",
                     "all providers performed refresh requests", "production window visibility", "passive timer remains active",

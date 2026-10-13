@@ -306,7 +306,8 @@ public sealed class CursorQuotaService : IUsageAccountService, ILiveUsageAccount
         return new(response.Failure is null ? CodexQuotaStatus.Available : CodexQuotaStatus.Stale,
             sample.MembershipType, sample.ObservedAt, response.AttemptedAt ?? sample.ObservedAt, null, null,
             null, sample.Windows, response.Failure ?? response.SandFailure, null)
-        { Provider = UsageProviderId.Cursor, IdentityFingerprint = binding.IdentityFingerprint };
+        { Provider = UsageProviderId.Cursor, IdentityFingerprint = binding.IdentityFingerprint,
+            CursorPlanAmounts = sample.PlanAmounts, CursorPlanAmountsFailure = response.Failure ?? sample.PlanAmountsFailure };
     }
 
     private static CodexQuotaSnapshot Empty(string? detail) =>

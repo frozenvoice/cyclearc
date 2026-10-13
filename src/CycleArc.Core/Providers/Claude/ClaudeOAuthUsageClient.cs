@@ -108,6 +108,10 @@ public sealed class ClaudeOAuthUsageClient : IClaudeLiveUsageClient
         catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or FormatException
             or KeyNotFoundException or ArgumentException)
         { sample = sample with { ExtraUsageFailure = "claude-extra-usage-unavailable" }; }
+        try { sample = sample with { ResetCredits = ClaudeResetCreditInventory.Parse(root, observedAt) }; }
+        catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or FormatException
+            or KeyNotFoundException or ArgumentException or OverflowException)
+        { sample = sample with { ResetCreditsFailure = "claude-reset-credits-unavailable" }; }
         if (!ClaudeLiveUsageCollector.ValidSample(sample, observedAt)) throw new InvalidDataException("Invalid Claude usage.");
         return sample;
     }

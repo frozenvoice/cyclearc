@@ -205,3 +205,7 @@ plan unknown instead of mixing request counts with token-based Auto/API lanes.
 - [Cursor support forum: usage-summary example](https://forum.cursor.com/t/cursor-usages-is-not-showing-correct-information/170210/16) contains a sanitized public response shape with explicit `null` on-demand limits.
 - [Cursor support forum: percentage semantics](https://forum.cursor.com/t/bug-report-dashboard-ui-percentages-frozen-due-to-totalpercentused-calculation-bug-in-get-current-period-usage-api/168210/7) explains why percentage fields and included dollar counters can disagree.
 - [CodexBar 0.61.0 release](https://github.com/steipete/CodexBar/releases/tag/v0.61.0) is the current upstream release observed during this research; the `main` source links above may contain later changes.
+
+## Aggregate plan currency projection — 2026-10-13
+
+The selected-account card now displays `individualUsage.plan.{used,limit,remaining}` and `breakdown.{included,bonus,total}` independently from personal on-demand, member caps and shared-team amounts. USD cents are normalized once and reported negative remaining is retained. Malformed optional plan amounts preserve Auto/API percentages and retain an older amount observation only with a warning. There is no verified monetary split for Auto/API percentage lanes: speculative prefix fields are not parsed and percentages never become dollars. See [Credit sources](CREDIT-SOURCES.md).

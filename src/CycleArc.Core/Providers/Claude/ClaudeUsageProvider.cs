@@ -158,6 +158,9 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
                 else if (live.Sample is { ExtraUsage: null } sample && _lastLive?.Sample?.ExtraUsage is { } previousExtra)
                     live = live with { Sample = sample with { ExtraUsage = previousExtra,
                         ExtraUsageFailure = sample.ExtraUsageFailure ?? "claude-extra-usage-unavailable" } };
+                if (live.Sample is { ResetCredits: null } resetSample && _lastLive?.Sample?.ResetCredits is { } previousResets)
+                    live = live with { Sample = resetSample with { ResetCredits = previousResets,
+                        ResetCreditsFailure = resetSample.ResetCreditsFailure ?? "claude-reset-credits-not-provided" } };
                 _lastLive = live;
             }
 
@@ -345,7 +348,10 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
         // Local fallback receipts never renew the server-owned extra-usage clock.
         // Early disconnected/identity failures above intentionally publish no money.
         _snapshot = _snapshot with { ExtraUsage = live?.ExtraUsage,
-            ExtraUsageFailure = _lastLive?.Failure ?? live?.ExtraUsageFailure };
+            ExtraUsageFailure = _lastLive?.Failure ?? live?.ExtraUsageFailure,
+            ClaudeResetCredits = live?.ResetCredits,
+            ClaudeResetCreditsFailure = _lastLive?.Failure ?? live?.ResetCreditsFailure,
+            IdentityFingerprint = _connection?.Binding?.IdentityFingerprint };
         PublishIfChanged(Snapshot);
     }
 
@@ -357,7 +363,11 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
         && ClaudeExtraUsage.Valid(sample.ExtraUsage, now)
         && (sample.ExtraUsage is null || (sample.ExtraUsage.ObservedAt >= binding.ConnectedAt
             && sample.ExtraUsage.ObservedAt <= sample.ObservedAt))
-        && sample.ExtraUsageFailure is null or "claude-extra-usage-unavailable";
+        && sample.ExtraUsageFailure is null or "claude-extra-usage-unavailable"
+        && ClaudeResetCreditInventory.Valid(sample.ResetCredits, now)
+        && (sample.ResetCredits is null || (sample.ResetCredits.ObservedAt >= binding.ConnectedAt
+            && sample.ResetCredits.ObservedAt <= sample.ObservedAt))
+        && sample.ResetCreditsFailure is null or "claude-reset-credits-unavailable" or "claude-reset-credits-not-provided";
 
     private static bool Valid(ClaudeLiveUsageWindow? window) => window is null
         || (double.IsFinite(window.UsedPercentage) && window.UsedPercentage is >= 0 and <= 100

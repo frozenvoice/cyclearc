@@ -50,7 +50,8 @@ public sealed class UsageCreditPresentationTests
         var card = UsageCreditPresentation.Create(Snapshot(UsageProviderId.Claude) with { ExtraUsage = extra });
         Assert.Contains("$3.20", card.Summary);
         Assert.Contains(card.Rows, row => row.Value == "$6.80" && row.Tooltip is not null);
-        Assert.DoesNotContain("balance", card.Tooltip, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(card.Rows, row => row.Label == UiText.T("Prepaid balance", "선불 잔액")
+            && row.Value == UiText.T("Not provided", "미제공"));
     }
 
     [Fact]
@@ -61,7 +62,9 @@ public sealed class UsageCreditPresentationTests
         var card = UsageCreditPresentation.Create(Snapshot(UsageProviderId.Cursor) with { Windows = sample.Windows });
         Assert.Contains("$4.50", card.Summary);
         Assert.Contains(card.Rows, row => row.Value == "$0.75");
-        Assert.DoesNotContain("999.99", card.Tooltip);
+        Assert.DoesNotContain("999.99", card.Summary);
+        Assert.Contains(card.Rows, row => row.Label == UiText.T("Team on-demand", "팀 온디맨드")
+            && row.Value == "$999.99 / $1,000.00");
         Assert.Contains(UiText.T("Spending cap exceeded", "상한 초과"), card.Notice);
     }
 

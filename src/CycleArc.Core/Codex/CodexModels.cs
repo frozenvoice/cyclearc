@@ -67,6 +67,10 @@ public sealed record CodexQuotaSnapshot(
     public string? UsageCreditsFailure { get; init; }
     public CycleArc.Providers.Claude.ClaudeExtraUsage? ExtraUsage { get; init; }
     public string? ExtraUsageFailure { get; init; }
+    public CycleArc.Providers.Claude.ClaudeResetCreditInventory? ClaudeResetCredits { get; init; }
+    public string? ClaudeResetCreditsFailure { get; init; }
+    public CycleArc.Providers.Cursor.CursorPlanAmounts? CursorPlanAmounts { get; init; }
+    public string? CursorPlanAmountsFailure { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
     public CodexQuotaStatus? RefreshOriginStatus { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
@@ -151,7 +155,9 @@ public sealed record CodexQuotaSnapshot(
         // The persisted cache remains available for a successfully reconnected account.
         Windows = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? [] : Windows,
         UsageCredits = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : UsageCredits,
-        ExtraUsage = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : ExtraUsage
+        ExtraUsage = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : ExtraUsage,
+        ClaudeResetCredits = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : ClaudeResetCredits,
+        CursorPlanAmounts = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : CursorPlanAmounts
     };
 }
 

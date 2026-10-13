@@ -420,11 +420,35 @@ installed, signed-in Codex CLI (`app-server --stdio`) → account/rate-limit met
 
 ### Current quota and retired observation history
 
-The current product removed **Observed usage / 관측 추이** in work completed on
+The credit/spending monitor adds a separate `CycleArc.Monitoring.UsageHistoryStore` under
+`usage-history`; it does not restart the retired observations worker below. A serialized
+background task samples immutable account projections at most once per minute. Each measured
+value retains its provider source time and an independently typed series; balances/deltas
+never become spending. Verified provider/profile/identity hashes isolate files and identity
+mismatch hides history. Reads are asynchronous and cached; the popup's collapsed trend expander
+does no disk reads. Optional money errors keep independent gap/status observations.
+
+Retention is 31 days with 8,192 points / 256 statuses / 2 MiB primary per account plus backup,
+64 saved identities and 16 loaded full states. Evicted dirty states retain only bounded touched
+series tails/status additions and their write clock; failed writes preserve those overlays and
+show a storage warning. Admission beyond 64 dirty identities reports a capacity warning.
+The optional persisted write timestamp keeps the one-minute limit across reloads. Changed values coalesce at one minute; unchanged newly
+observed values at 15 minutes. Aging thins measured points to 15 minutes after one day and one
+hour after seven days, keeping source/period/cap/decrease/gap boundaries until hard limits.
+Files use bounded validation and atomic replacement with backup recovery. No credentials,
+emails, labels, prompts or project content enter the measurement files. Optional widget summaries
+and financial alerts are opt-in settings; existing quota alerts and user caches remain compatible.
+The financial evaluator accepts only identity-verified current amounts and dates, retains marks
+during failures and rearms after recovery or a reported new period. Claude's undisclosed billing
+boundary remains unknown. Source-gated read-only Claude reset fields add no requests or actions;
+see [provider evidence](CREDIT-SOURCES.md).
+
+The earlier product removed **Observed usage / 관측 추이** in work completed on
 2026-10-07 Asia/Seoul (started 2026-10-06). The popup and
 widget present current quota, remaining allowance, reset times and source/check/receipt state.
 The quota card connects directly to the existing selected-account spending, reset-credit and
-account sections, without a trend host, graph reserve or empty separator. Selection alone does
+account sections. The new collapsed monitor above adds a separately bounded trend host;
+the retired graph implementations remain removed. Selection alone does
 not add height to a widget module; genuine quota rows or warnings may still affect its height.
 Rings, provider badges, selection surfaces, fonts and independent zoom retain their contracts.
 

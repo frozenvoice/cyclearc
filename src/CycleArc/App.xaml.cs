@@ -156,6 +156,7 @@ public partial class App : Application
         _displayTimer.Tick += (_, _) => RefreshSnapshot();
         _displayTimer.Start();
         _dataRoot = accounts.RootDirectory;
+        _history = new Monitoring.UsageHistoryStore(_dataRoot);
         _cursorActivityRequested = _settings.CursorActivityEnabled;
         _cursorHookSync = new CursorHookSynchronizer(() => _settings.CursorActivityEnabled, ApplyCursorHooksAsync,
             _lifetime.Token);
@@ -349,7 +350,8 @@ public partial class App : Application
         var accounts = _codex.Accounts;
         var overview = UsageAccountOverview.Create(DisplayAccounts(accounts), _codex.SelectedId, _settings.UsagePeriod);
         _tray.Update(overview, _settings.TrayIconStyle);
-        NotifyUsageAlerts(accounts);
+        NotifyAccountAlerts(accounts);
+        QueueHistory(accounts);
         // A hidden popup is rebuilt just before it is shown, so quota changes do not rebuild it
         // in the background. It still drops a removed or identity-protected account at once.
         if (_flyout is { } flyout && (bindHiddenFlyout || flyout.IsVisible || flyout.RetainsWithdrawnAccount(overview.Accounts)))
@@ -495,9 +497,9 @@ public partial class App : Application
 
     // Near-limit and limit-reached notices. Marks are saved only when they change, so the frequent
     // passive refresh never rewrites settings for nothing.
-    private void NotifyUsageAlerts(IReadOnlyList<CodexAccountView> accounts)
+    private (string Title, string Body, string ProfileId)? CollectUsageAlerts(IReadOnlyList<CodexAccountView> accounts)
     {
-        if (!_settings.UsageAlertsEnabled) return;
+        if (!_settings.UsageAlertsEnabled) return null;
         var (alerts, marks) = UsageAlerts.Evaluate(accounts, _settings.UsageAlertMarks);
         if (marks.Count != _settings.UsageAlertMarks.Count
             || marks.Any(pair => !_settings.UsageAlertMarks.TryGetValue(pair.Key, out var value) || value != pair.Value))
@@ -506,13 +508,7 @@ public partial class App : Application
             try { _settingsStore.Save(_settings); }
             catch (Exception ex) { _log.Error("Usage alert marks could not be saved", ex); }
         }
-        if (alerts.Count == 0 || IsExiting) return;
-        var (title, body, profileId) = UsageAlerts.Summary(alerts);
-        _tray.Balloon(title, body, () =>
-        {
-            _codex?.Select(profileId);
-            ShowMain();
-        });
+        return alerts.Count == 0 || IsExiting ? null : UsageAlerts.Summary(alerts);
     }
 
     private void ToggleFlyout()
@@ -533,6 +529,7 @@ public partial class App : Application
     {
         if (_flyout is not null) return;
         _flyout = new FlyoutWindow();
+        _flyout.HistoryReader = (account, span) => _history!.Read(account, span, DateTimeOffset.UtcNow);
         _flyout.RedeemAccountCredit = async (profileId, creditId) =>
         {
             if (IsExiting) return CreditRedemptionOutcome.Unavailable;
@@ -894,7 +891,7 @@ public partial class App : Application
             RunExitCleanup(() => _claudeWindow?.CancelOperation(), "Claude cancellation failed");
             RunExitCleanup(() => _flyout?.Hide(), "Popup shutdown failed");
             // Let the existing bounded client stop and reap its app-server process.
-            await Task.WhenAll(_refresh.WaitForIdleAsync(), _creditUseTask, _discoveryTask, _passiveTask, _claudeIdentityTask, _updateTask, _updateWindowTask,
+            await Task.WhenAll(_refresh.WaitForIdleAsync(), _creditUseTask, _discoveryTask, _passiveTask, _claudeIdentityTask, _updateTask, _updateWindowTask, _historyTask,
                 _claudeWindow?.ActiveOperation ?? Task.CompletedTask,
                 _accountsWindow?.ActiveOperation ?? Task.CompletedTask).WaitAsync(TimeSpan.FromSeconds(15));
         }

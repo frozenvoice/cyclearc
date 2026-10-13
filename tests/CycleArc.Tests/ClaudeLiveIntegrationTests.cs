@@ -30,6 +30,7 @@ public sealed class ClaudeLiveIntegrationTests
         Assert.Equal(data.Clock.UtcNow.AddHours(5), service.Snapshot.Windows[0].ResetsAt);
         Assert.Equal(data.Clock.UtcNow.AddDays(7), service.Snapshot.Windows[1].ResetsAt);
         Assert.Equal(data.Clock.UtcNow, service.Snapshot.LastSuccessfulRefresh);
+        Assert.Equal(data.Binding.IdentityFingerprint, service.Snapshot.IdentityFingerprint);
     }
 
     [Fact]

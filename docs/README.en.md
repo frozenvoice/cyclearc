@@ -2,7 +2,7 @@
 
 **Your Codex, Claude and Cursor limits, one click away.**
 
-A native Windows tray app for checking Codex, Claude and Cursor profiles, remaining percentages and reset times. Codex accounts also show reset credits when available.
+A native Windows tray app for checking Codex, Claude and Cursor profiles, remaining percentages, reset times, verified credit/spending amounts and locally observed trends. Codex reset credits and Claude's read-only reset inventory appear when available.
 
 The selected account's detail popup adds a folded **Credit balance** (Codex), **Extra usage**
 (Claude), or **On-demand** (Cursor) card. Expand it for the reported balance or spend/cap,
@@ -13,7 +13,8 @@ spend, not a prepaid balance; Cursor keeps the server's remaining value. Off, ze
 and missing values stay distinct. Healthy, truly unprovided credit details use a compact folded
 row; expanding restores the full card. Missing reset-credit metadata follows the same rule.
 Unknown values, zero, stale data, failures and reconnection requirements retain their visible
-meaning. No monetary rows are added to the account list, widget or tray.
+meaning. A compact widget monetary summary is optional and off by default; account-list and
+tray layouts stay compact.
 
 Widget status appears as a small icon in each account header: a rotating arc while that
 Codex, Claude or Cursor account is participating in refresh, including its queued wait,
@@ -143,7 +144,7 @@ Removing CycleArc through **Settings → Apps** (or `Update.exe --uninstall`) re
 
 ### Accounts
 
-**Manage accounts** is available in the popup and **Settings → Connection → Manage Codex and Claude accounts**. **Add an account** offers Codex login/discovery and Claude connection. It opens automatically when there is no previously checked account; existing users see their account list first. Accounts retain separate percentages, reset windows and refresh states; values are never added together. Reset credits belong only to the selected Codex account.
+**Manage accounts** is available in the popup and **Settings → Connection → Manage Codex and Claude accounts**. **Add an account** offers Codex login/discovery and Claude connection. It opens automatically when there is no previously checked account; existing users see their account list first. Accounts retain separate percentages, reset windows and refresh states; values are never added together. Codex reset credits and Claude's read-only inventory belong to their respective selected accounts.
 
 **Codex profiles keep their verified login.** Profiles marked **Login changed** or **Check connection** stay visible with quota and reset credits hidden. If the affected profile is selected, the detail card, tray and widget retain that selection. Follow [Codex connection recovery](#codex-connection-recovery) to restore it.
 
@@ -347,23 +348,40 @@ Percentages come from the reported limit windows. CycleArc does not turn them in
 
 Countdowns and “last checked” ages update locally once a minute without another server request.
 
-The current popup and widget display current quotas, remaining allowance, reset times and
-check/receipt status. They do not contain a usage-history graph or selected-account sparkline,
-and CycleArc does not forecast depletion or consumption rate. Provider source timestamps,
-optional-amount observation times and cached last-good values retain their existing meaning.
+The detail popup's **Observed trends** expander offers 24 hours / 7 days / 30 days and a separate metric selector. It shows only measured percentages, credit balances, signed balance changes and actual extra spending. No past data is invented and unmeasured time stays blank. Source times, failures, old observations and period/cap/source changes remain distinct; no consumption-rate forecast is made. A balance decrease is not proof of spending.
+
+<details>
+<summary><strong>Credit monitor previews · synthetic data</strong></summary>
+
+The 0.10.1 development views below use synthetic accounts and observed points. The widget
+summary is enabled for the preview; it is off by default. Claude grants are read-only and
+depend on the account's supported data source.
+
+<p><img src="images/monitoring-en-dark-detail.png" alt="English dark account detail with separate spending trend and read-only Claude reset inventory" width="440"></p>
+<p><img src="images/monitoring-en-light-widget.png" alt="English light three-account widget retaining rings and reset timers with optional amount summaries" width="720"></p>
+
+</details>
+
+**Settings → Widget** has separate credit/spending and reset-count switches, both off by default. The compact optional line shows Codex credits, Claude extra spend or personal Cursor on-demand spend; its tooltip and existing detail action provide the full data. Unknown amounts occupy no extra space.
+
+**Settings → Connection → Credit, spending & expiry alerts** contains provider-specific opt-in switches, raw Codex credit threshold, independent Claude/Cursor spending-cap percentages and expiry lead days. Only verified current monetary amounts and dates alert; repeated checks retain account-specific marks, and recovery rearms warnings. Unlimited/disabled budgets, failures and observations older than 15 minutes do not trigger new alerts. Claude's monthly billing boundary is not supplied; it is not guessed from a calendar month.
+
+Claude reset inventory is read-only. Active, unpaused, unexpired grants contribute to the count; usable-now and type are shown only when supplied. Open **Claude Usage** to use them. The existing Desktop OAuth GET may omit the private program entirely; this is **Not provided**, not zero. No additional program request, CLI impersonation, credential renewal or Claude reset POST is sent. [Provider sources and compatibility limits](CREDIT-SOURCES.md) separate prepaid funds, spending caps, included usage and actual charges.
 
 ### Privacy
 
 - No prompt, response, conversation, project, or rollout collection.
 - Claude live refresh reads only the app-owned Desktop config.json and Local State needed to obtain its protected OAuth token; DPAPI/AES-GCM decryption is memory-only. It never writes or refreshes Desktop credentials, reads cookies, or persists the token. StatusLine and Desktop history are projected fallbacks.
 - No external telemetry or analytics.
-- Only local preferences, profile references/labels, projected quota metadata, source/receipt metadata, connection paths/identity fingerprints and safe diagnostic logs are retained. Reported emails stay in memory for display. The Desktop token is discarded after the read; raw history, credentials, cookies, prompts, responses and transcripts are never copied into CycleArc.
+- Only local preferences, profile references/labels, projected quota metadata, bounded typed measurements, source/receipt metadata, connection paths/identity fingerprints and safe diagnostic logs are retained. Reported emails stay in memory for display. The Desktop token is discarded after the read; raw provider history, credentials, cookies, prompts, responses and transcripts are never copied into CycleArc.
 
 Settings and quota cache remain under `%LOCALAPPDATA%\ProMeter` for upgrade compatibility. Settings use atomic replacement with a previous-good backup and recovery if the primary file is damaged.
 An open canonical backup can defer its rotation to one fixed `settings.json.bak.next` recovery copy, keeping settings saves working. After the lock is released, the next successful save moves that copy back to the usual backup. Builds that know this recovery copy prefer it over the older backup if the primary is damaged; older builds only know the usual backup.
 The account registry (`codex-accounts.json`) also uses atomic writes and a previous-good backup. The legacy default profile uses `codex-snapshot.json`; new profiles and profiles replaced through **Reconnect** have separate quota caches. Reconnection preserves the old home and cache. Existing preferences and historical files are preserved.
 
-The current source no longer records separate quota-observation history. It does not read,
+The new bounded measurement history is stored in `usage-history` with hashed provider/profile/verified-identity keys. It retains at most 31 days, 8,192 points and 256 status records per account; files are limited to 2 MiB each plus a backup, with at most 64 saved identities and 16 loaded full states. Bounded pending tails keep unsaved changes when a full state is evicted. Changed measurements coalesce within one minute, unchanged newly observed values at 15 minutes; older points thin to 15 minutes / one hour while preserving boundaries until hard limits. Extreme activity can evict points earlier. The two-second passive loop never writes history. Tokens, emails, account labels, messages and code are excluded. Source-provided observation times are never renewed by cache reads.
+
+The legacy observation history remains retired. CycleArc does not read,
 write, create or delete `quota-observations.json`, `quota-observation-epoch.json` or their
 `.bak` files. Existing files stay untouched for rollback. This does not remove quota caches
 or Claude's bounded local `plan-usage-history.json` fallback reader. See

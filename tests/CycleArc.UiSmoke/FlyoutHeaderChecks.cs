@@ -47,6 +47,7 @@ internal static class FlyoutHeaderChecks
                     widget.BindAccounts(accounts, accounts[0].Profile.Id, UsagePeriodPreference.Auto, WidgetFixture.Desktop, Now);
                     flyout.BindAccounts(accounts, accounts[0].Profile.Id, false);
                     flyout.Show(); widget.Show(); Pump();
+                    if (!baseline) CheckHeaderDpi(flyout, VisualTreeHelper.GetDpi(flyout), $"{language}/{theme}/zoom{zoom}/host DPI");
                     Console.WriteLine($"HEADER host WPF DPI={VisualTreeHelper.GetDpi(flyout).DpiScaleX * 100:0}/{VisualTreeHelper.GetDpi(flyout).DpiScaleY * 100:0}% app zoom={zoom}% {language}/{theme}; synthetic accounts.");
                     var suffix = $"{language}-{theme}-zoom{zoom}".ToLowerInvariant();
                     if (baseline) Require(flyout.FindName("StatusText") is TextBlock && flyout.FindName("RefreshProgressText") is TextBlock,
@@ -235,32 +236,66 @@ internal static class FlyoutHeaderChecks
             var flyout = new FlyoutWindow { ShowActivated = false };
             try
             {
-                // Inject before the first measurement. A layout first measured at the host
-                // DPI otherwise keeps its rounded sizes until a status change remeasures it.
-                VisualTreeHelper.SetRootDpi(flyout, new DpiScale(scale, scale));
-                VisualTreeHelper.SetRootDpi((Visual)flyout.Content, new DpiScale(scale, scale));
+                var context = $"{language}/{theme}/zoom{zoom}/injected DPI{scale * 100:0}";
+                // SetRootDpi walks the existing visual tree. Button content such as
+                // CloseIcon has no visual parent until its ContentPresenter is realized,
+                // and would otherwise retain the host DPI when the first layout adds it.
+                // Apply templates without measuring, so the first measurement still
+                // uses the injected DPI and no host-DPI rounded sizes are cached.
+                ApplyTemplates((FrameworkElement)flyout.FindName("FlyoutHeaderGrid"));
+                Require(VisualTreeHelper.GetParent((Visual)flyout.FindName("CloseIcon")) is not null,
+                    "Header DPI fixture did not realize CloseIcon before injection: " + context);
+                var dpi = new DpiScale(scale, scale);
+                VisualTreeHelper.SetRootDpi(flyout, dpi);
+                VisualTreeHelper.SetRootDpi((Visual)flyout.Content, dpi);
+                CheckHeaderDpi(flyout, dpi, context + "/injected");
                 var accounts = Accounts();
                 flyout.ApplyWindowSettings(new AppSettings { FlyoutZoomPercent = zoom });
                 flyout.BindAccounts(accounts, accounts[0].Profile.Id, false);
                 AccountUiChecks.Render(flyout, 440 * zoom / 100d, null, null);
-                var context = $"{language}/{theme}/zoom{zoom}/injected DPI{scale * 100:0}";
+                CheckHeaderDpi(flyout, dpi, context + "/healthy");
                 var controls = ActionBounds(flyout);
                 CheckLayout(flyout, context);
                 flyout.SetRefreshPresentation(new(false, true, UiText.RefreshAllProgress));
                 AccountUiChecks.Render(flyout, 440 * zoom / 100d, null, null);
+                CheckHeaderDpi(flyout, dpi, context + "/refresh");
                 Stable(flyout, controls, context);
                 var warning = accounts.ToArray();
                 warning[1] = warning[1] with { Snapshot = warning[1].Snapshot with { Status = CodexQuotaStatus.Stale, TechnicalDetail = "claude-live-rate-limited" } };
                 flyout.BindAccounts(warning, accounts[0].Profile.Id, false);
                 AccountUiChecks.Render(flyout, 440 * zoom / 100d, null, null);
+                CheckHeaderDpi(flyout, dpi, context + "/warning");
                 Stable(flyout, controls, context);
                 CheckIndicator(flyout, "warning", UiText.T("1 need attention", "1개 확인 필요"));
-                Require(Math.Abs(VisualTreeHelper.GetDpi((Visual)flyout.FindName("CloseIcon")).DpiScaleX - scale) < .001,
-                    "Close icon lost injected DPI: " + context);
                 if (directory is not null) CaptureHeader(flyout, directory, context.Replace('/', '-').Replace(' ', '-'), scale * zoom / 100d);
             }
             finally { flyout.Close(); }
         }
+    }
+
+    private static void CheckHeaderDpi(FlyoutWindow flyout, DpiScale expected, string context)
+    {
+        foreach (var (name, visual) in new (string, Visual)[]
+        {
+            ("Window", flyout), ("Content", (Visual)flyout.Content),
+            ("FlyoutHeaderGrid", (Visual)flyout.FindName("FlyoutHeaderGrid")),
+            ("CloseButton", (Visual)flyout.FindName("CloseButton")),
+            ("CloseIcon", (Visual)flyout.FindName("CloseIcon"))
+        })
+        {
+            var actual = VisualTreeHelper.GetDpi(visual);
+            Require(Math.Abs(actual.DpiScaleX - expected.DpiScaleX) < .001
+                && Math.Abs(actual.DpiScaleY - expected.DpiScaleY) < .001,
+                $"{name} lost header DPI: {context}; expected={expected.DpiScaleX:R}/{expected.DpiScaleY:R}, "
+                + $"actual={actual.DpiScaleX:R}/{actual.DpiScaleY:R}; visual parent={VisualTreeHelper.GetParent(visual)?.GetType().Name ?? "none"}.");
+        }
+    }
+
+    private static void ApplyTemplates(FrameworkElement element)
+    {
+        element.ApplyTemplate();
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
+            if (VisualTreeHelper.GetChild(element, index) is FrameworkElement child) ApplyTemplates(child);
     }
 
     private static void CheckIndicator(FlyoutWindow flyout, string state, string? expected)

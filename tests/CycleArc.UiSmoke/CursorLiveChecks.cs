@@ -37,6 +37,11 @@ internal static class CursorLiveChecks
                 + $"used-present={demand?.UsedAmount is not null}; limit-present={demand?.LimitAmount is not null}; "
                 + $"remaining-present={demand?.RemainingAmount is not null}; USD={demand?.Unit == "USD"}; "
                 + $"billing-end-present={demand?.ResetsAt is not null}; optional-valid={demand?.AmountFailure is null}.");
+            var plan = sample.PlanAmounts;
+            Console.WriteLine($"Cursor plan-included amount shape: present={plan is not null}; used-present={plan?.UsedAmount is not null}; "
+                + $"limit-present={plan?.LimitAmount is not null}; remaining-present={plan?.RemainingAmount is not null}; "
+                + $"included-present={plan?.IncludedAmount is not null}; bonus-present={plan?.BonusAmount is not null}; "
+                + $"total-present={plan?.TotalAmount is not null}; optional-valid={sample.PlanAmountsFailure is null}.");
             return response.Failure is null ? 0 : 2;
         }
         catch (OperationCanceledException)

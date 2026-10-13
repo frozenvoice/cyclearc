@@ -35,6 +35,7 @@ public partial class FloatingWidget : Window
     private (double Width, double Height)? _appliedSize;
     private bool _snapWindowsToScreenEdges = true;
     private bool _dragAnchorsCleared;
+    private bool _showMoney, _showResets;
 
     /// <summary>The edges currently attached to the widget, persisted by the app.</summary>
     public WindowEdgeAnchors EdgeAnchors { get; private set; }
@@ -133,7 +134,11 @@ public partial class FloatingWidget : Window
         ModuleScroller.Visibility = models.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
         EnsureModules(models.Count);
-        for (var i = 0; i < models.Count; i++) _modules[i].Bind(accounts[i], models[i]);
+        for (var i = 0; i < models.Count; i++)
+        {
+            _modules[i].Bind(accounts[i], models[i]);
+            _modules[i].BindFinancialSummary(accounts[i].Snapshot, _showMoney, _showResets, now ?? DateTimeOffset.UtcNow);
+        }
         _workAreas = workAreas;
         LastLayout = ArrangeModules(models.Count, CurrentWorkArea(_workAreas));
         ApplyBoundSize();
@@ -645,6 +650,8 @@ public partial class FloatingWidget : Window
 
     public void Apply(AppSettings settings)
     {
+        _showMoney = settings.WidgetFinancialSummaryEnabled;
+        _showResets = settings.WidgetResetSummaryEnabled;
         ApplyEdgeSnapSettings(settings);
         using var activation = new PassiveUpdate();
         _applying = true;
