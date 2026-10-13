@@ -28,6 +28,16 @@ public sealed class WidgetFinancialSummaryTests
         Assert.Equal("", WidgetFinancialSummary.Create(value, true, true, Now).Text);
     }
     [Fact]
+    public void OptionalFieldClockControlsWidgetFreshness()
+    {
+        var snapshot = Snapshot with { UsageCredits = new(true, false, 5m, null, Now.AddHours(-1)) };
+        var old = WidgetFinancialSummary.Create(snapshot, true, false, Now).Text;
+        var fresh = WidgetFinancialSummary.Create(snapshot with { UsageCredits = snapshot.UsageCredits with { ObservedAt = Now } }, true, false, Now).Text;
+        Assert.NotEqual(old, fresh); Assert.Contains("5", old);
+        Assert.DoesNotContain("Previous", fresh);
+        Assert.Equal("", WidgetFinancialSummary.Create(snapshot, false, false, Now).Text);
+    }
+    [Fact]
     public void MoneyAndResetMeaningsStayProviderSpecific()
     {
         var codex = Snapshot with { UsageCredits = new(true, false, -1.25m, null, Now), ResetCreditsAvailable = 2 };

@@ -114,6 +114,8 @@ internal static class Program
             return CodexCreditsLiveChecks.RunAsync().GetAwaiter().GetResult();
         if (args is ["--claude-extra-live-read"])
             return ClaudeExtraUsageLiveChecks.RunAsync().GetAwaiter().GetResult();
+        if (args is ["--claude-reset-query-live-read"])
+            return ClaudeExtraUsageLiveChecks.RunAsync(programQueryProbe: true).GetAwaiter().GetResult();
         // Process/IPC checks run from --desktop-instance immediately after compile.
         // Empty-args UiSmoke keeps WPF/version UI checks and does not repeat that wait.
         // Load production WPF views/resources with startup overridden: no account access,
@@ -279,6 +281,11 @@ internal static class Program
                 UsageCreditUiChecks.Run(args.Length == 2 ? args[1] : null);
                 return 0;
             }
+            if (args is ["--monitoring"] or ["--monitoring", _])
+            {
+                MonitoringUiChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--cursor-widget-summary-previews", var cursorWidgetDirectory])
             {
                 CursorWidgetSummaryChecks.Run(cursorWidgetDirectory);
@@ -382,6 +389,8 @@ internal static class Program
             CursorUiChecks.Run();
             Begin("usage-credits");
             UsageCreditUiChecks.Run();
+            Begin("monitoring");
+            MonitoringUiChecks.Run();
             Begin("cursor-widget-summary");
             CursorWidgetSummaryChecks.Run();
             Begin("widget-status-row");

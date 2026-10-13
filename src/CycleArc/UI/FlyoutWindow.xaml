@@ -509,6 +509,7 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
+                    <StackPanel x:Name="HistoryHost"/>
                     <!-- One line while folded: count and the nearest expiry. Expanding shows each credit and its action. -->
                     <Border x:Name="ResetCreditsCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" Padding="12,8" Margin="0,10,0,0">
                         <StackPanel>
@@ -533,6 +534,7 @@
                                 </ScrollViewer>
                             </Border>
                             <TextBlock x:Name="CreditExpiryNotice" Foreground="{DynamicResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" Visibility="Collapsed"/>
+                            <Button x:Name="ClaudeResetUsageButton" Content="Claude Usage" Style="{StaticResource CreditUseButton}" Margin="0,8,0,0" HorizontalAlignment="Left" Visibility="Collapsed" Click="OnClaudeUsagePage"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>

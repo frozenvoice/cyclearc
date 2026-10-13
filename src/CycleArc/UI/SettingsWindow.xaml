@@ -259,6 +259,7 @@
                                 </Grid>
                             </Border>
                             <TextBlock x:Name="WidgetBehaviorTitle" Style="{StaticResource SettingsSection}"/>
+                            <StackPanel x:Name="WidgetMonitoringSettingsHost"/>
                             <StackPanel IsEnabled="{Binding IsChecked, ElementName=WidgetBox}">
                                 <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers>
                                     <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger>
@@ -332,6 +333,7 @@
                                 </StackPanel>
                             </Border>
                             <TextBlock x:Name="CursorActivityTitle" Style="{StaticResource SettingsSection}"/>
+                            <StackPanel x:Name="FinancialSettingsHost"/>
                             <Border Style="{StaticResource SettingsGroup}">
                                 <Grid Style="{StaticResource SettingsRow}" MinHeight="72">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

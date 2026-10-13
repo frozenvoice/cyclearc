@@ -11,8 +11,17 @@ public static class WidgetFinancialSummary
     {
         if ((!money && !resets) || UsageCreditPresentation.Hidden(snapshot)) return ("", "");
         var values = new List<string>();
+        var previous = snapshot.Status != CodexQuotaStatus.Available;
         if (money)
         {
+            previous |= snapshot.Provider switch
+            {
+                UsageProviderId.Codex => snapshot.UsageCredits is not null && (!Fresh(snapshot.UsageCredits.ObservedAt, now) || snapshot.UsageCreditsFailure is not null),
+                UsageProviderId.Claude => snapshot.ExtraUsage is not null && (!Fresh(snapshot.ExtraUsage.ObservedAt, now) || snapshot.ExtraUsageFailure is not null),
+                UsageProviderId.Cursor => snapshot.Windows.FirstOrDefault(w => w.LimitId == "cursor-on-demand") is { } demandWindow
+                    && (!Fresh(demandWindow.AmountObservedAt, now) || demandWindow.AmountFailure is not null),
+                _ => false
+            };
             if (snapshot.Provider == UsageProviderId.Codex && snapshot.UsageCredits is { Unlimited: false, Balance: { } balance })
                 values.Add(UiText.T("Credits ", "크레딧 ") + balance.ToString("#,0.####", CultureInfo.InvariantCulture));
             if (snapshot.Provider == UsageProviderId.Claude && snapshot.ExtraUsage is { IsEnabled: true, UsedAmount: { } used, Currency: { } currency })
@@ -23,14 +32,14 @@ public static class WidgetFinancialSummary
         }
         if (resets)
         {
+            previous |= snapshot.Provider == UsageProviderId.Codex && snapshot.ResetCreditsAvailable is not null && !Fresh(snapshot.LastSuccessfulRefresh, now)
+                || snapshot.Provider == UsageProviderId.Claude && snapshot.ClaudeResetCredits is not null
+                    && (!Fresh(snapshot.ClaudeResetCredits.ObservedAt, now) || snapshot.ClaudeResetCreditsFailure is not null);
             int? count = snapshot.Provider == UsageProviderId.Codex ? snapshot.ResetCreditsAvailable
                 : snapshot.Provider == UsageProviderId.Claude && snapshot.ClaudeResetCredits is { Eligible: true } inventory ? inventory.AvailableCount(now) : null;
             if (count is { } known) values.Add(UiText.T($"Resets {known}", $"리셋권 {known}"));
         }
         var text = string.Join(" · ", values);
-        var previous = snapshot.Status != CodexQuotaStatus.Available || snapshot.UsageCreditsFailure is not null
-            || snapshot.ExtraUsageFailure is not null || snapshot.ClaudeResetCreditsFailure is not null
-            || snapshot.Windows.Any(w => w.LimitId == "cursor-on-demand" && w.AmountFailure is not null);
         if (text.Length > 0 && previous) text = UiText.T("Previous · ", "이전 · ") + text;
         var tooltip = UsageCreditPresentation.Create(snapshot).Tooltip;
         if (resets && snapshot.Provider == UsageProviderId.Claude)
@@ -40,6 +49,9 @@ public static class WidgetFinancialSummary
                 + string.Join(Environment.NewLine, CodexCreditCard.From(snapshot, now).Rows.Select(r => r.Text));
         return (text, tooltip);
     }
+
+    private static bool Fresh(DateTimeOffset? at, DateTimeOffset now) => at is { } time && time <= now
+        && now - time <= TimeSpan.FromMinutes(15);
 
     private static string Money(decimal value, string currency) => currency == "USD" ? "$" + value.ToString("N2", CultureInfo.InvariantCulture)
         : value.ToString(currency is "KRW" or "JPY" or "VND" ? "N0" : "N2", CultureInfo.InvariantCulture) + " " + currency;

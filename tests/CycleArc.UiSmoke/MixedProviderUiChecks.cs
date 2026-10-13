@@ -45,8 +45,15 @@ internal static class MixedProviderUiChecks
                                 ? Path.Combine(directory, $"mixed-{language}-{theme}.png") : null);
                         CheckFlyoutBadges(flyout, accounts, selected);
                         Check(((Border)flyout.FindName("ResetCreditsCard")).Visibility ==
-                            (selected.Profile.Provider == UsageProviderId.Codex ? Visibility.Visible : Visibility.Collapsed),
-                            "Reset credit actions crossed providers.");
+                            (selected.Profile.Provider is UsageProviderId.Codex or UsageProviderId.Claude ? Visibility.Visible : Visibility.Collapsed),
+                            "Reset inventory card crossed providers.");
+                        Check(((Button)flyout.FindName("ClaudeResetUsageButton")).Visibility ==
+                            (selected.Profile.Provider == UsageProviderId.Claude ? Visibility.Visible : Visibility.Collapsed),
+                            "Read-only Claude reset page action crossed providers.");
+                        if (selected.Profile.Provider != UsageProviderId.Codex)
+                            Check(!AccountUiChecks.Descendants<Button>((ItemsControl)flyout.FindName("CreditExpiryRows"))
+                                .Any(button => button.Content?.ToString() == UiText.T("Use reset", "리셋권 사용")),
+                                "Codex redemption action crossed providers.");
                         Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text ==
                             CodexRingPresentation.From(selected.Snapshot).RemainingValueText, "Selected provider values differ from its snapshot.");
                         var isClaude = selected.Profile.Provider == UsageProviderId.Claude;

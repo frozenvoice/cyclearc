@@ -1,7 +1,9 @@
 using System.Reflection;
+using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using CycleArc.Models;
+using CycleArc.Monitoring;
 using CycleArc.Services;
 using CycleArc.UI;
 
@@ -43,6 +45,15 @@ internal sealed class AppHarness : App
     public long DisplayTicks { get; private set; }
     public UiCreationCounts UiCounts => _ui.Counts;
     public long RefreshSnapshotCalls { get; private set; }
+    // Isolated comparison switch; never read by the desktop application.
+    public bool MonitoringEnabled { get; } = Environment.GetEnvironmentVariable("CYCLEARC_IDLE_MONITORING") != "off";
+    public object HistoryStorage => new
+    {
+        Files = Directory.Exists(Path.Combine(_fixture.RootDirectory, "usage-history"))
+            ? Directory.GetFiles(Path.Combine(_fixture.RootDirectory, "usage-history")).Length : 0,
+        Bytes = Directory.Exists(Path.Combine(_fixture.RootDirectory, "usage-history"))
+            ? Directory.GetFiles(Path.Combine(_fixture.RootDirectory, "usage-history")).Sum(p => new FileInfo(p).Length) : 0L
+    };
 
     public AppHarness(SyntheticAccounts fixture, Func<AppHarness, Task> run)
     {
@@ -102,6 +113,7 @@ internal sealed class AppHarness : App
         Set("_settings", _fixtureSettings);
         Set("_settingsStore", _fixtureSettingsStore);
         Set("_log", new AppLog(_fixture.LogsDirectory));
+        if (MonitoringEnabled) Set("_history", new UsageHistoryStore(_fixture.RootDirectory));
         _fixtureSettingsStore.Save(_fixtureSettings);
         UiText.SetLanguage(_fixtureSettings.UiLanguage);
         var applyTheme = typeof(App).GetMethod("ApplyTheme", BindingFlags.Static | BindingFlags.NonPublic)
@@ -237,7 +249,7 @@ internal sealed class AppHarness : App
         _lifetime.Cancel();
         try
         {
-            await Task.WhenAll(_fixture.Manager.Refresh.WaitForIdleAsync(), PassiveTask).WaitAsync(TimeSpan.FromSeconds(15));
+            await Task.WhenAll(_fixture.Manager.Refresh.WaitForIdleAsync(), PassiveTask, Get<Task>("_historyTask")).WaitAsync(TimeSpan.FromSeconds(15));
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         finally

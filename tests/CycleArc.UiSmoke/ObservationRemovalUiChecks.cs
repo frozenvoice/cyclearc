@@ -18,7 +18,8 @@ namespace CycleArc.UiSmoke;
 /// <summary>
 /// The same current-quota fixture can run against an archived pre-removal product. The
 /// explicitly named baseline mode collects the old empty-history row without depending
-/// on any history types; the ordinary regression always requires complete removal.
+/// on any history types; the ordinary regression requires the retired history components
+/// to remain absent. The separate credit monitor has its own collapsed, typed trend panel.
 /// </summary>
 internal static class ObservationRemovalUiChecks
 {
@@ -141,7 +142,7 @@ internal static class ObservationRemovalUiChecks
             Require(!baseline || baselineTrendVisuals > 0, "Baseline mode did not load the pre-removal trend product.");
             if (directory is not null)
                 File.WriteAllLines(Path.Combine(directory, "observation-removal-layout.csv"), rows);
-            Console.WriteLine($"PASS: {fixtures} production observation-removal {(baseline ? "baseline captures" : "fixtures")}, {selections} selections; EN/KO Dark/Light 80/100/150%, 1/3/5 equal-content accounts, wrapped and mixed status/provider fixtures; native HWND/module sizes{(baseline ? "; original empty-history trend row retained" : "; no trend visuals and selection height stable")}.");
+            Console.WriteLine($"PASS: {fixtures} production retired-observation {(baseline ? "baseline captures" : "fixtures")}, {selections} selections; EN/KO Dark/Light 80/100/150%, 1/3/5 equal-content accounts, wrapped and mixed status/provider fixtures; native HWND/module sizes{(baseline ? "; original empty-history trend row retained" : "; retired trend visuals absent and widget selection height stable")}.");
         }
         finally { UiText.SetLanguage(previousLanguage); applyTheme.Invoke(null, [AppTheme.Dark]); }
     }

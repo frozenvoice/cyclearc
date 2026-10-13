@@ -90,6 +90,7 @@ public partial class SettingsWindow : Window
         WidgetClickThroughBox.IsChecked = settings.WidgetClickThrough;
         WidgetClickThroughBox.ToolTip = UiText.T("Mouse clicks pass to the window behind the widget.", "마우스 클릭이 위젯 뒤의 창에 전달됩니다.");
         WidgetClickThroughHint.Text = (string)WidgetClickThroughBox.ToolTip;
+        InitializeMonitoringSettings(settings);
         ConnectionTitle.Text = UiText.T("Accounts & refresh", "계정과 자동 확인");
         ConnectionHint.Text = UiText.T("Connect your accounts and keep their limits up to date.", "계정을 연결하고 최신 사용량을 확인하세요.");
         AccountSummary.Text = UiText.T("Connect, rename and arrange your accounts. Each keeps its own limits.", "계정을 연결하고 별명과 순서를 정하세요. 계정별 한도는 각각 유지됩니다.");
@@ -155,6 +156,7 @@ public partial class SettingsWindow : Window
 
     internal bool HasPendingChanges =>
         ResetWidgetPositionOnSave
+        || MonitoringSettingsChanged
         || EditedCodexExePath != _settings.CodexExePath
         || EditedRefreshInterval != _settings.CodexRefreshIntervalMinutes
         || EditedTheme != _settings.Theme
@@ -220,6 +222,7 @@ public partial class SettingsWindow : Window
         _settings.SnapWindowsToScreenEdges = EdgeSnapBox.IsChecked == true;
         _settings.UsageAlertsEnabled = UsageAlertsBox.IsChecked == true;
         _settings.CursorActivityEnabled = CursorActivityBox.IsChecked == true;
+        CommitMonitoringSettings();
         if (!_settings.SnapWindowsToScreenEdges) _settings.ClearWindowEdgeAnchors();
         Saved?.Invoke(_settings);
     }
