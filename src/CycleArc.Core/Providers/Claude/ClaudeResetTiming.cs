@@ -86,11 +86,28 @@ internal sealed class ClaudeResetTimingTracker(ClaudeResetTimingStore? store)
         _state = kind == CodexWindowKind.FiveHour ? _state with { FiveHour = next } : _state with { SevenDay = next };
     }
 
+    public void BlockThrough(DateTimeOffset at, DateTimeOffset now)
+    {
+        if (_binding is not { Disconnected: false } binding || at < binding.ConnectedAt || at > now
+            || _state.BlockedThrough >= at) return;
+        _state = _state with { BlockedThrough = at };
+        _dirty = _urgent = true;
+        // A late failure receipt cannot revoke a genuinely newer supplied date.
+        if (_state.FiveHour.ResetObservedAt is null || _state.FiveHour.ResetObservedAt <= at)
+            Set(CodexWindowKind.FiveHour, Invalidate(_state.FiveHour, at));
+        if (_state.SevenDay.ResetObservedAt is null || _state.SevenDay.ResetObservedAt <= at)
+            Set(CodexWindowKind.Weekly, Invalidate(_state.SevenDay, at));
+    }
+
     private ClaudeResetWindowEvidence Observe(ClaudeResetWindowEvidence state, ClaudeResetSource source,
         DateTimeOffset at, ClaudeLiveUsageWindow? value, int minutes, DateTimeOffset now)
     {
         var seen = state.Seen.FirstOrDefault(s => s.Source == source);
-        var nextSeen = new ClaudeResetSeen(source, at, value?.UsedPercentage, value?.ResetsAt);
+        // Reject bad dates locally without persisting a malformed Seen entry that
+        // would make the other window's valid evidence unreadable after restart.
+        var seenReset = value?.ResetsAt is { } supplied && supplied > DateTimeOffset.UnixEpoch
+            && supplied <= at.AddMinutes(minutes + 5) ? supplied : (DateTimeOffset?)null;
+        var nextSeen = new ClaudeResetSeen(source, at, value?.UsedPercentage, seenReset);
         if (seen == nextSeen) return state;
         var newServerDateAtSameClock = source == ClaudeResetSource.Server && seen?.At == at
             && value?.ResetsAt is not null && value.ResetsAt != seen.ResetAt;

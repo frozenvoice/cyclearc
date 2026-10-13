@@ -50,6 +50,101 @@ public class ClaudeResetTimingStoreTests
         Assert.Equal(1, data.Client.Calls);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ImplausibleResetInOneWindowCannotPoisonTheOtherWindowsRestartEvidence(bool fiveInvalid)
+    {
+        using var data = new Data();
+        data.Client.Next = new(new(Now,
+            new(46, Now.AddHours(fiveInvalid ? 6 : 2)), new(19, Now.AddDays(fiveInvalid ? 3 : 8))));
+        var service = data.Service();
+        await service.RefreshLiveAsync(default);
+        Assert.Null((fiveInvalid ? Five(service) : Week(service)).ResetsAt);
+        Assert.False(data.Timing.Read(data.Binding, Now).Unavailable);
+        data.Clock.UtcNow = Now.AddMinutes(1);
+        data.Desktop.Next = new(new(data.Clock.UtcNow, 51, 20));
+        var restarted = data.Service();
+        await restarted.RefreshAsync(default);
+        Assert.Null((fiveInvalid ? Five(restarted) : Week(restarted)).ResetsAt);
+        Assert.Equal(fiveInvalid ? Now.AddDays(3) : Now.AddHours(2),
+            (fiveInvalid ? Week(restarted) : Five(restarted)).ResetsAt);
+    }
+
+    [Theory]
+    [InlineData("live-auth")]
+    [InlineData("live-identity")]
+    [InlineData("hook-auth")]
+    [InlineData("hook-identity")]
+    public async Task AuthenticationBoundarySurvivesRecoveryAndRestartUntilANewDateIsSupplied(string failure)
+    {
+        using var data = new Data();
+        var service = data.Service();
+        await service.RefreshLiveAsync(default);
+        data.Clock.UtcNow = Now.AddMinutes(1);
+        var failures = new ClaudeFailureStore(data.Accounts);
+        if (failure.StartsWith("live-", StringComparison.Ordinal))
+        {
+            data.Client.Next = new(null, failure == "live-auth" ? "claude-live-auth-required" : "claude-live-identity-mismatch");
+            await service.RefreshLiveAsync(default);
+        }
+        else
+        {
+            await failures.RecordAsync(data.Profile.Id, data.Binding.BindingGeneration!,
+                failure == "hook-auth" ? ClaudeFailureKind.AuthRequired : ClaudeFailureKind.IdentityMismatch, data.Clock.UtcNow);
+            await service.RefreshAsync(default);
+        }
+        var invalidatedBytes = File.ReadAllBytes(data.Timing.PathName);
+        var invalidatedAt = File.GetLastWriteTimeUtc(data.Timing.PathName);
+        for (var index = 0; index < 3; index++)
+        {
+            data.Clock.UtcNow = data.Clock.UtcNow.AddSeconds(2);
+            await service.RefreshAsync(default);
+        }
+        Assert.Equal(invalidatedBytes, File.ReadAllBytes(data.Timing.PathName));
+        Assert.Equal(invalidatedAt, File.GetLastWriteTimeUtc(data.Timing.PathName));
+        data.Clock.UtcNow = Now.AddMinutes(2);
+        if (failure.StartsWith("hook-", StringComparison.Ordinal))
+            await failures.RecordAsync(data.Profile.Id, data.Binding.BindingGeneration!, ClaudeFailureKind.None, data.Clock.UtcNow);
+        data.Client.Next = new(new(data.Clock.UtcNow, new(51, null), new(20, null)));
+        await service.RefreshLiveAsync(default);
+        Assert.Null(Five(service).ResetsAt);
+        Assert.Null(Week(service).ResetsAt);
+        var restarted = data.Service();
+        await restarted.RefreshAsync(default);
+        Assert.Null(Five(restarted).ResetsAt);
+        Assert.Null(Week(restarted).ResetsAt);
+
+        data.Clock.UtcNow = Now.AddMinutes(3);
+        var newFive = data.Clock.UtcNow.AddHours(5);
+        var newWeek = data.Clock.UtcNow.AddDays(7);
+        data.Client.Next = new(new(data.Clock.UtcNow, new(52, newFive), new(21, newWeek)));
+        await restarted.RefreshLiveAsync(default);
+        Assert.Equal(newFive, Five(restarted).ResetsAt);
+        Assert.Equal(newWeek, Week(restarted).ResetsAt);
+        Assert.Equal(ClaudeResetObservationState.Direct, Five(restarted).ResetObservation!.State);
+    }
+
+    [Fact]
+    public async Task LateAuthenticationReceiptCannotRevokeANewerServerDate()
+    {
+        using var data = new Data();
+        var service = data.Service();
+        await service.RefreshLiveAsync(default);
+        data.Clock.UtcNow = Now.AddMinutes(2);
+        var reset = data.Clock.UtcNow.AddHours(5);
+        data.Client.Next = new(new(data.Clock.UtcNow, new(51, reset), new(20, Now.AddDays(3))));
+        await service.RefreshLiveAsync(default);
+        await new ClaudeFailureStore(data.Accounts).RecordAsync(data.Profile.Id, data.Binding.BindingGeneration!,
+            ClaudeFailureKind.AuthRequired, Now.AddMinutes(1));
+        await service.RefreshAsync(default);
+        Assert.Equal(reset, Five(service).ResetsAt);
+        var restarted = data.Service();
+        await restarted.RefreshAsync(default);
+        Assert.Equal(reset, Five(restarted).ResetsAt);
+        Assert.Equal(ClaudeResetObservationState.Direct, Five(restarted).ResetObservation!.State);
+    }
+
     [Fact]
     public async Task UnchangedPassivePollsDoNotMutateTheLedgerOrLiveCache()
     {

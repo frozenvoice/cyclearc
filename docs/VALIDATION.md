@@ -7,16 +7,21 @@
     expected future dates replaced by null. OAuth absent/null reset fields are a second
     overwrite path. The fix separates percentage arbitration from independent five-hour
     and weekly reset evidence. [Policy and alternatives](CLAUDE-RESET-CONTINUITY.md).
-  - 65 new reducer/store cases plus 22 existing Claude-reset cases pass (87 reset cases).
+  - 72 new reducer/store cases plus 22 existing Claude-reset cases pass (94 reset cases).
     The earlier provider/history/alert integration checkpoint passed 242 cases. No existing
     test was removed or weakened. New cases cover actual OAuth parser omission/null,
     auth/identity/generation boundaries, clock conflicts, grants, invalidation persistence,
     corrupt primary/backup, CAS and one-minute ordinary write coalescing.
     A separate two-case pre-fix test reproduced five identical age-transition publications
-    over five polls; the fix publishes once. All 157 reset/statusLine/failure cases pass
+    over five polls; the fix publishes once. All 176 focused reset/statusLine/failure cases pass
     without changing the existing tests, including clock rollback and immutable legacy
     snapshots. The broader gate initially found six compatibility failures and they were
     fixed in production code, not by loosening assertions.
+    Final review added two pre-fix failing cases for an implausible date poisoning the
+    other window's restart evidence, and four failing auth/identity recovery cases.
+    The fix rejects bad receipt dates per window and persists failure-time boundaries;
+    recovery/restart cannot revive old dates. Late failure and unchanged-poll disk
+    checks also pass. The automated PR authentication-boundary finding is addressed.
   - Release build passes. Actual production WPF reset detail/widget checks pass all 60
     EN/KO × Dark/Light × 80/100/150% × reset-state cases; four native pairs were also
     shown. Eight previews were inspected, including an English long-label clipping issue

@@ -248,6 +248,14 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
         var state = read.State;
         var good = state?.LastGood;
         var binding = _connection?.Binding is { Disconnected: false } currentBinding ? currentBinding : null;
+        if (binding is not null)
+        {
+            if (_lastLive?.Failure is "claude-live-auth-required" or "claude-live-identity-mismatch")
+                _resets.BlockThrough(_lastLive.AttemptedAt ?? _lastLiveAttemptAt ?? _clock.UtcNow, _clock.UtcNow);
+            if (failureRead is { Unavailable: false, State: { Kind: ClaudeFailureKind.AuthRequired or ClaudeFailureKind.IdentityMismatch } boundary }
+                && ClaudeFailureClassification.IsActive(boundary, binding, (DateTimeOffset?)null))
+                _resets.BlockThrough(boundary.ObservedAt, _clock.UtcNow);
+        }
         if (good is not null && binding is not null && good.ReceivedAt < binding.ConnectedAt) good = null;
         var desktop = _lastDesktop?.Sample;
         if (desktop is not null && (binding is null
