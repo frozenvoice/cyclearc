@@ -73,7 +73,8 @@ public sealed class CoalescedUpdateTests(ITestOutputHelper output)
     }
 
     // Mirrors the desktop wiring: the manager forwards each refresh-state change as Changed,
-    // and the desktop also listens to the refresh state directly.
+    // and the desktop also listens to the refresh state directly. Account queue/start/end
+    // notifications must share the pending projection rather than add redundant redraws.
     [Fact]
     public async Task RefreshStateChangeSchedulesOneProjectionInsteadOfTwo()
     {
@@ -81,7 +82,12 @@ public sealed class CoalescedUpdateTests(ITestOutputHelper output)
         var store = new CodexAccountStore(data.Root);
         var manager = data.TrackManager(new CodexAccountManager(store, data.Home("codex"), [new StubProvider()]));
         var legacyPosts = 0;
-        manager.Changed += () => legacyPosts++;
+        var accountActivity = new List<bool>();
+        manager.Changed += () =>
+        {
+            legacyPosts++;
+            accountActivity.Add(manager.Accounts.Single().IsRefreshing);
+        };
         manager.Refresh.StateChanged += () => legacyPosts++;
 
         var queue = new Queue<Action>();
@@ -101,7 +107,8 @@ public sealed class CoalescedUpdateTests(ITestOutputHelper output)
 
         output.WriteLine($"refresh-state changes={stateChanges} legacy projections={legacyPosts} coalesced projections={projections}");
         Assert.Equal(2, stateChanges);
-        Assert.Equal(2 * stateChanges, legacyPosts);
+        Assert.Equal(new[] { false, true, false, false }, accountActivity);
+        Assert.Equal(2 * stateChanges + 2, legacyPosts);
         Assert.Equal(stateChanges, projections);
     }
 

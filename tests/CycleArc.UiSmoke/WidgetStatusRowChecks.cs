@@ -163,10 +163,25 @@ internal static class WidgetStatusRowChecks
                     && module.StatusText.Visibility == Visibility.Visible
                     && !string.IsNullOrWhiteSpace(module.StatusText.Text),
                     provider + " " + label + " hid its status indicator or tooltip summary.");
-                var active = !module.Model!.StatusPresentation!.IsWarning
-                    && (account.Snapshot.Status == CodexQuotaStatus.Refreshing || account.IsSigningIn);
+                var warning = module.Model!.StatusPresentation!.IsWarning;
+                var active = module.Model.IsRefreshing || (!warning && account.IsSigningIn);
                 Check(module.StatusActivityIcon.Visibility == (active ? Visibility.Visible : Visibility.Collapsed),
                     provider + " " + label + " displayed the wrong activity indicator.");
+                Check(module.StatusWarningIcon.Visibility == (warning && !active ? Visibility.Visible : Visibility.Collapsed),
+                    provider + " " + label + " overlapped activity and warning icons.");
+                if (account.IsRefreshing)
+                {
+                    Check((module.ToolTip as string ?? "").Contains(UiText.T("Checking…", "확인 중…"), StringComparison.Ordinal),
+                        provider + " " + label + " lost the current activity description.");
+                    Check(module.StatusActivityIcon.Stroke == (Brush)Application.Current.FindResource(warning ? "StaleBrush" : "AccentBrush"),
+                        provider + " " + label + " lost its retained warning/activity color.");
+                    Check(module.Model.StatusPresentation.ObservationTime == account.Snapshot.LastSuccessfulRefresh,
+                        provider + " " + label + " replaced the last-success time with a refresh attempt.");
+                    var automationName = System.Windows.Automation.AutomationProperties.GetName(module);
+                    Check(automationName.Contains(UiText.T("Checking…", "확인 중…"), StringComparison.Ordinal)
+                        && automationName.Contains(module.Model.StatusText, StringComparison.Ordinal),
+                        provider + " " + label + " lost activity or the retained status on the account button peer.");
+                }
                 var withFooter = LayoutHeight(widget, module);
                 module.StatusArea.Visibility = Visibility.Collapsed;
                 var withoutFooter = LayoutHeight(widget, module);
@@ -206,18 +221,23 @@ internal static class WidgetStatusRowChecks
     {
         if (provider == UsageProviderId.Codex)
         {
+            yield return ("active-server-check", CodexAccount("codex-status", "Codex account", CodexSnapshot()) with { IsRefreshing = true });
             yield return ("refreshing", CodexAccount("codex-status", "Codex account", CodexSnapshot().AsRefreshing()));
             var stale = CodexSnapshot() with { Status = CodexQuotaStatus.Stale,
                 LastSuccessfulRefresh = Now.AddMinutes(-12), TechnicalDetail = null };
             yield return ("stale", CodexAccount("codex-status", "Codex account", stale));
             yield return ("retry", CodexAccount("codex-status", "Codex account", stale.AsRefreshing()));
+            yield return ("retry-busy", CodexAccount("codex-status", "Codex account", stale) with { IsRefreshing = true });
             yield return ("request-failed", CodexAccount("codex-status", "Codex account", stale with { TechnicalDetail = "timed-out" }));
             yield return ("identity", CodexAccount("codex-status", "Codex account", stale with { TechnicalDetail = "codex-identity-mismatch" }));
             yield break;
         }
         if (provider == UsageProviderId.Cursor)
         {
+            yield return ("active-server-check", CursorAccount(CursorSnapshot()) with { IsRefreshing = true });
             yield return ("refreshing", CursorAccount(CursorSnapshot().AsRefreshing()));
+            yield return ("retry-busy", CursorAccount(CursorSnapshot(CodexQuotaStatus.Stale, "cursor-live-request-failed",
+                Now.AddHours(-3))) with { IsRefreshing = true });
             yield return ("stale", CursorAccount(CursorSnapshot(CodexQuotaStatus.Stale, "cursor-live-request-failed",
                 Now.AddHours(-3))));
             yield return ("request-failed", CursorAccount(CursorSnapshot(CodexQuotaStatus.Available,
@@ -229,7 +249,10 @@ internal static class WidgetStatusRowChecks
             yield break;
         }
 
+        yield return ("active-server-check", ClaudeAccount(ClaudeSnapshot(ClaudeUsagePresentation.LiveDetail)) with { IsRefreshing = true });
         yield return ("refreshing", ClaudeAccount(ClaudeSnapshot(ClaudeUsagePresentation.LiveDetail).AsRefreshing()));
+        yield return ("retry-busy", ClaudeAccount(ClaudeSnapshot("claude-live-request-failed",
+            CodexQuotaStatus.Stale, Now.AddHours(-3))) with { IsRefreshing = true });
         yield return ("stale", ClaudeAccount(ClaudeSnapshot("claude-live-request-failed",
             CodexQuotaStatus.Stale, Now.AddHours(-3))));
         yield return ("request-failed", ClaudeAccount(ClaudeSnapshot("claude-live-request-failed",

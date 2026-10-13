@@ -344,10 +344,10 @@ public sealed class WidgetAccountModuleView : Border
         StatusAgeText.Text = status?.AgeText ?? "";
         StatusAgeText.Visibility = model.ShowStatusRow && !string.IsNullOrEmpty(StatusAgeText.Text)
             ? Visibility.Visible : Visibility.Collapsed;
-        StatusWarningIcon.Visibility = model.ShowStatusRow && warning ? Visibility.Visible : Visibility.Collapsed;
-        var active = model.ShowStatusRow && !warning
-            && (account.Snapshot.Status == CodexQuotaStatus.Refreshing || account.IsSigningIn);
+        var active = model.ShowStatusRow && (model.IsRefreshing || (!warning && account.IsSigningIn));
+        StatusWarningIcon.Visibility = model.ShowStatusRow && warning && !active ? Visibility.Visible : Visibility.Collapsed;
         StatusActivityIcon.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+        StatusActivityIcon.SetResourceReference(Shape.StrokeProperty, warning ? "StaleBrush" : "AccentBrush");
         StatusInfoIcon.Visibility = model.ShowStatusRow && !warning && !active ? Visibility.Visible : Visibility.Collapsed;
         var details = status?.DetailText ?? model.Tooltip;
         StatusDetailText.Text = string.Join(Environment.NewLine, details.Split(Environment.NewLine)
@@ -356,7 +356,8 @@ public sealed class WidgetAccountModuleView : Border
         StatusAgeText.ToolTip = details;
         StatusText.SetResourceReference(TextBlock.ForegroundProperty, status?.BrushKey ?? (warning ? "StaleBrush" : "MutedBrush"));
         StatusText.FontWeight = warning ? FontWeights.SemiBold : FontWeights.Normal;
-        System.Windows.Automation.AutomationProperties.SetName(StatusArea, model.StatusText);
+        System.Windows.Automation.AutomationProperties.SetName(StatusArea, model.IsRefreshing && warning
+            ? UiText.T("Checking…", "확인 중…") + " · " + model.StatusText : model.StatusText);
         System.Windows.Automation.AutomationProperties.SetHelpText(StatusArea, details);
         UpdateStatusAnimation();
         if (!model.ShowStatusRow) StatusTooltip.IsOpen = false;
@@ -404,7 +405,10 @@ public sealed class WidgetAccountModuleView : Border
             model.Provider.Name(),
             UsageRingBands.WithLabel(model.Ring.RemainingSubLabel.Replace(Environment.NewLine, " ")
                 + " " + model.Ring.RemainingValueText, model.Ring)
-        }.Concat(periods).Append(model.StatusText).Append(model.StatusPresentation?.AgeText)
+        }.Concat(periods)
+            .Append(model.IsRefreshing && model.StatusText != UiText.T("Checking…", "확인 중…")
+                ? UiText.T("Checking…", "확인 중…") : null)
+            .Append(model.StatusText).Append(model.StatusPresentation?.AgeText)
             .Where(part => !string.IsNullOrEmpty(part)))
             + (model.IsSelected ? UiText.T(" · Selected", " · 선택됨") : "");
     }

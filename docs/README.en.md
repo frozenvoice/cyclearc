@@ -15,13 +15,14 @@ row; expanding restores the full card. Missing reset-credit metadata follows the
 Unknown values, zero, stale data, failures and reconnection requirements retain their visible
 meaning. No monetary rows are added to the account list, widget or tray.
 
-Widget status appears as a small icon in each account header: a rotating arc while checking
-when no existing failure or previous-data warning applies,
+Widget status appears as a small icon in each account header: a rotating arc while that
+Codex, Claude or Cursor account is participating in refresh, including its queued wait,
 a warning triangle for **Previous data**, a known failure or a needed account action, and a
 pending or information icon for other states. Healthy server status hides the icon. Hover for
 the full status, detail and original **Last checked** time; local Claude receipts use
-**Last received**. Screen readers retain the same information. A retry keeps its warning
-triangle instead of the rotating arc until success. Status changes add no footer or reserved bottom space, so they do not change
+**Last received**. Screen readers retain the same information. A retry uses an amber rotating
+arc and retains the previous warning explanation and observation time; after a failed check,
+the warning triangle returns. Status changes add no footer or reserved bottom space, so they do not change
 the widget height. Quota rings keep their usage colors and amounts keep their normal text color.
 
 The **Codex**, **Claude** or **Cursor** label on account cards, selected details, tray tooltips and the widget identifies the usage provider. Connect the current Claude login or sign in through the official browser flow; CycleArc can actively check the shared Claude quota through the connected Desktop login and keeps **statusLine** and Desktop history as fallback sources. See [Claude Code connection](#claude-code-connection) and [Cursor connection](#cursor-connection). Gemini is not supported.
