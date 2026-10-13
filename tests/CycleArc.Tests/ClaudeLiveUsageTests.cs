@@ -336,6 +336,56 @@ public class ClaudeLiveUsageTests
         Assert.Null(data.Collector().ReadCached(rotated).Sample);
     }
 
+    [Fact]
+    public async Task ResetInventoryCacheRetainsOriginalTimeAndCannotCrossIdentityGeneration()
+    {
+        using var data = new Data();
+        var reset = new ClaudeResetCreditInventory(true,
+            [new(2, 3, Now.AddHours(-1), Now.AddDays(1), false, null, false, ["five_hour"])], Now);
+        data.Client.Next = new(data.Client.Next.Sample! with { ResetCredits = reset });
+        var collector = data.Collector();
+        await collector.RefreshAsync(data.Binding, default);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = new(new(data.Clock.UtcNow, new(52, Now.AddHours(5)), null));
+        var quotaOnly = await collector.RefreshAsync(data.Binding, default);
+        Assert.Equal(Now, quotaOnly.Sample!.ResetCredits!.ObservedAt);
+        Assert.Equal(2, quotaOnly.Sample.ResetCredits.AvailableCount(data.Clock.UtcNow));
+        Assert.Equal("claude-reset-credits-not-provided", quotaOnly.Sample.ResetCreditsFailure);
+        var restarted = data.Collector().ReadCached(data.Binding);
+        Assert.Equal(2, restarted.Sample!.ResetCredits!.AvailableCount(data.Clock.UtcNow));
+        Assert.Equal(Now, restarted.Sample.ResetCredits.ObservedAt);
+        Assert.Equal(2, data.Client.Calls);
+        data.Clock.UtcNow = Now.AddDays(1);
+        Assert.Equal(0, restarted.Sample.ResetCredits.AvailableCount(data.Clock.UtcNow));
+        var rotated = data.Binding with { BindingGeneration = Guid.NewGuid().ToString("N") };
+        data.Connections.Save(rotated);
+        Assert.Null(data.Collector().ReadCached(rotated).Sample);
+    }
+
+    [Fact]
+    public async Task OldResetCacheFieldsAreOptionalAndMalformedResetDoesNotRefreshPreviousInventory()
+    {
+        using var data = new Data();
+        var collector = data.Collector();
+        await collector.RefreshAsync(data.Binding, default);
+        var legacy = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(data.CachePath))!;
+        legacy["lastGood"]!.AsObject().Remove("resetCredits");
+        legacy["lastGood"]!.AsObject().Remove("resetCreditsFailure");
+        File.WriteAllText(data.CachePath, legacy.ToJsonString());
+        Assert.NotNull(data.Collector().ReadCached(data.Binding).Sample);
+        var reset = new ClaudeResetCreditInventory(true, [], Now);
+        data.Client.Next = new(data.Client.Next.Sample! with { ResetCredits = reset });
+        await collector.RefreshAsync(data.Binding, default);
+        data.Clock.UtcNow = Now.AddMinutes(5);
+        data.Client.Next = new(new(data.Clock.UtcNow, new(52, Now.AddHours(5)), null)
+            { ResetCreditsFailure = "claude-reset-credits-unavailable" });
+        var result = await collector.RefreshAsync(data.Binding, default);
+        Assert.Null(result.Failure);
+        Assert.Equal(Now, result.Sample!.ResetCredits!.ObservedAt);
+        Assert.Equal("claude-reset-credits-unavailable", result.Sample.ResetCreditsFailure);
+        File.WriteAllText(data.CachePath, "bad-json");
+        Assert.NotNull(data.Collector().ReadCached(data.Binding).Sample!.ResetCredits);
+    }
     private static HttpResponseMessage Json(string json) => new(HttpStatusCode.OK)
         { Content = new StringContent(json, Encoding.UTF8, "application/json") };
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
