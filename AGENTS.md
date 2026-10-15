@@ -1,5 +1,12 @@
 # CycleArc agent instructions
 
+## GitHub Actions authorization
+
+- GitHub-hosted CI is not the default development verifier. Existing and new workflow roots must use only `workflow_dispatch`; reusable `workflow_call` is allowed only when reachable exclusively from an explicit manual root.
+- Do not add automatic events (`push`, `pull_request`, `pull_request_target`, `workflow_run`, `repository_dispatch`, `schedule`, or others), replacement lightweight/fake-success jobs, or automatic dispatch through Git hooks, scripts or agent settings.
+- Dispatching, watching or rerunning Actions requires the user's explicit request for that remote execution. Release preparation/publication requests and release gates alone do not grant that authorization. Without authorization or exact-SHA successful evidence, report the unmet gate and do not publish; keep all release jobs, artifacts and hash checks required below.
+- Code changes require the applicable local lint, type checks, unit tests, build and core regressions. Analyze failures, fix them and rerun the relevant checks. Report each unrun command and its concrete reason; remote CI does not replace local verification.
+
 CycleArc is a Windows-only .NET 10 LTS WPF tray app for Codex, Claude and Cursor subscription limits.
 Use Windows, the .NET 10 SDK selected by `global.json` and PowerShell 7+. Building the installer from source also needs
 Visual Studio 2022 with the Desktop development with C++ workload (the setup window is Native
@@ -189,8 +196,9 @@ CI is not where a change is first verified. Before every push:
   isolated locally run locally first; destructive installed-app verification still uses a disposable
   VM or throwaway user as above.
 - If an applicable local check could not be run, report which one and the exact reason, such as
-  operating system, toolchain, permission or hardware, rather than only that it was skipped. Only
-  that gap justifies a remote run in its place.
+  operating system, toolchain, permission or hardware, rather than only that it was skipped.
+  A gap does not authorize a remote run or turn it into local verification; a separate explicit
+  user request is required for Actions execution.
 - This holds regardless of cost. Actions being free on a public repository does not justify
   repeating a run.
 
@@ -209,7 +217,7 @@ CI is not where a change is first verified. Before every push:
   exact unexpired `CycleArc-win-x64` and `CycleArc-published-win-x64` artifacts must agree;
   compare the original publish EXE, portable ZIP EXE and full-package EXE SHA-256 and versions.
   Never select a latest artifact from another commit or alter published historical releases/tags.
-- Additional install E2E: dispatch `windows-build-local.yml` only for build-local/CMD/prerequisite/
+- Additional install E2E: after the user explicitly requests the Actions run, dispatch `windows-build-local.yml` only for build-local/CMD/prerequisite/
   user-install entry-point changes; dispatch `windows-e2e.yml` for setup/update/recovery/removal/
   runtime migration changes. Run both when both scopes apply. They remain independent manual
   workflows, not dependencies of every full run. Record exact-SHA evidence before delivering affected
