@@ -83,7 +83,8 @@ remain different outcomes.
 
 - Focused tests first, then the affected gate; state what actually ran.
 - Ordinary development requires relevant local checks, with no remote CI wait. All Windows
-  workflows are manual-only. Installer delivery, formal releases and additional disposable
+  workflows are manual-only; dispatch/watch/rerun requires an explicit user request for that
+  Actions execution, including during release preparation. Installer delivery, formal releases and additional disposable
   install E2E have separate completion criteria in AGENTS.md; releases require an explicit
   successful full run selected with `Release.ps1 -FullRunId <id>`.
 - Separate real verification from synthetic verification. A packaged `Setup.exe`, a fixture that

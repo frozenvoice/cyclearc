@@ -385,7 +385,7 @@ Windows 워크플로 3개는 모두 `workflow_dispatch` 수동 전용입니다. 
 
 GitHub Actions는 self-contained 단일 파일 검사물과 설치형·포터블·Velopack 업데이트 자산을 함께 생성합니다. `Windows` full의 설치/복구·바탕화면 바로가기 선택·관리형 자동 시작·포터블 단독 실행 job은 같은 run의 `CycleArc-win-x64`를 사용합니다. 포터블 job은 CycleArc가 설치되지 않은 폐기 가능한 새 프로필에서 트레이·위젯·레지스트리 동작을 확인합니다. 관리형 자동 시작 job은 폐기 가능한 프로필에서 사용자 동의·등록·실제 Windows Run 등록 명령 실행·동의 해제 후 등록 제거를 확인합니다. 등록 명령을 직접 실행하는 검증이며 실제 Windows 로그오프·재로그인 전환을 검증했다는 뜻은 아닙니다.
 
-전체 검증이나 산출물 전달이 필요할 때 다음 명령을 명시적으로 실행합니다. 최종 커밋을 포함한 브랜치를 선택하고 대상 SHA를 기록하세요. 실행 전에 브랜치가 바뀌어 다른 SHA를 검증하면 릴리즈 preflight가 거부합니다.
+전체 검증이나 산출물 전달에 필요한 로컬 검증은 다음 명령을 사용합니다. 원격 Actions dispatch·watch·rerun은 릴리즈 준비를 포함해 사용자가 해당 원격 실행을 명시적으로 요청한 경우에만 수행합니다. 최종 커밋을 포함한 브랜치를 선택하고 대상 SHA를 기록하세요. 실행 전에 브랜치가 바뀌어 다른 SHA를 검증하면 릴리즈 preflight가 거부합니다.
 
 ```powershell
 # 로컬 full: 게시·패키징 포함, 설치 없음
@@ -401,7 +401,7 @@ gh workflow run windows-e2e.yml --repo frozenvoice/cyclearc --ref <branch>
 
 설치기 전달은 로컬 full과 전달할 SHA의 원격 full 성공이 완료 기준입니다. build-local/CMD/환경 준비/사용자 설치 진입점 변경에는 `windows-build-local.yml`, setup/update/복구/제거/런타임 마이그레이션 변경에는 `windows-e2e.yml`의 추가 증거가 필요합니다. 양쪽 범위면 둘 다 실행하되 모든 full 검증에 자동으로 묶지 않습니다. E2E는 기존 .NET 8 baseline 기본값을 유지하며 현재 런타임 합성 fixture만 의도적으로 확인할 때만 `-f baseline_ref=`를 지정합니다. 로컬 대응 스크립트는 폐기 가능한 VM이나 전용 테스트 사용자에서 `-ConfirmDisposableEnvironment`와 함께 실행하며, 작업 중인 사용자 설치와 실제 계정은 건드리지 않습니다.
 
-정식 릴리즈는 최종 버전 변경의 로컬 full을 통과한 뒤 커밋·푸시하고 해당 SHA의 `Windows` full을 수동 실행합니다. 그 run ID로 `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -Commit <target-sha> -FullRunId <run-id> -NotesPath <notes-file> -Preflight`를 실행하세요. 사전 검증 성공 후 게시가 요청되었을 때 같은 명령에서 `-Preflight`를 제거합니다. 사전 검증은 소스 버전, 원격 커밋·실행·job·artifact와 내려받은 패키지를 확인하며 태그·초안·업로드·공개·로컬 빌드/테스트는 수행하지 않습니다.
+정식 릴리즈는 최종 버전 변경의 로컬 full을 통과한 뒤 커밋·푸시하고, 사용자가 해당 Actions 실행을 명시적으로 요청한 경우에만 해당 SHA의 `Windows` full을 수동 실행합니다. 릴리즈 준비·게시 요청만으로 dispatch·watch·rerun을 승인받은 것으로 해석하지 않습니다. 승인이나 정확한 SHA의 성공 근거가 없으면 게이트 미충족을 보고하고 공개를 보류합니다. 아래 수동 명령 예시와 추가 E2E 실행에도 같은 승인이 필요합니다. 그 run ID로 `pwsh -NoProfile -File ./scripts/Release.ps1 -Version <version> -Commit <target-sha> -FullRunId <run-id> -NotesPath <notes-file> -Preflight`를 실행하세요. 사전 검증 성공 후 게시가 요청되었을 때 같은 명령에서 `-Preflight`를 제거합니다. 사전 검증은 소스 버전, 원격 커밋·실행·job·artifact와 내려받은 패키지를 확인하며 태그·초안·업로드·공개·로컬 빌드/테스트는 수행하지 않습니다.
 
 `-FullRunId`는 필수입니다. 정확한 `windows.yml` 수동 실행, 대상 SHA, `build`·`managed-setup-install`·`setup-shortcut-choices`·`portable-distribution`·`managed-startup`의 완료·성공과 만료되지 않은 정확한 `CycleArc-win-x64`·`CycleArc-published-win-x64` 각각 한 개를 확인합니다. 원본 publish EXE·full package 내부 EXE·포터블 ZIP 내부 EXE의 SHA-256과 요청한 FileVersion이 같아야 하며 self-contained·자산·체크섬 검증도 통과해야 합니다. 실패·취소·skip·미완료·누락은 게시를 허용하지 않습니다. 최신 성공 artifact로 대체하거나 다른 run의 파일을 혼합하거나 자동 검증·배포하지 않습니다. 앱 업데이트는 기존처럼 공개된 GitHub Releases를 소비하며 Actions artifact를 직접 찾지 않습니다.
 
