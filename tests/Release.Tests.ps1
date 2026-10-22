@@ -283,7 +283,9 @@ function New-PortableFixtureArchive {
     @{ Assets = @(@{ PackageId = 'CycleArc'; Version = '0.6.0'; Type = 'Full'; FileName = $fullName; SHA1 = $fullSha1; SHA256 = $fullSha256; Size = (Get-Item $fullPath).Length }) } |
         ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $feedPath -Encoding utf8
     # Read actual Windows PE metadata without compiling or launching a test program.
-    $realExe = @(Get-Command pwsh -CommandType Application)[0].Source
+    # Use the running host's own image: a Store-installed pwsh resolves on PATH to a
+    # zero-byte WindowsApps execution alias that carries no PE version resource.
+    $realExe = [Environment]::ProcessPath
     $realVersion = ([Diagnostics.FileVersionInfo]::GetVersionInfo($realExe).FileVersion ?? '').Trim()
     Assert-True (![string]::IsNullOrWhiteSpace($realVersion)) 'Windows PowerShell executable carries real PE version metadata'
     Assert-ReleaseExecutableVersion -Path $realExe -ExpectedFileVersion $realVersion
