@@ -932,7 +932,7 @@ public partial class App : Application
     {
         if (IsExiting) return;
         // Tray contrast follows Windows even when the app theme is fixed.
-        _tray.InvalidateTaskbarTheme();
+        _tray?.InvalidateTaskbarTheme();
         if (_settings.Theme == AppTheme.System) ApplyTheme(AppTheme.System);
         RefreshSnapshot();
     }
