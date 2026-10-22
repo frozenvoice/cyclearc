@@ -76,7 +76,7 @@ CycleArc makes no model requests to measure usage and collects no prompts, conve
 
 ## Build from source
 
-These requirements describe the 0.10.1 source build. Release downloads (installer and portable ZIP) bundle the .NET 10 runtime; their release notes identify it.
+These requirements describe the 0.11.0 source build. Release downloads (installer and portable ZIP) bundle the .NET 10 runtime; their release notes identify it.
 
 Use Windows, PowerShell 7 and the .NET 10 SDK selected by [`global.json`](global.json). Building the Native AOT Setup window also requires Visual Studio 2022 / Build Tools with **Desktop development with C++**, MSVC x64/x86 tools and a Windows SDK.
 
