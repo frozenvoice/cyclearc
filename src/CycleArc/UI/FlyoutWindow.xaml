@@ -12,7 +12,7 @@
         ShowInTaskbar="False"
         Topmost="False"
         ResizeMode="NoResize"
-        PreviewKeyDown="OnPreviewKeyDown">
+        PreviewKeyDown="OnPreviewKeyDown" PreviewMouseWheel="OnPreviewMouseWheel">
     <Window.Resources>
         <Style x:Key="FlyoutValueText" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>

@@ -194,6 +194,75 @@ internal static class TrayWidgetChecks
             }
         }
         Console.WriteLine("PASS: native tray Show widget in EN/KO and System/Dark/Light; persisted enable/close/reopen, retained HWND and preferences, native hide recovery, shared-refresh busy state, accountless/exit guards, no extra usage query or selection change.");
+        CheckAccountAndWidgetMenus(directory);
+    }
+
+    // The tray reaches account switching and the widget's options, including a click-through
+    // widget that cannot be right-clicked, and the menu follows the app's Dark ground.
+    private static void CheckAccountAndWidgetMenus(string? directory)
+    {
+        var previousDark = TrayController.DarkMenus;
+        var previousLanguage = UiText.Language;
+        try
+        {
+            foreach (var language in new[] { UiLanguage.English, UiLanguage.Korean })
+            foreach (var dark in new[] { false, true })
+            {
+                UiText.SetLanguage(language);
+                TrayController.DarkMenus = dark;
+                using var tray = new TrayController();
+                var selected = new List<string>();
+                var manage = 0;
+                bool? clickThrough = null, topmost = null;
+                var shows = 0; var closes = 0;
+                tray.AccountsProvider = () => [new("a", "Personal · Codex", true), new("b", "Work · Claude", false)];
+                var widgetState = new TrayWidgetState(true, true, false);
+                tray.WidgetStateProvider = () => widgetState;
+                tray.AccountSelected += selected.Add;
+                tray.ManageAccountsRequested += () => manage++;
+                tray.WidgetClickThroughToggled += value => clickThrough = value;
+                tray.WidgetTopmostToggled += value => topmost = value;
+                tray.ShowWidgetRequested += () => shows++;
+                tray.CloseWidgetRequested += () => closes++;
+                tray.RebuildMenu(startWithWindows: false);
+                var menu = ((Forms.NotifyIcon)typeof(TrayController).GetField("_icon", PrivateInstance)!.GetValue(tray)!).ContextMenuStrip!;
+                var accounts = (Forms.ToolStripMenuItem)menu.Items["TrayAccounts"]!;
+                var widget = (Forms.ToolStripMenuItem)menu.Items["TrayWidget"]!;
+                Require(menu.Items.IndexOf(accounts) == 3 && menu.Items.IndexOf(widget) == 4,
+                    "Accounts and Widget must follow Refresh without moving Open, Show widget or Refresh.");
+                tray.FillAccounts(accounts);
+                var choices = accounts.DropDownItems.OfType<Forms.ToolStripMenuItem>().ToArray();
+                Require(choices.Length == 3 && choices[0].Checked && !choices[1].Checked, "The account choices or selection mark are wrong.");
+                choices[0].PerformClick();
+                choices[1].PerformClick();
+                choices[2].PerformClick();
+                Require(selected.SequenceEqual(["b"]) && manage == 1, "Account switching selected the wrong account or Manage accounts did nothing.");
+                tray.FillWidget(widget);
+                var options = widget.DropDownItems.OfType<Forms.ToolStripMenuItem>().ToArray();
+                Require(options[0].Text == UiText.T("Close widget", "위젯 닫기") && options[1].Checked && !options[2].Checked,
+                    "The widget submenu does not reflect an open click-through widget.");
+                options[0].PerformClick(); options[1].PerformClick(); options[2].PerformClick();
+                Require(closes == 1 && clickThrough == false && topmost == true, "Widget options did not request the opposite state.");
+                widgetState = new TrayWidgetState(false, false, true);
+                tray.FillWidget(widget);
+                options = widget.DropDownItems.OfType<Forms.ToolStripMenuItem>().ToArray();
+                Require(options[0].Text == UiText.T("Show widget", "위젯 표시") && !options[1].Enabled && !options[2].Enabled,
+                    "A closed widget offers options that cannot apply.");
+                options[0].PerformClick();
+                Require(shows == 1, "Show widget from the submenu did nothing.");
+                var ground = menu.BackColor;
+                Require(dark ? ground.GetBrightness() < 0.3f : ground.GetBrightness() > 0.6f, $"The tray menu ground does not follow {(dark ? "Dark" : "Light")}.");
+                Require(dark == (menu.Items[0].ForeColor.GetBrightness() > 0.6f), "Tray menu text does not contrast with its ground.");
+                if (directory is not null)
+                    CaptureMenu(menu, Path.Combine(directory, $"tray-menu-{(language == UiLanguage.Korean ? "ko" : "en")}-{(dark ? "dark" : "light")}.png"));
+            }
+        }
+        finally
+        {
+            TrayController.DarkMenus = previousDark;
+            UiText.SetLanguage(previousLanguage);
+        }
+        Console.WriteLine("PASS: tray Accounts and Widget submenus in EN/KO Dark/Light; account switching, Manage accounts, click-through/topmost toggles and themed menu ground.");
     }
 
     private static void CheckPreferences(AppSettings loaded, AppSettings current, bool enabled) => Require(

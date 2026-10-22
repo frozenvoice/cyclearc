@@ -15,11 +15,19 @@ public enum UsageAlertLevel
 public sealed record UsageAlert(string ProfileId, string AccountName, string ProviderName, string LimitName,
     UsageAlertLevel Level, double UsedPercent)
 {
-    public string Title => Level == UsageAlertLevel.LimitReached
+    /// <summary>A limit announced as used up has room again in a new period.</summary>
+    public bool Restored { get; init; }
+
+    public string Title => Restored
+        ? UiText.T($"{AccountName}: {LimitName} limit available again", $"{AccountName}: {LimitName} 한도 다시 사용 가능")
+        : Level == UsageAlertLevel.LimitReached
         ? UiText.T($"{AccountName}: {LimitName} limit reached", $"{AccountName}: {LimitName} 한도 도달")
         : UiText.T($"{AccountName}: {LimitName} limit nearly used", $"{AccountName}: {LimitName} 한도 임박");
 
-    public string Body => Level == UsageAlertLevel.LimitReached
+    public string Body => Restored
+        ? UiText.T($"{ProviderName} · {LimitName} is at {UsagePercentFormatting.Detail(UsedPercent)} used after its reset. Click to open usage.",
+            $"{ProviderName} · {LimitName} 리셋 후 {UsagePercentFormatting.Detail(UsedPercent)} 사용 중입니다. 클릭하면 사용량을 엽니다.")
+        : Level == UsageAlertLevel.LimitReached
         ? UiText.T($"{ProviderName} · {LimitName} is used up. Click to open usage.",
             $"{ProviderName} · {LimitName} 한도를 모두 사용했습니다. 클릭하면 사용량을 엽니다.")
         : UiText.T($"{ProviderName} · {UsagePercentFormatting.Detail(UsedPercent)} of {LimitName} used. Click to open usage.",
@@ -27,9 +35,21 @@ public sealed record UsageAlert(string ProfileId, string AccountName, string Pro
 }
 
 /// <summary>
+/// The person's alert preferences. The near-limit threshold defaults to the rings' orange band;
+/// a limit re-arms once usage falls 15 points below it.
+/// </summary>
+public sealed record UsageAlertOptions(double NearLimitPercent = UsageRingBands.NearLimitPercent, bool NotifyRestored = true)
+{
+    public static IReadOnlyList<int> NearLimitChoices { get; } = [50, 70, 80, 85, 90, 95];
+    public static double Normalize(double percent) =>
+        NearLimitChoices.Contains((int)percent) && percent == Math.Floor(percent) ? percent : UsageRingBands.NearLimitPercent;
+    internal double RearmBelow => Normalize(NearLimitPercent) - 15;
+}
+
+/// <summary>
 /// Decides when a limit deserves a notification: the first time in a period that it enters the
-/// near-limit band (the rings' orange, 85% used) and again when it is used up (100%). The same
-/// thresholds color the rings, so an alert never disagrees with what the popup shows.
+/// near-limit band (by default the rings' orange, 85% used, or the person's chosen threshold),
+/// again when it is used up (100%), and once when a used-up limit has room again.
 ///
 /// Marks are keyed by account and limit and remember the period by its reset time, so repeated
 /// refreshes and restarts do not repeat an alert while the next period starts afresh. Only current
@@ -41,13 +61,16 @@ public static class UsageAlerts
     // A provider can report the same reset a few seconds or minutes apart between checks.
     private static readonly TimeSpan SamePeriodTolerance = TimeSpan.FromMinutes(10);
 
-    public static UsageAlertLevel LevelFor(double used) => used >= UsageRingBands.ExhaustedPercent
+    public static UsageAlertLevel LevelFor(double used) => LevelFor(used, UsageRingBands.NearLimitPercent);
+
+    public static UsageAlertLevel LevelFor(double used, double nearLimitPercent) => used >= UsageRingBands.ExhaustedPercent
         ? UsageAlertLevel.LimitReached
-        : used >= UsageRingBands.NearLimitPercent ? UsageAlertLevel.NearLimit : UsageAlertLevel.None;
+        : used >= UsageAlertOptions.Normalize(nearLimitPercent) ? UsageAlertLevel.NearLimit : UsageAlertLevel.None;
 
     public static (IReadOnlyList<UsageAlert> Alerts, Dictionary<string, string> Marks) Evaluate(
-        IEnumerable<CodexAccountView> accounts, IReadOnlyDictionary<string, string>? marks)
+        IEnumerable<CodexAccountView> accounts, IReadOnlyDictionary<string, string>? marks, UsageAlertOptions? options = null)
     {
+        options ??= new UsageAlertOptions();
         var previous = marks ?? new Dictionary<string, string>();
         var next = new Dictionary<string, string>(StringComparer.Ordinal);
         var alerts = new List<UsageAlert>();
@@ -67,16 +90,23 @@ public static class UsageAlerts
                     continue;
                 var used = window.UsedPercent!.Value;
                 var key = account.Profile.Id + "|" + WindowKey(window);
-                var level = LevelFor(used);
+                var level = LevelFor(used, options.NearLimitPercent);
                 var (period, marked) = previous.TryGetValue(key, out var value) ? Parse(value) : (null, UsageAlertLevel.None);
-                if (!SamePeriod(period, window.ResetsAt)) marked = UsageAlertLevel.None;
+                var newPeriod = !SamePeriod(period, window.ResetsAt);
+                // A used-up limit that a new period (or a fall well below the threshold, when no
+                // reset time is reported) brought back below the near-limit band is announced once.
+                if (options.NotifyRestored && marked == UsageAlertLevel.LimitReached && level == UsageAlertLevel.None
+                    && (newPeriod || used < options.RearmBelow))
+                    alerts.Add(new UsageAlert(account.Profile.Id, account.DisplayName, account.ProviderName,
+                        LimitName(window, snapshot.Provider), level, used) { Restored = true });
+                if (newPeriod) marked = UsageAlertLevel.None;
                 if (level > marked)
                     alerts.Add(new UsageAlert(account.Profile.Id, account.DisplayName, account.ProviderName,
                         LimitName(window, snapshot.Provider), level, used));
                 // Within one period the mark keeps the highest level announced, so usage wavering
-                // around a threshold never repeats an alert. Only a clear fall below the caution
-                // band (a reset without a reported time, or a redeemed credit) re-arms it.
-                var kept = level >= marked || used < UsageRingBands.CautionPercent ? level : marked;
+                // around a threshold never repeats an alert. Only a clear fall below the threshold
+                // (a reset without a reported time, or a redeemed credit) re-arms it.
+                var kept = level >= marked || used < options.RearmBelow ? level : marked;
                 next[key] = Format(window.ResetsAt ?? period, kept);
             }
         }
@@ -95,7 +125,8 @@ public static class UsageAlerts
     /// </summary>
     public static (string Title, string Body, string ProfileId) Summary(IReadOnlyList<UsageAlert> alerts)
     {
-        var ordered = alerts.OrderByDescending(alert => alert.Level).ThenByDescending(alert => alert.UsedPercent).ToArray();
+        var ordered = alerts.OrderBy(alert => alert.Restored).ThenByDescending(alert => alert.Level)
+            .ThenByDescending(alert => alert.UsedPercent).ToArray();
         var first = ordered[0];
         if (ordered.Length == 1) return (Clip(first.Title, MaxTitle), Clip(first.Body, MaxBody), first.ProfileId);
         var footer = UiText.T($"Click to open {first.AccountName}.", $"클릭하면 {first.AccountName} 계정을 엽니다.");
@@ -103,7 +134,9 @@ public static class UsageAlerts
         for (var i = 0; i < ordered.Length; i++)
         {
             var alert = ordered[i];
-            var line = Clip(alert.Level == UsageAlertLevel.LimitReached
+            var line = Clip(alert.Restored
+                ? UiText.T($"{alert.AccountName} · {alert.LimitName}: available again", $"{alert.AccountName} · {alert.LimitName}: 다시 사용 가능")
+                : alert.Level == UsageAlertLevel.LimitReached
                 ? UiText.T($"{alert.AccountName} · {alert.LimitName}: used up", $"{alert.AccountName} · {alert.LimitName}: 모두 사용")
                 : $"{alert.AccountName} · {alert.LimitName}: {UsagePercentFormatting.Detail(alert.UsedPercent)}", 60);
             var more = UiText.T($"+{ordered.Length - i} more in the popup", $"외 {ordered.Length - i}개는 팝업에서 확인");
@@ -116,7 +149,9 @@ public static class UsageAlerts
             lines.Add(line);
         }
         lines.Add(footer);
-        return (UiText.T($"{ordered.Length} limits need attention", $"한도 {ordered.Length}개 확인 필요"),
+        return (ordered.All(alert => alert.Restored)
+                ? UiText.T($"{ordered.Length} limits available again", $"한도 {ordered.Length}개 다시 사용 가능")
+                : UiText.T($"{ordered.Length} limits need attention", $"한도 {ordered.Length}개 확인 필요"),
             Clip(string.Join("\n", lines), MaxBody), first.ProfileId);
     }
 

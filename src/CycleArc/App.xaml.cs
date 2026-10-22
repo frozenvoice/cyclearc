@@ -21,6 +21,7 @@ public partial class App : Application
     private SettingsStore _settingsStore = null!;
     private AppLog _log = null!;
     private TrayController _tray = null!;
+    private readonly GlobalHotkey _hotkey = new();
     private CodexAccountManager _codex = null!;
     private CodexRefreshCoordinator _refresh = null!;
     private readonly CodexExecutableLocator _codexLocator = new(new WindowsCodexFileSystem());
@@ -38,6 +39,8 @@ public partial class App : Application
     private Task _creditUseTask = Task.CompletedTask;
     private FlyoutWindow? _flyout;
     private DateTimeOffset? _flyoutDeactivatedAt;
+    private AboutWindow? _aboutWindow;
+    private SettingsWindow? _settingsWindow;
     private bool _hiddenFlyoutSelectionBindQueued;
     private AccountsWindow? _accountsWindow;
     private Task _discoveryTask = Task.CompletedTask;
@@ -91,6 +94,8 @@ public partial class App : Application
         _tray = new TrayController();
         _tray.RebuildMenu(_settings.StartWithWindows);
         _tray.LeftClick += ToggleFlyout;
+        _hotkey.Pressed += () => { if (!IsExiting && _refresh is not null) ToggleFlyout(); };
+        ApplyHotkey();
         _tray.OpenRequested += ShowMain;
         _tray.ShowWidgetRequested += ShowWidget;
         _tray.SyncRequested += () => _ = RefreshCodexAsync();
@@ -101,10 +106,7 @@ public partial class App : Application
         _updates = new AppUpdateCoordinator(new VelopackUpdateClient());
         _updates.Changed += OnUpdateChanged;
         _tray.UpdatesRequested += ShowUpdates;
-        _tray.AboutRequested += () => new AboutWindow(
-            Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0",
-            "Codex · Claude · Cursor subscription usage",
-            InstalledApp.IsManaged || InstalledApp.IsPortable ? null : DesktopBootstrap.InstallSelectedVersion, ShowUpdates).Show();
+        _tray.AboutRequested += ShowAbout;
         _tray.StartupToggled += enabled =>
         {
             if (InstalledApp.IsPortable) return;
@@ -114,6 +116,19 @@ public partial class App : Application
         };
         _tray.ExitRequested += ExitApp;
         _tray.CloseWidgetRequested += CloseWidget;
+        _tray.ManageAccountsRequested += () => ShowAccounts();
+        _tray.AccountSelected += id => _codex?.Select(id);
+        _tray.AccountsProvider = () =>
+        {
+            if (_codex is null) return [];
+            var overview = UsageAccountOverview.Create(DisplayAccounts(_codex.Accounts), _codex.SelectedId, _settings.UsagePeriod);
+            return overview.Accounts.Select(account => new TrayAccountChoice(account.Profile.Id,
+                account.DisplayName + " · " + account.Profile.Provider.Name(), account.Profile.Id == overview.SelectedId)).ToArray();
+        };
+        _tray.WidgetStateProvider = () => new TrayWidgetState(_settings.FloatingWidgetEnabled,
+            _settings.WidgetClickThrough, _settings.WidgetAlwaysOnTop);
+        _tray.WidgetClickThroughToggled += enabled => ChangeWidgetOption(() => _settings.WidgetClickThrough = enabled);
+        _tray.WidgetTopmostToggled += enabled => ChangeWidgetOption(() => _settings.WidgetAlwaysOnTop = enabled);
         var accounts = new CodexAccountStore();
         _claudeConnections = new ClaudeConnectionService(accounts, callbackExecutable: InstalledApp.CallbackPath);
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
@@ -502,7 +517,8 @@ public partial class App : Application
     private (string Title, string Body, string ProfileId)? CollectUsageAlerts(IReadOnlyList<CodexAccountView> accounts)
     {
         if (!_settings.UsageAlertsEnabled) return null;
-        var (alerts, marks) = UsageAlerts.Evaluate(accounts, _settings.UsageAlertMarks);
+        var (alerts, marks) = UsageAlerts.Evaluate(accounts, _settings.UsageAlertMarks,
+            new UsageAlertOptions(_settings.UsageAlertNearLimitPercent, _settings.UsageAlertRestoredEnabled));
         if (marks.Count != _settings.UsageAlertMarks.Count
             || marks.Any(pair => !_settings.UsageAlertMarks.TryGetValue(pair.Key, out var value) || value != pair.Value))
         {
@@ -610,9 +626,36 @@ public partial class App : Application
         ToggleFlyout();
     }
 
+    // One About window: choosing About again brings the open one forward.
+    private void ShowAbout()
+    {
+        if (_aboutWindow is { } open)
+        {
+            if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal;
+            open.Activate();
+            return;
+        }
+        _aboutWindow = new AboutWindow(
+            Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0",
+            UiText.T("Codex · Claude · Cursor subscription usage", "Codex·Claude·Cursor 구독 사용량"),
+            InstalledApp.IsManaged || InstalledApp.IsPortable ? null : DesktopBootstrap.InstallSelectedVersion, ShowUpdates);
+        _aboutWindow.Closed += (_, _) => _aboutWindow = null;
+        _aboutWindow.Show();
+    }
+
     private void ShowSettings()
     {
+        // The tray menu stays usable while settings are open; it brings that window forward
+        // rather than opening a second copy that would save over the first.
+        if (_settingsWindow is { } open)
+        {
+            if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal;
+            open.Activate();
+            return;
+        }
         var window = new SettingsWindow(_settings);
+        _settingsWindow = window;
+        window.Closed += (_, _) => { if (ReferenceEquals(_settingsWindow, window)) _settingsWindow = null; };
         window.AccountsRequested += () => ShowAccounts(window);
         if (_flyout?.IsVisible == true) window.Owner = _flyout;
         // A preview only fades the live widget's ground; Save, Apply or the next settings
@@ -649,6 +692,7 @@ public partial class App : Application
             UiText.SetLanguage(settings.UiLanguage);
             ApplyTheme(settings.Theme);
             StartupConsent.ApplyIfPermitted(new WindowsStartupService(), settings);
+            ApplyHotkey();
             _tray.RebuildMenu(settings.StartWithWindows);
             _flyout?.ApplyWindowSettings(settings);
             if (window.ResetWidgetPositionOnSave) ApplyWidgetWithReset();
@@ -768,6 +812,30 @@ public partial class App : Application
         ApplyWidget();
     }
 
+    // The shortcut is registered only while its setting is on; a combination another program
+    // already owns is reported once instead of failing silently.
+    private void ApplyHotkey()
+    {
+        try
+        {
+            if (_hotkey.Apply(_settings.GlobalHotkeyEnabled)) return;
+            _log.Warn("Global shortcut could not be registered");
+            _tray.Balloon(UiText.ProductName, UiText.T(
+                $"{GlobalHotkey.DisplayText} is already used by another program, so it cannot open CycleArc.",
+                $"{GlobalHotkey.DisplayText}을(를) 다른 프로그램이 사용 중이라 CycleArc를 열 수 없습니다."));
+        }
+        catch (Exception ex) { _log.Error("Global shortcut could not be applied", ex); }
+    }
+
+    // Tray widget options save and apply like the same switches in Settings.
+    private void ChangeWidgetOption(Action change)
+    {
+        if (IsExiting) return;
+        change();
+        _settingsStore.Save(_settings);
+        ApplyWidget();
+    }
+
     private void CloseWidget()
     {
         _settings.FloatingWidgetEnabled = false;
@@ -824,6 +892,7 @@ public partial class App : Application
     {
         var dark = theme == AppTheme.Dark
             || (theme == AppTheme.System && IsSystemDark());
+        TrayController.DarkMenus = dark;
         var app = Current;
         app.Resources["BgBrush"] = new SolidColorBrush(dark ? MediaColor(18, 20, 24) : MediaColor(245, 247, 250));
         app.Resources["CardBrush"] = new SolidColorBrush(dark ? MediaColor(27, 31, 39) : MediaColor(255, 255, 255));
@@ -863,6 +932,7 @@ public partial class App : Application
     {
         if (IsExiting) return;
         // Tray contrast follows Windows even when the app theme is fixed.
+        _tray.InvalidateTaskbarTheme();
         if (_settings.Theme == AppTheme.System) ApplyTheme(AppTheme.System);
         RefreshSnapshot();
     }
@@ -923,6 +993,7 @@ public partial class App : Application
             try
             {
                 RunExitCleanup(() => _codex?.Dispose(), "Account service shutdown failed");
+                RunExitCleanup(_hotkey.Dispose, "Hotkey release failed");
                 RunExitCleanup(() => _tray?.Dispose(), "Tray shutdown failed");
             }
             finally { Shutdown(); }

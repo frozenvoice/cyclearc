@@ -53,7 +53,7 @@ public partial class SettingsWindow
             TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 8, 0, 0) };
         hint.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         content.Children.Add(hint);
-        var expander = new Expander { Header = UiText.T("Credit, spending & expiry alerts", "크레딧·지출·만료 알림"), Content = content };
+        var expander = new Expander { Header = UiText.T("Credit, spending & expiry alerts", "크레딧·지출·만료 알림"), Content = content, Margin = new Thickness(0, 10, 0, 0) };
         FinancialSettingsHost.Children.Add(expander);
     }
 

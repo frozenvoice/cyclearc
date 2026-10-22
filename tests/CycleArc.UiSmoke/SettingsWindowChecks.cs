@@ -147,6 +147,10 @@ internal static class SettingsWindowChecks
             checks++;
             CheckCloseAsksBeforeDiscarding();
             checks++;
+            CheckCodexPathFeedback();
+            checks++;
+            CheckAlertAndShortcutOptions();
+            checks++;
         }
         finally
         {
@@ -411,6 +415,69 @@ internal static class SettingsWindowChecks
         unchanged.Show();
         unchanged.Close();
         Check(!unchangedAsked && !unchanged.IsVisible, "Closing settings without edits asked anyway.");
+    }
+
+    // The near-limit threshold, the available-again alert and the global shortcut are edits
+    // like any other: Apply turns on, Save keeps them, and turning alerts off greys the details.
+    private static void CheckAlertAndShortcutOptions()
+    {
+        var settings = new AppSettings();
+        var window = new SettingsWindow(settings);
+        try
+        {
+            var threshold = (ComboBox)window.FindName("UsageAlertThresholdBox");
+            var restored = (CheckBox)window.FindName("UsageAlertRestoredBox");
+            var hotkey = (CheckBox)window.FindName("HotkeyBox");
+            var apply = (Button)window.FindName("ApplyButton");
+            Check(threshold.Items.Count == UsageAlertOptions.NearLimitChoices.Count
+                && threshold.SelectedIndex == UsageAlertOptions.NearLimitChoices.ToList().IndexOf(85)
+                && restored.IsChecked == true && hotkey.IsChecked == false && !apply.IsEnabled,
+                "Alert and shortcut options do not open at their defaults.");
+            threshold.SelectedIndex = UsageAlertOptions.NearLimitChoices.ToList().IndexOf(70);
+            restored.IsChecked = false;
+            hotkey.IsChecked = true;
+            Check(apply.IsEnabled, "Alert or shortcut edits do not enable Apply.");
+            ((Button)window.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(settings.UsageAlertNearLimitPercent == 70 && !settings.UsageAlertRestoredEnabled && settings.GlobalHotkeyEnabled,
+                "Save dropped the alert threshold, the available-again choice or the global shortcut.");
+        }
+        finally { window.Close(); }
+
+        var off = new SettingsWindow(new AppSettings { UsageAlertsEnabled = false });
+        try
+        {
+            Check(!((ComboBox)off.FindName("UsageAlertThresholdBox")).IsEnabled, "Alert details stay active while alerts are off.");
+        }
+        finally { off.Close(); }
+    }
+
+    // A typed path that cannot start Codex says so beside the box; empty means automatic.
+    private static void CheckCodexPathFeedback()
+    {
+        var window = new SettingsWindow(new AppSettings());
+        try
+        {
+            var box = (TextBox)window.FindName("CodexExeBox");
+            var problem = (TextBlock)window.FindName("CodexPathProblem");
+            Check(problem.Visibility == Visibility.Collapsed, "An empty Codex path shows a problem.");
+            box.Text = @"C:\CycleArc-missing-" + Guid.NewGuid().ToString("N") + @"\codex.exe";
+            Check(problem.Visibility == Visibility.Visible && problem.Text.Length > 0, "A missing Codex file shows no problem.");
+            box.Text = "codex.exe";
+            Check(problem.Visibility == Visibility.Visible, "A relative Codex path shows no problem.");
+            var real = Path.Combine(Path.GetTempPath(), "cyclearc-codex-" + Guid.NewGuid().ToString("N"), "codex.cmd");
+            Directory.CreateDirectory(Path.GetDirectoryName(real)!);
+            File.WriteAllText(real, "@echo off");
+            try
+            {
+                box.Text = real;
+                Check(problem.Visibility == Visibility.Collapsed, "An existing codex.cmd shows a problem.");
+            }
+            finally { Directory.Delete(Path.GetDirectoryName(real)!, recursive: true); }
+            box.Text = "";
+            Check(problem.Visibility == Visibility.Collapsed, "Clearing the Codex path kept its problem.");
+            Check(((Button)window.FindName("BrowseCodexButton")).Content is string { Length: > 0 }, "The Codex browse button has no label.");
+        }
+        finally { window.Close(); }
     }
 
     private static void CheckCancelPreservesSettings()

@@ -556,6 +556,19 @@ public partial class FloatingWidget : Window
     private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (TryHandleZoomShortcut(e.Key, Keyboard.Modifiers)) e.Handled = true;
+        else if (WindowShortcuts.IsRefresh(e.Key, Keyboard.Modifiers))
+        {
+            e.Handled = true;
+            if (WidgetRefreshButton.IsEnabled) RefreshRequested?.Invoke();
+        }
+    }
+
+    // Ctrl + wheel over the widget resizes it, like Ctrl + / Ctrl -; a plain wheel still scrolls.
+    private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (WindowShortcuts.WheelZoom(e.Delta, Keyboard.Modifiers, ZoomPercent) is not { } next) return;
+        e.Handled = true;
+        SetZoom(next);
     }
 
     private void OnZoomInClick(object sender, RoutedEventArgs e)

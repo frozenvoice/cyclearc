@@ -42,6 +42,8 @@ public partial class AccountsWindow : Window
     public AccountsWindow()
     {
         InitializeComponent();
+        var stopAnnouncing = LiveRegion.Follow(OperationStatus);
+        Closed += (_, _) => stopAnnouncing();
         Title = UiText.ProductName + " · " + UiText.T("Accounts", "계정");
         Heading.Text = UiText.T("Usage accounts", "사용량 계정");
         Introduction.Text = UiText.T("Connect accounts here to see their usage together. Choose the connection method that fits your situation.",
@@ -93,7 +95,7 @@ public partial class AccountsWindow : Window
         System.Windows.Automation.AutomationProperties.SetName(NewAccountLabel, LabelCaption.Text);
         SourceInitialized += (_, _) =>
         {
-            var work = SystemParameters.WorkArea;
+            var work = DesktopWorkAreas.ForPlacement(this);
             MaxHeight = Math.Max(400, work.Height - 24);
             Height = Math.Min(Height, MaxHeight);
             MaxWidth = Math.Max(470, work.Width - 24);

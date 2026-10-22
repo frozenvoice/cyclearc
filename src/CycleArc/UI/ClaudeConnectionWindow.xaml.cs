@@ -55,7 +55,7 @@ public partial class ClaudeConnectionWindow : Window
         Closed += (_, _) => _closed = true;
         SourceInitialized += (_, _) =>
         {
-            var work = SystemParameters.WorkArea;
+            var work = DesktopWorkAreas.ForPlacement(this);
             MaxHeight = Math.Max(400, work.Height - 24); Height = Math.Min(Height, MaxHeight);
             MaxWidth = Math.Max(470, work.Width - 24); Width = Math.Min(Width, MaxWidth);
         };

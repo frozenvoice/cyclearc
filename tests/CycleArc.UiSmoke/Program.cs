@@ -163,6 +163,12 @@ internal static class Program
                 TrayIconChecks.Run(trayDirectory);
                 return 0;
             }
+            if (args is ["--shortcuts"])
+            {
+                ShortcutChecks.Run();
+                ShortcutChecks.RunEmptyState();
+                return 0;
+            }
             if (args is ["--tray-widget"] or ["--tray-widget", _])
             {
                 TrayWidgetChecks.Run(app, args.Length == 2 ? args[1] : "artifacts/previews");
@@ -428,6 +434,9 @@ internal static class Program
             FlyoutHeaderChecks.Run();
             Begin("ui-reuse");
             UiReuseChecks.Run(app);
+            Begin("shortcuts");
+            ShortcutChecks.Run();
+            ShortcutChecks.RunEmptyState();
             Begin("tray-widget");
             TrayWidgetChecks.Run(app);
             Begin("environment-callbacks");

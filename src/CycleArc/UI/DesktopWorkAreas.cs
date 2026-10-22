@@ -20,6 +20,21 @@ public static class DesktopWorkAreas
         ToDip(System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Control.MousePosition).WorkingArea,
             FromDevice(window));
 
+    /// <summary>
+    /// The work area a dialog opens on: its owner's monitor when it has a visible owner,
+    /// otherwise the monitor under the pointer, which is where WPF centers an ownerless window.
+    /// Sizes limited to it fit on a smaller secondary display too, not only on the primary one.
+    /// </summary>
+    public static Rect ForPlacement(Window window)
+    {
+        var owner = window.Owner is { IsVisible: true } visible ? new System.Windows.Interop.WindowInteropHelper(visible).Handle : IntPtr.Zero;
+        var screen = owner != IntPtr.Zero
+            ? System.Windows.Forms.Screen.FromHandle(owner)
+            : System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Control.MousePosition);
+        var area = ToDip(screen.WorkingArea, FromDevice(window));
+        return new Rect(area.X, area.Y, area.Width, area.Height);
+    }
+
     private static Matrix FromDevice(Window window) =>
         PresentationSource.FromVisual(window)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
 

@@ -91,6 +91,7 @@ public partial class FlyoutWindow : Window
     public FlyoutWindow()
     {
         InitializeComponent();
+        LiveRegion.Mark(StatusIndicator);
         ApplyLocalizedTexts();
         SourceInitialized += (_, _) => FitContentToWorkArea();
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(RefreshWorkArea);
@@ -332,12 +333,15 @@ public partial class FlyoutWindow : Window
         BindHistoryAccount(selected);
         _displayedIdentities.Record(accounts);
         AccountSection.Visibility = Visibility.Visible;
-        ManageAccountsButton.Content = UiText.T("Manage accounts", "계정 관리");
+        // With no account yet, the one useful action says what it does.
+        ManageAccountsButton.Content = accounts.Count == 0 ? UiText.T("Add an account", "계정 추가") : UiText.T("Manage accounts", "계정 관리");
+        ManageAccountsButton.Style = (Style)FindResource(accounts.Count == 0 ? "PrimaryButton" : "CreditUseButton");
         AccountsHeading.Text = UiText.T($"Accounts · {accounts.Count}", $"계정 · {accounts.Count}");
         BindAccountRows(accounts.Count > 1 ? accounts : [], selectedId);
         AccountSelectionHint.Text = accounts.Count > 1
             ? UiText.T("Select an account for details, tray and widget.", "계정을 선택하면 상세 카드·트레이·위젯에 표시됩니다.")
-            : UiText.T("Connect accounts in Manage accounts to show them here.", "계정 관리에서 연결한 계정이 여기에 표시됩니다.");
+            : UiText.T("Add a Codex, Claude or Cursor account to see its limits here. Windows may keep the CycleArc icon under Show hidden icons (^) in the taskbar; drag it onto the taskbar to keep it in view.",
+                "Codex·Claude·Cursor 계정을 추가하면 한도가 여기에 표시됩니다. Windows가 CycleArc 아이콘을 작업 표시줄의 숨겨진 아이콘 표시(^) 안에 둘 수 있습니다. 아이콘을 작업 표시줄로 끌어 놓으면 항상 보입니다.");
         AccountSelectionHint.Visibility = accounts.Count == 1 ? Visibility.Collapsed : Visibility.Visible;
         SelectedAccountText.Text = selected?.DisplayName ?? UiText.T("Add your first account", "첫 계정을 추가하세요");
         SelectedAvatarHost.Content = selected is null ? null : AccountSummary.AvatarFor(selected, 30, SelectedAvatarHost.Content);
@@ -512,7 +516,9 @@ public partial class FlyoutWindow : Window
         _headerStatusTip ??= MakeTooltip(help);
         _headerStatusTip.Content = help;
         StatusIndicator.ToolTip = _headerStatusTip;
+        var announced = System.Windows.Automation.AutomationProperties.GetName(StatusIndicator);
         System.Windows.Automation.AutomationProperties.SetName(StatusIndicator, name);
+        LiveRegion.Announce(StatusIndicator, announced);
         System.Windows.Automation.AutomationProperties.SetHelpText(StatusIndicator, help);
         var refreshHelp = _refreshActive ? progress : UiText.RefreshAll;
         _refreshTip ??= MakeTooltip(refreshHelp);
@@ -1178,10 +1184,23 @@ One credit will be consumed.",
             e.Handled = true;
             return;
         }
+        if (WindowShortcuts.IsRefresh(e.Key, Keyboard.Modifiers))
+        {
+            e.Handled = true;
+            if (RefreshAllButton.IsEnabled) SyncRequested?.Invoke();
+            return;
+        }
         if (e.Key == Key.Escape)
         {
             Hide();
         }
+    }
+
+    private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (WindowShortcuts.WheelZoom(e.Delta, Keyboard.Modifiers, ZoomPercent) is not { } next) return;
+        e.Handled = true;
+        SetZoom(next, notify: true);
     }
 
     private void OnRefreshAllClick(object sender, RoutedEventArgs e) => SyncRequested?.Invoke();
