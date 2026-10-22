@@ -33,7 +33,10 @@ public sealed class UsageHistoryPanel : Expander
     private readonly ComboBox _metric = new() { MinWidth = 80, MaxWidth = 260 };
     private readonly TextBlock _summary = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
     private readonly TextBlock _notice = new() { FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
-    private readonly TextBlock _axis = new() { FontSize = 10, Margin = new Thickness(0, 4, 0, 0) };
+    // The time axis sits under the plotted area, its first and last labels at each end.
+    private readonly Grid _axis = new() { Margin = new Thickness(HistoryPlot.PlotLeft, 4, HistoryPlot.PlotRight, 0) };
+    private readonly TextBlock _axisStart = new() { FontSize = 10, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly TextBlock _axisEnd = new() { FontSize = 10, HorizontalAlignment = HorizontalAlignment.Right };
     private readonly HistoryPlot _plot = new() { Height = 96, Margin = new Thickness(0, 8, 0, 0) };
     private CodexAccountView? _account;
     private Func<CodexAccountView, TimeSpan, UsageHistoryView>? _read;
@@ -55,7 +58,11 @@ public sealed class UsageHistoryPanel : Expander
         controls.Children.Add(_range); controls.Children.Add(_metric);
         content.Children.Add(controls); content.Children.Add(_summary); content.Children.Add(_plot); content.Children.Add(_axis); content.Children.Add(_notice);
         _notice.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-        _axis.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        _axis.Children.Add(_axisStart); _axis.Children.Add(_axisEnd);
+        _axisStart.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        _axisEnd.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        _plot.Describe = point => FormatStamp(point.ObservedAt) + " · " + Amount(point) + " · " + Source(point.Source)
+            + (point.Discontinuity == UsageHistoryDiscontinuity.None ? "" : " · " + BreakName(point.Discontinuity));
         Content = content;
         System.Windows.Automation.AutomationProperties.SetName(_range, UiText.T("History range", "이력 기간"));
         System.Windows.Automation.AutomationProperties.SetName(_metric, UiText.T("Measured metric", "측정 지표"));
@@ -73,7 +80,7 @@ public sealed class UsageHistoryPanel : Expander
         {
             _generation++; _lastRead = default; _view = null; _series = [];
             _metric.ItemsSource = null; _plot.Set([], [], DateTimeOffset.UtcNow - Span, DateTimeOffset.UtcNow);
-            _plot.ToolTip = null; _axis.Text = "";
+            _axisStart.Text = _axisEnd.Text = "";
             _summary.Text = UiText.T("No observations", "관측 데이터 없음"); _notice.Text = "";
         }
         if (IsExpanded) Load();
@@ -112,20 +119,25 @@ public sealed class UsageHistoryPanel : Expander
         var statuses = _view.Statuses.Where(s => s.SeriesId is null || points.Length > 0 && s.SeriesId == points[0].SeriesId)
             .OrderBy(s => s.At).ToArray();
         _plot.Set(points, statuses, _end - Span, _end);
-        _axis.Text = (_end - Span).ToLocalTime().ToString("MM-dd HH:mm") + "                                        " + _end.ToLocalTime().ToString("MM-dd HH:mm");
+        _axisStart.Text = FormatStamp(_end - Span);
+        _axisEnd.Text = FormatStamp(_end);
         if (points.Length == 0)
         {
             _summary.Text = UiText.T("No measurements in this range", "이 기간에 측정된 데이터가 없습니다");
-            _plot.ToolTip = null;
+            System.Windows.Automation.AutomationProperties.SetName(_plot, _summary.Text);
         }
         else
         {
             var last = points[^1];
-            _summary.Text = MetricName(last) + ": " + Amount(last) + " · " + Stamp(last.ObservedAt);
-            _plot.ToolTip = string.Join(Environment.NewLine, points.TakeLast(12).Select(p => Stamp(p.ObservedAt) + " · " + Amount(p) + " · " + Source(p.Source)
-                + (p.Discontinuity == UsageHistoryDiscontinuity.None ? "" : " · " + BreakName(p.Discontinuity))));
+            _summary.Text = MetricName(last) + ": " + Amount(last) + " · " + FormatStamp(last.ObservedAt);
+            // The chart is a picture; its name tells a screen reader what it shows.
+            var lowest = Amount(points.MinBy(p => p.Value)!);
+            var highest = Amount(points.MaxBy(p => p.Value)!);
+            System.Windows.Automation.AutomationProperties.SetName(_plot, UiText.T(
+                $"{MetricName(last)} chart, {points.Length} measurements from {lowest} to {highest}. Latest {Amount(last)} at {FormatStamp(last.ObservedAt)}.",
+                $"{MetricName(last)} 차트, 측정 {points.Length}개, 최저 {lowest} · 최고 {highest}. 최근 {FormatStamp(last.ObservedAt)} {Amount(last)}."));
         }
-        var started = _view.ObservationStartedAt is { } start ? UiText.T("Observed since ", "관측 시작 ") + Stamp(start) + ". " : "";
+        var started = _view.ObservationStartedAt is { } start ? UiText.T("Observed since ", "관측 시작 ") + FormatStamp(start) + ". " : "";
         var gaps = statuses.Count(s => s.Quality != UsageHistoryQuality.Observed);
         var boundaries = points.Count(p => p.Discontinuity != UsageHistoryDiscontinuity.None);
         var source = points.Length > 0 ? UiText.T("Source: ", "출처: ") + string.Join(" / ", points.Select(p => Source(p.Source)).Distinct()) + ". " : "";
@@ -133,7 +145,7 @@ public sealed class UsageHistoryPanel : Expander
         _notice.Text = started + source + UiText.T("Unmeasured time is blank. ", "미측정 구간은 비어 있습니다. ")
             + (quality is null ? "" : UiText.T("Latest state: ", "최근 상태: ") + Quality(quality.Value) + ". ")
             + (gaps > 0 ? UiText.T($"{gaps} missing/stale/failed observations. ", $"누락·오래됨·실패 기록 {gaps}개. ") : "")
-            + (boundaries > 0 ? UiText.T($"{boundaries} changes in period, cap, source or balance (see tooltip). ", $"기간·한도·출처·잔액 변화 {boundaries}개 (툴팁 참고). ") : "")
+            + (boundaries > 0 ? UiText.T($"{boundaries} changes in period, cap, source or balance (point at the chart). ", $"기간·한도·출처·잔액 변화 {boundaries}개 (차트에 마우스를 올려 확인). ") : "")
             + (points.Any(p => p.Metric is UsageHistoryMetric.CreditBalance or UsageHistoryMetric.BalanceChange)
                 ? UiText.T("Balance changes include unknown adjustments; they are not actual consumption. ", "잔액 변화에는 원인 불명의 보정이 포함될 수 있으며 실제 소비량이 아닙니다. ") : "")
             + (_view.StorageWarning is null ? "" : UiText.T("Storage warning: ", "저장 경고: ") + _view.StorageWarning);
@@ -153,46 +165,103 @@ public sealed class UsageHistoryPanel : Expander
     { "Extra usage" => UiText.T("Extra usage", "추가 사용"), "Credits" => UiText.T("Credits", "크레딧"),
         "Plan included" => UiText.T("Plan included", "플랜 포함"), _ => value };
     private static string SeriesKey(UsageHistoryPoint p) => p.SeriesId + "|" + p.Metric + "|" + p.Unit;
-    private static string Amount(UsageHistoryPoint p) => p.Value.ToString("0.################", CultureInfo.InvariantCulture) + " " + p.Unit;
-    private static string Stamp(DateTimeOffset t) => t.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-    private static string Source(UsageHistorySource source) => source switch
-    {
-        UsageHistorySource.CodexAppServer => "Codex App Server", UsageHistorySource.ClaudeOAuth => "Claude OAuth usage GET",
-        UsageHistorySource.ClaudeDesktopHistory => "Claude Desktop", UsageHistorySource.ClaudeStatusLine => "Claude Code statusLine", _ => "Cursor usage-summary"
-    };
+    private static string Amount(UsageHistoryPoint p) => p.Value.ToString("0.################", CultureInfo.InvariantCulture) + (p.Unit == "%" ? "%" : " " + p.Unit);
+    private static string FormatStamp(DateTimeOffset t) => DisplayFormatting.FormatStamp(t);
+    private static string Source(UsageHistorySource source) => UsageHistoryChart.SourceName(source);
     private static string Quality(UsageHistoryQuality q) => q switch
     { UsageHistoryQuality.Observed => UiText.T("Observed", "관측됨"), UsageHistoryQuality.Missing => UiText.T("Not provided", "미제공"),
         UsageHistoryQuality.Failure => UiText.T("Check failed", "조회 실패"), UsageHistoryQuality.Stale => UiText.T("Old snapshot", "오래된 스냅샷"), _ => UiText.T("Identity unavailable", "계정 확인 불가") };
-    private static string BreakName(UsageHistoryDiscontinuity d) => UiText.T(d.ToString(),
-        d.ToString().Replace("SourceChanged", "출처 변경").Replace("PeriodChanged", "기간 변경").Replace("LimitChanged", "한도 변경")
-            .Replace("CumulativeDecreased", "누적액 감소").Replace("BalanceChanged", "잔액 변화").Replace("Gap", "관측 누락"));
+    private static string BreakName(UsageHistoryDiscontinuity d) => UsageHistoryChart.DiscontinuityName(d);
 }
 
 internal sealed class HistoryPlot : FrameworkElement
 {
+    // Room for the value labels on the left and the last point on the right.
+    public const double PlotLeft = 50;
+    public const double PlotRight = 5;
+    private const double PlotTop = 5;
+    private const double PlotBottom = 9;
     private IReadOnlyList<UsageHistoryPoint> _points = [];
     private IReadOnlyList<UsageHistoryStatus> _statuses = [];
     private DateTimeOffset _start, _end;
+    private int _hover = -1;
+    private readonly System.Windows.Controls.ToolTip _tip = new() { Placement = System.Windows.Controls.Primitives.PlacementMode.Mouse };
+    /// <summary>The text shown for the point nearest the pointer.</summary>
+    public Func<UsageHistoryPoint, string>? Describe { get; set; }
+
+    public HistoryPlot()
+    {
+        ToolTipService.SetInitialShowDelay(this, 0);
+        ToolTipService.SetShowDuration(this, int.MaxValue);
+    }
+
     public void Set(IReadOnlyList<UsageHistoryPoint> points, IReadOnlyList<UsageHistoryStatus> statuses, DateTimeOffset start, DateTimeOffset end)
-    { _points = points; _statuses = statuses; _start = start; _end = end; InvalidateVisual(); }
+    {
+        _points = points; _statuses = statuses; _start = start; _end = end; _hover = -1;
+        _tip.Content = null;
+        ToolTip = null;
+        InvalidateVisual();
+    }
+
+    /// <summary>Shows the point nearest to a position across the plot; used by the pointer and tests.</summary>
+    internal void HoverAt(double x)
+    {
+        if (_points.Count == 0 || ActualWidth <= PlotLeft + PlotRight) return;
+        var offset = Math.Clamp(x - PlotLeft, 0, PlotWidth());
+        var at = _start + TimeSpan.FromSeconds(offset / PlotWidth() * Math.Max(1, (_end - _start).TotalSeconds));
+        var nearest = UsageHistoryChart.NearestIndex(_points, at);
+        if (nearest == _hover) return;
+        _hover = nearest;
+        _tip.Content = nearest < 0 ? null : Describe?.Invoke(_points[nearest]);
+        ToolTip = _tip.Content is null ? null : _tip;
+        InvalidateVisual();
+    }
+
+    protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        HoverAt(e.GetPosition(this).X);
+    }
+
+    protected override void OnMouseLeave(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (_hover < 0) return;
+        _hover = -1;
+        InvalidateVisual();
+    }
+
+    private double PlotWidth() => Math.Max(1, ActualWidth - PlotLeft - PlotRight);
+
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
         if (ActualWidth < 1) return;
+        // A transparent ground lets the whole plot area, not only the drawn line, take the pointer.
+        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, ActualWidth, ActualHeight));
         var muted = TryFindResource("MutedBrush") as Brush ?? Brushes.Gray;
         var accent = TryFindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
         var line = TryFindResource("LineBrush") as Brush ?? Brushes.Gray;
-        dc.DrawLine(new Pen(line, 1), new Point(0, ActualHeight - 1), new Point(ActualWidth, ActualHeight - 1));
+        var height = Math.Max(1, ActualHeight - PlotTop - PlotBottom);
+        var width = PlotWidth();
+        var metric = _points.Count == 0 ? UsageHistoryMetric.UsagePercent : _points[0].Metric;
+        var unit = _points.Count == 0 ? "%" : _points[0].Unit;
+        var (min, max) = UsageHistoryChart.Scale(metric, _points.Select(p => p.Value).ToArray());
+        double Y(double value) => PlotTop + (max - value) / (max - min) * height;
+        // Gridlines at the bottom, middle and top of the scale, each labelled with its value.
+        var grid = new Pen(line, 1) { DashStyle = DashStyles.Dot };
+        var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        foreach (var value in new[] { min, UsageHistoryChart.Middle((min, max)), max })
+        {
+            var y = Y(value);
+            dc.DrawLine(value == min ? new Pen(line, 1) : grid, new Point(PlotLeft, y), new Point(PlotLeft + width, y));
+            var label = new FormattedText(UsageHistoryChart.AxisValue(value, unit), CultureInfo.InvariantCulture,
+                System.Windows.FlowDirection.LeftToRight, new Typeface("Segoe UI"), 10, muted, dpi);
+            dc.DrawText(label, new Point(Math.Max(0, PlotLeft - 6 - label.Width), Math.Clamp(y - label.Height / 2, 0, Math.Max(0, ActualHeight - label.Height))));
+        }
         if (_points.Count == 0) return;
-        var min = _points.Min(p => (double)p.Value); var max = _points.Max(p => (double)p.Value);
-        if (max == min) { var margin = Math.Max(1, Math.Abs(min) * 0.05); min -= margin; max += margin; }
-        var left = 50d; var height = ActualHeight - 14; var width = Math.Max(1, ActualWidth - left - 5);
-        foreach (var value in new[] { min, max })
-            dc.DrawText(new FormattedText(value.ToString(Math.Abs(value) >= 1e8 ? "0.#E+0" : "0.##", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture,
-                System.Windows.FlowDirection.LeftToRight, new Typeface("Segoe UI"), 10, muted, VisualTreeHelper.GetDpi(this).PixelsPerDip),
-                new Point(0, value == max ? 0 : height - 6));
-        Point Position(UsageHistoryPoint p) => new(left + (p.ObservedAt - _start).TotalSeconds / Math.Max(1, (_end - _start).TotalSeconds) * width,
-            5 + (max - (double)p.Value) / (max - min) * height);
+        Point Position(UsageHistoryPoint p) => new(PlotLeft + (p.ObservedAt - _start).TotalSeconds / Math.Max(1, (_end - _start).TotalSeconds) * width,
+            Y((double)p.Value));
         // At most 600 vertices; bucket boundaries are never bridged when downsampling.
         var stride = Math.Max(1, (int)Math.Ceiling(_points.Count / 600d));
         for (var i = 0; i < _points.Count; i += stride)
@@ -209,5 +278,11 @@ internal sealed class HistoryPlot : FrameworkElement
             dc.DrawEllipse(accent, null, at, 2, 2);
         }
         var last = Position(_points[^1]); dc.DrawEllipse(accent, null, last, 2.5, 2.5);
+        if (_hover >= 0 && _hover < _points.Count)
+        {
+            var hovered = Position(_points[_hover]);
+            dc.DrawLine(new Pen(muted, 1), new Point(hovered.X, PlotTop), new Point(hovered.X, PlotTop + height));
+            dc.DrawEllipse(accent, new Pen(TryFindResource("CardBrush") as Brush ?? Brushes.White, 1.5), hovered, 4, 4);
+        }
     }
 }

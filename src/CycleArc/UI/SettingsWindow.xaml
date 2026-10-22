@@ -175,7 +175,7 @@
                 </StackPanel>
                 <Button x:Name="CloseSettingsButton" HorizontalAlignment="Right" Width="36" Height="32" MinHeight="32" Padding="0"
                         Style="{StaticResource SettingsAction}" Background="Transparent"
-                        shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="OnCancel">
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="OnCloseRequested">
                     <Path Width="10" Height="10" Data="M0,0 L10,10 M10,0 L0,10" Stroke="{DynamicResource TextBrush}" StrokeThickness="1.5"/>
                 </Button>
             </Grid>

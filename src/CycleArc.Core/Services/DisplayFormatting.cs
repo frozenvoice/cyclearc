@@ -8,12 +8,37 @@ public readonly record struct ResetDisplayInfo(
 
 public static class DisplayFormatting
 {
-    public static string FormatStamp(DateTimeOffset value)
+    /// <summary>
+    /// English follows the Windows 12/24-hour preference (set once at startup); Korean keeps
+    /// 24-hour times. Tests keep the 24-hour default.
+    /// </summary>
+    public static bool Use12HourClock { get; set; }
+
+    public static bool CultureUses12HourClock(CultureInfo culture) =>
+        culture.DateTimeFormat.ShortTimePattern.Contains('h', StringComparison.Ordinal);
+
+    /// <summary>Time of day in every user-visible label.</summary>
+    public static string FormatTime(DateTimeOffset value)
     {
         var local = value.ToLocalTime();
+        return !UiText.IsKorean && Use12HourClock
+            ? local.ToString("h:mm tt", CultureInfo.InvariantCulture)
+            : local.ToString("HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// The one date-and-time form for user-visible labels: month, day and time, with the year
+    /// only when it is not the current one.
+    /// </summary>
+    public static string FormatStamp(DateTimeOffset value) => FormatStamp(value, DateTimeOffset.Now);
+
+    public static string FormatStamp(DateTimeOffset value, DateTimeOffset now)
+    {
+        var local = value.ToLocalTime();
+        var otherYear = local.Year != now.ToLocalTime().Year;
         return UiText.IsKorean
-            ? local.ToString("M월 d일 HH:mm", CultureInfo.GetCultureInfo("ko-KR"))
-            : local.ToString("MMM d HH:mm", CultureInfo.InvariantCulture);
+            ? local.ToString(otherYear ? "yyyy년 M월 d일 " : "M월 d일 ", CultureInfo.GetCultureInfo("ko-KR")) + FormatTime(value)
+            : local.ToString(otherYear ? "MMM d, yyyy " : "MMM d ", CultureInfo.InvariantCulture) + FormatTime(value);
     }
 
     public static string FormatDay(DateTimeOffset value)
@@ -118,7 +143,7 @@ public static class DisplayFormatting
             return UiText.Never;
         }
 
-        return lastSync.Value.ToLocalTime().ToString("HH:mm");
+        return FormatTime(lastSync.Value);
     }
 
     public static string StatusLabel(QuotaSnapshot snapshot) =>

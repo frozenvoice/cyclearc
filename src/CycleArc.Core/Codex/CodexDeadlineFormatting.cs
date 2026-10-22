@@ -55,7 +55,7 @@ public static class CodexDeadlineFormatting
 
     /// The exact local reset time behind the countdown, or null when the server gave none.
     public static string? ResetStampTooltip(DateTimeOffset? deadline) => deadline is null ? null
-        : deadline.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        : DisplayFormatting.FormatStamp(deadline.Value);
 
     public static string DateStamp(DateTimeOffset date, DateTimeOffset now)
     {
@@ -78,7 +78,7 @@ public static class CodexDeadlineFormatting
         if (groups.Count > 3) detail += Environment.NewLine + UiText.T($"+{groups.Count - 3} more dates", $"외 {groups.Count - 3}개 날짜");
         if (!complete) detail += Environment.NewLine + UiText.T("Some expiries unavailable", "일부 만료일 미제공");
         var lines = known.GroupBy(x => x).Select(group =>
-            $"{DateStamp(group.Key, now)} {group.Key.ToLocalTime():HH:mm} · {group.Count()}" + UiText.T(" credits", "개")).ToList();
+            $"{DateStamp(group.Key, now)} {DisplayFormatting.FormatTime(group.Key)} · {group.Count()}" + UiText.T(" credits", "개")).ToList();
         if (!complete) lines.Add(UiText.T("Some credit expiry details are unavailable.", "일부 리셋권의 만료 정보는 제공되지 않았습니다."));
         if (known.Any(x => x <= now)) lines.Add(UiText.T("An expiry time has passed. Refresh to check availability.", "만료 시각이 지난 항목이 있습니다. 새로고침해 확인하세요."));
         return (detail, string.Join(Environment.NewLine, lines));

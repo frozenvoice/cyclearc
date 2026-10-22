@@ -185,7 +185,7 @@ public static class UsageCreditPresentation
     {
         if (at is { } time) rows.Add(new(UiText.LastChecked, Stamp(time)));
     }
-    private static string Stamp(DateTimeOffset time) => time.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    private static string Stamp(DateTimeOffset time) => DisplayFormatting.FormatStamp(time);
     private static string Join(string left, string right) => left.Length == 0 ? right : left + " · " + right;
     private static string CreditAmount(decimal balance)
     {

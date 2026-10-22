@@ -278,6 +278,12 @@ internal static class RingBandUiChecks
             if (string.CompareOrdinal(a, b) >= 0) continue;
             Check(Distance(Color(a), Color(b)) >= 40, $"{theme}: {a} and {b} are too close.");
         }
+        // Accent links and danger text are read as text; the OK dot is a status mark.
+        foreach (var key in new[] { "AccentBrush", "DangerBrush", "TextBrush", "MutedBrush" })
+            Check(Contrast(Color(key), card) >= 4.5 && Contrast(Color(key), background) >= 4.5,
+                $"{theme}: {key} text is below 4.5:1.");
+        Check(Contrast(Color("OkBrush"), card) >= 3 && Contrast(Color("OkBrush"), background) >= 3,
+            $"{theme}: OkBrush status mark is below 3:1.");
         // The amber freshness warning remains visually separate from every quota band.
         Check(Distance(Color("StaleBrush"), Color("RingNearLimitBrush")) >= 40
             && Distance(Color("StaleBrush"), Color("RingExhaustedBrush")) >= 40, $"{theme}: stale looks like a band.");

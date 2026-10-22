@@ -25,7 +25,7 @@ public static class CursorUsagePresentation
         "CycleArc는 이 Windows PC의 Cursor에 이미 로그인된 계정을 읽습니다. 인증정보는 Cursor가 보관하며 CycleArc에는 선택한 계정 참조와 한도 스냅샷만 저장합니다.");
 
     public static string UpdatedText(CodexQuotaSnapshot snapshot) => snapshot.LastSuccessfulRefresh is { } at
-        ? UiText.T($"Updated {at.ToLocalTime():yyyy-MM-dd HH:mm}", $"업데이트 {at.ToLocalTime():yyyy-MM-dd HH:mm}")
+        ? UiText.T($"Updated {DisplayFormatting.FormatStamp(at)}", $"업데이트 {DisplayFormatting.FormatStamp(at)}")
         : UiText.T("Updated: unknown", "업데이트 시각: 확인 불가");
 
     public static string StatusText(CodexQuotaSnapshot snapshot)

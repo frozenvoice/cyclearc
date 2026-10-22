@@ -16,6 +16,10 @@ public partial class SettingsWindow : Window
     public event Action? AccountsRequested;
     public bool ResetWidgetPositionOnSave { get; private set; }
     private bool _ready;
+    private bool _discardConfirmed;
+    // Offline UI tests answer the close prompt; production always asks the person.
+    internal Func<SettingsCloseChoice>? ConfirmCloseForTest { get; set; }
+    internal static Func<SettingsCloseChoice>? DefaultCloseChoiceForTest { get; set; }
 
     public SettingsWindow(AppSettings settings)
     {
@@ -142,6 +146,7 @@ public partial class SettingsWindow : Window
         AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new System.Windows.Controls.TextChangedEventHandler((_, _) => UpdateApplyState()));
         AddHandler(RangeBase.ValueChangedEvent, new RoutedPropertyChangedEventHandler<double>((_, _) => UpdateApplyState()));
         // Closing without applying takes the widget back to the opacity it actually has.
+        Closing += OnClosing;
         Closed += (_, _) => WidgetOpacityPreviewed?.Invoke(_settings.WidgetOpacity);
         _ready = true;
         UpdateApplyState();
@@ -193,6 +198,7 @@ public partial class SettingsWindow : Window
     private void OnSave(object sender, RoutedEventArgs e)
     {
         Commit();
+        _discardConfirmed = true;
         Close();
     }
 
@@ -237,7 +243,32 @@ public partial class SettingsWindow : Window
         if (WidgetOpacityValue is not null && WidgetOpacityBox is not null)
             WidgetOpacityValue.Text = $"{Math.Round(WidgetOpacityBox.Value * 100)}%";
     }
-    private void OnCancel(object sender, RoutedEventArgs e) => Close();
+    // Cancel is the explicit way to discard; the title close button, Esc and Alt+F4 ask first.
+    private void OnCancel(object sender, RoutedEventArgs e)
+    {
+        _discardConfirmed = true;
+        Close();
+    }
+    private void OnCloseRequested(object sender, RoutedEventArgs e) => Close();
+
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        // A window nobody can see, or one closing with the app, has no one to ask.
+        if (_discardConfirmed || !IsVisible || !HasPendingChanges || Dispatcher.HasShutdownStarted) return;
+        var choice = (ConfirmCloseForTest ?? DefaultCloseChoiceForTest)?.Invoke() ?? AskToSaveChanges();
+        if (choice == SettingsCloseChoice.Save) { Commit(); return; }
+        if (choice == SettingsCloseChoice.Discard) { _discardConfirmed = true; return; }
+        e.Cancel = true;
+    }
+
+    private SettingsCloseChoice AskToSaveChanges() => System.Windows.MessageBox.Show(this,
+            UiText.T("Save your changes before closing settings?", "설정을 닫기 전에 변경 사항을 저장할까요?"),
+            Title, MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) switch
+        {
+            MessageBoxResult.Yes => SettingsCloseChoice.Save,
+            MessageBoxResult.No => SettingsCloseChoice.Discard,
+            _ => SettingsCloseChoice.Stay
+        };
     private void OnResetWidgetPosition(object sender, RoutedEventArgs e)
     {
         ResetWidgetPositionOnSave = true;
@@ -250,4 +281,11 @@ public partial class SettingsWindow : Window
     }
     private void OnOpenLogs(object sender, RoutedEventArgs e) => OpenLogsRequested?.Invoke();
     private void OnAccounts(object sender, RoutedEventArgs e) => AccountsRequested?.Invoke();
+}
+
+public enum SettingsCloseChoice
+{
+    Save,
+    Discard,
+    Stay
 }

@@ -70,7 +70,7 @@ public sealed record WidgetStatusPresentation(
             ? ClaudeUsagePresentation.ReceiptLabel(snapshot)
             : UiText.T("Last checked", "마지막 확인");
         var time = snapshot.LastSuccessfulRefresh;
-        var stamp = time?.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        var stamp = time is { } stampTime ? DisplayFormatting.FormatStamp(stampTime) : null;
         var elapsed = CodexDeadlineFormatting.Elapsed(time, now);
         var age = stamp is null ? null : label + " " + (elapsed ?? stamp);
         var explanation = snapshot.Provider == UsageProviderId.Claude

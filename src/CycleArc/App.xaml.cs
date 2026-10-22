@@ -37,6 +37,7 @@ public partial class App : Application
     private Task _passiveTask = Task.CompletedTask;
     private Task _creditUseTask = Task.CompletedTask;
     private FlyoutWindow? _flyout;
+    private DateTimeOffset? _flyoutDeactivatedAt;
     private bool _hiddenFlyoutSelectionBindQueued;
     private AccountsWindow? _accountsWindow;
     private Task _discoveryTask = Task.CompletedTask;
@@ -70,6 +71,7 @@ public partial class App : Application
         _settings = _settingsStore.Load();
         var firstUse = !_settings.FirstRunCompleted;
         UiText.SetLanguage(_settings.UiLanguage);
+        DisplayFormatting.Use12HourClock = DisplayFormatting.CultureUses12HourClock(System.Globalization.CultureInfo.CurrentCulture);
         _log = new AppLog();
         if (_settingsStore.RecoveredFromBackup) _log.Warn("Settings restored from backup");
         DispatcherUnhandledException += (_, args) =>
@@ -514,7 +516,17 @@ public partial class App : Application
     private void ToggleFlyout()
     {
         EnsureFlyout();
-        if (_flyout!.IsVisible) { _flyout.Hide(); return; }
+        switch (FlyoutWindowState.Toggle(_flyout!.IsVisible, _flyout.IsActive, _flyoutDeactivatedAt, DateTimeOffset.Now))
+        {
+            case FlyoutToggleAction.Hide:
+                _flyout.Hide();
+                return;
+            case FlyoutToggleAction.BringToFront:
+                // Open but covered by another window: show it rather than hide it unseen.
+                _flyout.RefreshWorkArea();
+                _flyout.Activate();
+                return;
+        }
         _flyout.ApplyWindowSettings(_settings);
         // The only bind before showing: the first frame has the current accounts and state.
         RefreshSnapshotCore(bindHiddenFlyout: true);
@@ -529,6 +541,9 @@ public partial class App : Application
     {
         if (_flyout is not null) return;
         _flyout = new FlyoutWindow();
+        // Recorded only to tell a tray click on the popup in use from one on a covered popup;
+        // losing activation never hides it.
+        _flyout.Deactivated += (_, _) => _flyoutDeactivatedAt = DateTimeOffset.Now;
         _flyout.HistoryReader = (account, span) => _history!.Read(account, span, DateTimeOffset.UtcNow);
         _flyout.RedeemAccountCredit = async (profileId, creditId) =>
         {
@@ -816,6 +831,11 @@ public partial class App : Application
         app.Resources["TextBrush"] = new SolidColorBrush(dark ? MediaColor(238, 241, 246) : MediaColor(23, 27, 34));
         app.Resources["MutedBrush"] = new SolidColorBrush(dark ? MediaColor(139, 147, 167) : MediaColor(90, 98, 114));
         app.Resources["StaleBrush"] = new SolidColorBrush(dark ? MediaColor(251, 191, 36) : MediaColor(146, 79, 0));
+        // Accent, danger and OK also draw text and status marks, so each theme keeps them at
+        // least 4.5:1 (text) or 3:1 (marks) against its cards and ground.
+        app.Resources["AccentBrush"] = new SolidColorBrush(dark ? MediaColor(66, 133, 246) : MediaColor(37, 99, 235));
+        app.Resources["DangerBrush"] = new SolidColorBrush(dark ? MediaColor(248, 113, 113) : MediaColor(185, 28, 28));
+        app.Resources["OkBrush"] = new SolidColorBrush(dark ? MediaColor(52, 211, 153) : MediaColor(21, 128, 61));
         // Usage ring arcs only. Amber, orange and red keep distinct hues and stay visible on
         // each theme's cards; the light red is deeper than DangerBrush, which stays for text.
         app.Resources["RingCautionBrush"] = new SolidColorBrush(dark ? MediaColor(245, 158, 11) : MediaColor(217, 119, 6));

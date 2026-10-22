@@ -22,6 +22,9 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // Checks that leave edits in a shown settings window close it as Cancel always did;
+        // the prompt itself is answered per window in SettingsWindowChecks.
+        SettingsWindow.DefaultCloseChoiceForTest = () => SettingsCloseChoice.Discard;
         if (args is ["--installer-hooks", var hookExecutable])
         {
             InstallerHookProcessChecks.Run(hookExecutable);

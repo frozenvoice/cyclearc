@@ -480,8 +480,8 @@ public static class CursorActivityPresentation
                 "Cursor가 요청을 보낼 때(응답 전) 알린 정보입니다. 완료되거나 과금되었다는 뜻은 아닙니다.");
         var model = UiText.T("The model is the one selected in Cursor's composer; a model chosen inside Auto is not included.",
             "모델은 Cursor 작성기에서 선택된 모델입니다. Auto 안에서 실제로 선택된 모델은 포함되지 않습니다.");
-        var at = UiText.T($"Received {latest.ReceivedAt.ToLocalTime():yyyy-MM-dd HH:mm}",
-            $"수신 {latest.ReceivedAt.ToLocalTime():yyyy-MM-dd HH:mm}");
+        var at = UiText.T($"Received {DisplayFormatting.FormatStamp(latest.ReceivedAt)}",
+            $"수신 {DisplayFormatting.FormatStamp(latest.ReceivedAt)}");
         return string.Join(Environment.NewLine, meaning, model, at, SourceTooltip(ringLimitId));
     }
 }

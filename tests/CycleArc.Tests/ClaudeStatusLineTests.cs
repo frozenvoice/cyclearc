@@ -365,7 +365,7 @@ public class ClaudeStatusLineTests
             Assert.Equal(inputFailed, ClaudeUsagePresentation.IsStale(snapshot));
             Assert.Equal(inputFailed ? UiText.T("Stale data", "오래된 데이터") : UiText.T("Received", "수신됨"),
                 CycleArcPresentation.StatusLabel(snapshot));
-            var stamp = Now.ToLocalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+            var stamp = DisplayFormatting.FormatStamp(Now);
             var receipt = Assert.Single(CodexDisplayFormatting.Rows(snapshot, data.Clock.UtcNow),
                 row => row.Label == ClaudeUsagePresentation.LastReceivedLabel);
             // The row uses the popup's shared stamp and age; its tooltip keeps the full date.

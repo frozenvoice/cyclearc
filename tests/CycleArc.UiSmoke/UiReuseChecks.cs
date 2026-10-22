@@ -129,6 +129,9 @@ internal static class UiReuseChecks
             var removed = new List<string>();
             window.RenameAccount = (id, label) => renamed.Add((id, label));
             window.RemoveAccount = id => { removed.Add(id); return true; };
+            var confirmations = new List<string>();
+            var confirmRemoval = false;
+            window.ConfirmRemoveForTest = id => { confirmations.Add(id); return confirmRemoval; };
             var accounts = Accounts(4);
             window.Bind(accounts, accounts[0].Profile.Id);
             window.Show();
@@ -163,8 +166,12 @@ internal static class UiReuseChecks
             for (var bind = 0; bind < 5; bind++) window.Bind(Copies(accounts), accounts[1].Profile.Id);
             ActionButtons(current[1]).Single(button => (string)button.Content == UiText.T("Save name", "별명 저장"))
                 .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-            ActionButtons(current[2]).Single(button => (string)button.Content == UiText.T("Remove", "제거"))
-                .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            var remove = ActionButtons(current[2]).Single(button => (string)button.Content == UiText.T("Remove", "제거"));
+            remove.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Require(confirmations.SequenceEqual([accounts[2].Profile.Id]) && removed.Count == 0,
+                "Remove did not ask first, or removed an account after the confirmation was declined.");
+            confirmRemoval = true;
+            remove.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             Require(renamed.SequenceEqual([(accounts[1].Profile.Id, "Partial 별명")]) && removed.SequenceEqual([accounts[2].Profile.Id]),
                 "Repeated binds accumulated or retargeted account actions.");
 

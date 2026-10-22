@@ -297,6 +297,6 @@ public class WidgetResetCountdownTests
 
     [Fact]
     public void TheExactResetTimeIsAvailableForTheTooltip() =>
-        Assert.Equal(Now.AddMinutes(35).ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+        Assert.Equal(DisplayFormatting.FormatStamp(Now.AddMinutes(35)),
             CodexDeadlineFormatting.ResetStampTooltip(Now.AddMinutes(35)));
 }

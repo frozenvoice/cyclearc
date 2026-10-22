@@ -47,9 +47,11 @@ internal static class MixedProviderUiChecks
                         Check(((Border)flyout.FindName("ResetCreditsCard")).Visibility ==
                             (selected.Profile.Provider is UsageProviderId.Codex or UsageProviderId.Claude ? Visibility.Visible : Visibility.Collapsed),
                             "Reset inventory card crossed providers.");
-                        Check(((Button)flyout.FindName("ClaudeResetUsageButton")).Visibility ==
+                        Check(((Button)flyout.FindName("ClaudeUsagePageButton")).Visibility ==
                             (selected.Profile.Provider == UsageProviderId.Claude ? Visibility.Visible : Visibility.Collapsed),
-                            "Read-only Claude reset page action crossed providers.");
+                            "Read-only Claude usage page action crossed providers.");
+                        Check(flyout.FindName("ClaudeResetUsageButton") is null,
+                            "The reset card repeats the usage page action that the Claude card already has.");
                         if (selected.Profile.Provider != UsageProviderId.Codex)
                             Check(!AccountUiChecks.Descendants<Button>((ItemsControl)flyout.FindName("CreditExpiryRows"))
                                 .Any(button => button.Content?.ToString() == UiText.T("Use reset", "리셋권 사용")),

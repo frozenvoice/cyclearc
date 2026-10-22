@@ -209,7 +209,7 @@ public sealed class CursorNamingPresentationTests
             Assert.Contains(CursorUsagePresentation.QuotaDisplayLabel("cursor-auto"), tray);
             Assert.Contains(CursorUsagePresentation.QuotaDisplayLabel("cursor-api"), tray);
             Assert.Contains(CursorUsagePresentation.QuotaDisplayLabel("cursor-sand"), tray);
-            Assert.Contains(Now.AddMinutes(-3).ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), tray);
+            Assert.Contains(DisplayFormatting.FormatStamp(Now.AddMinutes(-3)), tray);
             Assert.Contains(UiText.T("Updated", "업데이트"), tray);
         }
         finally

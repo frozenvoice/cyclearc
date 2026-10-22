@@ -21,7 +21,7 @@ public partial class FlyoutWindow
             || inventory is not null && (inventory.ObservedAt > now || now - inventory.ObservedAt > TimeSpan.FromMinutes(15));
         CreditSummaryText.Text = inventory?.NextExpiration(now) is { } expiry ? UiText.T("Expires ", "만료 ") + StampReset(expiry) : "";
         CreditExpiryNotice.Text = (previous ? inventory is null ? UiText.T("Check failed · ", "조회 실패 · ") : UiText.T("Previous data · ", "이전 데이터 · ") : "")
-            + UiText.T("Read-only. Use a Limit Reset on Claude's Usage page.", "조회 전용입니다. Claude Usage 페이지에서 Limit Reset을 사용하세요.");
+            + UiText.T("Read-only. To use a Limit Reset, choose Open usage page above.", "조회 전용입니다. Limit Reset은 위의 사용량 페이지 열기에서 사용하세요.");
         if (inventory is null) CreditExpiryNotice.Text += " " + UiText.T("The server did not provide a verified inventory; this is not zero.", "서버가 검증된 보유 정보를 제공하지 않았습니다. 0개라는 뜻이 아닙니다.");
         CreditExpiryNotice.Visibility = Visibility.Visible;
         if (CreditHelpButton.ToolTip is ToolTip oldTip) oldTip.IsOpen = false;
@@ -29,7 +29,7 @@ public partial class FlyoutWindow
         if (inventory is not null)
         {
             AddResetText(UiText.T("Last checked: ", "확인 시각: ") + StampReset(inventory.ObservedAt));
-            AddResetText(UiText.T("Source: OAuth usage GET", "출처: OAuth usage GET"));
+            AddResetText(UiText.T("Source: Claude server", "출처: Claude 서버"));
             var usable = inventory.UsableCount(now);
             AddResetText(UiText.T("Usable now: ", "지금 사용 가능: ") + (usable?.ToString() ?? UiText.T("Not provided", "미제공")));
             foreach (var grant in inventory.Grants)
@@ -47,7 +47,6 @@ public partial class FlyoutWindow
                     + (grant.UseRequiresLimit == true ? Environment.NewLine + UiText.T("Requires a reached usage limit", "사용 한도 도달 시 사용 가능") : ""));
             }
         }
-        ClaudeResetUsageButton.Content = UiText.T("Open Claude Usage", "Claude Usage 열기");
         CreditListBorder.Visibility = inventory is not null ? Visibility.Visible : Visibility.Collapsed;
         System.Windows.Automation.AutomationProperties.SetName(ResetCreditsCard, UiText.ResetCredits + ": " + ResetCreditsCount.Text);
         ApplyCreditExpansion();
@@ -57,5 +56,5 @@ public partial class FlyoutWindow
         var line = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 4, 0, 4) };
         line.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush"); CreditExpiryRows.Items.Add(line);
     }
-    private static string StampReset(DateTimeOffset time) => time.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    private static string StampReset(DateTimeOffset time) => DisplayFormatting.FormatStamp(time);
 }

@@ -803,7 +803,6 @@ public partial class FlyoutWindow : Window
     private void BindCreditCard(CodexQuotaSnapshot snapshot)
     {
         CreditHelpButton.Visibility = Visibility.Visible;
-        ClaudeResetUsageButton.Visibility = snapshot.Provider == UsageProviderId.Claude ? Visibility.Visible : Visibility.Collapsed;
         if (snapshot.Provider == UsageProviderId.Claude)
         {
             BindClaudeResetCard(snapshot);
