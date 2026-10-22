@@ -11,8 +11,6 @@ A native Windows tray app for checking each account's usage, credit balance, ext
 
 ## Get started
 
-The .NET 10 requirements below describe the 0.10.1 source build. Starting with v0.10.1, a release offers both installer and portable downloads. The latest-release link serves the published version; its release notes identify the bundled runtime.
-
 **Windows x64:** use a supported Windows 11 release or Windows 10 Enterprise LTSC 1809 or Enterprise/IoT Enterprise LTSC 21H2 edition. The Windows API minimum remains 1809; ordinary Windows 10 editions are outside .NET 10 vendor support. See [OS compatibility](docs/DOTNET10-MIGRATION.md#operating-systems). Both distributions bundle the .NET 10 runtime; no separate .NET installation is needed.
 
 1. Download **`CycleArc-Setup.exe`** from the [latest release](https://github.com/frozenvoice/cyclearc/releases/latest).
@@ -42,7 +40,8 @@ Release artifacts are unsigned unless an approved code-signing pipeline is confi
 - **Claude reset source:** a date retained across continuous Desktop/Code observations is marked **prior**; its tooltip keeps the original source and time. Ambiguous periods stay unknown, and elapsed dates await an update. [Reset evidence policy](docs/CLAUDE-RESET-CONTINUITY.md).
 - **Cursor login changed:** sign back into the original account in Cursor to reconnect the profile. [Cursor connection and quota details](docs/CURSOR.md).
 - **Cursor recent request shows Disconnected:** CycleArc's entries are no longer in Cursor's `hooks.json`. Turn **Settings → Connection → Cursor recent request** off, apply, then turn it on again to reconnect; remaining usage is unaffected. [What the recent request means](docs/README.en.md#cursor-connection).
-- **Widget missing:** right-click the tray icon and choose **Show widget**, check that an account is displayable, then reset its position in **Settings → Widget**. [Controls and widget recovery](docs/README.en.md#controls).
+- **Widget missing:** right-click the tray icon and choose **Show widget**, check that an account is displayable, then reset its position in **Settings → Widget**. A click-through widget can be changed from the tray's **Widget** submenu. [Controls and widget recovery](docs/README.en.md#controls).
+- **Tray icon missing:** Windows may place a new icon under **Show hidden icons (^)**; drag it onto the taskbar to keep it in view.
 - **Report a failure:** include the running version, error and reproduction steps in an [issue](https://github.com/frozenvoice/cyclearc/issues). Omit credentials and conversation content.
 
 ## User guide and implementation
@@ -67,11 +66,17 @@ Cursor's Monthly / Weekly widget headings show the same reset countdown format a
 
 Expand **Observed trends** in an account's detail popup for 24-hour, 7-day and 30-day observed history. Select a metric to keep usage percentages, credit balances, balance changes and actual extra spending separate. Unmeasured time is blank; changes in source, cap or period and failed observations are identified. No balance change is presented as consumed credits, and no depletion forecast is made. Local measurements retain at most 31 days with bounded files and age-based sampling; old conversation/observation files are untouched.
 
+Usage percentages in **Observed trends** use a fixed 0–100% scale; point at the chart for the nearest measurement, or choose **Export CSV…** to save the range for a spreadsheet without account identity.
+
+Right-click the tray icon for **Accounts** (switch the displayed account, Manage accounts) and **Widget** (show/close, click-through, always on top). `F5` or `Ctrl` + `R` refreshes and `Ctrl` + mouse wheel zooms the popup or widget; an optional `Ctrl` + `Alt` + `U` shortcut in **Settings → General** opens the popup from any app. A tray click brings a covered popup forward instead of hiding it unseen. When another account of the same service has clearly more room, the popup offers **Most room now**. **Settings → Widget → Compact accounts** shows only names and rings. Usage alerts take a chosen near-limit threshold and can announce once when a used-up limit is **available again**. Closing Settings with unsaved changes asks first, and removing an account asks for confirmation.
+
 **Settings → Widget** offers optional credit/spending and reset-count summaries, off by default. **Settings → Connection → Credit, spending & expiry alerts** provides independent opt-in Codex low-credit, Claude monthly-cap, Cursor on-demand-cap and reset-expiry warnings with configurable thresholds. The existing usage alerts remain separate. Claude resets are read-only: use the official Usage page. Private program fields may be absent or surface-gated, which is shown as **Not provided**, never zero. Claude prepaid funds and Codex consumed-credit amounts are not available through the current verified paths. [Provider sources and compatibility limits](docs/CREDIT-SOURCES.md).
 
 CycleArc makes no model requests to measure usage and collects no prompts, conversations or telemetry. Credentials used for read-only provider checks stay in memory; projected quotas and local preferences remain local. [Data and privacy details](docs/README.en.md#privacy).
 
 ## Build from source
+
+These requirements describe the 0.10.1 source build. Release downloads (installer and portable ZIP) bundle the .NET 10 runtime; their release notes identify it.
 
 Use Windows, PowerShell 7 and the .NET 10 SDK selected by [`global.json`](global.json). Building the Native AOT Setup window also requires Visual Studio 2022 / Build Tools with **Desktop development with C++**, MSVC x64/x86 tools and a Windows SDK.
 

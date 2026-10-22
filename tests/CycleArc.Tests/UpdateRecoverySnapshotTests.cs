@@ -28,7 +28,7 @@ public sealed class UpdateRecoverySnapshotTests
     }
 
     [Fact]
-    public void RestoreWaitsOutATransientLockOnTheReplacedInstallation()
+    public async Task RestoreWaitsOutATransientLockOnTheReplacedInstallation()
     {
         using var install = new TemporaryDirectory();
         using var snapshots = new TemporaryDirectory();
@@ -53,7 +53,7 @@ public sealed class UpdateRecoverySnapshotTests
 
         snapshot.Restore();
 
-        holder.Wait(TimeSpan.FromSeconds(30));
+        await holder.WaitAsync(TimeSpan.FromSeconds(30));
         snapshot.Verify();
         Assert.Equal("old-app", File.ReadAllText(Path.Combine(current, "CycleArc.exe")));
     }
