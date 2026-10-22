@@ -25,6 +25,8 @@ public partial class AccountsWindow : Window
     public Func<string?, string, CancellationToken, Task<CursorConnectionResult>>? ConnectCursor { get; set; }
     public Func<string, CancellationToken, Task>? DisconnectCursor { get; set; }
     public Action<string>? LogFailure { get; set; }
+    // Offline UI tests answer the removal confirmation; production always asks the person.
+    internal Func<string, bool>? ConfirmRemoveForTest { get; set; }
     private CancellationTokenSource? _operation;
     private Task _active = Task.CompletedTask;
     private bool _closing;
@@ -40,6 +42,8 @@ public partial class AccountsWindow : Window
     public AccountsWindow()
     {
         InitializeComponent();
+        var stopAnnouncing = LiveRegion.Follow(OperationStatus);
+        Closed += (_, _) => stopAnnouncing();
         Title = UiText.ProductName + " · " + UiText.T("Accounts", "계정");
         Heading.Text = UiText.T("Usage accounts", "사용량 계정");
         Introduction.Text = UiText.T("Connect accounts here to see their usage together. Choose the connection method that fits your situation.",
@@ -83,13 +87,15 @@ public partial class AccountsWindow : Window
             "아직 연결된 계정이 없습니다. 위의 새 계정 로그인으로 시작하세요.");
         CancelOperationButton.Content = UiText.T("Cancel", "취소");
         DoneButton.Content = UiText.Close;
+        CloseWindowButton.ToolTip = UiText.Close;
+        System.Windows.Automation.AutomationProperties.SetName(CloseWindowButton, UiText.Close);
         OperationStatus.Text = "";
         PrivacyHint.Text = UiText.T("Each provider manages authentication. Removing a profile only removes it from this list. Claude refresh reads quota for the connected Desktop account and Cursor refresh reads the existing Windows Cursor login without exposing credentials.",
             "인증은 각 서비스가 관리합니다. 프로필 제거는 목록에서만 제거합니다. Claude 새로고침은 연결된 Desktop 계정의 한도만 읽으며 Cursor 새로고침은 Windows의 기존 Cursor 로그인만 읽고 인증정보를 노출하지 않습니다.");
         System.Windows.Automation.AutomationProperties.SetName(NewAccountLabel, LabelCaption.Text);
         SourceInitialized += (_, _) =>
         {
-            var work = SystemParameters.WorkArea;
+            var work = DesktopWorkAreas.ForPlacement(this);
             MaxHeight = Math.Max(400, work.Height - 24);
             Height = Math.Min(Height, MaxHeight);
             MaxWidth = Math.Max(470, work.Width - 24);
@@ -204,6 +210,10 @@ public partial class AccountsWindow : Window
         row.Actions = new DockPanel { Margin = new Thickness(0, 0, 0, 20) };
         row.Remove = ActionButton("", () =>
         {
+            // Removal drops the nickname and position and the profile is not added back by
+            // itself, so it is confirmed first.
+            var name = _accounts.FirstOrDefault(account => account.Profile.Id == id)?.DisplayName ?? "";
+            if (!(ConfirmRemoveForTest?.Invoke(id) ?? ConfirmRemove(name))) return;
             if (RemoveAccount?.Invoke(id) == false)
                 OperationStatus.Text = UiText.T("Wait for this account's operation to finish.", "이 계정의 작업이 끝난 뒤 다시 시도하세요.");
         });
@@ -531,10 +541,18 @@ public partial class AccountsWindow : Window
     }
     public void CancelOperation() => _operation?.Cancel();
     private void OnDone(object sender, RoutedEventArgs e) => Close();
+    // The whole header strip moves the window, not only the heading text.
     private void OnHeadingDrag(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left && e.ButtonState == MouseButtonState.Pressed) DragMove();
+        if (e.ChangedButton == MouseButton.Left && e.ButtonState == MouseButtonState.Pressed
+            && e.OriginalSource is not System.Windows.Controls.Primitives.ButtonBase) DragMove();
     }
+
+    private bool ConfirmRemove(string name) => System.Windows.MessageBox.Show(this,
+        UiText.T($"Remove {name} from CycleArc?\n\nIts nickname and position are removed and it is not added back automatically. The provider login and saved data are kept.",
+            $"{name}을(를) CycleArc에서 제거할까요?\n\n별명과 순서가 삭제되며 자동으로 다시 추가되지 않습니다. 서비스 로그인과 저장된 데이터는 유지됩니다."),
+        UiText.T("Remove account", "계정 제거"), MessageBoxButton.OKCancel, MessageBoxImage.Warning,
+        MessageBoxResult.Cancel) == MessageBoxResult.OK;
     private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key == Key.Escape) { e.Handled = true; Close(); }

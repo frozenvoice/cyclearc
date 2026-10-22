@@ -36,6 +36,20 @@ public class FlyoutUxAndFailureSummaryTests
     }
 
     [Fact]
+    public void TrayToggle_HidesThePopupInUse_AndBringsACoveredPopupForward()
+    {
+        var now = DateTimeOffset.Parse("2026-10-22T12:00:00Z");
+        Assert.Equal(FlyoutToggleAction.Show, FlyoutWindowState.Toggle(false, false, null, now));
+        Assert.Equal(FlyoutToggleAction.Hide, FlyoutWindowState.Toggle(true, true, null, now));
+        // The tray press itself deactivates the popup just before the click arrives.
+        Assert.Equal(FlyoutToggleAction.Hide, FlyoutWindowState.Toggle(true, false, now.AddMilliseconds(-150), now));
+        Assert.Equal(FlyoutToggleAction.BringToFront, FlyoutWindowState.Toggle(true, false, now.AddSeconds(-5), now));
+        Assert.Equal(FlyoutToggleAction.BringToFront, FlyoutWindowState.Toggle(true, false, null, now));
+        // A clock that moved backwards is not a recent activation.
+        Assert.Equal(FlyoutToggleAction.BringToFront, FlyoutWindowState.Toggle(true, false, now.AddSeconds(5), now));
+    }
+
+    [Fact]
     public void SavedPosition_IsIndependentOfPin_AndUnpinDoesNotReposition()
     {
         Assert.True(FlyoutWindowState.UseSavedPosition(positionConfigured: true));

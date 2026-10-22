@@ -1,3 +1,5 @@
+using CycleArc.Services;
+
 namespace CycleArc.Codex;
 
 public interface ICodexFileSystem
@@ -100,6 +102,22 @@ public sealed class CodexExecutableLocator
     }
 
     private CodexLaunchCommand? ValidateConfigured(string path) => ValidateConfigured(path, _files);
+
+    /// <summary>
+    /// Why a path typed in settings would not start Codex, or null when it would (or when it is
+    /// empty and Codex is found automatically). Shown beside the box; it never blocks saving.
+    /// </summary>
+    public static string? ConfiguredPathProblem(string? path, Func<string, bool> fileExists)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        var trimmed = path.Trim().Trim('"');
+        if (ValidateConfigured(trimmed) is not { } command)
+            return UiText.T("Enter the full path to codex.exe, codex.cmd or codex.bat.",
+                "codex.exe, codex.cmd 또는 codex.bat의 전체 경로를 입력하세요.");
+        return fileExists(command.ResolvedExecutable) ? null
+            : UiText.T("No file exists at this path. Codex will not start until it does.",
+                "이 경로에 파일이 없습니다. 파일이 있어야 Codex를 실행할 수 있습니다.");
+    }
 
     private static CodexLaunchCommand ToCommand(string absolute)
     {

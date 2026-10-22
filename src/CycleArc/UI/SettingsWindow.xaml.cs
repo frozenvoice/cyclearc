@@ -1,4 +1,6 @@
+using System.IO;
 using System.Reflection;
+using CycleArc.Codex;
 using System.Windows.Automation;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -16,6 +18,10 @@ public partial class SettingsWindow : Window
     public event Action? AccountsRequested;
     public bool ResetWidgetPositionOnSave { get; private set; }
     private bool _ready;
+    private bool _discardConfirmed;
+    // Offline UI tests answer the close prompt; production always asks the person.
+    internal Func<SettingsCloseChoice>? ConfirmCloseForTest { get; set; }
+    internal static Func<SettingsCloseChoice>? DefaultCloseChoiceForTest { get; set; }
 
     public SettingsWindow(AppSettings settings)
     {
@@ -53,10 +59,25 @@ public partial class SettingsWindow : Window
             "Windows 자동 시작은 설치형 앱에서 설정하세요. 기존 설정은 유지됩니다.");
         EdgeSnapLabel.Text = UiText.T("Snap windows to screen edges", "화면 가장자리에 자동 정렬");
         EdgeSnapBox.IsChecked = settings.SnapWindowsToScreenEdges;
+        HotkeyLabel.Text = UiText.T($"Open the popup with {GlobalHotkey.DisplayText}", $"{GlobalHotkey.DisplayText}로 팝업 열기");
+        HotkeyHint.Text = UiText.T("Works from any app. Press it again to hide the popup.", "어느 앱에서든 동작합니다. 다시 누르면 팝업을 숨깁니다.");
+        HotkeyBox.IsChecked = settings.GlobalHotkeyEnabled;
+        SetName(HotkeyBox, HotkeyLabel.Text);
         UsageAlertsLabel.Text = UiText.T("Usage alerts", "사용량 알림");
-        UsageAlertsHint.Text = UiText.T("Notify once when a limit reaches 85% and again at 100%, per account and period.",
-            "계정·기간마다 한도가 85%에 닿을 때와 100%일 때 한 번씩 알립니다.");
         UsageAlertsBox.IsChecked = settings.UsageAlertsEnabled;
+        UsageAlertsHint.Text = UiText.T("Notify once when a limit reaches the threshold below and again at 100%, per account and period.",
+            "계정·기간마다 한도가 아래 기준에 닿을 때와 100%일 때 한 번씩 알립니다.");
+        UsageAlertThresholdLabel.Text = UiText.T("Near-limit alert at", "한도 임박 알림 기준");
+        UsageAlertThresholdBox.ItemsSource = UsageAlertOptions.NearLimitChoices.Select(percent =>
+            percent == (int)UsageRingBands.NearLimitPercent ? UiText.T($"{percent}% used (default)", $"{percent}% 사용 (기본값)")
+                : UiText.T($"{percent}% used", $"{percent}% 사용")).ToArray();
+        UsageAlertThresholdBox.SelectedIndex = UsageAlertOptions.NearLimitChoices.ToList().IndexOf(settings.UsageAlertNearLimitPercent);
+        UsageAlertRestoredLabel.Text = UiText.T("When a used-up limit is available again", "다 쓴 한도를 다시 쓸 수 있을 때");
+        UsageAlertRestoredHint.Text = UiText.T("After a 100% alert, notify once when the next period has room.",
+            "100% 알림 후 다음 기간에 여유가 생기면 한 번 알립니다.");
+        UsageAlertRestoredBox.IsChecked = settings.UsageAlertRestoredEnabled;
+        SetName(UsageAlertThresholdBox, UsageAlertThresholdLabel.Text);
+        SetName(UsageAlertRestoredBox, UsageAlertRestoredLabel.Text);
         CursorActivityTitle.Text = UiText.T("Cursor recent request", "Cursor 최근 요청");
         CursorActivityLabel.Text = UiText.T("Show the model of the last Cursor request on this PC", "이 PC의 최근 Cursor 요청 모델 표시");
         CursorActivityHint.Text = UiText.T(
@@ -90,6 +111,11 @@ public partial class SettingsWindow : Window
         WidgetClickThroughBox.IsChecked = settings.WidgetClickThrough;
         WidgetClickThroughBox.ToolTip = UiText.T("Mouse clicks pass to the window behind the widget.", "마우스 클릭이 위젯 뒤의 창에 전달됩니다.");
         WidgetClickThroughHint.Text = (string)WidgetClickThroughBox.ToolTip;
+        WidgetCompactLabel.Text = UiText.T("Compact accounts", "간단히 표시");
+        WidgetCompactHint.Text = UiText.T("Show each account's name and ring only. Period details stay in the popup.",
+            "계정별 이름과 링만 표시합니다. 기간별 세부 정보는 팝업에서 확인하세요.");
+        WidgetCompactBox.IsChecked = settings.WidgetCompact;
+        SetName(WidgetCompactBox, WidgetCompactLabel.Text);
         InitializeMonitoringSettings(settings);
         ConnectionTitle.Text = UiText.T("Accounts & refresh", "계정과 자동 확인");
         ConnectionHint.Text = UiText.T("Connect your accounts and keep their limits up to date.", "계정을 연결하고 최신 사용량을 확인하세요.");
@@ -104,6 +130,11 @@ public partial class SettingsWindow : Window
         ManageAccountsButton.Content = UiText.T("Manage Codex, Claude and Cursor accounts", "Codex·Claude·Cursor 계정 관리");
         CodexExeLabel.Text = UiText.CodexExecutable;
         CodexExeBox.Text = settings.CodexExePath ?? "";
+        BrowseCodexButton.Content = UiText.T("Browse…", "찾아보기…");
+        BrowseCodexButton.ToolTip = UiText.T("Choose codex.exe or codex.cmd", "codex.exe 또는 codex.cmd 선택");
+        SetName(BrowseCodexButton, (string)BrowseCodexButton.ToolTip);
+        CodexExeBox.TextChanged += (_, _) => UpdateCodexPathProblem();
+        UpdateCodexPathProblem();
         AutoDetectHint.Text = UiText.T("Detect automatically", "자동으로 찾기");
         CodexPathHint.Text = UiText.T("Usually leave this empty for automatic detection. If Codex cannot be found, enter the full path to codex.exe or codex.cmd. Save a changed path before reopening account management.",
             "보통은 비워 두면 자동으로 찾습니다. Codex를 찾지 못할 때 codex.exe 또는 codex.cmd의 전체 경로를 입력하세요. 경로를 바꿨다면 저장한 뒤 계정 관리를 다시 여세요.");
@@ -142,17 +173,21 @@ public partial class SettingsWindow : Window
         AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new System.Windows.Controls.TextChangedEventHandler((_, _) => UpdateApplyState()));
         AddHandler(RangeBase.ValueChangedEvent, new RoutedPropertyChangedEventHandler<double>((_, _) => UpdateApplyState()));
         // Closing without applying takes the widget back to the opacity it actually has.
+        Closing += OnClosing;
         Closed += (_, _) => WidgetOpacityPreviewed?.Invoke(_settings.WidgetOpacity);
         _ready = true;
         UpdateApplyState();
     }
 
-    private string? EditedCodexExePath => string.IsNullOrWhiteSpace(CodexExeBox.Text) ? null : CodexExeBox.Text.Trim();
+    // Explorer's "Copy as path" adds quotes; the saved path never keeps them.
+    private string? EditedCodexExePath => CodexExeBox.Text.Trim().Trim('"').Trim() is { Length: > 0 } path ? path : null;
     private int EditedRefreshInterval => AppSettings.CodexRefreshIntervals[
         Math.Clamp(RefreshIntervalBox.SelectedIndex, 0, AppSettings.CodexRefreshIntervals.Count - 1)];
     private AppTheme EditedTheme => (AppTheme)Math.Clamp(ThemeBox.SelectedIndex, 0, 2);
     private UiLanguage EditedLanguage => LanguageBox.SelectedIndex == 0 ? UiLanguage.Korean : UiLanguage.English;
     private TrayIconStyle EditedTrayIconStyle => (TrayIconStyle)Math.Clamp(IconBox.SelectedIndex, 0, 2);
+    private int EditedAlertThreshold => UsageAlertOptions.NearLimitChoices[
+        Math.Clamp(UsageAlertThresholdBox.SelectedIndex, 0, UsageAlertOptions.NearLimitChoices.Count - 1)];
 
     internal bool HasPendingChanges =>
         ResetWidgetPositionOnSave
@@ -168,8 +203,12 @@ public partial class SettingsWindow : Window
         || Math.Abs(WidgetOpacityBox.Value - Math.Clamp(_settings.WidgetOpacity, WidgetOpacityBox.Minimum, 1)) > 0.001
         || (WidgetTopBox.IsChecked == true) != _settings.WidgetAlwaysOnTop
         || (WidgetClickThroughBox.IsChecked == true) != _settings.WidgetClickThrough
+        || (WidgetCompactBox.IsChecked == true) != _settings.WidgetCompact
         || (EdgeSnapBox.IsChecked == true) != _settings.SnapWindowsToScreenEdges
+        || (HotkeyBox.IsChecked == true) != _settings.GlobalHotkeyEnabled
         || (UsageAlertsBox.IsChecked == true) != _settings.UsageAlertsEnabled
+        || EditedAlertThreshold != _settings.UsageAlertNearLimitPercent
+        || (UsageAlertRestoredBox.IsChecked == true) != _settings.UsageAlertRestoredEnabled
         || (CursorActivityBox.IsChecked == true) != _settings.CursorActivityEnabled;
 
     private void UpdateApplyState()
@@ -181,7 +220,7 @@ public partial class SettingsWindow : Window
 
     private void FitWorkArea()
     {
-        var work = SystemParameters.WorkArea;
+        var work = DesktopWorkAreas.ForPlacement(this);
         MaxWidth = Math.Max(320, work.Width - 24);
         MinWidth = Math.Min(MinWidth, MaxWidth);
         Width = Math.Min(Width, MaxWidth);
@@ -193,6 +232,7 @@ public partial class SettingsWindow : Window
     private void OnSave(object sender, RoutedEventArgs e)
     {
         Commit();
+        _discardConfirmed = true;
         Close();
     }
 
@@ -219,8 +259,12 @@ public partial class SettingsWindow : Window
         _settings.WidgetOpacity = WidgetOpacityBox.Value;
         _settings.WidgetAlwaysOnTop = WidgetTopBox.IsChecked == true;
         _settings.WidgetClickThrough = WidgetClickThroughBox.IsChecked == true;
+        _settings.WidgetCompact = WidgetCompactBox.IsChecked == true;
         _settings.SnapWindowsToScreenEdges = EdgeSnapBox.IsChecked == true;
+        _settings.GlobalHotkeyEnabled = HotkeyBox.IsChecked == true;
         _settings.UsageAlertsEnabled = UsageAlertsBox.IsChecked == true;
+        _settings.UsageAlertNearLimitPercent = EditedAlertThreshold;
+        _settings.UsageAlertRestoredEnabled = UsageAlertRestoredBox.IsChecked == true;
         _settings.CursorActivityEnabled = CursorActivityBox.IsChecked == true;
         CommitMonitoringSettings();
         if (!_settings.SnapWindowsToScreenEdges) _settings.ClearWindowEdgeAnchors();
@@ -237,7 +281,32 @@ public partial class SettingsWindow : Window
         if (WidgetOpacityValue is not null && WidgetOpacityBox is not null)
             WidgetOpacityValue.Text = $"{Math.Round(WidgetOpacityBox.Value * 100)}%";
     }
-    private void OnCancel(object sender, RoutedEventArgs e) => Close();
+    // Cancel is the explicit way to discard; the title close button, Esc and Alt+F4 ask first.
+    private void OnCancel(object sender, RoutedEventArgs e)
+    {
+        _discardConfirmed = true;
+        Close();
+    }
+    private void OnCloseRequested(object sender, RoutedEventArgs e) => Close();
+
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        // A window nobody can see, or one closing with the app, has no one to ask.
+        if (_discardConfirmed || !IsVisible || !HasPendingChanges || Dispatcher.HasShutdownStarted) return;
+        var choice = (ConfirmCloseForTest ?? DefaultCloseChoiceForTest)?.Invoke() ?? AskToSaveChanges();
+        if (choice == SettingsCloseChoice.Save) { Commit(); return; }
+        if (choice == SettingsCloseChoice.Discard) { _discardConfirmed = true; return; }
+        e.Cancel = true;
+    }
+
+    private SettingsCloseChoice AskToSaveChanges() => System.Windows.MessageBox.Show(this,
+            UiText.T("Save your changes before closing settings?", "설정을 닫기 전에 변경 사항을 저장할까요?"),
+            Title, MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) switch
+        {
+            MessageBoxResult.Yes => SettingsCloseChoice.Save,
+            MessageBoxResult.No => SettingsCloseChoice.Discard,
+            _ => SettingsCloseChoice.Stay
+        };
     private void OnResetWidgetPosition(object sender, RoutedEventArgs e)
     {
         ResetWidgetPositionOnSave = true;
@@ -248,6 +317,42 @@ public partial class SettingsWindow : Window
     {
         if (e.Key == Key.Escape) { e.Handled = true; Close(); }
     }
+    private void UpdateCodexPathProblem()
+    {
+        var problem = CodexExecutableLocator.ConfiguredPathProblem(CodexExeBox.Text, File.Exists);
+        CodexPathProblem.Text = problem ?? "";
+        CodexPathProblem.Visibility = problem is null ? Visibility.Collapsed : Visibility.Visible;
+        AutomationProperties.SetHelpText(CodexExeBox, problem ?? "");
+    }
+
+    private void OnBrowseCodex(object sender, RoutedEventArgs e)
+    {
+        var current = EditedCodexExePath;
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = (string)BrowseCodexButton.ToolTip,
+            Filter = "Codex (codex.exe, codex.cmd, codex.bat)|codex.exe;codex.cmd;codex.bat|"
+                + UiText.T("Programs", "프로그램") + " (*.exe, *.cmd, *.bat)|*.exe;*.cmd;*.bat",
+            CheckFileExists = true,
+            CheckPathExists = true,
+            Multiselect = false
+        };
+        try
+        {
+            if (current is not null && Path.GetDirectoryName(current) is { Length: > 0 } folder && Directory.Exists(folder))
+                dialog.InitialDirectory = folder;
+        }
+        catch (ArgumentException) { }
+        if (dialog.ShowDialog(this) == true) CodexExeBox.Text = dialog.FileName;
+    }
+
     private void OnOpenLogs(object sender, RoutedEventArgs e) => OpenLogsRequested?.Invoke();
     private void OnAccounts(object sender, RoutedEventArgs e) => AccountsRequested?.Invoke();
+}
+
+public enum SettingsCloseChoice
+{
+    Save,
+    Discard,
+    Stay
 }

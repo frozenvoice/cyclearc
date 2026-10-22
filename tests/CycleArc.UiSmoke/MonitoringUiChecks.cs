@@ -75,10 +75,22 @@ internal static class MonitoringUiChecks
                 Require(((TextBlock)flyout.FindName("ResetCreditsCount")).Text == "2", "Claude reset count incorrect.");
                 Require(((Button)flyout.FindName("CreditHelpButton")).Visibility == Visibility.Visible, "Claude reset count hidden with its parent.");
                 string? opened = null; flyout.OpenExternalForTest = uri => { opened = uri; };
-                ((Button)flyout.FindName("ClaudeResetUsageButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                ((Button)flyout.FindName("ClaudeUsagePageButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Require(opened == "https://claude.ai/settings/usage", "Claude reset action didn't open official Usage.");
                 Require(AccountUiChecks.Descendants<Button>((ItemsControl)flyout.FindName("CreditExpiryRows")).All(b => b.Content?.ToString() is not ("Use reset" or "리셋권 사용")), "Claude exposed a redemption action.");
                 Require(AccountUiChecks.Descendants<TextBlock>(panel).Any(t => t.Text.Contains("3.2")), "Measured history was not rendered.");
+                // The end of the time axis lines up with the end of the plot, and pointing at the
+                // plot names the nearest measurement.
+                var plot = AccountUiChecks.Descendants<HistoryPlot>(panel).Single();
+                var axisEnd = AccountUiChecks.Descendants<TextBlock>(panel).Single(t => t.HorizontalAlignment == HorizontalAlignment.Right
+                    && t.Parent is Grid);
+                var plotRight = plot.TransformToAncestor(panel).Transform(new Point(plot.ActualWidth - HistoryPlot.PlotRight, 0)).X;
+                var axisRight = axisEnd.TransformToAncestor(panel).Transform(new Point(axisEnd.ActualWidth, 0)).X;
+                Require(axisEnd.ActualWidth > 0 && Math.Abs(plotRight - axisRight) < 1.5, $"Time axis end {axisRight:0.#} is not under the plot end {plotRight:0.#}.");
+                plot.HoverAt(plot.ActualWidth);
+                Require(plot.ToolTip is ToolTip { Content: string hovered } && hovered.Contains("3.2", StringComparison.Ordinal)
+                    && !hovered.Contains("OAuth", StringComparison.Ordinal), "Pointing at the latest point did not name it, or used internal source names.");
+                Require(!string.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetName(plot)), "The chart has no accessible description.");
                 Require(AccountUiChecks.Descendants<ComboBox>(panel).Last().Items.Count == 2, "Spend and spending cap were mixed into one series.");
                 Require(!AccountUiChecks.Descendants<TextBlock>(panel).Any(t => t.Text.Contains(UiText.T("Check failed", "조회 실패"))), "Unrelated metric failure leaked into selected history.");
                 var range = AccountUiChecks.Descendants<ComboBox>(panel).First();

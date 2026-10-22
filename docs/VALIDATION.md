@@ -2,6 +2,32 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- UI, usability and feature review for 0.11.0 (2026-10-22 Asia/Seoul):
+  - Started from clean `main` `e0b8c83`. Presentation, local preference and tray changes only:
+    no provider request, credential, cache format or identity rule changed. New settings
+    (`UsageAlertNearLimitPercent`, `UsageAlertRestoredEnabled`, `GlobalHotkeyEnabled`,
+    `WidgetCompact`) default to the previous behavior; the global shortcut is opt-in and uses
+    RegisterHotKey, not a keyboard hook. Popup auto-hide stays off by design; only a tray click
+    on a covered popup now brings it forward instead of hiding it.
+  - Light-theme Accent/Danger/OK are re-themed; RingBandUiChecks asserts 4.5:1 text contrast
+    (3:1 for the OK mark) on cards and ground in both themes.
+  - The final local full gate `dev-run.ps1 -NoLaunch` passed on `491a816` (before the
+    version-number-only bump): restore, Release build, desktop-instance, local-install,
+    build-local and installed-update script regressions, all **2,355** unit tests, the
+    argument-free UiSmoke run to `[ui-smoke] COMPLETE all default suites`, test-flavour
+    build/publish, publish, package and package-verify. Host WPF DPI was **150% (144 DPI)**.
+    The previous attempt failed in `environment-callbacks` because a theme callback could
+    arrive before the tray existed; that defect was fixed before the passing run.
+  - New regression coverage: tray toggle decision, unsaved-settings prompt (Stay/Save/Discard,
+    Cancel, unchanged), account-removal confirmation, Codex path problems, alert threshold and
+    available-again marks, account suggestion (same service, stale/unknown excluded, tie by
+    reset), tray tooltip summary within 127 characters, CSV escaping and gaps, compact module
+    layout, trends scale/hover/axis alignment, log retention/lock/stack, shared date format and
+    12/24-hour choice, translation audit over 500+ `UiText.T` pairs, tray Accounts/Widget
+    submenus in EN/KO Dark/Light, F5/Ctrl+R/Ctrl+wheel and hotkey register/conflict/release.
+  - Synthetic accounts only. No real account, Actions run or installed-app update was used for
+    this local evidence; affected documentation PNGs were regenerated from production views.
+
 - Cursor widget reset countdowns (unreleased, 2026-10-14 Asia/Seoul):
   - Started from clean `f4384f2415c3c0e214d93b8a0a5da8b6119a65c3` with no open PRs;
     the other checkout and its `main` branch were preserved. This is presentation only:

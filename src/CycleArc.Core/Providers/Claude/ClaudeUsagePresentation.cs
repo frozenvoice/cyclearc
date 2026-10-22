@@ -29,7 +29,7 @@ public static class ClaudeUsagePresentation
         or "claude-live-identity-mismatch" or "claude-live-unavailable";
     // Tooltips and sentences keep the full date: a fallback receipt can be days or years old.
     public static string ReceiptStamp(CodexQuotaSnapshot snapshot) => snapshot.LastSuccessfulRefresh is { } received
-        ? received.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : UiText.Never;
+        ? DisplayFormatting.FormatStamp(received) : UiText.Never;
     public static string ReceiptLabel(CodexQuotaSnapshot snapshot) => snapshot.LastSuccessfulObservationWasServer switch
     {
         true => LastCheckedLabel,

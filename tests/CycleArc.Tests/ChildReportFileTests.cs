@@ -125,7 +125,7 @@ public sealed class ChildReportFileTests : IDisposable
     // Deterministic overlap: the reader is provably inside an open read handle when the
     // writer appends, and every record still lands exactly once.
     [Fact]
-    public void ReadAndAppend_InterleaveWithoutLosingOrDuplicatingRecords()
+    public async Task ReadAndAppend_InterleaveWithoutLosingOrDuplicatingRecords()
     {
         var path = NewReport();
         const int records = 200;
@@ -154,11 +154,21 @@ public sealed class ChildReportFileTests : IDisposable
         for (var n = 0; n < records; n++)
             ChildReportFile.Append(path, $"{{\"n\":{n}}}");
         writerIsDone.Set();
-        Assert.True(reader.Wait(TimeSpan.FromSeconds(10)), "The reader did not finish.");
+        Assert.True(await Finishes(reader, TimeSpan.FromSeconds(10)), "The reader did not finish.");
         Assert.Null(readFailure);
 
         var final = ChildReportFile.ReadCompleteLines(path);
         Assert.Equal(records, final.Length);
         Assert.Equal(Enumerable.Range(0, records).Select(n => $"{{\"n\":{n}}}"), final);
+    }
+
+    private static async Task<bool> Finishes(Task task, TimeSpan timeout)
+    {
+        try
+        {
+            await task.WaitAsync(timeout);
+            return true;
+        }
+        catch (TimeoutException) { return false; }
     }
 }

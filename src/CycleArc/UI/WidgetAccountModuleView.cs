@@ -226,6 +226,27 @@ public sealed class WidgetAccountModuleView : Border
     }
 
     public bool IsSelected { get; private set; }
+
+    /// <summary>
+    /// Compact keeps the identity line and the ring and leaves the period lines, provider badge
+    /// and summary to the detail popup; the ring's own label still names its period.
+    /// </summary>
+    public bool IsCompact { get; private set; }
+
+    public void SetCompact(bool compact)
+    {
+        if (IsCompact == compact && Width > 0) return;
+        IsCompact = compact;
+        Width = compact ? WidgetGridLayout.CompactModuleWidth : WidgetGridLayout.ModuleWidth;
+        _periodPanel.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        _badge.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        Grid.SetColumnSpan(_ringHost, compact ? 2 : 1);
+        _ringHost.HorizontalAlignment = compact ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+        if (compact) FinancialSummary.Visibility = Visibility.Collapsed;
+        if (Model is { } model) ApplyRing(model);
+        InvalidateMeasure();
+    }
+
     public TextBlock FinancialSummary { get; } = new()
     {
         FontSize = 10, TextTrimming = TextTrimming.CharacterEllipsis,
@@ -236,7 +257,7 @@ public sealed class WidgetAccountModuleView : Border
         var summary = Monitoring.WidgetFinancialSummary.Create(snapshot, money, resets, now);
         FinancialSummary.Text = summary.Text;
         FinancialSummary.ToolTip = summary.Tooltip;
-        FinancialSummary.Visibility = summary.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        FinancialSummary.Visibility = summary.Text.Length == 0 || IsCompact ? Visibility.Collapsed : Visibility.Visible;
         System.Windows.Automation.AutomationProperties.SetName(FinancialSummary, summary.Text);
         InvalidateMeasure();
     }
@@ -449,7 +470,10 @@ public sealed class WidgetAccountModuleView : Border
             "Other Models" => "Other",
             var target => target ?? ""
         };
-        RingTargetText.Visibility = string.IsNullOrEmpty(model.RingTargetLabel) ? Visibility.Collapsed : Visibility.Visible;
+        // Without its period lines a compact module names the ring's period above the value.
+        if (IsCompact && RingTargetText.Text.Length == 0 && ring.Window is { } compactWindow)
+            RingTargetText.Text = CodexDisplayFormatting.DurationLabel(compactWindow.WindowDurationMinutes);
+        RingTargetText.Visibility = RingTargetText.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         RingTargetText.ToolTip = ring.CenterSubLabel;
         // The tooltip keeps both precise values: what is left (the fill) and what was used.
         _ringHost.ToolTip = UsageRingBands.WithLabel(

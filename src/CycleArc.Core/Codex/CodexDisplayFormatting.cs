@@ -260,14 +260,14 @@ public static class CodexDisplayFormatting
         var local = resetsAt.Value.ToLocalTime();
         if (local.Date == now.ToLocalTime().Date)
         {
-            return local.ToString("HH:mm", CultureInfo.InvariantCulture);
+            return DisplayFormatting.FormatTime(local);
         }
 
         return DisplayFormatting.FormatStamp(local);
     }
 
     public static string TimeOfDay(DateTimeOffset value) =>
-        value.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+        DisplayFormatting.FormatTime(value);
 
     public static string PercentText(double? value, UsageProviderId provider = UsageProviderId.Codex) =>
         value is { } percent && double.IsFinite(percent)

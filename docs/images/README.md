@@ -1,5 +1,17 @@
 # Documentation previews
 
+On **2026-10-22** the `monitoring-*`, `overview-*`, `accounts-*`, `claude-live-*`,
+`claude-overview-*`, `claude-waiting-*`, `settings.png`, `settings-ko-dark.png`, `widget.png` and
+`tray-widget-menu-{en,ko}.png` previews were refreshed from the development source with synthetic
+accounts. They show the trends chart's fixed 0–100% usage scale, aligned time axis, gridlines and
+**Export CSV…**, the Claude reset card without a duplicate usage-page button, the account window's
+close button, the tray's **Accounts** and **Widget** submenus, the optional global shortcut and the
+accessible light-theme accent. New `compact-widget-{en,ko}-{dark,light}.png` show
+**Settings → Widget → Compact accounts**, and `tray-menu-{en,ko}-{dark,light}.png` show the tray
+menu following the app theme. Reproduce after a Release build with `--screenshots`,
+`--monitoring`, `--settings-window`, `--tray-widget` and `--account-features`, each followed by
+`artifacts/previews`. Host DPI was 144 (150%). No real account was accessed.
+
 The `cursor-widget-{en,ko}-{dark,light}.png` previews were refreshed from production WPF
 views on **2026-10-14** with synthetic accounts. Monthly / Weekly heading rows show the
 same reset countdown format as Codex and Claude, once per matching reported deadline;

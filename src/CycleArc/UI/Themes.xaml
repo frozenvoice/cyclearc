@@ -1,8 +1,8 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:system="clr-namespace:System;assembly=mscorlib">
-    <Color x:Key="AccentColor">#3B82F6</Color>
-    <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6"/>
+    <Color x:Key="AccentColor">#4285F6</Color>
+    <SolidColorBrush x:Key="AccentBrush" Color="#4285F6"/>
     <SolidColorBrush x:Key="AccentSoftBrush" Color="#1D4ED8"/>
     <SolidColorBrush x:Key="BgBrush" Color="#121418"/>
     <SolidColorBrush x:Key="CardBrush" Color="#1B1F27"/>

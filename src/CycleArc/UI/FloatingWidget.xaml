@@ -12,7 +12,7 @@
         ResizeMode="NoResize"
         SizeToContent="WidthAndHeight"
         Focusable="True"
-        PreviewKeyDown="OnPreviewKeyDown"
+        PreviewKeyDown="OnPreviewKeyDown" PreviewMouseWheel="OnPreviewMouseWheel"
         PreviewMouseLeftButtonDown="OnPreviewLeftDown"
         PreviewMouseMove="OnPreviewMouseMove"
         PreviewMouseLeftButtonUp="OnPreviewLeftUp"

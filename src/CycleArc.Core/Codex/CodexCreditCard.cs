@@ -25,7 +25,7 @@ public sealed record CodexCreditCard(string CountText, IReadOnlyList<CodexCredit
                 return new CodexCreditExpiryRow(UiText.T("Expiry not provided", "만료일 미제공"),
                     UiText.T("Expiry not provided", "만료일 미제공"), credit.Id);
             var date = CodexDeadlineFormatting.DateStamp(expiry, now);
-            var time = expiry.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+            var time = DisplayFormatting.FormatTime(expiry);
             var text = UiText.T($"Expires {date} {time}", $"{date} {time} 만료");
             return new CodexCreditExpiryRow(text, text, string.IsNullOrEmpty(credit.Id) ? null : credit.Id);
         }).ToList();

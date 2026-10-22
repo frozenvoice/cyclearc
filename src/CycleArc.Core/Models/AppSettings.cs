@@ -60,7 +60,11 @@ public sealed class AppSettings
     public double WidgetOpacity { get; set; } = 1;
     public bool WidgetAlwaysOnTop { get; set; } = true;
     public bool WidgetClickThrough { get; set; }
+    // Compact modules show each account's name and ring only; details stay in the popup.
+    public bool WidgetCompact { get; set; }
     public bool SnapWindowsToScreenEdges { get; set; } = true;
+    // Opt-in: Ctrl + Alt + U opens the detail popup from any application.
+    public bool GlobalHotkeyEnabled { get; set; }
     public Codex.HorizontalEdgeAnchor WidgetHorizontalAnchor { get; set; }
     public Codex.VerticalEdgeAnchor WidgetVerticalAnchor { get; set; }
     public Codex.HorizontalEdgeAnchor FlyoutHorizontalAnchor { get; set; }
@@ -84,6 +88,15 @@ public sealed class AppSettings
     // Near-limit and limit-reached notifications for the active usage providers. The marks
     // remember which level each account's limit already announced in its current period.
     public bool UsageAlertsEnabled { get; set; } = true;
+    private int _usageAlertNearLimitPercent = (int)Codex.UsageRingBands.NearLimitPercent;
+    // One of Codex.UsageAlertOptions.NearLimitChoices; anything else returns to the ring default.
+    public int UsageAlertNearLimitPercent
+    {
+        get => _usageAlertNearLimitPercent;
+        set => _usageAlertNearLimitPercent = (int)Codex.UsageAlertOptions.Normalize(value);
+    }
+    // Once a limit announced as used up has room again in a new period.
+    public bool UsageAlertRestoredEnabled { get; set; } = true;
     public Dictionary<string, string> UsageAlertMarks { get; set; } = new(StringComparer.Ordinal);
     public bool NotifyAt20 { get; set; } = true;
     public bool NotifyAt10 { get; set; } = true;

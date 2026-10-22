@@ -22,6 +22,9 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // Checks that leave edits in a shown settings window close it as Cancel always did;
+        // the prompt itself is answered per window in SettingsWindowChecks.
+        SettingsWindow.DefaultCloseChoiceForTest = () => SettingsCloseChoice.Discard;
         if (args is ["--installer-hooks", var hookExecutable])
         {
             InstallerHookProcessChecks.Run(hookExecutable);
@@ -158,6 +161,17 @@ internal static class Program
             if (args is ["--tray-icons", var trayDirectory])
             {
                 TrayIconChecks.Run(trayDirectory);
+                return 0;
+            }
+            if (args is ["--account-features"] or ["--account-features", _])
+            {
+                AccountFeatureUiChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
+            if (args is ["--shortcuts"])
+            {
+                ShortcutChecks.Run();
+                ShortcutChecks.RunEmptyState();
                 return 0;
             }
             if (args is ["--tray-widget"] or ["--tray-widget", _])
@@ -425,6 +439,11 @@ internal static class Program
             FlyoutHeaderChecks.Run();
             Begin("ui-reuse");
             UiReuseChecks.Run(app);
+            Begin("shortcuts");
+            ShortcutChecks.Run();
+            ShortcutChecks.RunEmptyState();
+            Begin("account-features");
+            AccountFeatureUiChecks.Run();
             Begin("tray-widget");
             TrayWidgetChecks.Run(app);
             Begin("environment-callbacks");

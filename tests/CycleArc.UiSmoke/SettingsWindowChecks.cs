@@ -145,6 +145,12 @@ internal static class SettingsWindowChecks
             checks++;
             CheckApplyKeepsWindowOpen();
             checks++;
+            CheckCloseAsksBeforeDiscarding();
+            checks++;
+            CheckCodexPathFeedback();
+            checks++;
+            CheckAlertAndShortcutOptions();
+            checks++;
         }
         finally
         {
@@ -355,6 +361,123 @@ internal static class SettingsWindowChecks
             finally { floor.Close(); }
         }
         finally { if (!closed) window.Close(); }
+    }
+
+    // Closing a visible window with edits asks: Stay keeps it open with the edit, Save commits,
+    // Discard leaves the settings untouched. Cancel and an unedited close never ask.
+    private static void CheckCloseAsksBeforeDiscarding()
+    {
+        foreach (var (choice, closeByEscape) in new[]
+        {
+            (SettingsCloseChoice.Stay, false), (SettingsCloseChoice.Save, true), (SettingsCloseChoice.Discard, false)
+        })
+        {
+            var settings = new AppSettings { UsageAlertsEnabled = true };
+            var window = new SettingsWindow(settings) { ShowActivated = false, Left = -20000, Top = -20000 };
+            var asked = 0;
+            var closed = false;
+            window.ConfirmCloseForTest = () => { asked++; return choice; };
+            window.Closed += (_, _) => closed = true;
+            try
+            {
+                window.Show();
+                ((CheckBox)window.FindName("UsageAlertsBox")).IsChecked = false;
+                if (closeByEscape)
+                    window.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice,
+                        PresentationSource.FromVisual(window)!, 0, System.Windows.Input.Key.Escape)
+                    { RoutedEvent = UIElement.PreviewKeyDownEvent });
+                else
+                    ((Button)window.FindName("CloseSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Check(asked == 1, $"Closing with an edit did not ask exactly once ({choice}).");
+                Check(closed == (choice != SettingsCloseChoice.Stay), $"The close prompt answer {choice} did not decide closing.");
+                Check(settings.UsageAlertsEnabled == (choice != SettingsCloseChoice.Save),
+                    $"The close prompt answer {choice} saved the wrong value.");
+            }
+            finally
+            {
+                window.ConfirmCloseForTest = () => SettingsCloseChoice.Discard;
+                if (!closed) window.Close();
+            }
+        }
+
+        var cancelled = new AppSettings { UsageAlertsEnabled = true };
+        var cancel = new SettingsWindow(cancelled) { ShowActivated = false, Left = -20000, Top = -20000 };
+        var cancelAsked = false;
+        cancel.ConfirmCloseForTest = () => { cancelAsked = true; return SettingsCloseChoice.Stay; };
+        cancel.Show();
+        ((CheckBox)cancel.FindName("UsageAlertsBox")).IsChecked = false;
+        ((Button)cancel.FindName("CancelButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(!cancelAsked && !cancel.IsVisible && cancelled.UsageAlertsEnabled, "Cancel asked, stayed open or saved.");
+
+        var unchanged = new SettingsWindow(new AppSettings()) { ShowActivated = false, Left = -20000, Top = -20000 };
+        var unchangedAsked = false;
+        unchanged.ConfirmCloseForTest = () => { unchangedAsked = true; return SettingsCloseChoice.Stay; };
+        unchanged.Show();
+        unchanged.Close();
+        Check(!unchangedAsked && !unchanged.IsVisible, "Closing settings without edits asked anyway.");
+    }
+
+    // The near-limit threshold, the available-again alert and the global shortcut are edits
+    // like any other: Apply turns on, Save keeps them, and turning alerts off greys the details.
+    private static void CheckAlertAndShortcutOptions()
+    {
+        var settings = new AppSettings();
+        var window = new SettingsWindow(settings);
+        try
+        {
+            var threshold = (ComboBox)window.FindName("UsageAlertThresholdBox");
+            var restored = (CheckBox)window.FindName("UsageAlertRestoredBox");
+            var hotkey = (CheckBox)window.FindName("HotkeyBox");
+            var apply = (Button)window.FindName("ApplyButton");
+            Check(threshold.Items.Count == UsageAlertOptions.NearLimitChoices.Count
+                && threshold.SelectedIndex == UsageAlertOptions.NearLimitChoices.ToList().IndexOf(85)
+                && restored.IsChecked == true && hotkey.IsChecked == false && !apply.IsEnabled,
+                "Alert and shortcut options do not open at their defaults.");
+            threshold.SelectedIndex = UsageAlertOptions.NearLimitChoices.ToList().IndexOf(70);
+            restored.IsChecked = false;
+            hotkey.IsChecked = true;
+            Check(apply.IsEnabled, "Alert or shortcut edits do not enable Apply.");
+            ((Button)window.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(settings.UsageAlertNearLimitPercent == 70 && !settings.UsageAlertRestoredEnabled && settings.GlobalHotkeyEnabled,
+                "Save dropped the alert threshold, the available-again choice or the global shortcut.");
+        }
+        finally { window.Close(); }
+
+        var off = new SettingsWindow(new AppSettings { UsageAlertsEnabled = false });
+        try
+        {
+            Check(!((ComboBox)off.FindName("UsageAlertThresholdBox")).IsEnabled, "Alert details stay active while alerts are off.");
+        }
+        finally { off.Close(); }
+    }
+
+    // A typed path that cannot start Codex says so beside the box; empty means automatic.
+    private static void CheckCodexPathFeedback()
+    {
+        var window = new SettingsWindow(new AppSettings());
+        try
+        {
+            var box = (TextBox)window.FindName("CodexExeBox");
+            var problem = (TextBlock)window.FindName("CodexPathProblem");
+            Check(problem.Visibility == Visibility.Collapsed, "An empty Codex path shows a problem.");
+            box.Text = @"C:\CycleArc-missing-" + Guid.NewGuid().ToString("N") + @"\codex.exe";
+            Check(problem.Visibility == Visibility.Visible && problem.Text.Length > 0, "A missing Codex file shows no problem.");
+            box.Text = "codex.exe";
+            Check(problem.Visibility == Visibility.Visible, "A relative Codex path shows no problem.");
+            var real = Path.Combine(Path.GetTempPath(), "cyclearc-codex-" + Guid.NewGuid().ToString("N"), "codex.cmd");
+            Directory.CreateDirectory(Path.GetDirectoryName(real)!);
+            File.WriteAllText(real, "@echo off");
+            try
+            {
+                box.Text = real;
+                Check(problem.Visibility == Visibility.Collapsed, "An existing codex.cmd shows a problem.");
+            }
+            finally { Directory.Delete(Path.GetDirectoryName(real)!, recursive: true); }
+            box.Text = "";
+            Check(problem.Visibility == Visibility.Collapsed, "Clearing the Codex path kept its problem.");
+            Check(((Button)window.FindName("BrowseCodexButton")).Content is string { Length: > 0 }, "The Codex browse button has no label.");
+        }
+        finally { window.Close(); }
     }
 
     private static void CheckCancelPreservesSettings()

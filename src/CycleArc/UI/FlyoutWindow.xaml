@@ -12,7 +12,7 @@
         ShowInTaskbar="False"
         Topmost="False"
         ResizeMode="NoResize"
-        PreviewKeyDown="OnPreviewKeyDown">
+        PreviewKeyDown="OnPreviewKeyDown" PreviewMouseWheel="OnPreviewMouseWheel">
     <Window.Resources>
         <Style x:Key="FlyoutValueText" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
@@ -231,7 +231,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Background="Transparent" Padding="0,2">
-                            <TextBlock x:Name="LinkText" Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"/>
+                            <TextBlock x:Name="LinkText" Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" TextWrapping="Wrap"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -534,7 +534,6 @@
                                 </ScrollViewer>
                             </Border>
                             <TextBlock x:Name="CreditExpiryNotice" Foreground="{DynamicResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" Visibility="Collapsed"/>
-                            <Button x:Name="ClaudeResetUsageButton" Content="Claude Usage" Style="{StaticResource CreditUseButton}" Margin="0,8,0,0" HorizontalAlignment="Left" Visibility="Collapsed" Click="OnClaudeUsagePage"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -545,6 +544,9 @@
                                     Padding="10,5" Click="OnAccountsClick"/>
                             <TextBlock x:Name="AccountsHeading" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </DockPanel>
+                        <!-- Within one service only: the account with clearly more room than the one shown. -->
+                        <Button x:Name="RecommendationButton" Style="{StaticResource FlyoutLinkButton}" HorizontalAlignment="Left"
+                                Margin="0,0,0,8" Visibility="Collapsed" Click="OnRecommendationClick"/>
                         <ItemsControl x:Name="AccountOverview" Grid.IsSharedSizeScope="True"/>
                         <TextBlock x:Name="AccountSelectionHint" FontSize="11" Foreground="{DynamicResource MutedBrush}"
                                    TextWrapping="Wrap" Margin="0,2,0,8"/>

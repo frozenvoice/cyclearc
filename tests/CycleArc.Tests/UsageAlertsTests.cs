@@ -156,6 +156,72 @@ public class UsageAlertsTests
         Assert.Contains(CodexDisplayFormatting.DurationLabel(10080), alert.Title);
     }
 
+    [Fact]
+    public void AChosenThresholdAlertsEarlier_AndUnknownChoicesFallBackToTheRingBand()
+    {
+        var early = new UsageAlertOptions(70);
+        var (alerts, marks) = UsageAlerts.Evaluate([Account("work", 72, Reset)], null, early);
+        Assert.Equal(UsageAlertLevel.NearLimit, Assert.Single(alerts).Level);
+        Assert.Empty(UsageAlerts.Evaluate([Account("work", 72, Reset)], null).Alerts);
+        // Falling 15 points below the chosen threshold re-arms it when no reset time is known.
+        var (_, unknownReset) = UsageAlerts.Evaluate([Account("work", 72, null)], null, early);
+        var (_, dipped) = UsageAlerts.Evaluate([Account("work", 54, null)], unknownReset, early);
+        Assert.Single(UsageAlerts.Evaluate([Account("work", 71, null)], dipped, early).Alerts);
+        Assert.Equal(85, UsageAlertOptions.Normalize(42));
+        Assert.Equal(85, UsageAlertOptions.Normalize(70.5));
+        Assert.Equal(UsageAlertLevel.NearLimit, UsageAlerts.LevelFor(90, 90));
+        Assert.Equal(UsageAlertLevel.None, UsageAlerts.LevelFor(89.9, 90));
+        Assert.Equal(85, new AppSettings { UsageAlertNearLimitPercent = 33 }.UsageAlertNearLimitPercent);
+        Assert.Equal(95, new AppSettings { UsageAlertNearLimitPercent = 95 }.UsageAlertNearLimitPercent);
+        _ = marks;
+    }
+
+    [Fact]
+    public void AUsedUpLimitIsAnnouncedOnceWhenANewPeriodHasRoom()
+    {
+        var (reached, marks) = UsageAlerts.Evaluate([Account("work", 100, Reset)], null);
+        Assert.Equal(UsageAlertLevel.LimitReached, Assert.Single(reached).Level);
+        // Still the same period, still used up: nothing.
+        Assert.Empty(UsageAlerts.Evaluate([Account("work", 100, Reset.AddSeconds(30))], marks).Alerts);
+
+        var (restored, afterReset) = UsageAlerts.Evaluate([Account("work", 3, Reset.AddDays(7))], marks);
+        var alert = Assert.Single(restored);
+        Assert.True(alert.Restored);
+        Assert.Contains(UiText.T("available again", "다시 사용 가능"), alert.Title, StringComparison.Ordinal);
+        Assert.Empty(UsageAlerts.Evaluate([Account("work", 4, Reset.AddDays(7))], afterReset).Alerts);
+
+        var (title, _, profile) = UsageAlerts.Summary(restored);
+        Assert.Equal("work", profile);
+        Assert.True(title.Length <= 63);
+    }
+
+    [Fact]
+    public void RestoredAlerts_CanBeTurnedOff_AndNeverFollowANearLimitOnlyPeriod()
+    {
+        var (_, reachedMarks) = UsageAlerts.Evaluate([Account("work", 100, Reset)], null);
+        Assert.Empty(UsageAlerts.Evaluate([Account("work", 3, Reset.AddDays(7))], reachedMarks,
+            new UsageAlertOptions(NotifyRestored: false)).Alerts);
+
+        var (_, nearMarks) = UsageAlerts.Evaluate([Account("work", 90, Reset)], null);
+        Assert.Empty(UsageAlerts.Evaluate([Account("work", 3, Reset.AddDays(7))], nearMarks).Alerts);
+
+        // A new period that is already near its limit announces that, not "available again".
+        var (busy, _) = UsageAlerts.Evaluate([Account("work", 92, Reset.AddDays(7))], reachedMarks);
+        Assert.False(Assert.Single(busy).Restored);
+    }
+
+    [Fact]
+    public void ASummaryLeadsWithLimitsThatNeedAttention()
+    {
+        var (_, reachedMarks) = UsageAlerts.Evaluate([Account("restored", 100, Reset)], null);
+        var (alerts, _) = UsageAlerts.Evaluate([Account("restored", 2, Reset.AddDays(7)), Account("busy", 95, Reset)], reachedMarks);
+        Assert.Equal(2, alerts.Count);
+        var (title, body, profile) = UsageAlerts.Summary(alerts);
+        Assert.Equal("busy", profile);
+        Assert.Contains(UiText.T("need attention", "확인 필요"), title, StringComparison.Ordinal);
+        Assert.True(body.IndexOf("busy", StringComparison.Ordinal) < body.IndexOf("restored", StringComparison.Ordinal));
+    }
+
     private static CodexAccountView Account(string id, double? used, DateTimeOffset? reset) =>
         new(new CodexAccountProfile(id, "", id) { Provider = UsageProviderId.Codex },
             CodexQuotaSnapshot.Empty(CodexQuotaStatus.Available) with

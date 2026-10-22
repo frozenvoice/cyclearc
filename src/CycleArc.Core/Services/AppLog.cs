@@ -5,11 +5,38 @@ public sealed class AppLog
     private readonly object _gate = new();
     private readonly string _directory;
     private const long MaxBytes = 512 * 1024;
+    /// <summary>Daily files older than this are removed when a log opens.</summary>
+    public static readonly TimeSpan Retention = TimeSpan.FromDays(14);
 
-    public AppLog(string? directory = null)
+    public AppLog(string? directory = null, DateTimeOffset? now = null)
     {
         _directory = directory ?? AppPaths.Logs;
         Directory.CreateDirectory(_directory);
+        RemoveExpired(_directory, now ?? DateTimeOffset.UtcNow);
+    }
+
+    // Only this log's own daily files (and their one rotated copy) are candidates; the date in
+    // the name decides, so a copied or touched file is never mistaken for a new one.
+    private static void RemoveExpired(string directory, DateTimeOffset now)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(directory, "cyclearc-*.log*"))
+            {
+                var name = Path.GetFileName(file);
+                if (name.Length < "cyclearc-yyyyMMdd.log".Length
+                    || !(name.EndsWith(".log", StringComparison.Ordinal) || name.EndsWith(".log.1", StringComparison.Ordinal))
+                    || !DateTime.TryParseExact(name.Substring("cyclearc-".Length, 8), "yyyyMMdd", CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var day)
+                    || now.UtcDateTime - day <= Retention)
+                    continue;
+                try { File.Delete(file); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     public string DirectoryPath => _directory;
@@ -20,6 +47,15 @@ public sealed class AppLog
     public void Error(string message, Exception? ex = null)
     {
         var detail = ex is null ? message : $"{message} :: {ex.GetType().Name}: {Sanitize(ex.Message)}";
+        // The innermost cause and where it was thrown make a report actionable; frames hold only
+        // method names, and the line is sanitized and bounded like every other.
+        if (ex?.InnerException is { } inner)
+        {
+            while (inner.InnerException is not null) inner = inner.InnerException;
+            detail += $" <- {inner.GetType().Name}: {Sanitize(inner.Message)}";
+        }
+        if (ex?.StackTrace is { Length: > 0 } stack)
+            detail += " @ " + string.Join(" | ", stack.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Take(8));
         Write("ERROR", detail);
     }
 
@@ -35,7 +71,11 @@ public sealed class AppLog
         lock (_gate)
         {
             var file = CurrentFile;
-            File.AppendAllText(file, line + Environment.NewLine);
+            // Logging runs inside failure and shutdown handlers; a full disk or a file held open
+            // by another program must never turn a logged failure into a crash.
+            try { File.AppendAllText(file, line + Environment.NewLine); }
+            catch (IOException) { return; }
+            catch (UnauthorizedAccessException) { return; }
             RotateIfNeeded(file);
         }
     }

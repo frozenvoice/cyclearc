@@ -79,10 +79,10 @@ public sealed class CursorActivityTests : IDisposable
     }
 
     [Fact]
-    public void StoredReceiptNeverContainsPromptAttachmentsPathsTranscriptOrRawEmail()
+    public async Task StoredReceiptNeverContainsPromptAttachmentsPathsTranscriptOrRawEmail()
     {
         var store = new CursorActivityStore(_root);
-        Assert.True(store.RecordAsync(Parse(Submit())!, CancellationToken.None).GetAwaiter().GetResult());
+        Assert.True(await store.RecordAsync(Parse(Submit())!, CancellationToken.None));
 
         var text = File.ReadAllText(store.Path);
         foreach (var secret in new[] { "SECRET", "sk-live", "credentials", "secret/project", "transcripts", "conv-1",
