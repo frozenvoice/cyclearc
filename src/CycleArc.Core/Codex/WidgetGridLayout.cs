@@ -11,6 +11,9 @@ public sealed record WidgetGridLayout(int Columns, int Rows, double Width, doubl
     /// One account module. Wide enough for a display name, a ring and two period lines.
     public const double ModuleWidth = 232;
 
+    /// A compact module: identity and ring only, for people who want the widget small.
+    public const double CompactModuleWidth = 150;
+
     /// The hairline between neighbouring modules, horizontally and between wrapped rows.
     public const double SeparatorThickness = 1;
 
@@ -50,7 +53,7 @@ public sealed record WidgetGridLayout(int Columns, int Rows, double Width, doubl
     /// vertical bar. Ignored while the grid still fits. DIP, like every other length here.
     /// </param>
     public static WidgetGridLayout For(int accountCount, double headerHeight, IReadOnlyList<double> moduleHeights,
-        ScreenRect workArea, double scrollbarWidth = 0)
+        ScreenRect workArea, double scrollbarWidth = 0, double moduleWidth = ModuleWidth)
     {
         var count = Math.Max(accountCount, 1);
         headerHeight = double.IsFinite(headerHeight) && headerHeight > 0 ? headerHeight : 0;
@@ -60,8 +63,9 @@ public sealed record WidgetGridLayout(int Columns, int Rows, double Width, doubl
 
         // One module always fits, even on a work area narrower than the module: the placement
         // clamp then anchors the panel inside the monitor instead of shrinking the text.
-        var usable = Math.Max(workArea.Width - (2 * EdgeMargin) - ChromeWidth, ModuleWidth);
-        var columns = ColumnsFor(usable, count);
+        moduleWidth = double.IsFinite(moduleWidth) && moduleWidth > 0 ? moduleWidth : ModuleWidth;
+        var usable = Math.Max(workArea.Width - (2 * EdgeMargin) - ChromeWidth, moduleWidth);
+        var columns = ColumnsFor(usable, count, moduleWidth);
         var (rows, grid) = GridHeight(count, columns, heights);
         var height = ChromeHeight + headerHeight + grid;
 
@@ -71,7 +75,7 @@ public sealed record WidgetGridLayout(int Columns, int Rows, double Width, doubl
         var scrolls = height > maximum;
         if (scrolls && scrollbarWidth > 0)
         {
-            var columnsWithBar = ColumnsFor(Math.Max(usable - scrollbarWidth, ModuleWidth), count);
+            var columnsWithBar = ColumnsFor(Math.Max(usable - scrollbarWidth, moduleWidth), count, moduleWidth);
             if (columnsWithBar != columns)
             {
                 columns = columnsWithBar;
@@ -81,7 +85,7 @@ public sealed record WidgetGridLayout(int Columns, int Rows, double Width, doubl
             }
         }
 
-        var width = ChromeWidth + (columns * ModuleWidth) + ((columns - 1) * SeparatorThickness)
+        var width = ChromeWidth + (columns * moduleWidth) + ((columns - 1) * SeparatorThickness)
             + (scrolls ? scrollbarWidth : 0);
         var outer = scrolls ? maximum : height;
         return new WidgetGridLayout(columns, rows, width, outer, scrolls)
@@ -90,9 +94,9 @@ public sealed record WidgetGridLayout(int Columns, int Rows, double Width, doubl
         };
     }
 
-    private static int ColumnsFor(double usableWidth, int count)
+    private static int ColumnsFor(double usableWidth, int count, double moduleWidth)
     {
-        var fits = (int)Math.Floor((usableWidth + SeparatorThickness) / (ModuleWidth + SeparatorThickness));
+        var fits = (int)Math.Floor((usableWidth + SeparatorThickness) / (moduleWidth + SeparatorThickness));
         return Math.Clamp(fits, 1, count);
     }
 

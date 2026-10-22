@@ -38,6 +38,12 @@ public sealed class UsageHistoryPanel : Expander
     private readonly TextBlock _axisStart = new() { FontSize = 10, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly TextBlock _axisEnd = new() { FontSize = 10, HorizontalAlignment = HorizontalAlignment.Right };
     private readonly HistoryPlot _plot = new() { Height = 96, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly System.Windows.Controls.Button _export = new()
+    {
+        HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0), Visibility = Visibility.Collapsed
+    };
+    // Offline UI tests choose the file; production always asks with the save dialog.
+    internal Func<string?>? ChooseExportPathForTest { get; set; }
     private CodexAccountView? _account;
     private Func<CodexAccountView, TimeSpan, UsageHistoryView>? _read;
     private UsageHistoryView? _view;
@@ -57,6 +63,12 @@ public sealed class UsageHistoryPanel : Expander
         _range.SelectedIndex = 0;
         controls.Children.Add(_range); controls.Children.Add(_metric);
         content.Children.Add(controls); content.Children.Add(_summary); content.Children.Add(_plot); content.Children.Add(_axis); content.Children.Add(_notice);
+        _export.SetResourceReference(StyleProperty, "FlyoutLinkButton");
+        _export.Content = UiText.T("Export CSV…", "CSV로 내보내기…");
+        _export.ToolTip = UiText.T("Save this range's measurements for a spreadsheet. No account identity is included.",
+            "이 기간의 측정값을 스프레드시트용으로 저장합니다. 계정 정보는 포함하지 않습니다.");
+        _export.Click += (_, _) => Export();
+        content.Children.Add(_export);
         _notice.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         _axis.Children.Add(_axisStart); _axis.Children.Add(_axisEnd);
         _axisStart.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
@@ -81,7 +93,7 @@ public sealed class UsageHistoryPanel : Expander
             _generation++; _lastRead = default; _view = null; _series = [];
             _metric.ItemsSource = null; _plot.Set([], [], DateTimeOffset.UtcNow - Span, DateTimeOffset.UtcNow);
             _axisStart.Text = _axisEnd.Text = "";
-            _summary.Text = UiText.T("No observations", "관측 데이터 없음"); _notice.Text = "";
+            _summary.Text = UiText.T("No observations", "관측 데이터 없음"); _notice.Text = ""; _export.Visibility = Visibility.Collapsed;
         }
         if (IsExpanded) Load();
     }
@@ -121,6 +133,7 @@ public sealed class UsageHistoryPanel : Expander
         _plot.Set(points, statuses, _end - Span, _end);
         _axisStart.Text = FormatStamp(_end - Span);
         _axisEnd.Text = FormatStamp(_end);
+        _export.Visibility = _view.Points.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (points.Length == 0)
         {
             _summary.Text = UiText.T("No measurements in this range", "이 기간에 측정된 데이터가 없습니다");
@@ -149,6 +162,36 @@ public sealed class UsageHistoryPanel : Expander
             + (points.Any(p => p.Metric is UsageHistoryMetric.CreditBalance or UsageHistoryMetric.BalanceChange)
                 ? UiText.T("Balance changes include unknown adjustments; they are not actual consumption. ", "잔액 변화에는 원인 불명의 보정이 포함될 수 있으며 실제 소비량이 아닙니다. ") : "")
             + (_view.StorageWarning is null ? "" : UiText.T("Storage warning: ", "저장 경고: ") + _view.StorageWarning);
+    }
+
+    private void Export()
+    {
+        if (_view is not { Points.Count: > 0 } view) return;
+        var path = ChooseExportPathForTest is { } choose ? choose() : AskExportPath();
+        if (path is null) return;
+        try
+        {
+            // A byte order mark lets spreadsheet programs read Korean labels correctly.
+            File.WriteAllText(path, UsageHistoryCsv.Write(view), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            _notice.Text = UiText.T("Saved ", "저장함: ") + Path.GetFileName(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _notice.Text = UiText.T("The file could not be saved: ", "파일을 저장하지 못했습니다: ") + ex.Message;
+        }
+    }
+
+    private string? AskExportPath()
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            FileName = $"cyclearc-history-{DateTime.Now:yyyyMMdd-HHmm}.csv",
+            DefaultExt = ".csv",
+            Filter = "CSV (*.csv)|*.csv",
+            AddExtension = true,
+            OverwritePrompt = true
+        };
+        return dialog.ShowDialog(Window.GetWindow(this)) == true ? dialog.FileName : null;
     }
 
     private static string MetricName(UsageHistoryPoint p) => Label(p.Label) + " · " + (p.Metric switch

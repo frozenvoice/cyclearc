@@ -163,6 +163,11 @@ internal static class Program
                 TrayIconChecks.Run(trayDirectory);
                 return 0;
             }
+            if (args is ["--account-features"] or ["--account-features", _])
+            {
+                AccountFeatureUiChecks.Run(args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--shortcuts"])
             {
                 ShortcutChecks.Run();
@@ -437,6 +442,8 @@ internal static class Program
             Begin("shortcuts");
             ShortcutChecks.Run();
             ShortcutChecks.RunEmptyState();
+            Begin("account-features");
+            AccountFeatureUiChecks.Run();
             Begin("tray-widget");
             TrayWidgetChecks.Run(app);
             Begin("environment-callbacks");

@@ -290,6 +290,15 @@
                                             <CheckBox x:Name="WidgetClickThroughBox" Grid.Column="1" Style="{StaticResource SettingsSwitch}" VerticalAlignment="Center"/>
                                         </Grid>
                                         <Border Style="{StaticResource SettingsDivider}"/>
+                                        <Grid Style="{StaticResource SettingsRow}" MinHeight="72">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel VerticalAlignment="Center" Margin="0,12,16,12">
+                                                <TextBlock x:Name="WidgetCompactLabel" Style="{StaticResource SettingsLabel}"/>
+                                                <TextBlock x:Name="WidgetCompactHint" Style="{StaticResource SettingsHint}" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                            <CheckBox x:Name="WidgetCompactBox" Grid.Column="1" Style="{StaticResource SettingsSwitch}" VerticalAlignment="Center"/>
+                                        </Grid>
+                                        <Border Style="{StaticResource SettingsDivider}"/>
                                         <StackPanel Margin="16,16,16,12">
                                             <Grid>
                                                 <TextBlock x:Name="WidgetOpacityLabel" Style="{StaticResource SettingsLabel}"/>

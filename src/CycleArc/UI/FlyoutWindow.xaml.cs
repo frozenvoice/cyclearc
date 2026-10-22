@@ -338,6 +338,13 @@ public partial class FlyoutWindow : Window
         ManageAccountsButton.Style = (Style)FindResource(accounts.Count == 0 ? "PrimaryButton" : "CreditUseButton");
         AccountsHeading.Text = UiText.T($"Accounts · {accounts.Count}", $"계정 · {accounts.Count}");
         BindAccountRows(accounts.Count > 1 ? accounts : [], selectedId);
+        var recommendation = AccountRecommendation.For(overview);
+        _recommendedProfileId = recommendation?.Account.Profile.Id;
+        RecommendationButton.Content = recommendation?.Text ?? "";
+        RecommendationButton.ToolTip = recommendation is null ? null
+            : UiText.T("Show this account in the popup, tray and widget. Other services are not compared.",
+                "이 계정을 팝업·트레이·위젯에 표시합니다. 다른 서비스와는 비교하지 않습니다.");
+        RecommendationButton.Visibility = recommendation is null ? Visibility.Collapsed : Visibility.Visible;
         AccountSelectionHint.Text = accounts.Count > 1
             ? UiText.T("Select an account for details, tray and widget.", "계정을 선택하면 상세 카드·트레이·위젯에 표시됩니다.")
             : UiText.T("Add a Codex, Claude or Cursor account to see its limits here. Windows may keep the CycleArc icon under Show hidden icons (^) in the taskbar; drag it onto the taskbar to keep it in view.",
@@ -414,6 +421,13 @@ public partial class FlyoutWindow : Window
         _displayedIdentities.Withdrawn(accounts);
 
     private void OnAccountsClick(object sender, RoutedEventArgs e) => AccountsRequested?.Invoke();
+
+    private string? _recommendedProfileId;
+
+    private void OnRecommendationClick(object sender, RoutedEventArgs e)
+    {
+        if (_recommendedProfileId is { } id && !_redeemingCredit) AccountSelected?.Invoke(id);
+    }
 
     private void BindAccountChoices(IReadOnlyList<CodexAccountView> accounts, string selectedId)
     {

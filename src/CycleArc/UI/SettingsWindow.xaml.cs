@@ -111,6 +111,11 @@ public partial class SettingsWindow : Window
         WidgetClickThroughBox.IsChecked = settings.WidgetClickThrough;
         WidgetClickThroughBox.ToolTip = UiText.T("Mouse clicks pass to the window behind the widget.", "마우스 클릭이 위젯 뒤의 창에 전달됩니다.");
         WidgetClickThroughHint.Text = (string)WidgetClickThroughBox.ToolTip;
+        WidgetCompactLabel.Text = UiText.T("Compact accounts", "간단히 표시");
+        WidgetCompactHint.Text = UiText.T("Show each account's name and ring only. Period details stay in the popup.",
+            "계정별 이름과 링만 표시합니다. 기간별 세부 정보는 팝업에서 확인하세요.");
+        WidgetCompactBox.IsChecked = settings.WidgetCompact;
+        SetName(WidgetCompactBox, WidgetCompactLabel.Text);
         InitializeMonitoringSettings(settings);
         ConnectionTitle.Text = UiText.T("Accounts & refresh", "계정과 자동 확인");
         ConnectionHint.Text = UiText.T("Connect your accounts and keep their limits up to date.", "계정을 연결하고 최신 사용량을 확인하세요.");
@@ -198,6 +203,7 @@ public partial class SettingsWindow : Window
         || Math.Abs(WidgetOpacityBox.Value - Math.Clamp(_settings.WidgetOpacity, WidgetOpacityBox.Minimum, 1)) > 0.001
         || (WidgetTopBox.IsChecked == true) != _settings.WidgetAlwaysOnTop
         || (WidgetClickThroughBox.IsChecked == true) != _settings.WidgetClickThrough
+        || (WidgetCompactBox.IsChecked == true) != _settings.WidgetCompact
         || (EdgeSnapBox.IsChecked == true) != _settings.SnapWindowsToScreenEdges
         || (HotkeyBox.IsChecked == true) != _settings.GlobalHotkeyEnabled
         || (UsageAlertsBox.IsChecked == true) != _settings.UsageAlertsEnabled
@@ -253,6 +259,7 @@ public partial class SettingsWindow : Window
         _settings.WidgetOpacity = WidgetOpacityBox.Value;
         _settings.WidgetAlwaysOnTop = WidgetTopBox.IsChecked == true;
         _settings.WidgetClickThrough = WidgetClickThroughBox.IsChecked == true;
+        _settings.WidgetCompact = WidgetCompactBox.IsChecked == true;
         _settings.SnapWindowsToScreenEdges = EdgeSnapBox.IsChecked == true;
         _settings.GlobalHotkeyEnabled = HotkeyBox.IsChecked == true;
         _settings.UsageAlertsEnabled = UsageAlertsBox.IsChecked == true;

@@ -60,6 +60,8 @@ public sealed class AppSettings
     public double WidgetOpacity { get; set; } = 1;
     public bool WidgetAlwaysOnTop { get; set; } = true;
     public bool WidgetClickThrough { get; set; }
+    // Compact modules show each account's name and ring only; details stay in the popup.
+    public bool WidgetCompact { get; set; }
     public bool SnapWindowsToScreenEdges { get; set; } = true;
     // Opt-in: Ctrl + Alt + U opens the detail popup from any application.
     public bool GlobalHotkeyEnabled { get; set; }

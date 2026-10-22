@@ -36,6 +36,8 @@ public partial class FloatingWidget : Window
     private bool _snapWindowsToScreenEdges = true;
     private bool _dragAnchorsCleared;
     private bool _showMoney, _showResets;
+    private bool _compact;
+    private double ModuleWidth => _compact ? WidgetGridLayout.CompactModuleWidth : WidgetGridLayout.ModuleWidth;
 
     /// <summary>The edges currently attached to the widget, persisted by the app.</summary>
     public WindowEdgeAnchors EdgeAnchors { get; private set; }
@@ -175,6 +177,7 @@ public partial class FloatingWidget : Window
         while (_modules.Count < count)
         {
             var module = new WidgetAccountModuleView();
+            module.SetCompact(_compact);
             module.DetailsRequested += () =>
             {
                 if (!_closed && _modules.Contains(module)) OpenAccountDetails(module.ProfileId);
@@ -202,7 +205,7 @@ public partial class FloatingWidget : Window
         var heights = new double[_modules.Count];
         for (var i = 0; i < _modules.Count; i++)
         {
-            _modules[i].Measure(new System.Windows.Size(WidgetGridLayout.ModuleWidth, double.PositiveInfinity));
+            _modules[i].Measure(new System.Windows.Size(ModuleWidth, double.PositiveInfinity));
             heights[i] = _modules[i].DesiredSize.Height;
         }
         // Children measure unscaled under the LayoutTransform, so the work area is divided by
@@ -210,7 +213,7 @@ public partial class FloatingWidget : Window
         // actually occupies on screen.
         var unscaled = ScaleWorkArea(area, 1 / Math.Max(ZoomScale, 0.01));
         var layout = WidgetGridLayout.For(count, headerHeight, heights, unscaled,
-            System.Windows.SystemParameters.VerticalScrollBarWidth);
+            System.Windows.SystemParameters.VerticalScrollBarWidth, ModuleWidth);
         // Zoom is part of the shape: the same account and column counts at a different scale
         // still need the grid rebuilt and remeasured.
         if (_shape != (count, layout.Columns, ZoomPercent)) BuildGrid(count, layout.Columns);
@@ -665,6 +668,13 @@ public partial class FloatingWidget : Window
     {
         _showMoney = settings.WidgetFinancialSummaryEnabled;
         _showResets = settings.WidgetResetSummaryEnabled;
+        if (_compact != settings.WidgetCompact)
+        {
+            _compact = settings.WidgetCompact;
+            foreach (var module in _modules) module.SetCompact(_compact);
+            // The column count depends on the module width, so the grid is rebuilt.
+            _shape = (-1, -1, -1);
+        }
         ApplyEdgeSnapSettings(settings);
         using var activation = new PassiveUpdate();
         _applying = true;
