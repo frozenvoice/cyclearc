@@ -406,7 +406,7 @@ internal static class TrayIconChecks
         using var sheet = new Bitmap(576, 664);
         using var graphics = Graphics.FromImage(sheet);
         using var font = new Font("Segoe UI", 9, FontStyle.Regular, GraphicsUnit.Pixel);
-        graphics.Clear(Color.FromArgb(27, 31, 39));
+        graphics.Clear(Color.FromArgb(30, 30, 30));
         for (var i = 0; i < samples.Length; i++)
             graphics.DrawString(samples[i].Label, font, Brushes.White, 82 + i * 60, 8);
         var row = 0;
@@ -415,7 +415,7 @@ internal static class TrayIconChecks
         foreach (var style in Enum.GetValues<TrayIconStyle>())
         {
             var y = 32 + row++ * 52;
-            using var background = new SolidBrush(dark ? Color.FromArgb(27, 31, 39) : Color.FromArgb(245, 247, 250));
+            using var background = new SolidBrush(dark ? Color.FromArgb(30, 30, 30) : Color.FromArgb(245, 247, 250));
             graphics.FillRectangle(background, 0, y, sheet.Width, 52);
             graphics.DrawString($"{size}px {(style == TrayIconStyle.ProgressRing ? "ring" : "number")}", font,
                 dark ? Brushes.White : Brushes.Black, 6, y + 20);
@@ -479,7 +479,7 @@ internal static class TrayIconChecks
         using var sheet = new Bitmap(labelWidth + samples.Length * sampleWidth, 664);
         using var graphics = Graphics.FromImage(sheet);
         using var font = new Font("Segoe UI", 9, FontStyle.Regular, GraphicsUnit.Pixel);
-        graphics.Clear(Color.FromArgb(27, 31, 39));
+        graphics.Clear(Color.FromArgb(30, 30, 30));
         for (var i = 0; i < samples.Length; i++)
             graphics.DrawString(samples[i].Label, font, Brushes.White, labelWidth + i * sampleWidth, 8);
 
@@ -489,7 +489,7 @@ internal static class TrayIconChecks
         foreach (var style in Enum.GetValues<TrayIconStyle>())
         {
             var y = 32 + row++ * 52;
-            using var background = new SolidBrush(dark ? Color.FromArgb(27, 31, 39) : Color.FromArgb(245, 247, 250));
+            using var background = new SolidBrush(dark ? Color.FromArgb(30, 30, 30) : Color.FromArgb(245, 247, 250));
             graphics.FillRectangle(background, 0, y, sheet.Width, 52);
             graphics.DrawString($"{size}px {(style == TrayIconStyle.ProgressRing ? "ring" : "number")}", font,
                 dark ? Brushes.White : Brushes.Black, 6, y + 20);

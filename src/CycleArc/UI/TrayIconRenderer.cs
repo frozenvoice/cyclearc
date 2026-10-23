@@ -60,7 +60,7 @@ public static class TrayIconRenderer
         if (view.Style == TrayIconStyle.ProgressRing)
         {
             // An opaque center keeps the number legible on light and dark Windows taskbars.
-            using var center = new SolidBrush(DrawingColor.FromArgb(27, 31, 39));
+            using var center = new SolidBrush(DrawingColor.FromArgb(30, 30, 30));
             graphics.FillEllipse(center, 1, 1, size - 2, size - 2);
             using var bg = new Pen(DrawingColor.FromArgb(60, 255, 255, 255), Math.Max(2f, size / 8f));
             using var fg = new Pen(DrawingColor.FromArgb(view.FillArgb), Math.Max(2f, size / 8f)) { StartCap = LineCap.Round, EndCap = LineCap.Round };

@@ -77,13 +77,13 @@
                 </Border>
                 <ControlTemplate.Triggers>
                     <Trigger Property="ItemsControl.AlternationIndex" Value="0">
-                        <Setter TargetName="ScreenRail" Property="Background" Value="#252A34"/>
+                        <Setter TargetName="ScreenRail" Property="Background" Value="#2A2A2A"/>
                     </Trigger>
                     <Trigger Property="ItemsControl.AlternationIndex" Value="2">
-                        <Setter TargetName="Screen" Property="Background" Value="#121418"/>
-                        <Setter TargetName="ScreenRail" Property="Background" Value="#252A34"/>
-                        <Setter TargetName="ScreenLine" Property="Background" Value="#A6B1C3"/>
-                        <Setter TargetName="ScreenPanel" Property="Background" Value="#333C4D"/>
+                        <Setter TargetName="Screen" Property="Background" Value="#141414"/>
+                        <Setter TargetName="ScreenRail" Property="Background" Value="#2A2A2A"/>
+                        <Setter TargetName="ScreenLine" Property="Background" Value="#B0B0B0"/>
+                        <Setter TargetName="ScreenPanel" Property="Background" Value="#3A3A3A"/>
                     </Trigger>
                     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Choice" Property="BorderBrush" Value="{DynamicResource MutedBrush}"/></Trigger>
                     <Trigger Property="IsSelected" Value="True">

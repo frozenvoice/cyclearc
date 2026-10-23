@@ -894,11 +894,11 @@ public partial class App : Application
             || (theme == AppTheme.System && IsSystemDark());
         TrayController.DarkMenus = dark;
         var app = Current;
-        app.Resources["BgBrush"] = new SolidColorBrush(dark ? MediaColor(18, 20, 24) : MediaColor(245, 247, 250));
-        app.Resources["CardBrush"] = new SolidColorBrush(dark ? MediaColor(27, 31, 39) : MediaColor(255, 255, 255));
-        app.Resources["PanelBrush"] = new SolidColorBrush(dark ? MediaColor(33, 38, 50) : MediaColor(248, 249, 251));
-        app.Resources["TextBrush"] = new SolidColorBrush(dark ? MediaColor(238, 241, 246) : MediaColor(23, 27, 34));
-        app.Resources["MutedBrush"] = new SolidColorBrush(dark ? MediaColor(139, 147, 167) : MediaColor(90, 98, 114));
+        app.Resources["BgBrush"] = new SolidColorBrush(dark ? MediaColor(20, 20, 20) : MediaColor(245, 247, 250));
+        app.Resources["CardBrush"] = new SolidColorBrush(dark ? MediaColor(30, 30, 30) : MediaColor(255, 255, 255));
+        app.Resources["PanelBrush"] = new SolidColorBrush(dark ? MediaColor(36, 36, 36) : MediaColor(248, 249, 251));
+        app.Resources["TextBrush"] = new SolidColorBrush(dark ? MediaColor(238, 238, 238) : MediaColor(23, 27, 34));
+        app.Resources["MutedBrush"] = new SolidColorBrush(dark ? MediaColor(150, 150, 150) : MediaColor(90, 98, 114));
         app.Resources["StaleBrush"] = new SolidColorBrush(dark ? MediaColor(251, 191, 36) : MediaColor(146, 79, 0));
         // Accent, danger and OK also draw text and status marks, so each theme keeps them at
         // least 4.5:1 (text) or 3:1 (marks) against its cards and ground.
@@ -910,22 +910,22 @@ public partial class App : Application
         app.Resources["RingCautionBrush"] = new SolidColorBrush(dark ? MediaColor(245, 158, 11) : MediaColor(217, 119, 6));
         app.Resources["RingNearLimitBrush"] = new SolidColorBrush(dark ? MediaColor(234, 88, 12) : MediaColor(194, 65, 12));
         app.Resources["RingExhaustedBrush"] = new SolidColorBrush(dark ? MediaColor(248, 113, 113) : MediaColor(220, 38, 38));
-        app.Resources["LineBrush"] = new SolidColorBrush(dark ? MediaColor(42, 49, 64) : MediaColor(213, 218, 227));
-        app.Resources["ControlBrush"] = new SolidColorBrush(dark ? MediaColor(37, 42, 52) : MediaColor(255, 255, 255));
-        app.Resources["GhostBrush"] = new SolidColorBrush(dark ? MediaColor(37, 42, 52) : MediaColor(232, 236, 242));
+        app.Resources["LineBrush"] = new SolidColorBrush(dark ? MediaColor(51, 51, 51) : MediaColor(213, 218, 227));
+        app.Resources["ControlBrush"] = new SolidColorBrush(dark ? MediaColor(42, 42, 42) : MediaColor(255, 255, 255));
+        app.Resources["GhostBrush"] = new SolidColorBrush(dark ? MediaColor(42, 42, 42) : MediaColor(232, 236, 242));
         app.Resources["SelectionBrush"] = new SolidColorBrush(dark ? MediaColor(29, 78, 216) : MediaColor(191, 219, 254));
-        app.Resources["DisabledBrush"] = new SolidColorBrush(dark ? MediaColor(107, 114, 128) : MediaColor(154, 163, 178));
-        app.Resources["CheckBoxBackgroundBrush"] = new SolidColorBrush(dark ? MediaColor(37, 42, 52) : MediaColor(255, 255, 255));
-        app.Resources["CheckBoxBorderBrush"] = new SolidColorBrush(dark ? MediaColor(139, 147, 167) : MediaColor(90, 98, 114));
+        app.Resources["DisabledBrush"] = new SolidColorBrush(dark ? MediaColor(112, 112, 112) : MediaColor(154, 163, 178));
+        app.Resources["CheckBoxBackgroundBrush"] = new SolidColorBrush(dark ? MediaColor(42, 42, 42) : MediaColor(255, 255, 255));
+        app.Resources["CheckBoxBorderBrush"] = new SolidColorBrush(dark ? MediaColor(150, 150, 150) : MediaColor(90, 98, 114));
         app.Resources["CheckBoxDisabledCheckedBrush"] = new SolidColorBrush(dark ? MediaColor(59, 82, 122) : MediaColor(147, 197, 253));
         app.Resources["ProviderBadgeBackgroundBrush"] = new SolidColorBrush(dark ? MediaColor(36, 53, 77) : MediaColor(229, 238, 255));
         app.Resources["ProviderBadgeBorderBrush"] = new SolidColorBrush(dark ? MediaColor(54, 84, 123) : MediaColor(172, 195, 228));
         app.Resources["ProviderBadgeTextBrush"] = new SolidColorBrush(dark ? MediaColor(217, 231, 255) : MediaColor(36, 74, 128));
         // Widget account surfaces lift the dark ground and shade the light one, one small step
         // each from rest to hover to selected; translucent so the widget opacity still applies.
-        app.Resources["WidgetModuleHoverBrush"] = new SolidColorBrush(dark ? Color.FromArgb(11, 130, 158, 196) : Color.FromArgb(8, 15, 30, 60));
-        app.Resources["WidgetModuleSelectedBrush"] = new SolidColorBrush(dark ? Color.FromArgb(20, 130, 158, 196) : Color.FromArgb(15, 15, 30, 60));
-        app.Resources["WidgetModuleSelectedHoverBrush"] = new SolidColorBrush(dark ? Color.FromArgb(28, 130, 158, 196) : Color.FromArgb(21, 15, 30, 60));
+        app.Resources["WidgetModuleHoverBrush"] = new SolidColorBrush(dark ? Color.FromArgb(11, 200, 200, 200) : Color.FromArgb(8, 15, 30, 60));
+        app.Resources["WidgetModuleSelectedBrush"] = new SolidColorBrush(dark ? Color.FromArgb(20, 200, 200, 200) : Color.FromArgb(15, 15, 30, 60));
+        app.Resources["WidgetModuleSelectedHoverBrush"] = new SolidColorBrush(dark ? Color.FromArgb(28, 200, 200, 200) : Color.FromArgb(21, 15, 30, 60));
     }
 
     private void OnSystemThemeChanged()
