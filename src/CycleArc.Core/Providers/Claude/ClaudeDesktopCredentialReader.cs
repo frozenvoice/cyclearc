@@ -101,7 +101,7 @@ public sealed class ClaudeDesktopCredentialReader : IClaudeDesktopCredentialSour
         IEnumerable<string>? roots = null,
         Func<byte[], byte[]?>? unprotect = null)
     {
-        var candidates = roots ?? DiscoverDefaultRoots();
+        var candidates = roots ?? ClaudeDesktopDataPaths.KnownRoots();
         _roots = candidates
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(NormalizePath)
@@ -422,20 +422,6 @@ public sealed class ClaudeDesktopCredentialReader : IClaudeDesktopCredentialSour
         catch (FileNotFoundException) { return BoundedFile.MissingFile; }
         catch (DirectoryNotFoundException) { return BoundedFile.MissingFile; }
         catch (Exception ex) when (IsExpectedReaderFailure(ex)) { return BoundedFile.InvalidFile; }
-    }
-
-    private static IEnumerable<string> DiscoverDefaultRoots()
-    {
-        var roots = new List<string>();
-        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (!string.IsNullOrWhiteSpace(local))
-        {
-            roots.Add(Path.Combine(local, "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude"));
-        }
-
-        var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (!string.IsNullOrWhiteSpace(roaming)) roots.Add(Path.Combine(roaming, "Claude"));
-        return roots;
     }
 
     private static string? NormalizePath(string path)

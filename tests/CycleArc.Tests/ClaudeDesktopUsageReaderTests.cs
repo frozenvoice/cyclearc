@@ -9,6 +9,48 @@ public sealed class ClaudeDesktopUsageReaderTests
     private static readonly DateTimeOffset Now = new(2026, 9, 16, 12, 0, 0, TimeSpan.Zero);
     private const string Organization = "org-a";
 
+    [Theory]
+    [InlineData("Local", "Claude-Data/claude_pzs8sxrjxfjjc")]
+    [InlineData("Local", "Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude")]
+    [InlineData("Roaming", "Claude")]
+    public void Read_DiscoversMigratedAndLegacyLayoutsWithoutOtherRoots(string folder, string relativePath)
+    {
+        using var root = new TempRoot();
+        var desktop = Path.Combine(root.Path, folder, relativePath);
+        Directory.CreateDirectory(desktop);
+        File.WriteAllText(Path.Combine(desktop, ClaudeDesktopUsageReader.FileName),
+            History(Sample(Now.AddMinutes(-1), Organization, 42.5, 8)));
+        var reader = new ClaudeDesktopUsageReader(ClaudeDesktopUsageReader.DiscoverDefaultPaths(
+            Path.Combine(root.Path, "Local"), Path.Combine(root.Path, "Roaming")));
+
+        var read = reader.Read(Organization, Now);
+
+        Assert.False(read.Unavailable);
+        Assert.Equal(new ClaudeDesktopUsageSample(Now.AddMinutes(-1), 42.5, 8), read.Sample);
+    }
+
+    [Fact]
+    public void Read_MigrationKeepsNewestMatchingReceiptAndIgnoresUnrelatedFolders()
+    {
+        using var root = new TempRoot();
+        var migrated = Path.Combine(root.Path, "Claude-Data", "claude_pzs8sxrjxfjjc");
+        var legacy = Path.Combine(root.Path, "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude");
+        var unrelated = Path.Combine(root.Path, "Claude-Data", "claude_other");
+        foreach (var directory in new[] { migrated, legacy, unrelated }) Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(migrated, ClaudeDesktopUsageReader.FileName),
+            History(Sample(Now.AddMinutes(-1), Organization, 42.5, 8), Sample(Now, "other-org", 99, 99)));
+        File.WriteAllText(Path.Combine(legacy, ClaudeDesktopUsageReader.FileName),
+            History(Sample(Now.AddMinutes(-2), Organization, 15, 7)));
+        File.WriteAllText(Path.Combine(unrelated, ClaudeDesktopUsageReader.FileName),
+            History(Sample(Now, Organization, 99, 99)));
+        var reader = new ClaudeDesktopUsageReader(ClaudeDesktopUsageReader.DiscoverDefaultPaths(root.Path, null));
+
+        var read = reader.Read(Organization, Now);
+
+        Assert.False(read.Unavailable);
+        Assert.Equal(new ClaudeDesktopUsageSample(Now.AddMinutes(-1), 42.5, 8), read.Sample);
+    }
+
     [Fact]
     public void Parse_SelectsNewestMatchingOrganization_AndKeepsSourceTimestamp()
     {

@@ -267,13 +267,15 @@ public sealed class ClaudeDesktopUsageReader
     private static DateTimeOffset Newer(DateTimeOffset candidate, DateTimeOffset? current) =>
         current is null || candidate > current.Value ? candidate : current.Value;
 
-    private static IEnumerable<string> DiscoverDefaultPaths()
-    {
-        var paths = new List<string>();
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (!string.IsNullOrWhiteSpace(appData)) paths.Add(Path.Combine(appData, "Claude", FileName));
+    private static IEnumerable<string> DiscoverDefaultPaths() => DiscoverDefaultPaths(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
 
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    internal static IEnumerable<string> DiscoverDefaultPaths(string? localAppData, string? appData)
+    {
+        var paths = ClaudeDesktopDataPaths.KnownRoots(localAppData, appData)
+            .Select(root => Path.Combine(root, FileName)).ToList();
+
         if (string.IsNullOrWhiteSpace(localAppData)) return paths;
         var packages = Path.Combine(localAppData, "Packages");
         try
