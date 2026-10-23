@@ -60,7 +60,7 @@ public sealed class FloatingWidgetController(Action<FloatingWidget> configure, A
         _settings = settings;
         _overview = overview;
         CloseCurrentWindow();
-        Update(settings, overview, applySettings: true);
+        Update(settings, overview, applySettings: true, refreshing: _refreshing);
     }
 
     public void RecoverAfterEnvironmentChange()
@@ -74,7 +74,7 @@ public sealed class FloatingWidgetController(Action<FloatingWidget> configure, A
             // A transparent HWND can retain visible flags after its rendered surface is lost.
             // Replace it after resume/unlock/display changes instead of only moving its bounds.
             CloseCurrentWindow();
-            Update(_settings!, _overview!);
+            Update(_settings!, _overview!, refreshing: _refreshing);
             log?.Invoke("Widget window recreated after desktop environment change");
         }));
     }

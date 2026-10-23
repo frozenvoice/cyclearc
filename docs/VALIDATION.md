@@ -4133,3 +4133,26 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   the earlier wrapper; inside Cursor the byte-copy wrapper took 1.0 to 1.4 s per prompt.
 - Not verified: the startup replacement in the desktop (`App`) has no automated test, and no
   real earlier-format entry from an installed build was upgraded.
+
+### 2026-10-23 — Preserve refresh presentation when recreating the widget
+
+- `FloatingWidgetController.Recreate` and deferred desktop/display recovery now pass the
+  existing shared refresh state into `Update`. A replacement window keeps its refresh button
+  disabled, tooltip and accessible name busy until the coordinator reports completion;
+  recovery does not request new provider data.
+- The production WPF recovery checks now replace the window through both paths while busy
+  and idle, and assert the button state, tooltip and accessible name on each new window.
+- Windows 11, .NET SDK 10.0.401, host WPF DPI 144 (150%), two monitors:
+  `pwsh -NoProfile -File ./dev-run.ps1 -DevelopmentOnly -TestFilter FullyQualifiedName~WidgetRefreshCoordinationTests`
+  passed Release compilation and 4/4 focused unit tests. Three existing nullable warnings in
+  `UiReuseChecks.cs` remain; this change adds no compile warnings.
+- The first argument-free UiSmoke run passed widget recovery but failed the later button
+  Space-up assertion while another project's WPF fixture was open. The unchanged button
+  suite then passed alone with `--widget-buttons`. After other WPF checks finished, the final
+  `dotnet run --project tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj -c Release --no-build`
+  exited 0 with `[ui-smoke] COMPLETE all default suites`, including recovery, keyboard/Space,
+  EN/KO Dark/Light renders, tray, zoom, pin, layout, DPI and edge-snap regressions.
+- Synthetic accounts only. Native window recovery/focus runs are distinct from local
+  high-contrast resource overrides; actual OS High Contrast, real account/provider calls,
+  installation, packaging and remote Actions were not run. No new staging/capture directory
+  was retained; pre-existing default output and dependency/build caches were preserved.

@@ -27,6 +27,7 @@ internal static class WidgetRecoveryChecks
         try
         {
             focusWindow.Show();
+            CheckRefreshStateRecovery();
             foreach (var language in Enum.GetValues<UiLanguage>())
             foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light })
             foreach (var screen in System.Windows.Forms.Screen.AllScreens)
@@ -41,6 +42,41 @@ internal static class WidgetRecoveryChecks
         }
         finally { focusWindow.Close(); }
         Console.WriteLine($"PASS: widget lifecycle recovery in both languages/dark/light on {System.Windows.Forms.Screen.AllScreens.Length} monitor(s); native activation/focus/foreground-event proof rejects transient widget activation; native hide/minimize/topmost, closed window, resume/display recreation, fractional saved coordinates through three off/on cycles with a locked settings backup, saved preferences, account availability and shutdown.");
+    }
+
+    private static void CheckRefreshStateRecovery()
+    {
+        var settings = new AppSettings { FloatingWidgetEnabled = true, WidgetLeft = 100, WidgetTop = 100 };
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = new CodexQuotaSnapshot(CodexQuotaStatus.Available, null, now, now, null, null, null,
+            [new("weekly", 25, 10080, now.AddDays(7), CodexWindowKind.Weekly)], null);
+        var account = new CodexAccountView(new CodexAccountProfile("synthetic-refresh-recovery", "", "Work"), snapshot);
+        var overview = UsageAccountOverview.Create([account], account.Profile.Id);
+        using var controller = new FloatingWidgetController(_ => { });
+        foreach (var refreshing in new[] { true, false })
+        {
+            controller.Update(settings, overview, refreshing: refreshing);
+            var previous = controller.CurrentWindow;
+            controller.RecoverAfterEnvironmentChange();
+            Pump();
+            Check(!ReferenceEquals(previous, controller.CurrentWindow), "Environment recovery did not replace its widget.");
+            CheckRefreshButton();
+
+            previous = controller.CurrentWindow;
+            controller.Recreate(settings, overview);
+            Pump();
+            Check(!ReferenceEquals(previous, controller.CurrentWindow), "Explicit recreation did not replace its widget.");
+            CheckRefreshButton();
+
+            void CheckRefreshButton()
+            {
+                var button = (Button)controller.CurrentWindow!.FindName("WidgetRefreshButton");
+                var expected = refreshing ? UiText.CodexRefreshing : UiText.RefreshAll;
+                Check(button.IsEnabled == !refreshing && Equals(button.ToolTip, expected)
+                    && System.Windows.Automation.AutomationProperties.GetName(button) == expected,
+                    "Recreated widget lost the shared refresh button state or accessible label.");
+            }
+        }
     }
 
     public static void RunControlledForeground()
