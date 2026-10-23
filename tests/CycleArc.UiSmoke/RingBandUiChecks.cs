@@ -427,7 +427,7 @@ internal static class RingBandUiChecks
         using (var graphics = System.Drawing.Graphics.FromImage(sheet))
         using (var font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel))
         {
-            graphics.Clear(System.Drawing.Color.FromArgb(27, 31, 39));
+            graphics.Clear(System.Drawing.Color.FromArgb(30, 30, 30));
             for (var i = 0; i < values.Length; i++)
                 graphics.DrawString(values[i].Label, font, System.Drawing.Brushes.White, 96 + i * 64, 6);
             var row = 0;
@@ -482,7 +482,7 @@ internal static class RingBandUiChecks
         using (var drawing = visual.RenderOpen())
         {
             drawing.DrawRectangle(new SolidColorBrush(theme == AppTheme.Light
-                ? Color.FromRgb(245, 247, 250) : Color.FromRgb(18, 20, 24)), null, new Rect(0, 0, width, height));
+                ? Color.FromRgb(245, 247, 250) : Color.FromRgb(20, 20, 20)), null, new Rect(0, 0, width, height));
             double offset = 0;
             foreach (var image in images)
             {

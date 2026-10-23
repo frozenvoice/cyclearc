@@ -47,13 +47,13 @@ public sealed class WebViewTransport : IChatGptTransport, IWebViewInteractiveLog
         };
         _overlay = new Border
         {
-            Background = BrushOr("BgBrush", 0x12, 0x14, 0x18),
+            Background = BrushOr("BgBrush", 0x14, 0x14, 0x14),
             Child = _overlayText,
             Visibility = Visibility.Collapsed
         };
         _root = new Grid
         {
-            Background = BrushOr("BgBrush", 0x12, 0x14, 0x18)
+            Background = BrushOr("BgBrush", 0x14, 0x14, 0x14)
         };
         _root.Children.Add(_webView);
         _root.Children.Add(_overlay);
@@ -65,7 +65,7 @@ public sealed class WebViewTransport : IChatGptTransport, IWebViewInteractiveLog
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
             Content = _root,
             ShowInTaskbar = true,
-            Background = BrushOr("BgBrush", 0x12, 0x14, 0x18)
+            Background = BrushOr("BgBrush", 0x14, 0x14, 0x14)
         };
         if (Application.Current?.TryFindResource("AppWindow") is Style appWindow)
         {
@@ -518,7 +518,7 @@ public sealed class WebViewTransport : IChatGptTransport, IWebViewInteractiveLog
     }
 
     private static WebView2 CreateWebView() =>
-        new() { DefaultBackgroundColor = System.Drawing.Color.FromArgb(18, 20, 24) };
+        new() { DefaultBackgroundColor = System.Drawing.Color.FromArgb(20, 20, 20) };
 
     private void OnSourceChanged(object? sender, CoreWebView2SourceChangedEventArgs e)
     {
@@ -685,7 +685,7 @@ public sealed class WebViewTransport : IChatGptTransport, IWebViewInteractiveLog
     {
         _overlayText.Text = UiText.CheckingChatGptSession;
         _overlayText.Foreground = BrushOr("TextBrush", 0xEE, 0xF1, 0xF6);
-        _overlay.Background = BrushOr("BgBrush", 0x12, 0x14, 0x18);
+        _overlay.Background = BrushOr("BgBrush", 0x14, 0x14, 0x14);
         _overlay.Visibility = _session.CheckingOverlayVisible ? Visibility.Visible : Visibility.Collapsed;
         _host.Title = _session.LoginSurfaceVisible
             ? "CycleArc — ChatGPT sign-in"

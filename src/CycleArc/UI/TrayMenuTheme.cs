@@ -34,11 +34,11 @@ internal static class TrayMenuTheme
 
     internal static class DarkColors
     {
-        public static readonly DrawingColor Ground = DrawingColor.FromArgb(27, 31, 39);
-        public static readonly DrawingColor Text = DrawingColor.FromArgb(238, 241, 246);
-        public static readonly DrawingColor Disabled = DrawingColor.FromArgb(139, 147, 167);
-        public static readonly DrawingColor Highlight = DrawingColor.FromArgb(37, 52, 82);
-        public static readonly DrawingColor Line = DrawingColor.FromArgb(52, 60, 77);
+        public static readonly DrawingColor Ground = DrawingColor.FromArgb(30, 30, 30);
+        public static readonly DrawingColor Text = DrawingColor.FromArgb(238, 238, 238);
+        public static readonly DrawingColor Disabled = DrawingColor.FromArgb(150, 150, 150);
+        public static readonly DrawingColor Highlight = DrawingColor.FromArgb(55, 55, 55);
+        public static readonly DrawingColor Line = DrawingColor.FromArgb(58, 58, 58);
     }
 
     private sealed class DarkColorTable : ProfessionalColorTable

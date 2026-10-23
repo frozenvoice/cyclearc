@@ -154,7 +154,7 @@ public class ThemeSelectionStateTests
         Assert.Contains("CheckBoxBackgroundBrush", source, StringComparison.Ordinal);
         Assert.Contains("CheckBoxBorderBrush", source, StringComparison.Ordinal);
         Assert.Contains("CheckBoxDisabledCheckedBrush", source, StringComparison.Ordinal);
-        Assert.Contains("MediaColor(37, 42, 52)", source, StringComparison.Ordinal);
+        Assert.Contains("MediaColor(42, 42, 42)", source, StringComparison.Ordinal);
         Assert.Contains("MediaColor(255, 255, 255)", source, StringComparison.Ordinal);
         Assert.Contains("MediaColor(59, 82, 122)", source, StringComparison.Ordinal);
         Assert.Contains("MediaColor(147, 197, 253)", source, StringComparison.Ordinal);
