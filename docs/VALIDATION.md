@@ -2,6 +2,23 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- 0.11.1 release preparation (2026-10-23 Asia/Seoul):
+  - The local full `dev-run.ps1 -NoLaunch` gate passed in **7m 07s** on the
+    final 0.11.1 versioned source based on `d428193`: workflow/SDK/toolchain and
+    release guards, restore, Release build, desktop-instance and installer/script
+    regressions, **2,363 unit tests** (zero failed/skipped), argument-free UiSmoke
+    through `[ui-smoke] COMPLETE all default suites`, test-flavour build/publish,
+    self-contained publish, installer/portable packaging and package verification.
+    Host WPF DPI was **100% (96 DPI)**. Existing UiReuseChecks nullability and
+    Velopack packaging warnings remain; the gate exited 0.
+  - Release changes since 0.11.0 are the migrated Claude Desktop data location
+    fix, widget refresh-state preservation across recreation, and the existing
+    test-only PowerShell PE fixture correction. Version metadata is 0.11.1 /
+    0.11.1.0, with English/Korean patch notes.
+  - Synthetic install/update checks used isolated roots; the working installation
+    was not replaced. Public delivery still requires an explicitly authorized,
+    successful exact-SHA Windows full run and Release.ps1 artifact/hash verification.
+
 - Claude Desktop migrated data location (2026-10-23 Asia/Seoul):
   - Desktop **3.6556.2.0** was signed in and running with its user-data directory at
     `%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc`. The old packaged root held
