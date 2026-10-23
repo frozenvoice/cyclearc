@@ -13,6 +13,34 @@ opening Desktop created a new sample without a separate CLI model request. This 
 observed app-owned local schema, not a public Anthropic API contract.
 
 The current live proof was run with Claude Desktop **2.110.0.0** on 2026-09-16: the bound account returned 50% five-hour and 12% weekly usage, matching the visible Claude usage page. CycleArc obtains the Desktop OAuth access token from the app-owned config.json and Local State, decrypts it only in memory, then calls Anthropic first-party GET https://api.anthropic.com/api/oauth/profile and GET https://api.anthropic.com/api/oauth/usage. The profile response exposes the account email in its email field and is checked against the bound fingerprint before usage is accepted. Claude Desktop's own Electron GET /api/organizations/{org}/usage route is a separate internal path and is not used by CycleArc. None of these endpoints is an official public subscription-quota API.
+
+## Desktop data location review — 2026-10-23
+
+The installed, signed-in Claude Desktop **3.6556.2.0** runs with
+`--user-data-dir` pointing to `%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc`.
+That root contains the expected `config.json`, `Local State` and
+`plan-usage-history.json`. The old packaged root contains only a
+`.user-data-left.claude_pzs8sxrjxfjjc` migration marker. The existing credential
+reader accepts one valid credential when explicitly given the new root, while
+the old default discovery reports `claude-live-auth-required`. This explains how
+an active Desktop login can be misreported by older CycleArc builds. After the
+discovery fix, a separate read-only check with the built default reader and existing
+OAuth client verified the saved account binding and successfully fetched shared
+quota at **19:43 KST**. It neither wrote credentials/caches nor used a model request.
+
+Both credential and history discovery now include the exact migrated root while
+retaining the packaged and roaming roots. File bounds, memory-only decryption and
+account identity verification remain unchanged. The path and marker are observed
+app-owned interfaces, not an Anthropic compatibility contract.
+
+Current primary documentation was rechecked: the [Desktop installation guide](https://support.claude.com/en/articles/10065433-install-claude-desktop)
+describes launching and signing into Desktop; the [Code authentication guide](https://code.claude.com/docs/en/authentication)
+describes CLI login and Desktop OAuth; the [Pro/Max guide](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-or-max-plan)
+confirms shared Claude/Code limits; and the [statusLine reference](https://code.claude.com/docs/en/statusline)
+retains the five-hour/seven-day usage and reset fields. These reviewed pages do
+not document the migrated Windows credential/history location or establish a
+supported independent personal-subscription quota query.
+
 ## Finding and decision
 
 Claude Web, Desktop and Code consume the same subscription usage allowance.

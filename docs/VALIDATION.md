@@ -2,6 +2,31 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Claude Desktop migrated data location (2026-10-23 Asia/Seoul):
+  - Desktop **3.6556.2.0** was signed in and running with its user-data directory at
+    `%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc`. The old packaged root held
+    only a migration marker, so previous discovery reported `claude-live-auth-required`.
+    Credential and history readers now recognize the exact migrated root and retain
+    packaged/roaming compatibility, bounded reads and the existing identity gates.
+  - `dev-run.ps1 -DevelopmentOnly -TestFilter` covering
+    `ClaudeDesktopCredentialReaderTests`, `ClaudeDesktopUsageReaderTests`,
+    `ClaudeDesktopUsageTests`, `ClaudeLiveUsageTests`, `ClaudeLiveIntegrationTests`,
+    `ClaudeIdentityBindingTests` and `ClaudeFailureConnectionTests` passed: Release
+    solution build and **122 tests**, zero failed/skipped. The sandboxed attempt
+    could not restore; the same command succeeded in the normal local environment.
+    Three existing UiReuseChecks nullability warnings remain. No WPF behavior changed.
+  - New isolated regressions read encrypted fixtures and source-timed history from
+    each of the three known layouts with the other roots absent; preserve config
+    bytes; reject unrelated/nested credential folders; and select the newest receipt
+    for the intended organization while ignoring other organizations and folders.
+  - A separate read-only real-account check using the built reader's default discovery
+    found a valid Desktop credential. The existing OAuth client then verified the
+    saved account binding and successfully fetched shared quota at **19:43 KST**.
+    No credential/cache writes, token output, renewal, cookies or model request were
+    involved. This verifies the observed compatibility path, not a public API contract.
+  - No installed-app replacement, installer delivery, remote Actions or release was
+    performed for this source-only fix.
+
 - UI, usability and feature review for 0.11.0 (2026-10-22 Asia/Seoul):
   - Started from clean `main` `e0b8c83`. Presentation, local preference and tray changes only:
     no provider request, credential, cache format or identity rule changed. New settings

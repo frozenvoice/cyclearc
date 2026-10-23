@@ -14,6 +14,44 @@ public sealed class ClaudeDesktopCredentialReaderTests
     private const string FakeToken = "sk-ant-oat-test-profile";
     private const string FakeDpapiBlob = "fixture-dpapi-blob";
 
+    [Theory]
+    [InlineData("Local", "Claude-Data/claude_pzs8sxrjxfjjc")]
+    [InlineData("Local", "Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude")]
+    [InlineData("Roaming", "Claude")]
+    public void Read_DiscoversMigratedAndLegacyLayoutsWithoutOtherRoots(string folder, string relativePath)
+    {
+        using var root = new TempRoot();
+        var desktop = Path.Combine(root.Path, folder, relativePath);
+        WriteFixture(desktop, new Dictionary<string, object?>
+        {
+            [Key("user:profile")] = Entry(FakeToken, Now.AddHours(1))
+        });
+        var before = File.ReadAllBytes(Path.Combine(desktop, ClaudeDesktopCredentialReader.ConfigFileName));
+
+        var read = Reader(ClaudeDesktopDataPaths.KnownRoots(
+            Path.Combine(root.Path, "Local"), Path.Combine(root.Path, "Roaming")).ToArray()).Read(Now);
+
+        Assert.Null(read.Failure);
+        Assert.Equal(FakeToken, Assert.Single(read.Credentials).AccessToken);
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(desktop, ClaudeDesktopCredentialReader.ConfigFileName)));
+    }
+
+    [Fact]
+    public void Read_KnownRootsDoNotSearchOtherDesktopFolders()
+    {
+        using var root = new TempRoot();
+        foreach (var folder in new[] { "Claude-Data/claude_other", "Claude-Data/nested/claude_pzs8sxrjxfjjc" })
+            WriteFixture(Path.Combine(root.Path, folder), new Dictionary<string, object?>
+            {
+                [Key("user:profile")] = Entry(FakeToken, Now.AddHours(1))
+            });
+
+        var read = Reader(ClaudeDesktopDataPaths.KnownRoots(root.Path, null).ToArray()).Read(Now);
+
+        Assert.Empty(read.Credentials);
+        Assert.Equal("claude-live-auth-required", read.Failure);
+    }
+
     [Fact]
     public void Read_DecryptsV2Cache_AndPrefersLeastScopeProfileToken()
     {
@@ -104,10 +142,10 @@ public sealed class ClaudeDesktopCredentialReaderTests
         Assert.Equal("claude-live-auth-required", read.Failure);
     }
 
-    private static ClaudeDesktopCredentialReader Reader(string root)
+    private static ClaudeDesktopCredentialReader Reader(params string[] roots)
     {
         var key = KeyBytes();
-        return new([root], blob => blob.SequenceEqual(Encoding.UTF8.GetBytes(FakeDpapiBlob))
+        return new(roots, blob => blob.SequenceEqual(Encoding.UTF8.GetBytes(FakeDpapiBlob))
             ? key.ToArray()
             : null);
     }
