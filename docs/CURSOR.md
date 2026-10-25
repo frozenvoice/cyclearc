@@ -22,7 +22,7 @@ Cursor reloads `hooks.json` without a restart.
 | Account | Common `user_email` (string or null) | SHA-256 of the normalized email, matched against the server-verified email held in memory. Null, unmatched, protected-identity or duplicate-email accounts get no receipt |
 | Time | No timestamp field | Local receipt time, captured before stdin is read; a later receipt replaces an earlier one only if received later |
 | Scope | Hooks run in this Cursor installation | Always labelled "this PC" |
-| Model → allowance | No official mapping of models (including Auto) to Cursor Models / Other Models / Grok Bot | Always "Limit link unconfirmed"; the ring keeps its representative limit |
+| Model → allowance | Documented for legacy plans (checked 2026-10-25); see [Representative ring from the recent request model](#representative-ring-from-the-recent-request-model-2026-10-25) | The ring shows the documented pool of a recent verified request; otherwise it keeps the representative limit |
 
 Contract:
 
@@ -56,15 +56,60 @@ Contract:
   accounts. Duplicate generations and late receipts are ignored; concurrent hooks serialise
   through a one-second lock and replace the file atomically.
 - The desktop rereads the file only when its stamp changes on the existing two-second local
-  loop and only rebinds the popup row and widget tooltip. Receipts are never part of the quota
-  snapshot, freshness, alerts, account management, selection or caches, and never trigger a
-  usage request.
+  loop and only rebinds the popup row, the representative ring (popup, widget, tray) and the
+  widget tooltip; the same loop rebinds once when a linked receipt ages past 12 hours. Receipts
+  are never part of the quota snapshot, freshness, alerts, account management, selection or
+  caches, and never trigger a usage request.
 - Changes of the option are applied one at a time and always end on the latest saved value: an
   Off saved while a connection is still being written removes the entries right after it, and
   On saved during a removal adds them again.
 - Trade-off: each prompt waits for PowerShell and the receiver to start (bounded by the
   five-second hook timeout, fail-open). Inside Cursor on a development build this took 1.0 to
   1.4 s per prompt (2026-10-10, see [Validation](VALIDATION.md)).
+
+## Representative ring from the recent request model (2026-10-25)
+
+Sources, rechecked 2026-10-25: [Legacy Cursor plans](https://cursor.com/docs/account/pricing/legacy-cursor-plans),
+[Models & Pricing](https://cursor.com/docs/models-and-pricing) and the
+[hooks reference](https://cursor.com/docs/hooks). The earlier statement that no official
+model-to-allowance mapping exists is superseded for legacy plans:
+
+- "Cursor Models. Included usage for Grok 4.7, Grok 4.6, Grok 4.5, and Composer 2.5." "Other
+  Models. Included usage for third-party models." "When you select a third-party model, or Auto
+  routes to one, the request draws from Other Models." "Named third-party models in subagents
+  draw from Other Models too, even when the parent chat is on Auto, Grok, or Composer."
+- Models & Pricing lists Grok 4.5–4.7 and Composer 2.5 under Cursor models, and Anthropic
+  (Claude), OpenAI (GPT), Google (Gemini), Z.ai (GLM), Moonshot (Kimi) and Meta (Muse) models
+  under third-party models.
+- Auto's Cost mode draws from Cursor's pool "whatever model serves it", and Router modes bill at
+  the routed model; the hook does not report the routed model.
+- Grok Bot (`cursor-sand`) is a separate weekly allowance; no editor model is mapped to it.
+- The X Subscription has one weekly pool and no included third-party pool; such an account has
+  no `cursor-api` value to link.
+
+`CursorModelPools.Classify` uses `model_id` when Cursor supplied it, otherwise `model`, split on
+`-`, `_`, `:` and spaces:
+
+| First word | Pool |
+| --- | --- |
+| `claude`, `gpt`, `gemini`, `glm`, `kimi`, `muse` | Other Models (`cursor-api`) |
+| `composer`; `grok` followed by 4.5, 4.6 or 4.7 (optionally after `cursor`) | Cursor Models (`cursor-auto`) |
+| `auto`, `default`, `router`, `cursor-auto`, `cursor-router` | Routed: no switch |
+| Anything else, including `grok-code-fast-1`, `grok-4` and a missing model | Unknown: no switch |
+
+`CursorRingPolicy.Resolve` is the only rule; the popup, widget and tray all use it. It links the
+ring only when the integration is **Connected**, the account is verified (unique server-verified
+email matching the hook's hashed `user_email`), the snapshot is not identity-protected or signed
+out, the latest receipt (request, or its own completion) is at most 12 hours old and not more
+than five minutes in the future, its pool is Cursor Models or Other Models, and that pool's
+enabled window carries a finite percentage. The linked window is the snapshot's own instance, so
+values, order, bars, resets, alerts and precision are untouched; only `Ring.Window` and the
+highlighted summary line move. Every other case keeps the surface's existing choice and says why
+(**Auto · ring unchanged**, **Limit link unconfirmed**, **No Other Models value · ring
+unchanged**, **Not recent · ring unchanged**). A linked ring is labelled with the pool (**Ring
+shows Other Models**, widget tooltip **Ring target: Other Models · from the last request's
+model**), never as a model-specific percentage. The tooltip carries the model, the original
+receipt time, the linked limit and the caveat that the pool does not confirm billing.
 
 ## Selected-account on-demand card (2026-10-01)
 
