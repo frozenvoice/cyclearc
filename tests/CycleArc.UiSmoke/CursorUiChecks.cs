@@ -134,6 +134,7 @@ internal static class CursorUiChecks
             CheckLargeMonetaryWidget(snapshot, language, theme, directory);
             CheckWidgetPercentRounding(snapshot, language, theme, directory);
             CheckRecentActivity(snapshot, now, language, theme, directory);
+            CheckRecentModelSwitch(snapshot, language, theme, directory);
         }
         if (directory is not null)
             Console.WriteLine($"PASS: Cursor popup, widget and account controls EN/KO + Dark/Light; previews: {directory}");
@@ -442,7 +443,8 @@ internal static class CursorUiChecks
             }).ToArray()
         };
 
-    // A hook receipt adds one popup row and one widget tooltip line. It must not move the ring,
+    // A hook receipt adds one popup row and one widget tooltip line. A recent request whose model
+    // has a documented pool moves the ring to that pool only; it never changes the limit rows,
     // the selection, the freshness status or the widget's size, and says only what it proves.
     private static void CheckRecentActivity(CodexQuotaSnapshot snapshot, DateTimeOffset now,
         UiLanguage language, AppTheme theme, string? directory)
@@ -473,6 +475,11 @@ internal static class CursorUiChecks
             WidgetFixture.RenderWidget(widget, null);
             var baseSize = ((FrameworkElement)widget.Content).DesiredSize;
             var baseRingText = WidgetFixture.RingValue(widget);
+            var otherModels = snapshot.Windows.Single(window => window.LimitId == "cursor-api");
+            var linkedPopupRing = CodexRingPresentation.FromDetail(snapshot, UsagePeriodPreference.Auto, otherModels).RemainingValueText;
+            var linkedWidgetRing = UsagePercentFormatting.WidgetRemaining(otherModels);
+            Check(linkedPopupRing != baseRing || linkedWidgetRing != baseRingText,
+                "Cursor recent activity fixture cannot tell the Other Models ring from the representative one.");
             Check(!baseRows.Any(row => row.Label.Contains(UiText.T("this PC", "이 PC"), StringComparison.Ordinal)),
                 "Cursor popup shows recent activity while the integration is off.");
 
@@ -488,8 +495,12 @@ internal static class CursorUiChecks
                     $"Cursor recent activity ({name}) row says '{recent.Label}: {recent.Value}'.");
                 Check(FlyoutHeaderChecks.Status(flyout) == baseStatus,
                     $"Cursor recent activity ({name}) changed the usage freshness status.");
-                Check(((TextBlock)flyout.FindName("CodexRingValueText"))?.Text == baseRing,
-                    $"Cursor recent activity ({name}) moved the popup ring.");
+                // Only the verified Claude request links the ring, and only to Other Models.
+                var linked = name == "request";
+                Check(((TextBlock)flyout.FindName("CodexRingValueText"))?.Text == (linked ? linkedPopupRing : baseRing),
+                    $"Cursor recent activity ({name}) showed the wrong popup ring.");
+                Check(!linked || (((TextBlock)flyout.FindName("CodexRingSubLabel"))?.Text ?? "").StartsWith("Other Models", StringComparison.Ordinal),
+                    $"Cursor recent activity ({name}) popup ring does not name Other Models.");
                 Check(flyout.SelectedProfileId == profile.Id, $"Cursor recent activity ({name}) changed the selection.");
 
                 WidgetFixture.BindOne(widget, account);
@@ -498,7 +509,9 @@ internal static class CursorUiChecks
                 var size = ((FrameworkElement)widget.Content).DesiredSize;
                 Check(Math.Abs(size.Width - baseSize.Width) < 0.5 && Math.Abs(size.Height - baseSize.Height) < 0.5,
                     $"Cursor recent activity ({name}) resized the widget.");
-                Check(WidgetFixture.RingValue(widget) == baseRingText, $"Cursor recent activity ({name}) moved the widget ring.");
+                Check(WidgetFixture.RingValue(widget) == (linked ? linkedWidgetRing : baseRingText)
+                    && WidgetFixture.Module(widget).RingTargetText.Text == (linked ? "Other" : "Cursor"),
+                    $"Cursor recent activity ({name}) showed the wrong widget ring.");
                 Check(WidgetFixture.Tooltip(widget).Contains(UiText.T("Last request · this PC", "최근 요청 · 이 PC"), StringComparison.Ordinal),
                     $"Cursor widget tooltip ({name}) omits the recent request line.");
             }
@@ -516,8 +529,11 @@ internal static class CursorUiChecks
             Check(row.ActualWidth > 0 && clipped is null,
                 $"Cursor recent request row is clipped: '{clipped?.Text}' {clipped?.ActualWidth:0.##} < {clipped?.DesiredSize.Width:0.##}.");
             var detail = string.Join(" ", Descendants<TextBlock>(row).Select(text => text.Text));
-            Check(detail.Contains(CursorActivityPresentation.LinkText, StringComparison.Ordinal),
-                "Cursor recent request row does not say its limit link is unconfirmed.");
+            var shownLink = CursorRingPolicy.Resolve(snapshot, states[0].View, DateTimeOffset.Now);
+            Check(shownLink.State == CursorRingLinkState.Linked
+                && detail.Contains(CursorActivityPresentation.LinkText(shownLink), StringComparison.Ordinal)
+                && !detail.Contains("claude-4.5-sonnet " + linkedPopupRing, StringComparison.Ordinal),
+                "Cursor recent request row does not name the Other Models pool it linked.");
             if (directory is not null)
                 AccountUiChecks.Render(flyout, 440, null,
                     Path.Combine(directory, $"cursor-recent-popup-{language}-{theme}.png".ToLowerInvariant()));
@@ -526,6 +542,75 @@ internal static class CursorUiChecks
         {
             flyout.Close();
             widget.CloseWithoutActivation();
+        }
+    }
+
+    // Claude -> Grok -> Claude moves the popup and widget rings between Other Models and Cursor
+    // Models at every widget zoom and in compact mode, without resizing or changing the values.
+    private static void CheckRecentModelSwitch(CodexQuotaSnapshot snapshot, UiLanguage language, AppTheme theme,
+        string? directory)
+    {
+        var profile = new CodexAccountProfile("cursor-model-switch", "", UiText.T("Cursor account", "Cursor 계정"))
+        {
+            Provider = UsageProviderId.Cursor
+        };
+        var plain = new CodexAccountView(profile, snapshot, "cursor@example.invalid") { IsConnected = true };
+        CodexAccountView With(string modelId) => plain with
+        {
+            CursorActivity = new(CursorActivityIntegration.Connected, true,
+                new CursorRecentActivity(CursorActivityKind.Request, modelId, modelId, null, null, DateTimeOffset.Now.AddMinutes(-1)))
+        };
+        var steps = new[] { ("claude-opus-5-5", "cursor-api"), ("grok-4.7", "cursor-auto"), ("claude-sonnet-5-5", "cursor-api") };
+        var flyout = new FlyoutWindow { ShowActivated = false };
+        try
+        {
+            foreach (var (model, limit) in steps)
+            {
+                flyout.BindAccounts([With(model)], profile.Id, false);
+                var window = snapshot.Windows.Single(candidate => candidate.LimitId == limit);
+                Check(((TextBlock)flyout.FindName("CodexRingValueText")).Text
+                        == CodexRingPresentation.FromDetail(snapshot, UsagePeriodPreference.Auto, window).RemainingValueText
+                    && ((TextBlock)flyout.FindName("CodexRingSubLabel")).Text.StartsWith(
+                        CursorUsagePresentation.QuotaLabel(limit), StringComparison.Ordinal),
+                    $"Cursor popup ring did not follow {model} to {limit}.");
+            }
+        }
+        finally { flyout.Close(); }
+
+        foreach (var compact in new[] { false, true })
+        foreach (var zoom in new[] { 80, 100, 150 })
+        {
+            var widget = new FloatingWidget { ShowActivated = false };
+            try
+            {
+                widget.Apply(new AppSettings { WidgetCompact = compact });
+                widget.SetZoom(zoom, notify: false);
+                WidgetFixture.BindOne(widget, plain);
+                WidgetFixture.RenderWidget(widget, null);
+                var baseSize = ((FrameworkElement)widget.Content).DesiredSize;
+                var basePeriods = WidgetFixture.Module(widget).Periods.Select(line => line.RemainingText.Text).ToArray();
+                foreach (var (model, limit) in steps)
+                {
+                    WidgetFixture.BindOne(widget, With(model));
+                    WidgetFixture.RenderWidget(widget, directory is null || zoom != 100 || model != steps[0].Item1 ? null
+                        : Path.Combine(directory, $"cursor-model-ring-widget-{(compact ? "compact-" : "")}{LanguageSuffix(language)}-{ThemeSuffix(theme)}.png"));
+                    var module = WidgetFixture.Module(widget);
+                    var window = snapshot.Windows.Single(candidate => candidate.LimitId == limit);
+                    var size = ((FrameworkElement)widget.Content).DesiredSize;
+                    Check(module.Model!.Ring.Window?.LimitId == limit
+                        && module.RingValueText.Text == UsagePercentFormatting.WidgetRemaining(window)
+                        && module.RingTargetText.Text == CompactRingTarget(CursorUsagePresentation.QuotaLabel(limit)),
+                        $"Cursor widget ring did not follow {model} to {limit} at {zoom}% (compact {compact}).");
+                    Check(Math.Abs(size.Width - baseSize.Width) < 0.5 && Math.Abs(size.Height - baseSize.Height) < 0.5,
+                        $"Cursor widget resized when the ring followed {model} at {zoom}% (compact {compact}).");
+                    Check(module.Periods.Select(line => line.RemainingText.Text).SequenceEqual(basePeriods)
+                        && module.Model.Periods.Count(line => line.IsRepresentative) == 1
+                        && module.Model.Periods.Single(line => line.IsRepresentative).PeriodLabel
+                            == CursorUsagePresentation.QuotaLabel(limit),
+                        $"Cursor widget changed its limit rows or highlight for {model} at {zoom}% (compact {compact}).");
+                }
+            }
+            finally { widget.CloseWithoutActivation(); }
         }
     }
 

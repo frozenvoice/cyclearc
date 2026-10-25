@@ -56,6 +56,7 @@ public partial class App : Application
     private CursorHookStatus _cursorHookStatus = CursorHookStatus.NotInstalled;
     private CursorHookSynchronizer? _cursorHookSync;
     private bool _cursorActivityRequested;
+    private DateTimeOffset? _cursorReceiptExpiresAt;
     private string _dataRoot = "";
     public bool IsExiting { get; private set; }
 
@@ -188,7 +189,10 @@ public partial class App : Application
             if (!IsExiting) _widgetController?.MaintainVisibility();
             if (!IsExiting && _passiveTask.IsCompleted) _passiveTask = ReadPassiveUsageAsync();
             // Local file stamps only. A receipt rebinds the display; it never starts a usage request.
-            if (!IsExiting && ((_cursorActivity?.Poll() == true) | UpdateCursorIntegration())) RefreshSnapshot();
+            // A receipt that ages out of the ring rule rebinds once, also without a file change.
+            if (!IsExiting && ((_cursorActivity?.Poll() == true) | UpdateCursorIntegration()
+                    | _cursorReceiptExpiresAt <= DateTimeOffset.Now))
+                RefreshSnapshot();
         };
         _passiveTimer.Start();
         RefreshSnapshot();
@@ -366,6 +370,9 @@ public partial class App : Application
         if (IsExiting || _codex is null || _refresh is null) return;
         var accounts = _codex.Accounts;
         var overview = UsageAccountOverview.Create(DisplayAccounts(accounts), _codex.SelectedId, _settings.UsagePeriod);
+        var now = DateTimeOffset.Now;
+        _cursorReceiptExpiresAt = overview.Accounts.Select(account => CursorRingPolicy.LinkExpiresAt(account.CursorActivity))
+            .Where(expiry => expiry > now).Min();
         _tray.Update(overview, _settings.TrayIconStyle);
         NotifyAccountAlerts(accounts);
         QueueHistory(accounts);

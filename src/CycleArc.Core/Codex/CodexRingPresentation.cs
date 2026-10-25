@@ -32,9 +32,9 @@ public sealed record CodexRingPresentation(
     public string RemainingSubLabel { get; init; } = UiText.CodexLegendRemaining;
 
     public static CodexRingPresentation FromDetail(CodexQuotaSnapshot snapshot,
-        UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+        UsagePeriodPreference preference = UsagePeriodPreference.Auto, CodexQuotaWindow? representative = null)
     {
-        var ring = From(snapshot, preference);
+        var ring = From(snapshot, preference, representative);
         return ring with
         {
             // Format the original value, not the clamped geometry or widget glyph.
@@ -42,9 +42,17 @@ public sealed record CodexRingPresentation(
         };
     }
 
-    public static CodexRingPresentation From(CodexQuotaSnapshot snapshot, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+    /// <summary>
+    /// The ring of the snapshot's representative window. A <paramref name="representative"/>
+    /// chosen by a shared policy (Cursor's recent-request pool) is used only when it is one of
+    /// this snapshot's own windows; otherwise the period preference decides as before.
+    /// </summary>
+    public static CodexRingPresentation From(CodexQuotaSnapshot snapshot, UsagePeriodPreference preference = UsagePeriodPreference.Auto,
+        CodexQuotaWindow? representative = null)
     {
-        var window = snapshot.DisplayWindow(preference);
+        var window = representative is not null && snapshot.Windows.Any(candidate => ReferenceEquals(candidate, representative))
+            ? representative
+            : snapshot.DisplayWindow(preference);
         var used = snapshot.Status is CodexQuotaStatus.Available or CodexQuotaStatus.Stale or CodexQuotaStatus.Refreshing
             ? window?.UsedPercent : null;
         if (used is double raw && !double.IsFinite(raw)) used = null;
@@ -68,6 +76,10 @@ public sealed record CodexRingPresentation(
             RemainingSubLabel = RemainingLabel(window, snapshot.Provider)
         };
     }
+
+    /// <summary>An account's ring, with the Cursor recent-request pool rule the popup and widget also apply.</summary>
+    public static CodexRingPresentation For(CodexAccountView account, UsagePeriodPreference preference, DateTimeOffset now) =>
+        From(account.Snapshot, preference, CursorRingPolicy.Resolve(account.Snapshot, account.CursorActivity, now).Window);
 
     private static string RemainingLabel(CodexQuotaWindow? window, UsageProviderId provider)
     {

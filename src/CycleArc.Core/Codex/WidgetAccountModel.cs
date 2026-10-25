@@ -95,7 +95,12 @@ public sealed record WidgetAccountModel(
                 Windows = visibleWindows
             };
         }
-        var ring = CodexRingPresentation.FromDetail(ringSnapshot, preference);
+        // The shared Cursor rule may name the latest request's pool; it is one of the
+        // canonical windows above, so the summary below highlights the same limit.
+        var cursorLink = CursorUsagePresentation.IsCursor(snapshot) && !cursorProtected
+            ? CursorRingPolicy.Resolve(snapshot, account.CursorActivity, at)
+            : CursorRingLink.None;
+        var ring = CodexRingPresentation.FromDetail(ringSnapshot, preference, cursorLink.Window);
 
         // A mismatched or unverified identity must never surface the previous binding's numbers,
         // so its module shows the reconnection status alone.
@@ -118,7 +123,7 @@ public sealed record WidgetAccountModel(
             snapshot.Status == CodexQuotaStatus.Stale,
             selected,
             CursorUsagePresentation.IsCursor(snapshot)
-                ? account.DisplayName + Environment.NewLine + CursorTooltip(snapshot, ring, at, cursorProtected, account.CursorActivity)
+                ? account.DisplayName + Environment.NewLine + CursorTooltip(snapshot, ring, at, cursorProtected, account.CursorActivity, cursorLink)
                 : account.DisplayName + Environment.NewLine + CycleArcPresentation.Tooltip(ringSnapshot, preference));
 
         return model with
@@ -209,20 +214,12 @@ public sealed record WidgetAccountModel(
         foreach (var key in new[] { "auto", "api", "sand" })
         {
             var window = snapshot.Windows.FirstOrDefault(candidate =>
-                candidate.IsEnabled != false && CursorPeriodKey(candidate.LimitId) == key);
+                candidate.IsEnabled != false && CursorUsagePresentation.AllowanceKey(candidate.LimitId) == key);
             if (window is not null) result.Add(window);
         }
 
         return result;
     }
-
-    private static string? CursorPeriodKey(string? limitId) => limitId?.Trim().ToLowerInvariant() switch
-    {
-        "cursor-auto" or "auto" => "auto",
-        "cursor-api" or "api" => "api",
-        "cursor-sand" or "sand" => "sand",
-        _ => null
-    };
 
     private static string CursorStatusText(CodexQuotaSnapshot snapshot, DateTimeOffset now)
     {
@@ -248,7 +245,7 @@ public sealed record WidgetAccountModel(
     }
 
     private static string CursorTooltip(CodexQuotaSnapshot snapshot, CodexRingPresentation ring,
-        DateTimeOffset at, bool protectedSnapshot, Providers.Cursor.CursorActivityView? activity)
+        DateTimeOffset at, bool protectedSnapshot, CursorActivityView? activity, CursorRingLink link)
     {
         var lines = new List<string>();
         var status = CursorStatusText(snapshot, at);
@@ -261,8 +258,10 @@ public sealed record WidgetAccountModel(
         var ringTarget = !protectedSnapshot && ring.Window is not null
             ? CursorUsagePresentation.QuotaLabel(ring.Window.LimitId)
             : UiText.T("unknown", "확인 불가");
-        lines.Add(UiText.T($"Ring target: {ringTarget}", $"링 대상: {ringTarget}"));
-        if (Providers.Cursor.CursorActivityPresentation.TooltipLine(activity, at) is { } recent) lines.Add(recent);
+        lines.Add(link.State == CursorRingLinkState.Linked && ReferenceEquals(link.Window, ring.Window)
+            ? UiText.T($"Ring target: {ringTarget} · from the last request's model", $"링 대상: {ringTarget} · 최근 요청 모델 기준")
+            : UiText.T($"Ring target: {ringTarget}", $"링 대상: {ringTarget}"));
+        if (CursorActivityPresentation.TooltipLine(activity, link, at) is { } recent) lines.Add(recent);
 
         if (!protectedSnapshot)
             lines.AddRange(snapshot.Windows.Select(CursorWindowTooltip));

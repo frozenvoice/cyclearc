@@ -701,10 +701,13 @@ public partial class FlyoutWindow : Window
         {
             Windows = snapshot.Windows.Where(window => window.LimitId != "cursor-on-demand").ToArray()
         } : snapshot;
-        var ringWindow = CodexRingPresentation.FromDetail(snapshot, UsagePeriod).Window;
+        // The widget and tray apply the same rule, so all three name the same representative limit.
+        var now = DateTimeOffset.Now;
+        var cursorLink = cursor ? CursorRingPolicy.Resolve(snapshot, _cursorActivity, now) : CursorRingLink.None;
+        var ringWindow = CodexRingPresentation.FromDetail(snapshot, UsagePeriod, cursorLink.Window).Window;
         var (primary, secondary, primaryStart) = CodexDisplayFormatting.DetailSections(detailSnapshot, ringWindow);
         // The recent request sits after the check time: it is a local receipt, not quota freshness.
-        if (cursor && CursorActivityPresentation.Row(_cursorActivity, ringWindow?.LimitId, DateTimeOffset.Now) is { } recent)
+        if (cursor && CursorActivityPresentation.Row(_cursorActivity, cursorLink, ringWindow?.LimitId, now) is { } recent)
             secondary = [.. secondary, recent];
         // Rows draw with the brushes and style resolved when they were made, so a theme change
         // (new brush instances) rebuilds them just like changed text does.
@@ -724,7 +727,7 @@ public partial class FlyoutWindow : Window
         CodexRowsEmptyText.Visibility = primary.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         CodexSecondaryRowsHost.Visibility = secondary.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        ApplyCodexRing(snapshot);
+        ApplyCodexRing(snapshot, cursorLink.Window);
     }
 
     // One detail row: label and value, with the value's detail (reset countdown, time) below it.
@@ -1080,9 +1083,9 @@ One credit will be consumed.",
         return true;
     }
 
-    private void ApplyCodexRing(CodexQuotaSnapshot snapshot)
+    private void ApplyCodexRing(CodexQuotaSnapshot snapshot, CodexQuotaWindow? representative)
     {
-        var ring = CodexRingPresentation.FromDetail(snapshot, UsagePeriod);
+        var ring = CodexRingPresentation.FromDetail(snapshot, UsagePeriod, representative);
         UpdatePeriodControls(snapshot, ring);
         // The ring fills with what is left. Its color is still the usage band of the unrounded
         // value, and an exhausted limit names itself rather than relying on an empty ring.
