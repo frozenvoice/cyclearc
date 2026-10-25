@@ -4212,7 +4212,7 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   to the ring. Contract and sources: [Cursor](CURSOR.md#representative-ring-from-the-recent-request-model-2026-10-25).
 - Synthetic unit tests (Linux cloud VM, .NET SDK 10.0.402,
   `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release`): the new
-  `CursorRingPolicyTests` (62 cases) parse the production `usage-summary`/Sand fixtures and
+  `CursorRingPolicyTests` (52 cases) parse the production `usage-summary`/Sand fixtures and
   Cursor 3.24-shaped hook payloads through `CursorHookEvent.Parse`, inbox merge and account
   attribution. They cover Claude with Cursor Models 100%/Other Models 95% selecting Other
   Models 95% (ring window, remainder, target, highlighted line, widget tooltip, popup beside-row,
@@ -4221,7 +4221,7 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   unverified and empty; three accounts; an older generation's completion after a newer request
   and a late receipt; missing, disabled and unknown pools; expired and future receipts; a stale
   quota; identity mismatch and sign-out; and unchanged Codex/Claude rings and usage alerts.
-  The full suite ran 2,428 tests: the same 75 Codex/settings/shortcut tests fail as on the
+  The full suite ran 2,415 tests (2,340 pass): the same 75 Codex/settings/shortcut tests fail as on the
   unchanged base in this Linux environment (Windows process and file semantics), and nothing
   else fails. `FlyoutCardRedesignTests` now expects the shared-policy call.
 - `src/CycleArc` and `tests/CycleArc.UiSmoke` compile on Linux with
