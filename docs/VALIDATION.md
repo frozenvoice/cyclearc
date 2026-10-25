@@ -2,6 +2,19 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- 0.11.2 release preparation (2026-10-25 Asia/Seoul):
+  - The local full `dev-run.ps1 -NoLaunch` gate passed in **7m 49s** on the final
+    0.11.2 versioned source based on `43bdd74`: workflow/SDK/toolchain and release
+    guards, restore, Release build, desktop-instance and installer/script regressions,
+    **2,365 unit tests** (zero failed/skipped), `[ui-smoke] COMPLETE all default suites`,
+    test-flavour build/publish, self-contained publish, installer/portable packaging and
+    package verification. Host WPF DPI was **100% (96 DPI)**.
+  - Release changes since 0.11.1 are the neutral-gray dark theme and the redesigned
+    setup window. Version metadata is 0.11.2 / 0.11.2.0, with English/Korean notes.
+  - The user explicitly authorized the `Windows` full run and `windows-e2e.yml` for the
+    release commit, because the setup wrapper changed. Publication depends on both
+    succeeding for the exact SHA and on Release.ps1 artifact/hash verification.
+
 - Setup window dark redesign (2026-10-25 Asia/Seoul):
   - `CycleArc-Setup.exe` keeps the Native AOT Win32 wrapper and embedded Velopack engine;
     the window is now frameless and custom drawn (`SetupScene`/`SetupCanvas`/`SetupBackdrop`)
