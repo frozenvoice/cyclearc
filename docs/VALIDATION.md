@@ -2,6 +2,31 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Setup window dark redesign (2026-10-25 Asia/Seoul):
+  - `CycleArc-Setup.exe` keeps the Native AOT Win32 wrapper and embedded Velopack engine;
+    the window is now frameless and custom drawn (`SetupScene`/`SetupCanvas`/`SetupBackdrop`)
+    while every button, checkbox and text line stays a real control with the previous IDs.
+    Install logic only gained stage notifications for the status line.
+  - Local full `dev-run.ps1 -NoLaunch` passed in **7m 48s**: guards, Release build,
+    desktop-instance and installer/script regressions, **2,365 unit tests** (zero
+    failed/skipped), `[ui-smoke] COMPLETE all default suites`, publish, package and
+    package-verify. Host DPI **100% (96 DPI)**. The first attempt failed `release-guard`
+    because an "Open log folder" button launched `explorer.exe`; the button was removed
+    rather than the guard, and the failure panel shows the log path first instead.
+  - The packaged `publish/.dev-velopack/CycleArc-Setup.exe` passed `--selftest` (layout
+    and EN/KO text fit at 96-240 DPI); opened, it showed the confirmation page for the
+    existing legacy-root installation without installing, and Cancel exited 2 with the
+    running desktop and desktop shortcut state unchanged.
+  - Live window flows used a locally built wrapper around a fake engine that writes only
+    to a scratch `--installto` folder: confirm → progress → done (exit 0, Run cleared,
+    nothing launched), and failure (exit 1, log path shown, no launch); Enter/Esc/Tab,
+    WM_CLOSE and Esc ignored during install, close box disabled. These are component
+    checks, not an installed-app update. 125/150/200% were checked through
+    `--render-preview` images of the same drawing code, not live at those scales.
+  - Not run: `Verify-SetupUi.ps1` and `Verify-InstalledUpdate.ps1` (they install for the
+    current Windows user and need a disposable VM/user), Windows 10 frame/corner appearance,
+    and a live multi-monitor DPI change.
+
 - 0.11.1 release preparation (2026-10-23 Asia/Seoul):
   - The local full `dev-run.ps1 -NoLaunch` gate passed in **7m 07s** on the
     final 0.11.1 versioned source based on `d428193`: workflow/SDK/toolchain and

@@ -14,7 +14,7 @@ Windows 트레이에서 **여러 Codex·Claude·Cursor 프로필의 사용률, �
 
 배포 파일은 **`CycleArc-Setup.exe`**입니다. Velopack 1.2.0 기반 설치기가 필요한 앱 파일을 관리하며 런타임이 포함되어 별도 .NET 설치가 필요 없습니다.
 
-[최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 **Release · Windows x64** 설치 프로그램을 다운로드해 실행하세요. 새 안정 설치는 `%LOCALAPPDATA%\Programs\CycleArc` 아래에 두며, 기존 설치는 등록된 위치를 유지합니다(예전 `%LOCALAPPDATA%\CycleArc` 포함). 사용자 설정·계정·사용량 캐시는 기존 `%LOCALAPPDATA%\ProMeter`에 유지합니다.
+[최신 릴리즈](https://github.com/frozenvoice/cyclearc/releases/latest)에서 **Release · Windows x64** 설치 프로그램을 다운로드해 실행하세요. 새 안정 설치는 `%LOCALAPPDATA%\Programs\CycleArc` 아래에 두며, 기존 설치는 등록된 위치를 유지합니다(예전 `%LOCALAPPDATA%\CycleArc` 포함). 사용자 설정·계정·사용량 캐시는 기존 `%LOCALAPPDATA%\ProMeter`에 유지합니다. 설치에 실패하면 설치 창이 설치 로그 위치와 원인을 복사할 수 있는 텍스트로 보여 주며, CycleArc를 실행하지 않습니다.
 
 **v0.10.1부터** 설치형 `CycleArc-Setup.exe`와 설치 없는 `CycleArc-<버전>-win-x64-portable.zip`을 **같은 GitHub Release에 함께 첨부**합니다. 두 배포 파일은 같은 검증된 Windows x64 실행 파일을 사용합니다. 포터블 ZIP은 쓰기 가능한 폴더에 압축을 풀고 단일 self-contained `CycleArc.exe`를 그 자리에서 실행합니다. 별도 .NET 설치나 CycleArc 관리형 설치가 필요 없으며 자신을 설치하거나 시작 메뉴·Windows 설치된 앱 항목·자동 시작 등록을 만들지 않습니다. 설치·트레이 레지스트리 마이그레이션과 Velopack 초기화·업데이트도 수행하지 않습니다. 자동 시작 설정은 포터블에서 사용할 수 없고 기존 저장된 설치형 설정은 유지합니다. 계정/설정은 기존 `%LOCALAPPDATA%\ProMeter`를 공용으로 사용하므로 계정을 격리하는 방식이 아닙니다. 포터블 업데이트는 앱을 종료한 뒤 새 ZIP의 `CycleArc.exe`를 **같은 폴더 경로**에 교체하고 다시 실행하세요. **기존 0.10.0 공개 릴리즈와 태그는 변경하지 않습니다.**
 

@@ -21,9 +21,13 @@ internal static class Program
     private static int Main(string[] args)
     {
         // A build-time check of the scaled layout: no control may fall outside the client
-        // area or overlap another at any supported scale. Installs nothing.
+        // area or overlap another, and no text may outgrow its box, at any supported scale.
+        // Installs nothing.
         if (args.Any(argument => argument.Equals("--selftest", StringComparison.OrdinalIgnoreCase)))
             return SelfTest();
+        // Writes every page as an image for review. Opens no window and installs nothing.
+        var preview = ReadValue(args, "--render-preview", "--render-preview");
+        if (preview is not null) return SetupPreview.Render(preview);
 
         var silent = args.Any(argument =>
             argument.Equals("--silent", StringComparison.OrdinalIgnoreCase)
@@ -61,8 +65,9 @@ internal static class Program
     private static int SelfTest()
     {
         var failures = new List<string>();
-        foreach (var dpi in new uint[] { 96, 120, 144, 168, 192, 240 })
+        foreach (var dpi in SetupPreview.Scales)
             failures.AddRange(SetupLayout.Problems(dpi));
+        failures.AddRange(SetupPreview.TextProblems());
         foreach (var failure in failures) Console.Error.WriteLine(failure);
         Console.Out.WriteLine(failures.Count == 0
             ? "setup layout ok at 96-240 dpi"

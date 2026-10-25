@@ -5,6 +5,9 @@ namespace CycleArc.Setup;
 
 internal enum EngineOutcome { Succeeded, Failed }
 
+/// <summary>What the installation is doing now, for the progress screen. Reported, never estimated.</summary>
+internal enum InstallStage { PreparingDesktop, Extracting, Installing, Finishing }
+
 /// <param name="LogPath">Where the log really is, or empty when none could be written.</param>
 /// <param name="LogError">
 /// Why no log exists, when that is the case. Kept apart from <paramref name="Detail"/> so a
@@ -40,8 +43,9 @@ internal static class EngineRunner
     /// a build script finds the log where it asked for it; otherwise one is made alongside the
     /// extracted engine and copied next to the installation afterwards.
     /// </param>
+    /// <param name="stage">Told as each real step begins; the window shows it as text.</param>
     public static EngineResult Install(string directory, CancellationToken token, string? logPath = null,
-        bool? createDesktopShortcut = null)
+        bool? createDesktopShortcut = null, Action<InstallStage>? stage = null)
     {
         // The build-local acknowledgement is for this installer process only. Capture it
         // before clearing the process environment so the embedded engine and the app launched
@@ -54,6 +58,7 @@ internal static class EngineRunner
         // after the person presses Install. Do not extract or start the engine until that
         // parent has acknowledged the handoff. A direct Setup.exe launch has no ACK path and
         // proceeds exactly as it did before this boundary existed.
+        if (!string.IsNullOrWhiteSpace(desktopAcknowledgementPath)) stage?.Invoke(InstallStage.PreparingDesktop);
         var preparation = SetupDesktopPreparation.WaitForParent(
             acknowledgementPath: desktopAcknowledgementPath ?? string.Empty,
             cancellationToken: token);
@@ -72,6 +77,7 @@ internal static class EngineRunner
             // Settled before the engine runs and never moved afterwards, so the path reported
             // on a failure is the path the log is actually at.
             logPath = PrepareLogPath(logPath, out logError);
+            stage?.Invoke(InstallStage.Extracting);
             var enginePath = Path.Combine(work, "CycleArc-Setup-engine.exe");
             if (!TryExtract(enginePath, out var extractError))
                 return new EngineResult(EngineOutcome.Failed, -1, logPath ?? "", extractError, logError);
@@ -95,6 +101,7 @@ internal static class EngineRunner
                 start.ArgumentList.Add(logPath);
             }
 
+            stage?.Invoke(InstallStage.Installing);
             using var process = Process.Start(start);
             if (process is null)
                 return new EngineResult(EngineOutcome.Failed, -1, logPath ?? "", "The installer engine did not start.", logError);
@@ -113,6 +120,7 @@ internal static class EngineRunner
             if (exit != 0)
                 return new EngineResult(EngineOutcome.Failed, exit, logPath ?? "",
                     logPath is null ? null : ReadTail(logPath), logError);
+            stage?.Invoke(InstallStage.Finishing);
             if (!InstallTargets.Looks(directory))
                 return new EngineResult(EngineOutcome.Failed, exit, logPath ?? "",
                     "The installer finished but no installation is present at " + directory + ".", logError);
