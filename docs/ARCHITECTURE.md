@@ -22,6 +22,17 @@ confirmation, progress and completion screens and runs the embedded Velopack 1.2
 `--silent`. Velopack's own installer is one-click by design and has no confirmation screen, which
 is why the window is a wrapper rather than an engine option. The engine still performs the
 installation, and the wrapper is what the checksum manifest and the release asset list describe.
+The window is a frameless dark Win32 window drawn without new runtimes: `SetupScene` paints the
+backdrop, text and controls into an offscreen DIB with signed-distance-field shapes and GDI
+ClearType text, while every button, checkbox and text line remains a real Win32 control with
+its original ID, so keyboard navigation, accessibility and `Verify-SetupUi.ps1` keep working.
+`SetupWindow` keeps the installing logic. The progress bar is indeterminate because the engine
+reports completion, not a percentage; the line under the heading names the real stage, and the
+bar fills only once the engine has succeeded. A failure shows the log path first, then the cause and the
+engine exit code, as selectable text; the wrapper still launches only the engine and the
+installed app. `--selftest` checks the scaled
+layout and both languages' text at 96-240 DPI; `--render-preview <dir>` writes every page as
+BMP images for review. Neither opens a window nor installs anything.
 
 A new installation goes to `%LOCALAPPDATA%\Programs\CycleArc`. An installation that already
 exists keeps its own location - resolved from its registered uninstall entry, then from a Velopack

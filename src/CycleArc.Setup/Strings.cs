@@ -7,7 +7,8 @@ namespace CycleArc.Setup;
 internal static class Strings
 {
     // Native AOT uses invariant globalization; ask Windows for the user's UI language.
-    private static readonly bool Korean = (Native.GetUserDefaultUILanguage() & 0x03ff) == 0x12;
+    // The self-test sets it to check both languages' text against the layout.
+    public static bool Korean { get; set; } = (Native.GetUserDefaultUILanguage() & 0x03ff) == 0x12;
 
     private static string T(string english, string korean) => Korean ? korean : english;
 
@@ -32,24 +33,38 @@ internal static class Strings
     public static string CancelButton => T("Cancel", "취소");
     public static string FinishButton => T("Finish", "마침");
     public static string CloseButton => T("Close", "닫기");
+    public static string MinimizeButton => T("Minimize", "최소화");
 
-    public static string ProgressHeading => T("Installing CycleArc", "CycleArc 설치 중");
+    public static string ProgressHeadingInstall => T("Installing CycleArc...", "CycleArc 설치 중...");
+    public static string ProgressHeadingUpdate => T("Updating CycleArc...", "CycleArc 업데이트 중...");
     public static string ProgressBody => T(
         "This takes a moment. Please leave this window open.",
         "잠시 걸립니다. 이 창을 닫지 말고 기다려 주세요.");
+    // What the installation is really doing; the bar itself stays indeterminate because the
+    // engine reports completion, not a percentage.
     public static string ProgressClosing => T(
-        "Closing the running CycleArc...", "실행 중인 CycleArc를 종료하는 중...");
+        "Waiting for the running CycleArc to close...", "실행 중인 CycleArc가 종료되기를 기다리는 중...");
+    public static string ProgressPreparing => T("Preparing the installer...", "설치 엔진을 준비하는 중...");
     public static string ProgressCopying => T("Installing files...", "파일을 설치하는 중...");
+    public static string ProgressFinishing => T(
+        "Applying shortcuts and checking the installation...", "바로가기를 적용하고 설치를 확인하는 중...");
 
-    public static string DoneHeading => T("CycleArc is installed", "CycleArc 설치 완료");
+    public static string DoneHeadingInstall => T("Installation complete", "설치가 완료되었습니다");
+    public static string DoneHeadingUpdate => T("Update complete", "업데이트가 완료되었습니다");
     public static string DoneBody => T(
         "You can start CycleArc now, or from the Start menu later.",
         "지금 CycleArc를 실행하거나, 나중에 시작 메뉴에서 열 수 있습니다.");
     public static string RunCheckbox => T("Run CycleArc", "CycleArc 실행");
 
     public static string FailedHeading => T("Installation failed", "설치하지 못했습니다");
+    public static string FailedHeadingUpdate => T("Update failed", "업데이트하지 못했습니다");
     public static string FailedBodyPrefix => T(
-        "Setup could not be completed.", "설치를 완료하지 못했습니다.");
+        "Setup could not be completed. The cause and the log location are below.",
+        "설치를 완료하지 못했습니다. 아래에서 원인과 로그 위치를 확인하세요.");
+    public static string FailedNoDetail => T(
+        "The installer stopped without reporting a cause.",
+        "설치 엔진이 원인을 알리지 않고 중단되었습니다.");
+    public static string FailedExitCode => T("Installer exit code", "설치 엔진 종료 코드");
     public static string ShortcutFailedPrefix => T(
         "CycleArc was installed, but the desktop shortcut choice could not be applied:",
         "CycleArc는 설치했지만 바탕화면 바로가기 설정을 적용하지 못했습니다:");

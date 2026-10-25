@@ -44,6 +44,43 @@ public sealed class SetupLayoutTests
         }
     }
 
+    // The installer cannot be cancelled once the engine runs, so the progress page offers no
+    // action at all; the confirmation and completion pages keep the choices the UI
+    // verification script drives by control ID.
+    [Fact]
+    public void EachPageShowsOnlyItsOwnActions()
+    {
+        static SetupElement[] On(SetupPage page) => SetupLayout.Page(page).Select(entry => entry.Element).ToArray();
+
+        var progress = On(SetupPage.Progress);
+        foreach (var action in new[] { SetupElement.Primary, SetupElement.Secondary,
+                     SetupElement.DesktopShortcut, SetupElement.Run })
+            Assert.DoesNotContain(action, progress);
+        Assert.Contains(SetupElement.Progress, progress);
+        Assert.Contains(SetupElement.Status, progress);
+
+        Assert.Contains(SetupElement.DesktopShortcut, On(SetupPage.Confirm));
+        Assert.Contains(SetupElement.Secondary, On(SetupPage.Confirm));
+        Assert.DoesNotContain(SetupElement.Run, On(SetupPage.Confirm));
+        Assert.Contains(SetupElement.Run, On(SetupPage.Done));
+        Assert.DoesNotContain(SetupElement.DesktopShortcut, On(SetupPage.Done));
+        Assert.Contains(SetupElement.Detail, On(SetupPage.Failed));
+        Assert.DoesNotContain(SetupElement.Run, On(SetupPage.Failed));
+        foreach (var page in SetupLayout.Pages)
+        {
+            Assert.Contains(SetupElement.Minimize, On(page));
+            Assert.Contains(SetupElement.Close, On(page));
+        }
+    }
+
+    [Fact]
+    public void TheWindowIsACompactLandscapeFrame()
+    {
+        Assert.InRange(SetupLayout.ClientWidth, 560, 640);
+        Assert.InRange(SetupLayout.ClientHeight, 320, 380);
+        Assert.True(SetupLayout.ClientWidth > SetupLayout.ClientHeight);
+    }
+
     // A frame that is not scaled is the defect this guards: at 200% the client area doubles,
     // so the scaled boxes only fit if the frame was sized from the scaled client size.
     [Fact]
