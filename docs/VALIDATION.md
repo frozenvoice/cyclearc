@@ -4236,3 +4236,41 @@ remaining-quota count. Subsequent 13:37–13:38 retries failed at page preparati
   high-contrast resource overrides; actual OS High Contrast, real account/provider calls,
   installation, packaging and remote Actions were not run. No new staging/capture directory
   was retained; pre-existing default output and dependency/build caches were preserved.
+
+### 2026-10-25 — Representative Cursor ring follows the recent request's documented pool
+
+- Cause: hook receipts reached the popup row and widget tooltip only. `WidgetAccountModel`
+  ordered the canonical Cursor windows (Cursor Models, Other Models, Grok Bot) and
+  `CodexRingPresentation.FromDetail` picked the first known one regardless of the model, so a
+  Claude request with Cursor Models 100% left and Other Models 95% left still showed 100%.
+  The popup and tray picked from the full snapshot the same way.
+- Change: `CursorModelPools` maps documented model families to `cursor-auto` / `cursor-api`;
+  `CursorRingPolicy` links a verified, at most 12-hour-old receipt to that pool's received
+  window, and the popup, widget, tray icon and tray other-account summary all pass that window
+  to the ring. Contract and sources: [Cursor](CURSOR.md#representative-ring-from-the-recent-request-model-2026-10-25).
+- Synthetic unit tests (Linux cloud VM, .NET SDK 10.0.402,
+  `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release`): the new
+  `CursorRingPolicyTests` (52 cases) parse the production `usage-summary`/Sand fixtures and
+  Cursor 3.24-shaped hook payloads through `CursorHookEvent.Parse`, inbox merge and account
+  attribution. They cover Claude with Cursor Models 100%/Other Models 95% selecting Other
+  Models 95% (ring window, remainder, target, highlighted line, widget tooltip, popup beside-row,
+  recent row and tooltip, tray window) in EN/KO; Claude/Grok/Composer/GPT switching; model id
+  variants and `model_id` precedence; Auto, unknown and missing models; hook off, disconnected,
+  unverified and empty; three accounts; an older generation's completion after a newer request
+  and a late receipt; missing, disabled and unknown pools; expired and future receipts; a stale
+  quota; identity mismatch and sign-out; and unchanged Codex/Claude rings and usage alerts.
+  The full suite ran 2,415 tests (2,340 pass): the same 75 Codex/settings/shortcut tests fail as on the
+  unchanged base in this Linux environment (Windows process and file semantics), and nothing
+  else fails. `FlyoutCardRedesignTests` now expects the shared-policy call.
+- `src/CycleArc` and `tests/CycleArc.UiSmoke` compile on Linux with
+  `-p:EnableWindowsTargeting=true` (compile only; the three existing `UiReuseChecks` nullable
+  warnings remain). `CursorUiChecks` now expects the Claude request to move the popup and widget
+  ring to Other Models and adds Claude→Grok→Claude at widget zoom 80/100/150% and in compact
+  mode, checking ring value, target, unchanged rows, highlight and size.
+- **Not run:** Windows Release build, UiSmoke (default suite and the changed Cursor checks),
+  visual EN/KO Dark/Light inspection, host-DPI checks and the `dev-run.ps1` gates, because the
+  environment is Linux without WPF. These must run on Windows before this reaches `main`.
+- **Real Cursor events: not verified in this change.** The user's Cursor configuration and
+  hook setting were not read or changed. The only real model id on record is `claude-opus-5-5`
+  (2026-10-10 receipt above). Ids for GPT, Gemini, Grok, Composer and Auto follow the official
+  pages and this environment's model names, not observed hook payloads.

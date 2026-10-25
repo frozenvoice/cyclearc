@@ -411,10 +411,30 @@ public static class CursorActivityPresentation
         return null;
     }
 
-    public static string LinkText => UiText.T("Limit link unconfirmed", "한도 연결 미확인");
+    public static string UnconfirmedLinkText => UiText.T("Limit link unconfirmed", "한도 연결 미확인");
+
+    /// <summary>
+    /// What the latest request did to the ring. A linked ring names the shared pool, never the
+    /// model, so a remainder is not read as a separate limit for that model.
+    /// </summary>
+    public static string LinkText(CursorRingLink link)
+    {
+        var pool = CursorModelPools.LimitId(link.Pool) is { } id ? CursorUsagePresentation.QuotaLabel(id) : null;
+        return link.State switch
+        {
+            CursorRingLinkState.Linked when link.Window is { } window => UiText.T(
+                $"Ring shows {CursorUsagePresentation.QuotaLabel(window.LimitId)}",
+                $"링: {CursorUsagePresentation.QuotaLabel(window.LimitId)} 표시"),
+            CursorRingLinkState.Routed => UiText.T("Auto · ring unchanged", "Auto · 링 유지"),
+            CursorRingLinkState.PoolUnavailable when pool is not null => UiText.T(
+                $"No {pool} value · ring unchanged", $"{pool} 값 없음 · 링 유지"),
+            CursorRingLinkState.Expired => UiText.T("Not recent · ring unchanged", "최근 아님 · 링 유지"),
+            _ => UnconfirmedLinkText
+        };
+    }
 
     /// <summary>One popup row, or null when the integration is off.</summary>
-    public static CodexDisplayRow? Row(CursorActivityView? view, string? ringLimitId, DateTimeOffset now)
+    public static CodexDisplayRow? Row(CursorActivityView? view, CursorRingLink link, string? ringLimitId, DateTimeOffset now)
     {
         if (view is null || view.Integration == CursorActivityIntegration.Off) return null;
         var label = Label(view);
@@ -424,21 +444,22 @@ public static class CursorActivityPresentation
         if (!view.AccountVerified)
             return new(label, UiText.T("Account not verified yet", "계정 확인 전"), false,
                 UiText.T("Shown after this account's Cursor usage is checked", "이 계정의 Cursor 사용량을 확인한 뒤 표시합니다"),
-                SourceTooltip(ringLimitId));
+                SourceTooltip(CursorRingLink.None, ringLimitId));
         if (view.Latest is not { } latest)
             return new(label, UiText.T("None yet", "아직 없음"), false,
-                UiText.T("No request received on this PC", "이 PC에서 받은 요청이 없습니다"), SourceTooltip(ringLimitId));
+                UiText.T("No request received on this PC", "이 PC에서 받은 요청이 없습니다"),
+                SourceTooltip(CursorRingLink.None, ringLimitId));
         var detail = string.Join(" · ", new[]
         {
             ReasoningText(latest),
             CodexDeadlineFormatting.Elapsed(latest.ReceivedAt, now),
-            LinkText
+            LinkText(link)
         }.Where(part => !string.IsNullOrEmpty(part)));
-        return new(label, ModelText(latest), false, detail, Tooltip(latest, ringLimitId));
+        return new(label, ModelText(latest), false, detail, Tooltip(latest, link, ringLimitId));
     }
 
     /// <summary>A single tooltip line for the widget; empty when nothing should be said.</summary>
-    public static string? TooltipLine(CursorActivityView? view, DateTimeOffset now)
+    public static string? TooltipLine(CursorActivityView? view, CursorRingLink link, DateTimeOffset now)
     {
         if (view is null || view.Integration == CursorActivityIntegration.Off) return null;
         if (view.Integration == CursorActivityIntegration.Disconnected)
@@ -452,7 +473,7 @@ public static class CursorActivityPresentation
             ModelText(latest),
             ReasoningText(latest),
             CodexDeadlineFormatting.Elapsed(latest.ReceivedAt, now),
-            LinkText
+            LinkText(link)
         }.Where(part => !string.IsNullOrEmpty(part)));
     }
 
@@ -461,17 +482,51 @@ public static class CursorActivityPresentation
         : UiText.T($"The ring keeps showing {CursorUsagePresentation.QuotaDisplayLabel(ringLimitId)}, the representative limit.",
             $"링은 대표 한도인 {CursorUsagePresentation.QuotaDisplayLabel(ringLimitId)}를 계속 표시합니다.");
 
-    private static string SourceTooltip(string? ringLimitId) => string.Join(Environment.NewLine,
-        UiText.T("Received from Cursor hooks on this PC only. Use on other PCs or the web is not included.",
-            "이 PC의 Cursor 훅에서 받은 정보만 표시합니다. 다른 PC나 웹에서의 사용은 포함되지 않습니다."),
-        UiText.T("Which limit a model draws from is not confirmed.", "모델이 어느 한도에서 차감되는지는 확인되지 않았습니다."),
-        RingText(ringLimitId));
+    private static string BillingCaveat => UiText.T(
+        "This is the model's shared pool, not a separate limit for the model, and it does not confirm billing: subagents, Auto and on-demand usage can draw differently.",
+        "모델 전용 한도가 아닌 공유 한도이며 실제 과금 경로를 확정하지 않습니다. 하위 에이전트·Auto·온디맨드 사용은 다르게 차감될 수 있습니다.");
+
+    private static string PoolText(CursorRingLink link)
+    {
+        var pool = CursorModelPools.LimitId(link.Pool) is { } id ? CursorUsagePresentation.QuotaDisplayLabel(id) : null;
+        return link.State switch
+        {
+            CursorRingLinkState.Linked when link.Window is { } window => UiText.T(
+                $"Cursor's plan documentation places this model in {CursorUsagePresentation.QuotaDisplayLabel(window.LimitId)}, so the ring shows that limit (left {CursorUsagePresentation.DetailRemainingText(window)}, as Cursor reported it). Other limits keep their own values.",
+                $"Cursor 요금제 문서상 이 모델은 {CursorUsagePresentation.QuotaDisplayLabel(window.LimitId)} 한도를 사용하므로 링에 그 한도(Cursor가 알린 남음 {CursorUsagePresentation.DetailRemainingText(window)})를 표시합니다. 다른 한도는 각자의 값을 그대로 표시합니다.")
+                + Environment.NewLine + BillingCaveat,
+            CursorRingLinkState.Routed => UiText.T(
+                "Auto chooses the model itself, so which limit this request used is not known.",
+                "Auto는 모델을 직접 고르므로 이 요청이 어느 한도를 사용했는지 알 수 없습니다."),
+            CursorRingLinkState.PoolUnavailable when pool is not null => UiText.T(
+                $"Cursor's plan documentation places this model in {pool}, but this account has no current value for it. Another limit is not shown as this model's usage.",
+                $"Cursor 요금제 문서상 이 모델은 {pool} 한도를 사용하지만 이 계정에서 받은 값이 없습니다. 다른 한도를 이 모델의 사용량으로 표시하지 않습니다."),
+            CursorRingLinkState.Expired => UiText.T(
+                $"This request was received more than {CursorRingPolicy.ReceiptLifetime.TotalHours:0} hours ago or after the current time, so it is not taken as the current model.",
+                $"이 요청은 {CursorRingPolicy.ReceiptLifetime.TotalHours:0}시간보다 오래되었거나 현재 시각보다 늦게 기록되어 현재 모델로 보지 않습니다."),
+            CursorRingLinkState.Unconfirmed => UiText.T(
+                "Cursor's documentation does not state which limit this model draws from.",
+                "Cursor 문서에 이 모델이 어느 한도에서 차감되는지 나와 있지 않습니다."),
+            _ => UiText.T(
+                "Once a request from this account is received, the ring shows the limit Cursor's plan documentation gives its model.",
+                "이 계정의 요청을 받으면 Cursor 요금제 문서상 그 모델이 사용하는 한도를 링에 표시합니다.")
+        };
+    }
+
+    private static string SourceTooltip(CursorRingLink link, string? ringLimitId) => string.Join(Environment.NewLine,
+        new[]
+        {
+            UiText.T("Received from Cursor hooks on this PC only. Use on other PCs or the web is not included.",
+                "이 PC의 Cursor 훅에서 받은 정보만 표시합니다. 다른 PC나 웹에서의 사용은 포함되지 않습니다."),
+            PoolText(link),
+            link.State == CursorRingLinkState.Linked ? null : RingText(ringLimitId)
+        }.Where(line => line is not null));
 
     private static string DisconnectedTooltip => UiText.T(
         "CycleArc's entries are no longer in Cursor's hooks.json. Remaining usage is unaffected. To reconnect, turn the option off and apply in Settings, then turn it on again.",
         "Cursor hooks.json에서 CycleArc 항목을 찾을 수 없습니다. 잔여량 조회에는 영향이 없습니다. 다시 연결하려면 설정에서 옵션을 끄고 적용한 뒤 다시 켜세요.");
 
-    private static string Tooltip(CursorRecentActivity latest, string? ringLimitId)
+    private static string Tooltip(CursorRecentActivity latest, CursorRingLink link, string? ringLimitId)
     {
         var meaning = latest.Kind == CursorActivityKind.Completion
             ? UiText.T("Cursor reported that this request's agent run completed. This is not a billing record.",
@@ -482,6 +537,6 @@ public static class CursorActivityPresentation
             "모델은 Cursor 작성기에서 선택된 모델입니다. Auto 안에서 실제로 선택된 모델은 포함되지 않습니다.");
         var at = UiText.T($"Received {DisplayFormatting.FormatStamp(latest.ReceivedAt)}",
             $"수신 {DisplayFormatting.FormatStamp(latest.ReceivedAt)}");
-        return string.Join(Environment.NewLine, meaning, model, at, SourceTooltip(ringLimitId));
+        return string.Join(Environment.NewLine, meaning, model, at, SourceTooltip(link, ringLimitId));
     }
 }

@@ -78,6 +78,15 @@ public static class CursorUsagePresentation
         };
     }
 
+    /// <summary>The plan allowance a limit id names: <c>auto</c>, <c>api</c>, <c>sand</c>, otherwise null.</summary>
+    public static string? AllowanceKey(string? limitId) => limitId?.Trim().ToLowerInvariant() switch
+    {
+        "cursor-auto" or "auto" => "auto",
+        "cursor-api" or "api" => "api",
+        "cursor-sand" or "sand" => "sand",
+        _ => null
+    };
+
     // Display metadata only. Do not turn these calendar cadences into duration fields
     // or reset predictions: the provider's own identifiers and timestamps stay intact.
     public static string? QuotaPeriodLabel(string? limitId) => limitId?.Trim().ToLowerInvariant() switch

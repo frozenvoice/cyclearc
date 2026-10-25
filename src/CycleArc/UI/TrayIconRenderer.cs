@@ -25,10 +25,11 @@ public static class TrayIconRenderer
     public static Icon Render(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false, bool lightTaskbar = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto) =>
         Render(Describe(snapshot, style, size, claudeAwaitingUsage, lightTaskbar, preference));
 
-    public static TrayIconView Describe(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false, bool lightTaskbar = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto)
+    public static TrayIconView Describe(CodexQuotaSnapshot snapshot, TrayIconStyle style, int size, bool claudeAwaitingUsage = false, bool lightTaskbar = false, UsagePeriodPreference preference = UsagePeriodPreference.Auto,
+        CodexQuotaWindow? representative = null)
     {
         size = Math.Max(8, size);
-        var ring = CodexRingPresentation.From(snapshot, preference);
+        var ring = CodexRingPresentation.From(snapshot, preference, representative);
         var exact = ring.IsAvailable;
         var ratio = (ring.UsedPercent ?? 0) / 100;
         var palette = Palette(snapshot, exact, ring.Band, claudeAwaitingUsage);

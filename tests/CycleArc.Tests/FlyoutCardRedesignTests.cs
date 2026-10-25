@@ -88,7 +88,9 @@ public class FlyoutCardRedesignTests
     public void FlyoutCodeBehind_UsesDetailRingPresentation()
     {
         var code = File.ReadAllText(Find("src/CycleArc/UI/FlyoutWindow.xaml.cs"));
-        Assert.Contains("CodexRingPresentation.FromDetail(snapshot, UsagePeriod)", code, StringComparison.Ordinal);
+        Assert.Contains("CodexRingPresentation.FromDetail(snapshot, UsagePeriod, representative)", code, StringComparison.Ordinal);
+        // Cursor's representative limit comes from the rule the widget and tray share.
+        Assert.Contains("CursorRingPolicy.Resolve(snapshot, _cursorActivity, now)", code, StringComparison.Ordinal);
         // The popup ring fills with what is left of the limit, from the ring presentation.
         Assert.Contains("RingGeometry.ComputeFillArc(ring.RemainingPercent", code, StringComparison.Ordinal);
         Assert.DoesNotContain("CodexBadge", code, StringComparison.Ordinal);

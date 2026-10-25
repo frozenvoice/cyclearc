@@ -169,7 +169,8 @@ public sealed class TrayController : IDisposable
             // notification slot does not resample a 32px icon down to 16px.
             var size = Math.Max(16, SystemInformation.SmallIconSize.Width);
             var view = TrayIconRenderer.Describe(overview.Snapshot, style, size,
-                claudeAwaitingUsage: overview.Selected?.IsAwaitingUsage == true, lightTaskbar: _lightTaskbar ??= IsLightTaskbar(), preference: overview.Preference);
+                claudeAwaitingUsage: overview.Selected?.IsAwaitingUsage == true, lightTaskbar: _lightTaskbar ??= IsLightTaskbar(), preference: overview.Preference,
+                representative: overview.RepresentativeWindow(DateTimeOffset.Now));
             // The tooltip above follows every update; the icon is redrawn only when its pixels change.
             if (_current is not null && view == _currentView) return;
             var next = TrayIconRenderer.Render(view);

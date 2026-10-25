@@ -25,7 +25,7 @@ public sealed record UsageAccountOverview(IReadOnlyList<CodexAccountView> Accoun
         foreach (var account in Accounts)
         {
             if (account.Profile.Id == Selected.Profile.Id) continue;
-            var ring = CodexRingPresentation.From(account.Snapshot, Preference);
+            var ring = CodexRingPresentation.For(account, Preference, DateTimeOffset.Now);
             var name = account.DisplayName.Length > 14 ? account.DisplayName[..13] + "…" : account.DisplayName;
             var entry = name + " " + (ring.RemainingPercent is null ? "?" : ring.RemainingValueText);
             var next = line.Length == 0 ? UiText.T("Others: ", "다른 계정: ") + entry : line + " · " + entry;
@@ -34,6 +34,10 @@ public sealed record UsageAccountOverview(IReadOnlyList<CodexAccountView> Accoun
         }
         return line.Length == 0 ? selected : selected + "\n" + line;
     }
+    /// <summary>The selected account's Cursor recent-request pool for the tray ring, or null for the usual choice.</summary>
+    public CodexQuotaWindow? RepresentativeWindow(DateTimeOffset now) => Selected is null ? null
+        : Cursor.CursorRingPolicy.Resolve(Selected.Snapshot, Selected.CursorActivity, now).Window;
+
     public static bool CanDisplay(CodexAccountView account) => CodexIdentityPresentation.NeedsReconnection(account.Snapshot)
         || (account.IsConnected || account.Snapshot.HasUsablePercentages)
         && account.Snapshot.Status is not (CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound);

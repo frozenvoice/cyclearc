@@ -345,30 +345,35 @@ public sealed class CursorActivityTests : IDisposable
         var request = new CursorRecentActivity(CursorActivityKind.Request, "claude-4.5-sonnet", null, "high", null, Now.AddMinutes(-3));
         var completion = request with { Kind = CursorActivityKind.Completion };
 
-        Assert.Null(CursorActivityPresentation.Row(null, "cursor-auto", Now));
-        Assert.Null(CursorActivityPresentation.Row(new(CursorActivityIntegration.Off, true, request), "cursor-auto", Now));
+        var none = CursorRingLink.None;
+        Assert.Null(CursorActivityPresentation.Row(null, none, "cursor-auto", Now));
+        Assert.Null(CursorActivityPresentation.Row(new(CursorActivityIntegration.Off, true, request), none, "cursor-auto", Now));
 
-        var disconnected = CursorActivityPresentation.Row(new(CursorActivityIntegration.Disconnected, true, request), "cursor-auto", Now)!;
+        var disconnected = CursorActivityPresentation.Row(new(CursorActivityIntegration.Disconnected, true, request), none, "cursor-auto", Now)!;
         Assert.Equal(UiText.T("Disconnected", "연동 끊김"), disconnected.Value);
 
-        var unverified = CursorActivityPresentation.Row(new(CursorActivityIntegration.Connected, false, null), "cursor-auto", Now)!;
+        var unverified = CursorActivityPresentation.Row(new(CursorActivityIntegration.Connected, false, null), none, "cursor-auto", Now)!;
         Assert.Equal(UiText.T("Account not verified yet", "계정 확인 전"), unverified.Value);
 
-        var none = CursorActivityPresentation.Row(new(CursorActivityIntegration.Connected, true, null), "cursor-auto", Now)!;
-        Assert.Equal(UiText.T("None yet", "아직 없음"), none.Value);
-        Assert.Equal(UiText.T("Last request · this PC", "최근 요청 · 이 PC"), none.Label);
+        var empty = CursorActivityPresentation.Row(new(CursorActivityIntegration.Connected, true, null), none, "cursor-auto", Now)!;
+        Assert.Equal(UiText.T("None yet", "아직 없음"), empty.Value);
+        Assert.Equal(UiText.T("Last request · this PC", "최근 요청 · 이 PC"), empty.Label);
 
-        var shown = CursorActivityPresentation.Row(new(CursorActivityIntegration.Connected, true, request), "cursor-auto", Now)!;
+        var view = new CursorActivityView(CursorActivityIntegration.Connected, true, request);
+        // The account reports no Other Models value, so the ring keeps its representative limit.
+        var link = CursorRingPolicy.Resolve(CursorSnapshot(), view, Now);
+        Assert.Equal(CursorRingLinkState.PoolUnavailable, link.State);
+        var shown = CursorActivityPresentation.Row(view, link, "cursor-auto", Now)!;
         Assert.Equal(UiText.T("Last request · this PC", "최근 요청 · 이 PC"), shown.Label);
         Assert.Equal("claude-4.5-sonnet", shown.Value);
         Assert.Contains(UiText.T("Effort high", "추론 high"), shown.Detail!, StringComparison.Ordinal);
         Assert.Contains(UiText.T("3m ago", "3분 전"), shown.Detail!, StringComparison.Ordinal);
-        Assert.Contains(CursorActivityPresentation.LinkText, shown.Detail!, StringComparison.Ordinal);
+        Assert.Contains(CursorActivityPresentation.LinkText(link), shown.Detail!, StringComparison.Ordinal);
         Assert.Contains(CursorUsagePresentation.QuotaDisplayLabel("cursor-auto"), shown.Tooltip!, StringComparison.Ordinal);
         Assert.Contains(UiText.T("not a billing", "과금"), CursorActivityPresentation.Row(
-            new(CursorActivityIntegration.Connected, true, completion), "cursor-auto", Now)!.Tooltip!, StringComparison.Ordinal);
+            new(CursorActivityIntegration.Connected, true, completion), none, "cursor-auto", Now)!.Tooltip!, StringComparison.Ordinal);
         Assert.Equal(UiText.T("Last completed · this PC", "최근 완료 · 이 PC"), CursorActivityPresentation.Row(
-            new(CursorActivityIntegration.Connected, true, completion), "cursor-auto", Now)!.Label);
+            new(CursorActivityIntegration.Connected, true, completion), none, "cursor-auto", Now)!.Label);
         Assert.False(shown.EmphasizeDanger);
     }
 
