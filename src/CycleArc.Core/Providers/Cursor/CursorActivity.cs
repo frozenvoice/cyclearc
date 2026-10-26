@@ -90,6 +90,8 @@ public static class CursorHookEvent
                 }
             }
 
+            if (reader.TokenType != JsonTokenType.EndObject || reader.Read()) return null;
+
             var kind = hook switch
             {
                 SubmitEvent => CursorActivityKind.Request,
@@ -252,9 +254,10 @@ public sealed class CursorActivityStore
         && state.Entries.All(ValidEntry)
         && state.Entries.Select(entry => (entry.AccountKey ?? "", entry.Kind)).Distinct().Count() == state.Entries.Count;
 
-    private static bool ValidEntry(CursorActivityEntry entry) =>
-        Enum.IsDefined(entry.Kind)
+    private static bool ValidEntry(CursorActivityEntry? entry) =>
+        entry is not null && Enum.IsDefined(entry.Kind)
         && entry.ReceivedAt > DateTimeOffset.UnixEpoch
+        && CursorRingPolicy.ReceiptExpiresAt(entry.ReceivedAt) is not null
         && Same(entry.Model, CursorHookEvent.MaxModelLength) && Same(entry.ModelId, CursorHookEvent.MaxModelLength)
         && Same(entry.Effort, CursorHookEvent.MaxParameterLength) && Same(entry.Thinking, CursorHookEvent.MaxParameterLength)
         && (entry.AccountKey is null || IsHex(entry.AccountKey, 64))

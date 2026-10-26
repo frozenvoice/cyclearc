@@ -136,5 +136,10 @@ public static class CursorRingPolicy
 
     /// <summary>When a linked receipt stops counting, so a display without other changes can rebind then.</summary>
     public static DateTimeOffset? LinkExpiresAt(CursorActivityView? view) =>
-        view?.Latest is { } latest ? latest.ReceivedAt + ReceiptLifetime : null;
+        view?.Latest is { } latest ? ReceiptExpiresAt(latest.ReceivedAt) : null;
+
+    internal static DateTimeOffset? ReceiptExpiresAt(DateTimeOffset receivedAt) =>
+        receivedAt.Ticks <= DateTimeOffset.MaxValue.Ticks - ReceiptLifetime.Ticks
+        && receivedAt.UtcTicks <= DateTimeOffset.MaxValue.Ticks - ReceiptLifetime.Ticks
+            ? receivedAt + ReceiptLifetime : null;
 }
