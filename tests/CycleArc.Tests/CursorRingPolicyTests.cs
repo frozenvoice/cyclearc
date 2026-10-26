@@ -353,6 +353,74 @@ public sealed class CursorRingPolicyTests : IDisposable
         Assert.NotEqual("cursor-sand", Widget(grok).Ring.Window?.LimitId);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void LinkExpiresAtNearMaximumReceiptTimeDoesNotThrow(int hoursBeforeMax)
+    {
+        var account = WithRequest("claude-opus-5-5", at: DateTimeOffset.MaxValue.AddHours(-hoursBeforeMax));
+
+        var exception = Record.Exception(() => { _ = CursorRingPolicy.LinkExpiresAt(account.CursorActivity); });
+
+        Assert.Null(exception);
+    }
+
+    [Theory]
+    [InlineData(-14, -1)]
+    [InlineData(-14, 0)]
+    [InlineData(-14, 1)]
+    [InlineData(14, -1)]
+    [InlineData(14, 0)]
+    [InlineData(14, 1)]
+    public void LinkExpiresAtChecksClockAndUtcBoundariesWithNonZeroOffsets(int offsetHours, int boundaryTicks)
+    {
+        var offset = TimeSpan.FromHours(offsetHours);
+        var maxTicks = DateTimeOffset.MaxValue.Ticks;
+        var lastSafeTicks = maxTicks - CursorRingPolicy.ReceiptLifetime.Ticks;
+        // UTC = clock - offset. A negative offset reaches the UTC ceiling first;
+        // a positive offset reaches the clock ceiling first. Subtracting the lifetime
+        // before adding one tick keeps both constructor inputs within their valid range.
+        var clockTicks = lastSafeTicks + Math.Min(offset.Ticks, 0) + boundaryTicks;
+        var receivedAt = new DateTimeOffset(clockTicks, offset);
+        var view = new CursorActivityView(CursorActivityIntegration.Connected, true,
+            new CursorRecentActivity(CursorActivityKind.Request, "claude-opus-5-5", "claude-opus-5-5", null, null, receivedAt));
+
+        Assert.Equal(offset, receivedAt.Offset);
+        Assert.Equal(offsetHours < 0 || boundaryTicks <= 0, receivedAt.Ticks <= lastSafeTicks);
+        Assert.Equal(offsetHours > 0 || boundaryTicks <= 0, receivedAt.UtcTicks <= lastSafeTicks);
+
+        // For -14:00 / +1 tick, the clock check passes but adding the lifetime
+        // overflows UTC. Removing the UtcTicks guard therefore makes this call throw.
+        var expiresAt = CursorRingPolicy.LinkExpiresAt(view);
+
+        if (boundaryTicks > 0)
+        {
+            Assert.Null(expiresAt);
+        }
+        else
+        {
+            Assert.NotNull(expiresAt);
+            Assert.Equal(clockTicks + CursorRingPolicy.ReceiptLifetime.Ticks, expiresAt.Value.Ticks);
+            Assert.Equal(receivedAt.UtcTicks + CursorRingPolicy.ReceiptLifetime.Ticks, expiresAt.Value.UtcTicks);
+            Assert.Equal(offset, expiresAt.Value.Offset);
+        }
+    }
+
+    [Fact]
+    public void LinkExpiresAtKeepsTwelveHourLifetimeAndExactBoundary()
+    {
+        var account = WithRequest("claude-opus-5-5", at: Now);
+        var expiresAt = Now.AddHours(12);
+
+        Assert.Equal(expiresAt, CursorRingPolicy.LinkExpiresAt(account.CursorActivity));
+        Assert.Equal(CursorRingLinkState.Linked,
+            CursorRingPolicy.Resolve(account.Snapshot, account.CursorActivity, expiresAt.AddTicks(-1)).State);
+        Assert.Equal(CursorRingLinkState.Linked,
+            CursorRingPolicy.Resolve(account.Snapshot, account.CursorActivity, expiresAt).State);
+        Assert.Equal(CursorRingLinkState.Expired,
+            CursorRingPolicy.Resolve(account.Snapshot, account.CursorActivity, expiresAt.AddTicks(1)).State);
+    }
+
     [Fact]
     public void StaleReceiptsExpireButAStaleQuotaKeepsItsLinkAndItsStaleMarker()
     {

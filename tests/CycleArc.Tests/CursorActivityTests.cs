@@ -78,6 +78,33 @@ public sealed class CursorActivityTests : IDisposable
         Assert.Equal(Now, entry.ReceivedAt);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompleteSubmitJsonWithOptionalUtf8BomIsAccepted(bool withBom)
+    {
+        var bytes = Encoding.UTF8.GetBytes(Submit());
+        if (withBom) bytes = [0xEF, 0xBB, 0xBF, .. bytes];
+
+        var entry = CursorHookEvent.Parse(bytes, Now);
+
+        Assert.NotNull(entry);
+        Assert.Equal(CursorActivityKind.Request, entry.Kind);
+        Assert.Equal("claude-4.5-sonnet", entry.Model);
+        Assert.Equal(Now, entry.ReceivedAt);
+    }
+
+    [Theory]
+    [InlineData("GARBAGE")]
+    [InlineData("{}")]
+    public void SubmitJsonWithTrailingDataIsRejected(string trailing) =>
+        Assert.Null(Parse(Submit() + trailing));
+
+    // Regression guard: truncated JSON was already rejected through JsonException before the trailing-data check.
+    [Fact]
+    public void SubmitJsonWithoutClosingObjectIsRejected() =>
+        Assert.Null(Parse(Submit().TrimEnd()[..^1]));
+
     [Fact]
     public async Task StoredReceiptNeverContainsPromptAttachmentsPathsTranscriptOrRawEmail()
     {
@@ -213,6 +240,45 @@ public sealed class CursorActivityTests : IDisposable
         File.WriteAllText(store.Path, content);
 
         Assert.Null(store.Read());
+    }
+
+    [Fact]
+    public void InboxWithNullEntryIsInvalidAndPreserved()
+    {
+        var store = new CursorActivityStore(_root);
+        const string content = """{"version":1,"entries":[null]}""";
+        File.WriteAllText(store.Path, content);
+
+        // A null entry makes the inbox invalid: Read returns null without throwing, and the file is left untouched.
+        try { Assert.Null(store.Read()); }
+        finally { Assert.Equal(content, File.ReadAllText(store.Path)); }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void InboxWithUnrepresentableReceiptExpiryIsInvalidAndPreserved(int hoursBeforeMax)
+    {
+        var store = new CursorActivityStore(_root);
+        var entry = Parse(Submit(), DateTimeOffset.MaxValue.AddHours(-hoursBeforeMax))!;
+        var content = System.Text.Json.JsonSerializer.Serialize(new CursorActivityState(1, [entry]),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        File.WriteAllText(store.Path, content);
+
+        try { Assert.Null(store.Read()); }
+        finally { Assert.Equal(content, File.ReadAllText(store.Path)); }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task RecordingUnrepresentableReceiptExpiryIsRejected(int hoursBeforeMax)
+    {
+        var store = new CursorActivityStore(_root);
+        var entry = Parse(Submit(), DateTimeOffset.MaxValue.AddHours(-hoursBeforeMax))!;
+
+        Assert.False(await store.RecordAsync(entry, CancellationToken.None));
+        Assert.False(File.Exists(store.Path));
     }
 
     [Fact]
