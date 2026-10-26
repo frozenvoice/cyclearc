@@ -173,24 +173,43 @@ public sealed class CursorActivityStore
     };
     private readonly string _path;
 
-    public CursorActivityStore(string rootDirectory) =>
+    private readonly Action? _beforeRead;
+
+    public CursorActivityStore(string rootDirectory) : this(rootDirectory, null) { }
+
+    internal CursorActivityStore(string rootDirectory, Action? beforeRead)
+    {
         _path = System.IO.Path.Combine(System.IO.Path.GetFullPath(rootDirectory), FileName);
+        _beforeRead = beforeRead;
+    }
+
+    internal enum ReadKind { Valid, Missing, Corrupt, TransientFailure }
+    internal readonly record struct ReadResult(ReadKind Kind, CursorActivityState? State = null,
+        Exception? Error = null);
 
     public string Path => _path;
 
-    public CursorActivityState? Read()
+    public CursorActivityState? Read() => ReadDetailed().State;
+
+    internal ReadResult ReadDetailed()
     {
         try
         {
+            _beforeRead?.Invoke();
             using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (stream.Length is 0 or > MaxFileBytes) return null;
+            if (stream.Length is 0 or > MaxFileBytes) return new(ReadKind.Corrupt);
             var state = JsonSerializer.Deserialize<CursorActivityState>(stream, Options);
-            return state is not null && Valid(state) ? state : null;
+            return state is not null && Valid(state)
+                ? new(ReadKind.Valid, state) : new(ReadKind.Corrupt);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
-            or NotSupportedException or ArgumentException)
+        // Missing paths are safe to create; catch them before their IOException base type.
+        catch (FileNotFoundException) { return new(ReadKind.Missing); }
+        catch (DirectoryNotFoundException) { return new(ReadKind.Missing); }
+        catch (JsonException) { return new(ReadKind.Corrupt); }
+        // Sharing violations/access denial do not establish corruption: never merge them as empty.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return null;
+            return new(ReadKind.TransientFailure, Error: ex);
         }
     }
 
@@ -199,7 +218,12 @@ public sealed class CursorActivityStore
     {
         if (!ValidEntry(entry)) return false;
         using var lease = await AcquireAsync(token).ConfigureAwait(false);
-        var (state, changed) = Merge(Read(), entry);
+        token.ThrowIfCancellationRequested();
+        var read = ReadDetailed();
+        // Fail immediately within the lease: the hook handles this error and its deadline;
+        // adding retries here would spend that budget without making a receipt mandatory.
+        if (read.Kind == ReadKind.TransientFailure) throw read.Error!;
+        var (state, changed) = Merge(read.State, entry);
         if (!changed) return false;
         var temp = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -291,8 +315,11 @@ public sealed class CursorActivityMonitor
 {
     private readonly CursorActivityStore _store;
     private (DateTime Written, long Length)? _stamp;
+    private bool _hasStamp;
 
-    public CursorActivityMonitor(string rootDirectory) => _store = new CursorActivityStore(rootDirectory);
+    public CursorActivityMonitor(string rootDirectory) : this(new CursorActivityStore(rootDirectory)) { }
+
+    internal CursorActivityMonitor(CursorActivityStore store) => _store = store;
 
     public CursorActivityState? Current { get; private set; }
 
@@ -303,12 +330,21 @@ public sealed class CursorActivityMonitor
         try
         {
             var info = new FileInfo(_store.Path);
-            if (info.Exists) stamp = (info.LastWriteTimeUtc, info.Length);
+            // Length throws for missing/inaccessible files; Exists would hide access errors.
+            var length = info.Length;
+            stamp = (info.LastWriteTimeUtc, length);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
-        if (stamp == _stamp && _stamp is not null) return false;
+        catch (FileNotFoundException) { }
+        catch (DirectoryNotFoundException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+        if (_hasStamp && stamp == _stamp) return false;
+        var read = stamp is null
+            ? new CursorActivityStore.ReadResult(CursorActivityStore.ReadKind.Missing)
+            : _store.ReadDetailed();
+        if (read.Kind == CursorActivityStore.ReadKind.TransientFailure) return false;
         _stamp = stamp;
-        var next = stamp is null ? null : _store.Read();
+        _hasStamp = true;
+        var next = read.State;
         if (next is null ? Current is null : next.SameAs(Current)) return false;
         Current = next;
         return true;
