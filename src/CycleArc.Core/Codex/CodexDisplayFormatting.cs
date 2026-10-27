@@ -118,7 +118,7 @@ public static class CodexDisplayFormatting
                     window.ResetObservation is null ? ResetStamp(window.ResetsAt) : ClaudeResetPresentation.Stamp(window, at), false,
                     window.ResetObservation?.State is ClaudeResetObservationState.Elapsed or ClaudeResetObservationState.Stale ? null
                         : CodexDeadlineFormatting.Remaining(window.ResetsAt, at),
-                    window.ResetObservation is null ? null : ClaudeResetPresentation.Tooltip(window, at)));
+                    window.ResetObservation is null ? null : ClaudeResetPresentation.Tooltip(window, at, snapshot)));
         }
 
         if (includeResetCredits && snapshot.ResetCreditsAvailable is int credits)
