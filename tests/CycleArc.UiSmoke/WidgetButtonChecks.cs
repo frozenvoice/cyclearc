@@ -115,8 +115,16 @@ internal static class WidgetButtonChecks
         foreach (var name in ButtonNames)
         {
             var button = (Button)widget.FindName(name);
-            Check(Math.Abs(button.ActualWidth - width) < 0.01 && Math.Abs(button.ActualHeight - height) < 0.01,
-                $"{name} click target is {button.ActualWidth}x{button.ActualHeight}, expected {width}x{height} DIP.");
+            // Layout rounding snaps the 26-DIP target to a device pixel. At 125% DPI that is
+            // 32px, which comes back as 25.6 DIP. One physical pixel is the whole allowance.
+            var dpi = VisualTreeHelper.GetDpi(button);
+            var pixelX = 1 / Math.Max(dpi.DpiScaleX, 0.01);
+            var pixelY = 1 / Math.Max(dpi.DpiScaleY, 0.01);
+            Check(Math.Abs(button.ActualWidth - width) <= pixelX + 0.001
+                && Math.Abs(button.ActualHeight - height) <= pixelY + 0.001,
+                $"{name} click target is {button.ActualWidth}x{button.ActualHeight}, expected {width}x{height} DIP (one pixel {pixelX:0.###}x{pixelY:0.###}).");
+            var hitWidth = button.ActualWidth;
+            var hitHeight = button.ActualHeight;
             var box = button.TransformToAncestor(header).TransformBounds(new Rect(button.RenderSize));
             var widgetBox = button.TransformToAncestor(widget).TransformBounds(new Rect(button.RenderSize));
             Check(box.Left >= -0.01 && box.Right <= header.ActualWidth + 0.01
@@ -138,7 +146,7 @@ internal static class WidgetButtonChecks
             // and 150% zoom-in limits). Their template geometry is still measured above.
             if (!button.IsEnabled) continue;
             var misses = 0;
-            foreach (var point in new[] { new Point(0.5, height / 2), new Point(width - 0.5, height / 2), new Point(width / 2, 0.5), new Point(width / 2, height - 0.5) })
+            foreach (var point in new[] { new Point(0.5, hitHeight / 2), new Point(hitWidth - 0.5, hitHeight / 2), new Point(hitWidth / 2, 0.5), new Point(hitWidth / 2, hitHeight - 0.5) })
             {
                 var target = button.TranslatePoint(point, widget);
                 var hit = widget.InputHitTest(target) as DependencyObject;
