@@ -2,6 +2,18 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Quick install entry point (2026-10-27 Asia/Seoul):
+  - `quickinstall.cmd` calls `Build-Local.ps1 -QuickInstall`, which runs
+    `dev-run.ps1 -NoLaunch -QuickPackage`. It is not `build-local.cmd -Fast`.
+  - The quick path keeps Release restore/build, single-file publish, Velopack
+    packaging, leftover-package rejection, setup approval, hash comparison and
+    isolated package verification. It skips unit tests, the UiSmoke suite,
+    test-flavour builds and script regressions, and says so. It does not claim
+    a full validation.
+  - `tests/DevRunDevelopment.Tests.ps1`, `tests/BuildLocal.Tests.ps1` and
+    `tests/BootstrapBuildLocal.Tests.ps1` passed. No user installation was
+    replaced and no release was published.
+
 - Claude elapsed reset copy (2026-10-27 Asia/Seoul):
   - The `갱신 대기` label was the elapsed-observation state: the last supplied
     reset time had passed and no newer future timestamp was in the projection.

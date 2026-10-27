@@ -110,6 +110,7 @@ try {
 
     foreach ($invalid in @(
         @('-BuildOnly'), @('-TestFilter', 'Example'), @('-DevelopmentOnly', '-Fast'),
+        @('-DevelopmentOnly', '-QuickPackage', '-NoLaunch'), @('-QuickPackage'), @('-QuickPackage', '-Fast', '-NoLaunch'),
         @('-DevelopmentOnly', '-PreviewDirectory', 'artifacts/preview'),
         @('-DevelopmentOnly', '-TestFilter', ' '), @('-DevelopmentOnly', '-BuildOnly', '-TestFilter', 'Example'),
         @('-DevelopmentOnly', '-BuildOnly', '-TestResultsDirectory', 'TestResults/local'),
@@ -132,6 +133,29 @@ try {
     }
     Assert-Synthetic (!$run.Output.Contains('Partial local validation passed')) 'full and partial evidence must remain distinguishable'
     Write-Host 'PASS: -NoLaunch still executes the complete gate through package verification.'
+
+    $stage = Join-Path $fixture 'publish/.dev-staging'
+    New-Item -ItemType Directory -Path $stage -Force | Out-Null
+    $sentinel = Join-Path $stage 'leftover.exe'
+    Set-Content -LiteralPath $sentinel -Value 'previous publish'
+    $run = Invoke-SyntheticGate @('-NoLaunch', '-QuickPackage')
+    Assert-Synthetic ($run.ExitCode -eq 0) $run.Output
+    Assert-Synthetic (!(Test-Path -LiteralPath $sentinel)) 'quick package must delete a leftover staging directory before publish'
+    $dotnet = @($run.Operations | Where-Object kind -eq 'dotnet')
+    $verbs = @($dotnet | ForEach-Object { $_.arguments[0] })
+    Assert-Synthetic (($verbs -join ',') -eq 'restore,tool,build,publish,run') 'quick package must restore, build, publish and verify the package only'
+    Assert-Synthetic (@($dotnet | Where-Object { $_.arguments[0] -eq 'test' }).Count -eq 0) 'quick package must not run unit tests'
+    Assert-Synthetic (@($dotnet | Where-Object { ($_.arguments -join ' ') -match '--desktop-instance|ui-smoke-full|--claude-process|--published-native-dependencies' }).Count -eq 0) 'quick package must not run the UI suite or test-flavour publish'
+    $packageVerify = @($dotnet | Where-Object { ($_.arguments -join ' ') -match '--update-package' })
+    Assert-Synthetic ($packageVerify.Count -eq 1) 'quick package must keep isolated package verification'
+    Assert-Synthetic (@($run.Operations | Where-Object kind -eq 'package').Count -eq 1) 'quick package must package once'
+    Assert-Synthetic (@($run.Operations | Where-Object kind -eq 'aot-toolchain').Count -eq 1) 'quick package still needs the setup toolchain'
+    foreach ($name in @('VerificationWorkflow', 'Release', 'BuildLocal', 'LocalInstall')) {
+        Assert-Synthetic (@($run.Operations | Where-Object kind -eq "$name-regression").Count -eq 0) "quick package must skip the $name regression"
+    }
+    Assert-Synthetic ($run.Output.Contains('This is not a full validation.')) 'quick package must say it is not full validation'
+    Assert-Synthetic (!$run.Output.Contains('Partial local validation passed') -and !$run.Output.Contains('all tests passed')) 'quick package must not claim a test pass'
+    Write-Host 'PASS: -QuickPackage builds and packages without the test gate, and still verifies the package.'
 }
 finally {
     $env:CYCLEARC_SYNTHETIC_LOG = $savedLog

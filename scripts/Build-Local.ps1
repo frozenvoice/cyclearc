@@ -7,6 +7,11 @@
 .PARAMETER Fast
     Forwarded to dev-run.ps1: skip unit tests only after they have already passed.
 
+.PARAMETER QuickInstall
+    Build, publish and package without unit tests, UiSmoke, test-flavour builds or
+    script regressions, then use the same installer. This is not a full validation.
+    quickinstall.cmd is the entry point. Do not combine with -Fast.
+
 .PARAMETER NoInstall
     Stop after a successful package. Does not open the installer or run Setup.exe.
 
@@ -26,6 +31,7 @@
 [CmdletBinding()]
 param(
     [switch]$Fast,
+    [switch]$QuickInstall,
     [switch]$NoInstall,
     [switch]$SilentInstall,
     [switch]$NoPrerequisitePrompt,
@@ -64,6 +70,7 @@ function Get-BuildLocalSha256([string]$Path) {
 # The stage the run reached. A failure message may only claim that the previous
 # installation is intact while the run never got as far as starting Setup.exe.
 $script:BuildLocalStage = 'preflight'
+$script:BuildLocalQuickInstall = $false
 
 $script:BuildLocalStarted = $null
 
@@ -329,7 +336,7 @@ function Write-BuildLocalFailure {
     if (!$Stage) { $Stage = 'unknown' }
     if (!$Message) { $Message = 'no error message was available' }
     $lines = @(
-        'CycleArc build-local failed.',
+        $(if ($script:BuildLocalQuickInstall) { 'CycleArc quick install failed.' } else { 'CycleArc build-local failed.' }),
         "Failed at: $Stage",
         "Stage: $Stage"
     )
@@ -1064,6 +1071,7 @@ function Invoke-BuildLocal {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [switch]$Fast,
+        [switch]$QuickInstall,
         [switch]$NoInstall,
         [switch]$SilentInstall,
         [switch]$NoPrerequisitePrompt,
@@ -1078,6 +1086,10 @@ function Invoke-BuildLocal {
         [scriptblock]$ProbeStatus,
         [scriptblock]$InteractiveStatusProbe
     )
+    if ($QuickInstall -and $Fast) {
+        throw '-QuickInstall cannot be combined with -Fast. Quick install already skips the unit suite, UiSmoke and script regressions.'
+    }
+    $script:BuildLocalQuickInstall = [bool]$QuickInstall
     $script:BuildLocalStarted = [Diagnostics.Stopwatch]::StartNew()
     Set-BuildLocalStage 'preflight'
     $devRunState = New-BuildLocalExecutionState
@@ -1149,7 +1161,8 @@ function Invoke-BuildLocal {
                 throw "dev-run.ps1 is missing at $devRunPath. Nothing was built or installed."
             }
             $arguments = @('-NoProfile', '-File', $devRunPath, '-NoLaunch')
-            if ($Fast) { $arguments += '-Fast' }
+            if ($QuickInstall) { $arguments += '-QuickPackage' }
+            elseif ($Fast) { $arguments += '-Fast' }
             $devRunOut = Join-Path $logDirectory 'dev-run.out.log'
             $devRunErr = Join-Path $logDirectory 'dev-run.err.log'
             $devRunStage = Join-Path $logDirectory 'dev-run.stage'
@@ -1167,7 +1180,8 @@ function Invoke-BuildLocal {
                 else { $env:CYCLEARC_DEV_RUN_STAGE_FILE = $previousStageFile }
             }
             if ($exitCode -ne 0) {
-                throw "dev-run.ps1 -NoLaunch failed (exit $exitCode). Setup.exe was not started; the running installation was left unchanged. Log: $logPath stdout: $devRunOut stderr: $devRunErr"
+                $devRunMode = if ($QuickInstall) { '-NoLaunch -QuickPackage' } else { '-NoLaunch' }
+                throw "dev-run.ps1 $devRunMode failed (exit $exitCode). Setup.exe was not started; the running installation was left unchanged. Log: $logPath stdout: $devRunOut stderr: $devRunErr"
             }
             # Stage progress was printed while dev-run was running; repeating the captured
             # copy here would only duplicate it.
@@ -1332,6 +1346,9 @@ function Invoke-BuildLocal {
                     -PublishedHash $publishedHash -PublishedVersion $publishedProductVersion
             }
             Write-Host ''
+            if ($script:BuildLocalQuickInstall) {
+                Write-Host 'Quick install finished. Unit tests, the UiSmoke suite, test-flavour builds and script regressions were not run. This is not a full validation.'
+            }
             Write-Host 'CycleArc is installed.'
             Write-Host "Branch: $($git.Branch)"
             Write-Host "HEAD: $($git.Head)"
@@ -1367,6 +1384,9 @@ function Invoke-BuildLocal {
             -PublishedHash $publishedHash -PublishedVersion $publishedProductVersion
 
         Write-Host ""
+        if ($script:BuildLocalQuickInstall) {
+            Write-Host 'Quick install finished. Unit tests, the UiSmoke suite, test-flavour builds and script regressions were not run. This is not a full validation.'
+        }
         Write-Host "CycleArc local install is running."
         Write-Host "Branch: $($git.Branch)"
         Write-Host "HEAD: $($git.Head)"
@@ -1418,7 +1438,7 @@ if (!$LoadOnly -and $MyInvocation.InvocationName -ne '.') {
     $runExitCode = 0
     $pauseAfterRun = $false
     try {
-        $result = Invoke-BuildLocal -RepoRoot $root -Fast:$Fast -NoInstall:$NoInstall -SilentInstall:$SilentInstall -NoPrerequisitePrompt:$NoPrerequisitePrompt -ManualPrerequisites:$ManualPrerequisites
+        $result = Invoke-BuildLocal -RepoRoot $root -Fast:$Fast -QuickInstall:$QuickInstall -NoInstall:$NoInstall -SilentInstall:$SilentInstall -NoPrerequisitePrompt:$NoPrerequisitePrompt -ManualPrerequisites:$ManualPrerequisites
         if ($null -ne $result -and $null -ne $result.PSObject.Properties['PrerequisiteStatus'] -and $result.PrerequisiteStatus -ne 'Manual') { $runExitCode = 1 }
     }
     catch { $runExitCode = 1; $pauseAfterRun = !$ManualPrerequisites -and (Get-BuildLocalStage) -ne 'preflight' }

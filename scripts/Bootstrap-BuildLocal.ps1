@@ -10,6 +10,7 @@
 [CmdletBinding()]
 param(
     [Alias('Fast')][switch]$BootstrapFast,
+    [Alias('QuickInstall')][switch]$BootstrapQuickInstall,
     [Alias('NoInstall')][switch]$BootstrapNoInstall,
     [Alias('SilentInstall')][switch]$BootstrapSilentInstall,
     [Alias('NoPrerequisitePrompt')][switch]$BootstrapNoPrerequisitePrompt,
@@ -241,7 +242,7 @@ if (!$BootstrapLoadOnly) {
     $bootstrapRepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
     try {
         $buildArguments = @()
-        foreach ($name in @('Fast', 'NoInstall', 'SilentInstall', 'NoPrerequisitePrompt', 'ManualPrerequisites')) {
+        foreach ($name in @('Fast', 'QuickInstall', 'NoInstall', 'SilentInstall', 'NoPrerequisitePrompt', 'ManualPrerequisites')) {
             if (Get-Variable -Name ('Bootstrap' + $name) -ValueOnly) { $buildArguments += '-' + $name }
         }
         $bootstrapNoPrompt = [bool]$BootstrapNoPrerequisitePrompt

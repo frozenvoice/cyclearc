@@ -95,9 +95,9 @@ function New-TestLaunchableScript([string]$Name, [string]$BodyPath) {
 function New-TestDevRun([string]$Directory, [string]$MarkerPath, [int]$ExitCode, [string]$ErrorText = '', [string]$StageName = '') {
     $body = @(
         '[CmdletBinding()]',
-        'param([switch]$Fast, [switch]$NoLaunch)',
+        'param([switch]$Fast, [switch]$NoLaunch, [switch]$QuickPackage)',
         'Set-StrictMode -Version Latest',
-        ('Set-Content -LiteralPath "{0}" -Value "NoLaunch=$NoLaunch Fast=$Fast cwd=$((Get-Location).Path)"' -f $MarkerPath)
+        ('Set-Content -LiteralPath "{0}" -Value "NoLaunch=$NoLaunch Fast=$Fast QuickPackage=$QuickPackage cwd=$((Get-Location).Path)"' -f $MarkerPath)
     )
     if ($StageName) {
         $body += '$stageFile = $env:CYCLEARC_DEV_RUN_STAGE_FILE'
@@ -237,6 +237,12 @@ try {
         throw 'dev-run.ps1 must run desktop-instance before unit tests, full UiSmoke and packaging'
     }
     if ($cmdText -notmatch 'scripts\\Build-Local.ps1') { throw 'build-local.cmd must call scripts\\Build-Local.ps1' }
+    $quickCmd = Get-Content -LiteralPath (Join-Path $repoRoot 'quickinstall.cmd') -Raw
+    if ($quickCmd -notmatch 'scripts\\Build-Local.ps1' -or $quickCmd -notmatch '-QuickInstall') {
+        throw 'quickinstall.cmd must call Build-Local.ps1 -QuickInstall'
+    }
+    if ($quickCmd -match '(?i)(^|[\s"])-Fast([\s"]|$)') { throw 'quickinstall.cmd must not select -Fast' }
+    if ($scriptText -notmatch 'QuickPackage') { throw 'Build-Local.ps1 must request the dev-run quick package path' }
     if ($cmdText -notmatch 'pause') { throw 'build-local.cmd must pause on failure so the window stays open' }
     Write-Host 'PASS: build-local.cmd / Build-Local.ps1 structural guards.'
 
@@ -589,6 +595,36 @@ exit 0
         }
         finally { $cmdChild.Dispose() }
         Write-Host 'PASS: real CMD failure records preflight once, preserves exit 1 and never waits on redirected stdin.'
+
+        $quickCmdTree = Join-Path $testRoot 'cmd quickinstall'
+        New-Item -ItemType Directory -Path (Join-Path $quickCmdTree 'scripts') -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $repoRoot 'quickinstall.cmd') -Destination $quickCmdTree
+        Set-Content -LiteralPath (Join-Path $quickCmdTree 'scripts/Build-Local.ps1') -Encoding utf8 -Value @'
+param([switch]$QuickInstall, [switch]$NoInstall, [switch]$Fast, [switch]$SilentInstall, [switch]$NoPrerequisitePrompt, [switch]$ManualPrerequisites, [switch]$LoadOnly)
+Set-Content -LiteralPath (Join-Path $PSScriptRoot '..\quick-args.txt') -Value "QuickInstall=$QuickInstall NoInstall=$NoInstall Fast=$Fast"
+exit 0
+'@
+        $quickStart = [Diagnostics.ProcessStartInfo]::new($env:ComSpec)
+        $quickStart.Arguments = '/d /c ""' + (Join-Path $quickCmdTree 'quickinstall.cmd') + '" -NoInstall"'
+        $quickStart.UseShellExecute = $false
+        $quickStart.CreateNoWindow = $true
+        $quickStart.RedirectStandardInput = $true
+        $quickStart.RedirectStandardOutput = $true
+        $quickStart.RedirectStandardError = $true
+        $quickChild = [Diagnostics.Process]::Start($quickStart)
+        try {
+            $quickChild.StandardInput.Close()
+            $quickOut = $quickChild.StandardOutput.ReadToEndAsync()
+            $quickErr = $quickChild.StandardError.ReadToEndAsync()
+            if (!$quickChild.WaitForExit(30000)) { $quickChild.Kill($true); throw 'quickinstall.cmd did not exit' }
+            $quickArgs = Get-Content -LiteralPath (Join-Path $quickCmdTree 'quick-args.txt') -Raw
+            if ($quickChild.ExitCode -ne 0) { throw "quickinstall.cmd failed: $($quickOut.GetAwaiter().GetResult()) $($quickErr.GetAwaiter().GetResult())" }
+            if ($quickArgs -notmatch 'QuickInstall=True' -or $quickArgs -notmatch 'NoInstall=True' -or $quickArgs -notmatch 'Fast=False') {
+                throw "quickinstall.cmd did not forward its arguments: $quickArgs"
+            }
+        }
+        finally { $quickChild.Dispose() }
+        Write-Host 'PASS: quickinstall.cmd forwards -QuickInstall and the caller''s switches, not -Fast.'
     }
 
     # Execute the production CLI tail with a fake preflight even when its console
@@ -882,6 +918,7 @@ function Invoke-BuildLocal {
     $devRunText = (Get-Content -LiteralPath $devRunMarker -Raw).Trim()
     if ($devRunText -notmatch 'NoLaunch=True') { throw "dev-run.ps1 did not receive -NoLaunch: $devRunText" }
     if ($devRunText -notmatch 'Fast=False') { throw "dev-run.ps1 received an unexpected -Fast: $devRunText" }
+    if ($devRunText -notmatch 'QuickPackage=False') { throw "dev-run.ps1 received an unexpected -QuickPackage: $devRunText" }
     if ($devRunText -notmatch [regex]::Escape($defaultTree)) {
         throw "dev-run.ps1 did not run in the repository root: $devRunText"
     }
@@ -1062,6 +1099,56 @@ exit 0
         throw '-Fast was not forwarded to the real dev-run.ps1'
     }
     Write-Host 'PASS: -Fast reaches the real dev-run.ps1 on the default branch.'
+
+    $quickTree = Join-Path $testRoot 'default quick'
+    New-GitCycleArcTree $quickTree
+    $quickMarker = Join-Path $quickTree 'dev-run-marker.txt'
+    New-TestDevRun $quickTree $quickMarker 0 | Out-Null
+    $script:quickStopped = $false
+    $script:quickSetup = $false
+    Assert-Throws {
+        Invoke-BuildLocal -RepoRoot $quickTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot (Join-Path $testRoot 'install quick') -QuickInstall -StopDesktop { $script:quickStopped = $true } -RunSetup { $script:quickSetup = $true; 0 }
+    } 'Published CycleArc.exe is missing'
+    $quickText = (Get-Content -LiteralPath $quickMarker -Raw).Trim()
+    if ($quickText -notmatch 'NoLaunch=True' -or $quickText -notmatch 'QuickPackage=True' -or $quickText -notmatch 'Fast=False') {
+        throw "quick install did not request the quick package path: $quickText"
+    }
+    if ($quickStopped -or $quickSetup) { throw 'A quick install missing its publish stopped the desktop or started Setup.exe' }
+    Write-Host 'PASS: -QuickInstall requests -NoLaunch -QuickPackage and does not install without a publish.'
+
+    $quickFailTree = Join-Path $testRoot 'quick failure'
+    New-GitCycleArcTree $quickFailTree
+    New-TestDevRun $quickFailTree (Join-Path $quickFailTree 'dev-run-marker.txt') 4 'synthetic quick build failed' | Out-Null
+    $script:quickFailStopped = $false
+    $script:quickFailSetup = $false
+    Assert-Throws {
+        Invoke-BuildLocal -RepoRoot $quickFailTree -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot (Join-Path $testRoot 'install quick-fail') -QuickInstall -StopDesktop { $script:quickFailStopped = $true } -RunSetup { $script:quickFailSetup = $true; 0 }
+    } 'dev-run.ps1 -NoLaunch -QuickPackage failed (exit 4)'
+    if ($script:quickFailStopped -or $script:quickFailSetup) { throw 'A failed quick package stopped the desktop or started Setup.exe' }
+    $quickFailure = Get-Content -LiteralPath (Join-Path $quickFailTree 'artifacts/build-local/last-failure.txt') -Raw
+    if ($quickFailure -notmatch 'CycleArc quick install failed\.' -or $quickFailure -notmatch 'installed version is unchanged' -or $quickFailure -match 'full validation passed|all tests passed') {
+        throw "Quick install failure was recorded incorrectly: $quickFailure"
+    }
+    Write-Host 'PASS: a failed quick package leaves the installation alone and does not claim a full test pass.'
+
+    $staleQuick = Join-Path $testRoot 'quick stale package'
+    New-GitCycleArcTree $staleQuick
+    New-TestDevRun $staleQuick (Join-Path $staleQuick 'dev-run-marker.txt') 0 | Out-Null
+    $script:staleQuickSetup = $false
+    Assert-Throws {
+        Invoke-BuildLocal -RepoRoot $staleQuick -PrerequisitePreflight { [pscustomobject]@{ Status = 'Ready' } } -ManagedRoot (Join-Path $testRoot 'install quick-stale') -QuickInstall -StopDesktop { } -PackagedSetup {
+            $pack = New-FakePublished $staleQuick 'fresh-exe' 'old-setup'
+            (Get-Item -LiteralPath $pack.SetupPath).LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-2)
+            $pack
+        } -RunSetup { $script:staleQuickSetup = $true; 0 }
+    } 'is older than this run'
+    if ($script:staleQuickSetup) { throw 'An aged Setup.exe was started by quick install' }
+    Write-Host 'PASS: quick install refuses a leftover installer from an earlier run.'
+
+    Assert-Throws {
+        Invoke-BuildLocal -RepoRoot $quickTree -QuickInstall -Fast -PrerequisitePreflight { throw 'combined switches must fail before prerequisites' }
+    } '-QuickInstall cannot be combined with -Fast'
+    Write-Host 'PASS: -QuickInstall and -Fast cannot be combined.'
 
     # --- Regression: a failing real dev-run.ps1 leaves the installed app alone. ---
     $failTree = Join-Path $testRoot 'default failure'
