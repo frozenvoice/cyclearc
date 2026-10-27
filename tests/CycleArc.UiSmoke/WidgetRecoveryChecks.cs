@@ -534,7 +534,12 @@ internal static class WidgetRecoveryChecks
         private readonly WinEventCallback _foregroundCallback;
         private readonly IntPtr _foregroundHook;
         public int Events { get; private set; }
-        public bool HasActiveWidget => _windows.Any(window => window.IsActive);
+        // A closed widget can keep WPF IsActive after Close when this thread never
+        // receives a matching deactivate. That is not a visible focus change. Native
+        // activation messages still count for every instance, including ones later closed.
+        public bool HasActiveWidget => _windows.Any(window => window.IsVisible && window.IsActive);
+        public string ActiveWidgets => string.Join(", ", _windows.Select(window =>
+            $"0x{Handle(window).ToInt64():X}/visible={window.IsVisible}/active={window.IsActive}/loaded={window.IsLoaded}"));
 
         public WidgetFocusTrace()
         {
@@ -585,10 +590,12 @@ internal static class WidgetRecoveryChecks
             && (afterForeground != beforeForeground && active == fixture || active == IntPtr.Zero);
         var guarded = beforeForeground == fixture;
         var preserved = !guarded || afterForeground == fixture && active == fixture;
+        var child = IsChild(widget, focus);
         var detail = $"{phase}: foreground={WindowIdentity(beforeForeground)}->{WindowIdentity(afterForeground)}, "
             + $"active={WindowIdentity(active)}, focus={WindowIdentity(focus)}, fixture={WindowIdentity(fixture)}, "
             + $"widget={WindowIdentity(widget)}, activations={beforeActivations}->{activations}, "
-            + $"nativeFocus={beforeNativeFocus}->{nativeFocus.Events}, guarded={guarded}, externalChurn={externalChurn}";
+            + $"nativeFocus={beforeNativeFocus}->{nativeFocus.Events}, guarded={guarded}, externalChurn={externalChurn}, "
+            + $"child={child}, wpfActive=[{nativeFocus.ActiveWidgets}]";
         Check(preserved && afterForeground != widget && active != widget
             && focus != widget && !IsChild(widget, focus) && activations == beforeActivations
             && !nativeFocus.HasActiveWidget && nativeFocus.Events == beforeNativeFocus,
