@@ -4,6 +4,10 @@
 Build, test, publish and run the single-file CycleArc desktop app.
 .PARAMETER Fast
 Skip tests only after they have already been run for these changes.
+.PARAMETER QuickPackage
+With NoLaunch, build, publish and package the installer without unit tests, UiSmoke,
+test-flavour builds or script regressions. This is a personal install package, not a
+full validation. Build-Local.ps1 -QuickInstall owns installation.
 .PARAMETER NoLaunch
 Run the full publish/package gate without stopping or replacing the installed local build.
 .PARAMETER DevelopmentOnly
@@ -21,6 +25,7 @@ Render synthetic widget previews under TestResults or a subdirectory of artifact
 [CmdletBinding()]
 param(
     [switch]$Fast,
+    [switch]$QuickPackage,
     [switch]$NoLaunch,
     [switch]$DevelopmentOnly,
     [switch]$BuildOnly,
@@ -33,8 +38,14 @@ $ErrorActionPreference = 'Stop'
 if (($BuildOnly -or $PSBoundParameters.ContainsKey('TestFilter')) -and !$DevelopmentOnly) {
     throw '-BuildOnly and -TestFilter require -DevelopmentOnly; full validation cannot silently omit tests.'
 }
-if ($DevelopmentOnly -and ($Fast -or $PreviewDirectory)) {
-    throw '-DevelopmentOnly cannot use -Fast or -PreviewDirectory. Use -BuildOnly or -TestFilter for explicit local scope.'
+if ($DevelopmentOnly -and ($Fast -or $QuickPackage -or $PreviewDirectory)) {
+    throw '-DevelopmentOnly cannot use -Fast, -QuickPackage or -PreviewDirectory. Use -BuildOnly or -TestFilter for explicit local scope.'
+}
+if ($QuickPackage -and $Fast) {
+    throw '-QuickPackage cannot be combined with -Fast. It already omits the unit suite, UiSmoke and script regressions.'
+}
+if ($QuickPackage -and !$NoLaunch) {
+    throw '-QuickPackage requires -NoLaunch. It stages the installer and does not launch the development build.'
 }
 if ($PSBoundParameters.ContainsKey('TestFilter') -and [string]::IsNullOrWhiteSpace($TestFilter)) {
     throw '-TestFilter must contain a nonempty unit-test filter.'
@@ -176,11 +187,13 @@ Invoke-DevRunStep 'preflight' {
 }
 
 if (!$DevelopmentOnly) {
+if (!$QuickPackage) {
 Invoke-DevRunStep 'workflow-contract' { & (Join-Path $RepoRoot 'tests/VerificationWorkflow.Tests.ps1') }
 Invoke-DevRunStep 'sdk-regression' {
     & (Join-Path $RepoRoot 'tests/DotnetSdk.Tests.ps1')
     & (Join-Path $RepoRoot 'tests/BuildPrerequisites.Tests.ps1')
     & (Join-Path $RepoRoot 'tests/BootstrapBuildLocal.Tests.ps1')
+}
 }
 Invoke-DevRunStep 'setup-ui-toolchain' {
     try {
@@ -193,9 +206,11 @@ Invoke-DevRunStep 'setup-ui-toolchain' {
         throw
     }
 }
+if (!$QuickPackage) {
 Invoke-DevRunStep 'release-guard' {
     & (Join-Path $RepoRoot 'tests/Release.Tests.ps1')
     & (Join-Path $RepoRoot 'tests/ReleaseDependencies.Tests.ps1')
+}
 }
 }
 Invoke-DevRunStep 'restore' {
@@ -220,7 +235,9 @@ if ($DevelopmentOnly) {
 }
 # Process/IPC checks are load-sensitive and used to fail after the unit suite and
 # the rest of UiSmoke. Run them immediately after compile; empty-args UiSmoke
-# no longer repeats this same check.
+# no longer repeats this same check. QuickPackage keeps restore, the Release build,
+# publish, packaging and package verification, and skips these checks.
+if (!$QuickPackage) {
 Invoke-DevRunStep 'ui-smoke-desktop-instance' {
     Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--desktop-instance')
 }
@@ -271,12 +288,15 @@ Invoke-DevRunStep 'test-flavour-publish' {
     )
     Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--published-native-dependencies', (Join-Path $testFlavourPublish 'CycleArc.exe'))
 }
+}
 Invoke-DevRunStep 'publish' {
     Invoke-Dotnet -Arguments @('publish', 'src/CycleArc/CycleArc.csproj', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $StagingDir)
     $files = @(Get-ChildItem -LiteralPath $StagingDir -File -Recurse)
     if ($files.Count -ne 1 -or $files[0].Name -ne 'CycleArc.exe') { throw 'Publish must contain exactly CycleArc.exe' }
     Write-Host 'Publish artifacts verified: CycleArc.exe only'
-    Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--claude-process', (Join-Path $StagingDir 'CycleArc.exe'))
+    if (!$QuickPackage) {
+        Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--claude-process', (Join-Path $StagingDir 'CycleArc.exe'))
+    }
 }
 Invoke-DevRunStep 'package' {
     $versionMatch = [regex]::Match((Get-Content -LiteralPath (Join-Path $RepoRoot 'Directory.Build.props') -Raw), '<Version>\s*([^<]+?)\s*</Version>')
@@ -292,7 +312,13 @@ Invoke-DevRunStep 'package' {
 Invoke-DevRunStep 'package-verify' {
     Invoke-Dotnet -Arguments @('run', '--project', 'tests/CycleArc.UiSmoke/CycleArc.UiSmoke.csproj', '-c', 'Release', '--no-build', '--', '--update-package', $script:packageOutput)
 }
-if ($NoLaunch) { Write-Host "Staged: $StagingDir"; exit 0 }
+if ($NoLaunch) {
+    if ($QuickPackage) {
+        Write-Host 'Quick package staged. Unit tests, the UiSmoke suite, test-flavour builds and script regressions were not run. Isolated package verification still ran. This is not a full validation.'
+    }
+    Write-Host "Staged: $StagingDir"
+    exit 0
+}
 
 # The same executable owns installation for both downloads and development.
 # It stages/hash-checks before graceful shutdown and rolls back failed startup.
