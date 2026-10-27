@@ -630,6 +630,8 @@ internal static class WidgetLayoutChecks
                 $"Two-period HWND {bothNative.Height} does not match layout {bothLayout}.");
 
             var beforeStatus = (window.Left, window.Top, Moved: moved.Count);
+            var beforeModule = window.Modules[0].DesiredSize.Height;
+            var beforeHeader = ((FrameworkElement)window.FindName("WidgetHeader")).DesiredSize.Height;
             var refreshing = both with { Snapshot = both.Snapshot.AsRefreshing() };
             controller.Update(settings, UsageAccountOverview.Create([refreshing], refreshing.Profile.Id));
             Pump();
@@ -639,9 +641,13 @@ internal static class WidgetLayoutChecks
                 "Refresh status did not appear after Update().");
             CheckWindowMatchesLayout(window, "bind-refreshing");
             CheckAccountsFullyVisible(window, "bind-refreshing");
-            Check(Math.Abs(window.LastLayout!.Height - bothLayout) < 0.01
-                && Math.Abs(NativeDipSize(window).Height - bothNative.Height) < 0.01,
-                "Refresh status changed the arranged or HWND height.");
+            var refreshLayout = window.LastLayout!.Height;
+            var refreshNative = NativeDipSize(window);
+            var refreshModule = window.Modules[0].DesiredSize.Height;
+            var refreshHeader = ((FrameworkElement)window.FindName("WidgetHeader")).DesiredSize.Height;
+            Check(Math.Abs(refreshLayout - bothLayout) < 0.01
+                && Math.Abs(refreshNative.Height - bothNative.Height) < 0.01,
+                $"Refresh status changed the arranged or HWND height (layout {bothLayout} → {refreshLayout}, HWND {bothNative.Height} → {refreshNative.Height}, module {beforeModule} → {refreshModule}, header {beforeHeader} → {refreshHeader}).");
 
             var stale = both with { Snapshot = both.Snapshot with { Status = CodexQuotaStatus.Stale } };
             controller.Update(settings, UsageAccountOverview.Create([stale], stale.Profile.Id));

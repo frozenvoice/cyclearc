@@ -142,9 +142,18 @@ public partial class FloatingWidget : Window
             _modules[i].BindFinancialSummary(accounts[i].Snapshot, _showMoney, _showResets, now ?? DateTimeOffset.UtcNow);
         }
         _workAreas = workAreas;
+        var previous = LastLayout;
         LastLayout = ArrangeModules(models.Count, CurrentWorkArea(_workAreas));
+        // A second measure sees DPI-rounded child heights and can move the formula by a
+        // pixel even though the status icon did not add a row. Keep the layout already
+        // applied when the grid shape is unchanged and the native size still matches.
+        if (previous is not null && SameGrid(previous, LastLayout) && ArrangedSizeAlreadyApplied())
+            LastLayout = previous;
         ApplyBoundSize();
     }
+
+    private static bool SameGrid(WidgetGridLayout previous, WidgetGridLayout next) =>
+        previous.Columns == next.Columns && previous.Rows == next.Rows && previous.Scrolls == next.Scrolls;
 
     /// <summary>
     /// After a usage bind, the arranged DIP size is applied through the same Relayout path
