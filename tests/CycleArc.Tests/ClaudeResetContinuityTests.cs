@@ -221,6 +221,99 @@ public class ClaudeResetContinuityTests
         Assert.Equal(Now.AddDays(3), Window(service, CodexWindowKind.Weekly).ResetsAt);
         Assert.Equal(ClaudeResetObservationState.Elapsed, Window(service, CodexWindowKind.FiveHour).ResetObservation!.State);
         Assert.Equal(reset, Window(service, CodexWindowKind.FiveHour).ResetObservation!.LastKnownResetAt);
+        Assert.Equal("Reset unconfirmed", ClaudeResetPresentation.Countdown(
+            Window(service, CodexWindowKind.FiveHour), data.Clock.UtcNow));
+    }
+
+    [Fact]
+    public async Task FullRemainderAfterAnElapsedResetStaysUnconfirmedUntilANewFutureDateArrives()
+    {
+        using var data = new Data();
+        var reset = Now.AddMinutes(2);
+        var week = Now.AddDays(3);
+        data.Live.Next = new(new(Now, new(46, reset), new(19, week)));
+        var service = data.Service();
+        await service.RefreshLiveAsync(default);
+
+        data.Clock.UtcNow = reset.AddSeconds(1);
+        data.Live.Next = new(new(data.Clock.UtcNow, new(0, null), new(19, null)));
+        await service.RefreshLiveAsync(default);
+        var five = Window(service, CodexWindowKind.FiveHour);
+        Assert.Equal(0, five.UsedPercent);
+        Assert.Null(five.ResetsAt);
+        Assert.Equal(ClaudeResetObservationState.Elapsed, five.ResetObservation!.State);
+        Assert.Equal(reset, five.ResetObservation.LastKnownResetAt);
+        Assert.Equal(ClaudeResetSource.Server, five.ResetObservation.Source);
+        Assert.Equal(Now, five.ResetObservation.ObservedAt);
+        Assert.Equal(week, Window(service, CodexWindowKind.Weekly).ResetsAt);
+        Assert.Equal(ClaudeResetObservationState.Preserved, Window(service, CodexWindowKind.Weekly).ResetObservation!.State);
+        var tooltip = ClaudeResetPresentation.Tooltip(five, data.Clock.UtcNow, service.Snapshot);
+        Assert.Contains("Next reset time has not been confirmed.", tooltip);
+        Assert.Contains("OAuth", tooltip);
+        Assert.Contains("Usage · ", tooltip);
+        Assert.Contains("Reset evidence · ", tooltip);
+        Assert.DoesNotContain("in 4h", tooltip);
+        Assert.DoesNotContain(CodexDeadlineFormatting.ResetCountdown(reset, data.Clock.UtcNow), tooltip);
+
+        data.Clock.UtcNow = data.Clock.UtcNow.AddMinutes(1);
+        var next = data.Clock.UtcNow.AddHours(4).AddMinutes(32);
+        data.Live.Next = new(new(data.Clock.UtcNow, new(0, next), new(19, week)));
+        await service.RefreshLiveAsync(default);
+        five = Window(service, CodexWindowKind.FiveHour);
+        Assert.Equal(0, five.UsedPercent);
+        Assert.Equal(next, five.ResetsAt);
+        Assert.Equal(ClaudeResetObservationState.Direct, five.ResetObservation!.State);
+        Assert.Equal(data.Clock.UtcNow, five.ResetObservation.ObservedAt);
+        Assert.Equal("in 4h 32m", ClaudeResetPresentation.Countdown(five, data.Clock.UtcNow));
+        Assert.Equal(week, Window(service, CodexWindowKind.Weekly).ResetsAt);
+    }
+
+    [Fact]
+    public async Task RepeatedPastServerResetWithAFullRemainderDoesNotBecomeACountdown()
+    {
+        using var data = new Data();
+        var reset = Now.AddMinutes(2);
+        data.Live.Next = new(new(Now, new(46, reset), new(19, Now.AddDays(3))));
+        var service = data.Service();
+        await service.RefreshLiveAsync(default);
+        data.Clock.UtcNow = reset.AddSeconds(30);
+        data.Live.Next = new(new(data.Clock.UtcNow, new(0, reset), new(20, Now.AddDays(3))));
+        await service.RefreshLiveAsync(default);
+        var five = Window(service, CodexWindowKind.FiveHour);
+        Assert.Equal(0, five.UsedPercent);
+        Assert.Equal(ClaudeResetObservationState.Elapsed, five.ResetObservation!.State);
+        Assert.Equal(reset, five.ResetObservation.LastKnownResetAt);
+        Assert.Equal("Reset unconfirmed", ClaudeResetPresentation.Countdown(five, data.Clock.UtcNow));
+        Assert.Equal("Next reset unconfirmed", ClaudeResetPresentation.Stamp(five, data.Clock.UtcNow));
+        Assert.NotEqual(CodexDeadlineFormatting.ResetCountdown(five.ResetsAt, data.Clock.UtcNow),
+            ClaudeResetPresentation.Countdown(five, data.Clock.UtcNow));
+        Assert.Equal(Now.AddDays(3), Window(service, CodexWindowKind.Weekly).ResetsAt);
+        Assert.Equal(ClaudeResetObservationState.Direct, Window(service, CodexWindowKind.Weekly).ResetObservation!.State);
+    }
+
+    [Fact]
+    public async Task RateLimitAfterAnUnconfirmedResetKeepsTheFailureAndDoesNotInventACountdown()
+    {
+        using var data = new Data();
+        var reset = Now.AddMinutes(2);
+        data.Live.Next = new(new(Now, new(46, reset), new(19, Now.AddDays(3))));
+        var service = data.Service();
+        await service.RefreshLiveAsync(default);
+        data.Clock.UtcNow = reset.AddSeconds(1);
+        data.Live.Next = new(new(data.Clock.UtcNow, new(0, null), new(19, null)));
+        await service.RefreshLiveAsync(default);
+        data.Clock.UtcNow = data.Clock.UtcNow.AddMinutes(1);
+        data.Live.Next = new(null, "claude-live-rate-limited", data.Clock.UtcNow);
+        data.Desktop.Next = new(new(data.Clock.UtcNow, 0, 19));
+        await service.RefreshLiveAsync(default);
+        Assert.Equal(CodexQuotaStatus.Stale, service.Snapshot.Status);
+        Assert.Equal("claude-live-rate-limited", service.Snapshot.TechnicalDetail);
+        var five = Window(service, CodexWindowKind.FiveHour);
+        Assert.Equal(0, five.UsedPercent);
+        Assert.Null(five.ResetsAt);
+        Assert.Equal(ClaudeResetObservationState.Elapsed, five.ResetObservation!.State);
+        Assert.Equal("Reset unconfirmed", ClaudeResetPresentation.Countdown(five, data.Clock.UtcNow));
+        Assert.Equal(Now.AddDays(3), Window(service, CodexWindowKind.Weekly).ResetsAt);
     }
 
     [Fact]

@@ -383,6 +383,55 @@ public class ClaudeResetTimingStoreTests
         Assert.Null(read.State);
     }
 
+    [Fact]
+    public async Task SeparateClaudeProfilesDoNotShareElapsedOrFutureResetEvidence()
+    {
+        using var data = new Data();
+        var first = data.Service();
+        var reset = Now.AddSeconds(30);
+        data.Client.Next = new(new(Now, new(46, reset), new(19, Now.AddDays(3))));
+        await first.RefreshLiveAsync(default);
+        data.Clock.UtcNow = reset.AddSeconds(1);
+        data.Client.Next = new(new(data.Clock.UtcNow, new(0, null), new(19, null)));
+        await first.RefreshLiveAsync(default);
+        Assert.Equal(ClaudeResetObservationState.Elapsed, Five(first).ResetObservation!.State);
+        Assert.Null(Five(first).ResetsAt);
+
+        var settings = data.Accounts.ReadExisting()!;
+        var secondProfile = data.Accounts.NewClaude("Other Claude");
+        data.Accounts.Save(settings with { Profiles = [.. settings.Profiles, secondProfile] });
+        var secondBinding = data.Binding with
+        {
+            ProfileId = secondProfile.Id,
+            IdentityFingerprint = ClaudeIdentity.StableFingerprint("other-reset@example.invalid", "org-other-reset"),
+            BindingGeneration = Guid.NewGuid().ToString("N")
+        };
+        var secondConnections = new ClaudeConnectionStore(data.Accounts, secondProfile.Id);
+        secondConnections.Save(secondBinding);
+        var secondClockSample = data.Clock.UtcNow;
+        var secondReset = secondClockSample.AddHours(4);
+        var secondClient = new Client
+        {
+            Next = new(new(secondClockSample, new(12, secondReset), new(8, secondClockSample.AddDays(6))))
+        };
+        var second = new ClaudeQuotaService(
+            new ClaudeStatusLineStore(data.Accounts.ClaudeStatusLinePath(secondProfile.Id), secondProfile.Id),
+            data.Clock, secondConnections.Read, email: _ => "other-reset@example.invalid",
+            failureStore: new ClaudeFailureStore(data.Accounts), desktop: new Desktop(),
+            live: new ClaudeLiveUsageCollector(data.Accounts, secondProfile.Id, secondClient, data.Clock),
+            resetTiming: new ClaudeResetTimingStore(data.Accounts, secondProfile.Id));
+        await second.RefreshLiveAsync(default);
+        Assert.Equal(secondReset, Five(second).ResetsAt);
+        Assert.Equal(ClaudeResetObservationState.Direct, Five(second).ResetObservation!.State);
+        Assert.NotEqual(data.Timing.PathName, new ClaudeResetTimingStore(data.Accounts, secondProfile.Id).PathName);
+
+        data.Clock.UtcNow = data.Clock.UtcNow.AddSeconds(2);
+        await first.RefreshAsync(default);
+        Assert.Equal(ClaudeResetObservationState.Elapsed, Five(first).ResetObservation!.State);
+        Assert.Null(Five(first).ResetsAt);
+        Assert.Equal(secondReset, Five(second).ResetsAt);
+    }
+
     private static CodexQuotaWindow Five(ClaudeQuotaService service) =>
         Assert.Single(service.Snapshot.Windows, window => window.Kind == CodexWindowKind.FiveHour);
     private static CodexQuotaWindow Week(ClaudeQuotaService service) =>

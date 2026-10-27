@@ -2,6 +2,26 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Claude elapsed reset copy (2026-10-27 Asia/Seoul):
+  - The `갱신 대기` label was the elapsed-observation state: the last supplied
+    reset time had passed and no newer future timestamp was in the projection.
+    A later OAuth or statusLine future `resets_at` already replaced it. Usage
+    at 0% did not create that timestamp, and this change does not calculate one.
+  - Detail now says **Next reset unconfirmed / 다음 리셋 시각 미확인**. The widget
+    uses the shorter **Reset unconfirmed / 리셋 미확인** so the period bar stays.
+    A reset that was never supplied stays **Reset not provided / 리셋 미제공**.
+    The tooltip separates the usage receipt from the reset evidence.
+  - Official status-line and usage-limit pages were rechecked on 2026-10-27.
+    They do not say that 0% utilization opens the next five-hour session.
+    No live Claude request or OAuth call was made; the recovery path uses
+    official-schema fixtures. Codex and Cursor countdown copy is unchanged.
+  - Release unit filter `ClaudeReset|CodexDeadline|CursorWidgetAccountModel`:
+    **149 passed**, 0 failed. `dotnet build CycleArc.sln -c Release` succeeded.
+    `--claude-reset` production WPF checks passed all **60** EN/KO × Dark/Light
+    × 80/100/150% states. Host DPI was **100% (96 DPI)**; 150% here is widget
+    zoom, not an OS DPI session. Argument-free UiSmoke, packaging and Actions
+    were not run. No installation was replaced.
+
 - 0.11.2 release preparation (2026-10-25 Asia/Seoul):
   - The local full `dev-run.ps1 -NoLaunch` gate passed in **7m 49s** on the final
     0.11.2 versioned source based on `43bdd74`: workflow/SDK/toolchain and release

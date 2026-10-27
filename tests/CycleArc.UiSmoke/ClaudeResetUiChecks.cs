@@ -28,8 +28,9 @@ internal static class ClaudeResetUiChecks
             var origin = now.AddMinutes(-4);
             var reset = state == ClaudeResetObservationState.Elapsed ? now.AddMinutes(-1) : now.AddHours(2);
             var supplied = state is ClaudeResetObservationState.Direct or ClaudeResetObservationState.Preserved ? reset : (DateTimeOffset?)null;
-            var five = new CodexQuotaWindow("five_hour", 51.12, 300, supplied, CodexWindowKind.FiveHour)
-            { ResetObservation = new(state, ClaudeResetSource.Server, origin, reset) };
+            var used = state == ClaudeResetObservationState.Elapsed ? 0d : 51.12;
+            var five = new CodexQuotaWindow("five_hour", used, 300, supplied, CodexWindowKind.FiveHour)
+            { ResetObservation = new(state, ClaudeResetSource.Server, origin, state == ClaudeResetObservationState.NotProvided ? null : reset) };
             var week = new CodexQuotaWindow("seven_day", 20.03, 10080, now.AddDays(3), CodexWindowKind.Weekly)
             { ResetObservation = new(ClaudeResetObservationState.Direct, ClaudeResetSource.Server, now, now.AddDays(3)) };
             var snapshot = new CodexQuotaSnapshot(CodexQuotaStatus.Available, null, now, now, null, null, null,
@@ -49,16 +50,42 @@ internal static class ClaudeResetUiChecks
                 WidgetFixture.RenderWidget(widget, stem is null ? null : stem + "-widget.png");
                 var model = WidgetAccountModel.From(account, true, now: now);
                 var line = model.Periods.Single(p => p.Kind == CodexWindowKind.FiveHour);
-                Check(line.ResetTooltip?.Contains(UiText.T("Claude server", "Claude 서버")) == true, "Reset source absent from widget tooltip.");
+                Check(line.ResetTooltip?.Contains("OAuth") == true, "Reset source absent from widget tooltip.");
                 Check(line.ResetTooltip!.Contains(origin.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz")), "Original reset observation clock absent.");
+                if (state == ClaudeResetObservationState.Elapsed)
+                {
+                    Check(line.ResetText == UiText.T("Reset unconfirmed", "리셋 미확인"), "Elapsed reset still reads as a pending quota refresh.");
+                    Check(line.ResetTooltip.Contains(UiText.T("Next reset time has not been confirmed.", "새로운 리셋 시각은 아직 확인되지 않았습니다.")),
+                        "Elapsed tooltip does not say the next reset is unconfirmed.");
+                    Check(line.ResetTooltip.Contains("Desktop") && line.ResetTooltip.Contains(now.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz")),
+                        "Elapsed tooltip does not separate the usage receipt from the reset evidence.");
+                    Check(!line.ResetTooltip.Contains(UiText.T("Awaiting refresh", "갱신 대기")), "Elapsed tooltip presents the old reset as a countdown.");
+                }
+                if (state == ClaudeResetObservationState.NotProvided)
+                    Check(line.ResetText == UiText.ResetNotProvided, "A reset that was never supplied invented another label.");
                 Check(widget.Modules.Single().RingValueText.ActualHeight > 0, "Reset states displaced the usage ring.");
+                foreach (var period in widget.Modules.Single().Periods)
+                    Check(period.ResetText.Visibility != Visibility.Visible
+                        || period.ResetText.ActualWidth + 1 >= period.ResetText.DesiredSize.Width, "Widget reset text clipped.");
+                var bars = AccountUiChecks.Descendants<Grid>(widget.Modules.Single())
+                    .Where(grid => Equals(grid.Tag, "WidgetPeriodBar") && grid.Visibility == Visibility.Visible).ToArray();
+                Check(bars.Length == 1 && bars[0].ActualWidth >= 20, "Reset label collapsed the period bar.");
                 flyout.ApplyWindowSettings(settings); flyout.BindAccounts([account], account.Profile.Id, false);
                 AccountUiChecks.Render(flyout, 440 * zoom / 100d, null, stem is null ? null : stem + "-detail.png");
                 var rows = CodexDisplayFormatting.Rows(snapshot, now);
-                Check(rows.Any(r => r.Tooltip?.Contains(origin.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz")) == true), "Original provenance absent from detail rows.");
+                if (state == ClaudeResetObservationState.NotProvided)
+                    Check(rows[0].Label != UiText.Reset && rows[1].Label != UiText.Reset,
+                        "A reset that was never supplied invented a detail row.");
+                else
+                    Check(rows.Any(r => r.Tooltip?.Contains(origin.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz")) == true),
+                        "Original provenance absent from detail rows.");
+                var usageText = state == ClaudeResetObservationState.Elapsed ? "0% / 100%" : "51.12% / 48.88%";
                 Check(flyout.DetailRows.Select(border => (Grid)border.Child)
                     .Select(grid => ((StackPanel)grid.Children[1]).Children[0]).OfType<TextBlock>()
-                    .Any(t => t.Text == "51.12% / 48.88%"), "Reset state changed current measured usage.");
+                    .Any(t => t.Text == usageText), "Reset state changed current measured usage.");
+                if (state == ClaudeResetObservationState.Elapsed)
+                    Check(rows.Any(r => r.Value == UiText.T("Next reset unconfirmed", "다음 리셋 시각 미확인")),
+                        "Detail still labels an elapsed reset as awaiting update.");
                 foreach (var row in flyout.DetailRows.Select(border => (Grid)border.Child))
                 {
                     var value = (TextBlock)((StackPanel)row.Children[1]).Children[0];

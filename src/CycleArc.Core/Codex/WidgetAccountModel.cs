@@ -169,7 +169,7 @@ public sealed record WidgetAccountModel(
             window.ResetObservation is null ? CodexDeadlineFormatting.ResetCountdown(window.ResetsAt, at)
                 : ClaudeResetPresentation.Countdown(window, at),
             window.ResetObservation is null ? CodexDeadlineFormatting.ResetStampTooltip(window.ResetsAt)
-                : ClaudeResetPresentation.Tooltip(window, at),
+                : ClaudeResetPresentation.Tooltip(window, at, snapshot),
             ReferenceEquals(window, ring.Window))
         {
             DisplayRemainingText = UiText.WidgetLeft(
