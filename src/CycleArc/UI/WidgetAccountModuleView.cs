@@ -408,9 +408,18 @@ public sealed class WidgetAccountModuleView : Border
             + Environment.NewLine + UiText.T("Press Enter or Space to open account details.",
                 "Enter 또는 Space를 눌러 계정 상세를 확인하세요."));
 
-        // BindAccounts measures immediately, before WPF propagates quota-row changes.
-        ((FrameworkElement)Child).InvalidateMeasure();
-        InvalidateMeasure();
+        // BindAccounts measures immediately, before WPF propagates quota-row changes. A direct
+        // Measure stops at the first valid ancestor, so a period line added deep inside would
+        // keep the old height (Cursor's Grok Bot row then sat below the window). Invalidate the
+        // whole module so that measure reaches every changed row.
+        InvalidateMeasureDeep(this);
+    }
+
+    private static void InvalidateMeasureDeep(DependencyObject element)
+    {
+        if (element is UIElement ui) ui.InvalidateMeasure();
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+            InvalidateMeasureDeep(VisualTreeHelper.GetChild(element, i));
     }
 
     private void UpdateStatusAnimation()
