@@ -696,6 +696,8 @@ internal static class WidgetLayoutChecks
                 && moved.Count == beforeStatus.Moved && new WindowInteropHelper(window).Handle == hwnd,
                 "Status transitions moved, persisted position or recreated the widget.");
 
+            CheckCursorAllowanceGrowth(controller, settings, window);
+
             controller.Update(settings, ThreeOverview());
             Pump();
             var beforeDrag = DipSize(window);
@@ -765,6 +767,50 @@ internal static class WidgetLayoutChecks
         var topLeft = fromDevice.Transform(new Point(rect.Left, rect.Top));
         var bottomRight = fromDevice.Transform(new Point(rect.Right, rect.Bottom));
         return (Math.Max(0, bottomRight.X - topLeft.X), Math.Max(0, bottomRight.Y - topLeft.Y));
+    }
+
+    /// <summary>
+    /// Cursor's optional Grok Bot allowance can arrive after the monthly rows are already
+    /// shown. The new weekly group makes the Cursor module the tallest one in its row, and the
+    /// shown window must grow with it instead of clipping the new row at the old height.
+    /// </summary>
+    private static void CheckCursorAllowanceGrowth(FloatingWidgetController controller, AppSettings settings,
+        FloatingWidget window)
+    {
+        var full = Cursor("grow-cursor", UiText.T("Cursor", "커서"));
+        var monthly = full with
+        {
+            Snapshot = full.Snapshot with
+            {
+                Windows = full.Snapshot.Windows.Where(limit => limit.LimitId != "cursor-sand").ToArray()
+            }
+        };
+        CodexAccountView[] Accounts(CodexAccountView cursor) =>
+        [
+            Codex("grow-a", UiText.T("Main", "메인"), WeeklyOnly(48)),
+            Codex("grow-b", UiText.T("Kakao", "카카오"), Both(0, 32)),
+            Claude("grow-c", UiText.T("Road", "로드"), Both(0, 2)),
+            cursor
+        ];
+
+        controller.Update(settings, UsageAccountOverview.Create(Accounts(monthly), "grow-b"));
+        Pump();
+        CheckWindowMatchesLayout(window, "cursor-monthly-only");
+        CheckAccountsFullyVisible(window, "cursor-monthly-only");
+        var before = window.LastLayout!.Height;
+
+        controller.Update(settings, UsageAccountOverview.Create(Accounts(full), "grow-b"));
+        Pump();
+        var module = window.Modules[^1];
+        Check(module.Periods.Count == 3, "The Grok Bot allowance did not add a Cursor period line.");
+        CheckWindowMatchesLayout(window, "cursor-grok-added");
+        CheckAccountsFullyVisible(window, "cursor-grok-added");
+        var grok = module.Periods[^1].PeriodText;
+        var content = (FrameworkElement)window.Content;
+        var bounds = grok.TransformToAncestor(window).TransformBounds(new Rect(grok.RenderSize));
+        Check(bounds.Bottom <= NativeDipSize(window).Height + 0.5 && window.LastLayout!.Height > before,
+            $"Grok Bot row {bounds} is clipped by the widget ({before} → {window.LastLayout!.Height}, "
+            + $"HWND {NativeDipSize(window).Height}, content {content.DesiredSize.Height}).");
     }
 
     private static void CheckWindowMatchesLayout(FloatingWidget widget, string name)
@@ -855,7 +901,8 @@ internal static class WidgetLayoutChecks
                 $"{name}: {module.NameText.Text} {part} is clipped ({bounds} vs {clip.Width}x{clip.Height}).");
             if (element is TextBlock text)
             {
-                Check(text.ActualWidth + 0.5 >= text.DesiredSize.Width,
+                // DesiredSize includes the margin; Cursor's heading countdown keeps a 4 DIP gap.
+                Check(text.ActualWidth + text.Margin.Left + text.Margin.Right + 0.5 >= text.DesiredSize.Width,
                     $"{name}: {module.NameText.Text} {part} text is truncated.");
             }
         }
