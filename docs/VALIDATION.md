@@ -2,6 +2,21 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Cursor sealed access token (2026-11-01 Asia/Seoul):
+  - Reconnect reported `cursor-live-auth-required` while Cursor stayed signed in.
+    `cursorAuth/accessToken` is now `cursor-safe-storage:v1:` plus Electron
+    safeStorage ciphertext (Windows Chromium OSCrypt `v10`), not a JWT. The
+    reader unwraps it in memory with the Local State DPAPI key and still does
+    not read the refresh-token row or persist the JWT. A sealed value that
+    cannot be unwrapped is `cursor-live-unavailable`.
+  - `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release --filter
+    FullyQualifiedName~CursorAuthReaderTests`: **5 passed**.
+  - On this PC the production reader unwrapped the current login to an unexpired
+    JWT, and a read-only `GET /api/auth/me` identity hash matched the saved
+    Cursor profile. No token, email or response body was recorded. The installed
+    app was not replaced, so the running desktop still has the old reader until
+    this build is started.
+
 - Quick install entry point (2026-10-27 Asia/Seoul):
   - `quickinstall.cmd` calls `Build-Local.ps1 -QuickInstall`, which runs
     `dev-run.ps1 -NoLaunch -QuickPackage`. It is not `build-local.cmd -Fast`.
