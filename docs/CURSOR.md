@@ -148,6 +148,16 @@ The `ItemTable` row named `cursorAuth/accessToken` contained the access JWT.
 The database was read only. The access JWT was kept in memory for the check;
 no token, refresh token, email, or raw response was recorded here.
 
+On 2026-11-01 that same row was no longer a JWT. Cursor stores it as
+`cursor-safe-storage:v1:` plus the base64 of Electron `safeStorage.encryptString`.
+On Windows the buffer is Chromium OSCrypt `v10`: a 3-byte prefix, a 12-byte nonce,
+AES-256-GCM ciphertext and a 16-byte tag. The key is `os_crypt.encrypted_key` in
+`%APPDATA%\Cursor\Local State`, base64 of the ASCII `DPAPI` prefix plus a
+`CryptUnprotectData` blob. CycleArc unwraps that in memory. A row without the
+prefix is still a plaintext JWT. A sealed row that cannot be unwrapped is an
+unreadable account, not a missing login. The refresh-token row is still not read,
+neither file is written, and the JWT is not persisted.
+
 The following bounded, read-only requests returned HTTP 200. Response bodies
 are intentionally summarized rather than copied.
 

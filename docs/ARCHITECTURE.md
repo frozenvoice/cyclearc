@@ -118,6 +118,8 @@ entries. It does not restart Explorer or rewrite opaque icon caches.
   verifies the current Windows Cursor login through the first-party profile endpoint, binds
   its identity hash and reads usage without changing Cursor's login or renewing credentials.
   Only the exact access-token row of `state.vscdb` is queried; no history is collected.
+  A `cursor-safe-storage:v1:` value is unwrapped in memory with the read-only Local State
+  OSCrypt key. The refresh-token row is not read.
   The token and derived session header exist only in memory. The observed endpoint and
   Windows authentication evidence are documented in [Cursor](CURSOR.md).
 - Cursor's internal Auto/API lanes retain their own named rows, while on-demand, team and Grok
