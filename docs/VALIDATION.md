@@ -2,6 +2,24 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- 0.12.0 release preparation (2026-11-02 Asia/Seoul):
+  - Release changes since 0.11.2 are the Cursor representative ring that follows the last
+    request's documented pool, the sealed Cursor local access token, Cursor activity
+    resilience to transient read failures, the elapsed Claude reset shown as unconfirmed,
+    the widget Grok Bot growth and DPI-rounding fixes, and the `quickinstall.cmd` source
+    entry point. Version metadata is 0.12.0 / 0.12.0.0, with English/Korean notes.
+  - The local full `dev-run.ps1 -NoLaunch` gate passed in **9m 31s** on the 0.12.0 versioned
+    source based on `061f546`: workflow/SDK/toolchain and release guards, restore, Release
+    build, desktop-instance and installer/script regressions, **2,462 unit tests** (zero
+    failed/skipped), `[ui-smoke] COMPLETE all default suites`, test-flavour build,
+    self-contained publish, installer/portable packaging and package verification. Host WPF
+    DPI was **125% (120 DPI)**.
+  - The user explicitly authorized the `Windows` full run and `windows-build-local.yml` for
+    the release commit, because `Build-Local.ps1`/`Bootstrap-BuildLocal.ps1` changed.
+    `windows-e2e.yml` does not apply: setup/update/recovery/removal did not change.
+    Publication depends on both succeeding for the exact SHA and on Release.ps1
+    artifact/hash verification.
+
 - Cursor sealed access token (2026-11-01 Asia/Seoul):
   - Reconnect reported `cursor-live-auth-required` while Cursor stayed signed in.
     `cursorAuth/accessToken` is now `cursor-safe-storage:v1:` plus Electron
