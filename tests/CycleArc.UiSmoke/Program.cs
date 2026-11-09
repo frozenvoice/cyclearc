@@ -285,6 +285,11 @@ internal static class Program
                 UsagePeriodUiChecks.Run(app, periodDirectory);
                 return 0;
             }
+            if (args is ["--usage-pace"] or ["--usage-pace", _])
+            {
+                UsagePaceUiChecks.Run(app, args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--codex-windows", var codexWindowsDirectory])
             {
                 CodexWindowUiChecks.Run(codexWindowsDirectory);
@@ -427,6 +432,8 @@ internal static class Program
             RingBandUiChecks.Run();
             Begin("usage-periods");
             UsagePeriodUiChecks.Run(app);
+            Begin("usage-pace");
+            UsagePaceUiChecks.Run(app);
             Begin("mixed-provider");
             MixedProviderUiChecks.Run();
             Begin("tooltips");

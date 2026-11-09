@@ -2,6 +2,26 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Popup usage pace (2026-11-09 Asia/Seoul, branch `feat/flyout-pace`):
+  - The detail ring marks the even-pace point of the shown limit (named in the ring's
+    tooltip and help text); a line under the ring appears only when the pace is tight
+    (under 15% left at reset) or runs out before reset. `UsagePacePresentation` only
+    projects a healthy Codex or live Claude server sample with known percentage, duration
+    and future reset; Desktop history/statusLine receipts, stale/failed data, Cursor,
+    unconfirmed resets and the first 10% (min 30 minutes) of a window show nothing.
+    No request, storage or provider change.
+  - `dotnet test tests/CycleArc.Tests/CycleArc.Tests.csproj -c Release`: **2,482 passed**
+    (zero failed/skipped), including the new `UsagePacePresentationTests`.
+  - `dotnet build CycleArc.sln -c Release`: succeeded; the three warnings are existing
+    `UiReuseChecks.cs` nullability warnings.
+  - `--usage-pace`: **108 layouts** (EN/KO × Dark/Light/System × runs-out/tight/ahead ×
+    Codex/Claude × 80/100/150%) plus hidden Desktop-history and stale cases. Previews of
+    the KO Dark runs-out/tight and KO Light/EN Light ahead (mark only) states were
+    inspected visually.
+  - Argument-free UiSmoke: `[ui-smoke] COMPLETE all default suites`, exit 0.
+  - Synthetic accounts only; no live subscription, installed-app update or full
+    `dev-run.ps1` gate was run. `docs/images` previews were not regenerated.
+
 - 0.12.0 release preparation (2026-11-02 Asia/Seoul):
   - Release changes since 0.11.2 are the Cursor representative ring that follows the last
     request's documented pool, the sealed Cursor local access token, Cursor activity

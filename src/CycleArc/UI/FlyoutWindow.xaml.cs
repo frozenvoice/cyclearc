@@ -728,7 +728,53 @@ public partial class FlyoutWindow : Window
         CodexSecondaryRowsHost.Visibility = secondary.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         ApplyCodexRing(snapshot, cursorLink.Window);
+        ApplyPace(UsagePacePresentation.From(snapshot, ringWindow, now));
     }
+
+    // The ring's even-pace mark and the sentence under it share one projection, so neither
+    // shows for a sample whose rate cannot be trusted.
+    private void ApplyPace(UsagePace? pace)
+    {
+        Pace = pace;
+        var tick = pace is null ? null : RingGeometry.ComputeTick(pace.EvenRemainingPercent,
+            CodexRingCenter, CodexRingCenter, CodexRingRadius - 7, CodexRingRadius + 7);
+        CodexRingPaceTick.Visibility = tick is null ? Visibility.Collapsed : Visibility.Visible;
+        if (tick is { } line)
+        {
+            CodexRingPaceTick.X1 = line.Inner.X;
+            CodexRingPaceTick.Y1 = line.Inner.Y;
+            CodexRingPaceTick.X2 = line.Outer.X;
+            CodexRingPaceTick.Y2 = line.Outer.Y;
+        }
+        // The ring button's tooltip and help name the mark, so it is explained even without a sentence.
+        System.Windows.Automation.AutomationProperties.SetHelpText(CyclePeriodButton, pace?.MarkerText ?? "");
+        if (pace is not null && CyclePeriodButton.ToolTip is string switchText)
+            CyclePeriodButton.ToolTip = switchText + Environment.NewLine + pace.MarkerText;
+        // A comfortable pace needs no sentence; tight and running-out paces explain themselves.
+        if (pace is null or { Tone: UsagePaceTone.Ahead })
+        {
+            PaceNotice.Visibility = Visibility.Collapsed;
+            PaceText.Text = "";
+            PaceNotice.ToolTip = null;
+            return;
+        }
+        var toneKey = pace.Tone switch
+        {
+            UsagePaceTone.RunsOut => "RingNearLimitBrush",
+            UsagePaceTone.Tight => "RingCautionBrush",
+            _ => "OkBrush"
+        };
+        PaceNotice.SetResourceReference(Border.BorderBrushProperty, toneKey);
+        PaceIcon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, toneKey);
+        PaceText.Text = pace.Text;
+        PaceNotice.ToolTip = MakeTooltip(pace.MarkerText);
+        System.Windows.Automation.AutomationProperties.SetName(PaceNotice, pace.Text);
+        System.Windows.Automation.AutomationProperties.SetHelpText(PaceNotice, pace.MarkerText);
+        PaceNotice.Visibility = Visibility.Visible;
+    }
+
+    // The pace currently shown under the ring, or null when it is hidden.
+    internal UsagePace? Pace { get; private set; }
 
     // One detail row: label and value, with the value's detail (reset countdown, time) below it.
     // Stacked puts the label above the value, for long Cursor names in the narrow ring-side column.

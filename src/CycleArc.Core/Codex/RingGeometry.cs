@@ -50,6 +50,18 @@ public static class RingGeometry
         return new RingArc(start, end, isLargeArc, true, false);
     }
 
+    /// <summary>
+    /// A short radial mark across the ring at <paramref name="percent"/> of a full turn, using
+    /// the same start and direction as <see cref="ComputeFillArc"/>; null for an unknown share.
+    /// </summary>
+    public static (RingPoint Inner, RingPoint Outer)? ComputeTick(double? percent, double centerX, double centerY,
+        double innerRadius, double outerRadius)
+    {
+        if (percent is null || !double.IsFinite(percent.Value)) return null;
+        var angle = StartAngleDegrees + Math.Clamp(percent.Value, 0, 100) / 100.0 * 360.0;
+        return (PointOnCircle(centerX, centerY, innerRadius, angle), PointOnCircle(centerX, centerY, outerRadius, angle));
+    }
+
     private static RingPoint PointOnCircle(double centerX, double centerY, double radius, double angleDegrees)
     {
         var radians = angleDegrees * Math.PI / 180.0;
