@@ -2,6 +2,16 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Popup usage pace, comfortable line (2026-11-10 Asia/Seoul, branch `feat/flyout-pace-ahead`):
+  - After the 0.12.0+8a885c0 install, a comfortable pace showed only the ring mark, so the
+    feature was hard to notice. The line under the ring now shows for every projected pace,
+    including **On track · about 45% left at reset** with a green outline. Projection rules
+    and thresholds are unchanged.
+  - Unit tests: **2,482 passed**. `--usage-pace`: **108 layouts**, with the sentence now
+    required for the ahead case too; the KO Dark ahead render was inspected.
+  - Argument-free UiSmoke: `[ui-smoke] COMPLETE all default suites`, exit 0.
+  - Synthetic accounts only; the installed app was not rebuilt.
+
 - Popup usage pace (2026-11-09 Asia/Seoul, branch `feat/flyout-pace`):
   - The detail ring marks the even-pace point of the shown limit (named in the ring's
     tooltip and help text); a line under the ring appears only when the pace is tight

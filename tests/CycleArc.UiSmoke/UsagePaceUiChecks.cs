@@ -14,8 +14,7 @@ namespace CycleArc.UiSmoke;
 
 /// <summary>
 /// The popup's even-pace ring mark and the sentence under the ring, on synthetic accounts:
-/// the mark for a healthy server sample with a known reset, the sentence only when tight or
-/// running out, hidden for a Desktop history receipt
+/// both for a healthy server sample with a known reset, hidden for a Desktop history receipt
 /// and a stale sample, in EN/KO and every theme, without clipping at 80/100/150% zoom.
 /// </summary>
 internal static class UsagePaceUiChecks
@@ -43,13 +42,10 @@ internal static class UsagePaceUiChecks
                 {
                     Bind(flyout, Live(provider, used));
                     Check(flyout.Pace?.Tone == tone, $"{provider} {name}: expected {tone}, got {flyout.Pace?.Tone}.");
-                    // A comfortable pace keeps only the mark; the others add the sentence.
-                    var sentence = tone != UsagePaceTone.Ahead;
-                    Check(Element(flyout, "CodexRingPaceTick").Visibility == Visibility.Visible,
-                        $"{provider} {name}: ring mark hidden.");
-                    Check((Element(flyout, "PaceNotice").Visibility == Visibility.Visible) == sentence,
-                        $"{provider} {name}: pace sentence visibility is wrong.");
-                    Check(((TextBlock)flyout.FindName("PaceText")).Text == (sentence ? flyout.Pace!.Text : ""),
+                    Check(Element(flyout, "PaceNotice").Visibility == Visibility.Visible
+                        && Element(flyout, "CodexRingPaceTick").Visibility == Visibility.Visible,
+                        $"{provider} {name}: pace sentence or ring mark hidden.");
+                    Check(((TextBlock)flyout.FindName("PaceText")).Text == flyout.Pace!.Text,
                         $"{provider} {name}: shown sentence differs from the projection.");
                     Check(System.Windows.Automation.AutomationProperties.GetHelpText(
                             (Button)flyout.FindName("CyclePeriodButton")) == flyout.Pace!.MarkerText,
@@ -61,7 +57,7 @@ internal static class UsagePaceUiChecks
                             && provider == UsageProviderId.Claude
                             ? System.IO.Path.Combine(directory, $"usage-pace-{name}-{language}-{theme}.png") : null;
                         AccountUiChecks.Render(flyout, 440 * zoom / 100d, null, preview);
-                        CheckLayout(flyout, $"{provider} {name} {language} {theme} {zoom}%", sentence);
+                        CheckLayout(flyout, $"{provider} {name} {language} {theme} {zoom}%");
                         count++;
                     }
 
@@ -94,19 +90,16 @@ internal static class UsagePaceUiChecks
             $"{label}: pace sentence or ring mark stayed visible.");
     }
 
-    private static void CheckLayout(FlyoutWindow flyout, string label, bool sentence)
+    private static void CheckLayout(FlyoutWindow flyout, string label)
     {
-        if (sentence)
-        {
-            var notice = Element(flyout, "PaceNotice");
-            var text = (TextBlock)flyout.FindName("PaceText");
-            var card = Element(flyout, "CodexCard");
-            var noticeBox = notice.TransformToAncestor(card).TransformBounds(new Rect(notice.RenderSize));
-            Check(noticeBox.Left >= 0 && noticeBox.Right <= card.ActualWidth + 0.5,
-                $"{label}: pace sentence overflows the card.");
-            Check(text.ActualWidth <= notice.ActualWidth && text.ActualHeight > 0,
-                $"{label}: pace sentence is clipped.");
-        }
+        var notice = Element(flyout, "PaceNotice");
+        var text = (TextBlock)flyout.FindName("PaceText");
+        var card = Element(flyout, "CodexCard");
+        var noticeBox = notice.TransformToAncestor(card).TransformBounds(new Rect(notice.RenderSize));
+        Check(noticeBox.Left >= 0 && noticeBox.Right <= card.ActualWidth + 0.5,
+            $"{label}: pace sentence overflows the card.");
+        Check(text.ActualWidth <= notice.ActualWidth && text.ActualHeight > 0,
+            $"{label}: pace sentence is clipped.");
         var tick = (Line)flyout.FindName("CodexRingPaceTick");
         var host = Element(flyout, "CodexRingHost");
         foreach (var point in new[] { new Point(tick.X1, tick.Y1), new Point(tick.X2, tick.Y2) })
