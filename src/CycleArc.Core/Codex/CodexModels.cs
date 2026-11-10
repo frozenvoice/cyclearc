@@ -71,6 +71,10 @@ public sealed record CodexQuotaSnapshot(
     public string? ExtraUsageFailure { get; init; }
     public CycleArc.Providers.Claude.ClaudeResetCreditInventory? ClaudeResetCredits { get; init; }
     public string? ClaudeResetCreditsFailure { get; init; }
+    // Claude's per-model weekly limits from the live check; shown as detail rows only and
+    // deliberately kept out of Windows so period selection, widget, tray and history ignore them.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<CycleArc.Providers.Claude.ClaudeModelLimit>? ClaudeModelLimits { get; init; }
     public CycleArc.Providers.Cursor.CursorPlanAmounts? CursorPlanAmounts { get; init; }
     public string? CursorPlanAmountsFailure { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
@@ -159,6 +163,7 @@ public sealed record CodexQuotaSnapshot(
         UsageCredits = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : UsageCredits,
         ExtraUsage = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : ExtraUsage,
         ClaudeResetCredits = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : ClaudeResetCredits,
+        ClaudeModelLimits = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : ClaudeModelLimits,
         CursorPlanAmounts = (Status is CodexQuotaStatus.SignedOut or CodexQuotaStatus.CodexNotFound) ? null : CursorPlanAmounts
     };
 }

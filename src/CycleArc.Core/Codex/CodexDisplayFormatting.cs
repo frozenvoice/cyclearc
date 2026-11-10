@@ -121,6 +121,22 @@ public static class CodexDisplayFormatting
                     window.ResetObservation is null ? null : ClaudeResetPresentation.Tooltip(window, at, snapshot)));
         }
 
+        // Claude's per-model weekly limits follow the shared windows in the same two-row shape.
+        // One whose reset has passed is known to be out of date and is left out until the next check.
+        if (snapshot.Provider == UsageProviderId.Claude && snapshot.ClaudeModelLimits is { } modelLimits)
+            foreach (var limit in modelLimits.Where(limit => limit.ResetsAt is null || limit.ResetsAt > at))
+            {
+                var model = ModelLimitName(limit.Model);
+                rows.Add(new CodexDisplayRow(
+                    $"{UiText.ModelWeeklyUsed(model)} / {UiText.T("left", "남음")}",
+                    $"{UsagePercentFormatting.Detail(limit.UsedPercentage)} / {UsagePercentFormatting.Detail(100 - limit.UsedPercentage)}",
+                    limit.UsedPercentage >= 100,
+                    limit.WeeklySharePercent is { } share ? UiText.ModelWeeklyShare(share) : null));
+                if (limit.ResetsAt is { } modelReset)
+                    rows.Add(new CodexDisplayRow(UiText.ModelReset(model), ResetStamp(modelReset), false,
+                        CodexDeadlineFormatting.Remaining(modelReset, at)));
+            }
+
         if (includeResetCredits && snapshot.ResetCreditsAvailable is int credits)
         {
             var expiry = CodexDeadlineFormatting.CreditExpiry(snapshot, at);
@@ -142,6 +158,9 @@ public static class CodexDisplayFormatting
 
         return rows;
     }
+
+    /// <summary>A model name as a row label shows it: a long one is cut so the value beside it keeps its place.</summary>
+    public static string ModelLimitName(string model) => model.Length <= 16 ? model : model[..15].TrimEnd() + "…";
 
     /// <summary>
     /// The popup detail's rows, split by place. <c>Primary</c> is the limit the ring shows

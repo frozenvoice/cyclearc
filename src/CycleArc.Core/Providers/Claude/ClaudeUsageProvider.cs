@@ -371,6 +371,9 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
             ExtraUsageFailure = _lastLive?.Failure ?? live?.ExtraUsageFailure,
             ClaudeResetCredits = live?.ResetCredits,
             ClaudeResetCreditsFailure = _lastLive?.Failure ?? live?.ResetCreditsFailure,
+            // Only the server reports a per-model limit; a statusLine or Desktop history
+            // receipt must not show one beside percentages it did not come with.
+            ClaudeModelLimits = useLive ? live!.ModelLimits : null,
             IdentityFingerprint = _connection?.Binding?.IdentityFingerprint };
         var readings = new List<ClaudeResetSourceReading>();
         if (live is not null) readings.Add(new(ClaudeResetSource.Server, live.ObservedAt, live.FiveHour, live.SevenDay));
@@ -408,7 +411,8 @@ public sealed class ClaudeQuotaService : IUsageAccountService, ILiveUsageAccount
         && ClaudeResetCreditInventory.Valid(sample.ResetCredits, now)
         && (sample.ResetCredits is null || (sample.ResetCredits.ObservedAt >= binding.ConnectedAt
             && sample.ResetCredits.ObservedAt <= sample.ObservedAt))
-        && sample.ResetCreditsFailure is null or "claude-reset-credits-unavailable" or "claude-reset-credits-not-provided";
+        && sample.ResetCreditsFailure is null or "claude-reset-credits-unavailable" or "claude-reset-credits-not-provided"
+        && ClaudeModelLimit.Valid(sample.ModelLimits);
 
     private static bool Valid(ClaudeLiveUsageWindow? window) => window is null
         || (double.IsFinite(window.UsedPercentage) && window.UsedPercentage is >= 0 and <= 100

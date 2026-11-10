@@ -290,6 +290,11 @@ internal static class Program
                 UsagePaceUiChecks.Run(app, args.Length == 2 ? args[1] : null);
                 return 0;
             }
+            if (args is ["--model-limits"] or ["--model-limits", _])
+            {
+                ModelLimitUiChecks.Run(app, args.Length == 2 ? args[1] : null);
+                return 0;
+            }
             if (args is ["--codex-windows", var codexWindowsDirectory])
             {
                 CodexWindowUiChecks.Run(codexWindowsDirectory);
@@ -434,6 +439,8 @@ internal static class Program
             UsagePeriodUiChecks.Run(app);
             Begin("usage-pace");
             UsagePaceUiChecks.Run(app);
+            Begin("model-limits");
+            ModelLimitUiChecks.Run(app);
             Begin("mixed-provider");
             MixedProviderUiChecks.Run();
             Begin("tooltips");
