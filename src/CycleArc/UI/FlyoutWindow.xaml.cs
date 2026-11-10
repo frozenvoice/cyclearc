@@ -750,8 +750,7 @@ public partial class FlyoutWindow : Window
         System.Windows.Automation.AutomationProperties.SetHelpText(CyclePeriodButton, pace?.MarkerText ?? "");
         if (pace is not null && CyclePeriodButton.ToolTip is string switchText)
             CyclePeriodButton.ToolTip = switchText + Environment.NewLine + pace.MarkerText;
-        // A comfortable pace needs no sentence; tight and running-out paces explain themselves.
-        if (pace is null or { Tone: UsagePaceTone.Ahead })
+        if (pace is null)
         {
             PaceNotice.Visibility = Visibility.Collapsed;
             PaceText.Text = "";

@@ -6,8 +6,7 @@ namespace CycleArc.Codex;
 
 public enum UsagePaceTone
 {
-    /// <summary>At the observed rate the limit lasts until reset with room to spare. The popup
-    /// keeps only the ring mark for this tone; the sentence is for tooltips and screen readers.</summary>
+    /// <summary>At the observed rate the limit lasts until reset with room to spare.</summary>
     Ahead,
     /// <summary>At the observed rate the limit lasts until reset, but only just.</summary>
     Tight,
