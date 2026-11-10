@@ -112,6 +112,11 @@ public sealed class ClaudeOAuthUsageClient : IClaudeLiveUsageClient
         catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or FormatException
             or KeyNotFoundException or ArgumentException or OverflowException)
         { sample = sample with { ResetCreditsFailure = "claude-reset-credits-unavailable" }; }
+        // Optional: an unreadable or unexpected list shows no per-model row, never a failed check.
+        try { sample = sample with { ModelLimits = ModelLimits(root, sample.SevenDay) }; }
+        catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or FormatException
+            or KeyNotFoundException or ArgumentException or OverflowException)
+        { sample = sample with { ModelLimits = null }; }
         if (!ClaudeLiveUsageCollector.ValidSample(sample, observedAt)) throw new InvalidDataException("Invalid Claude usage.");
         return sample;
     }
@@ -157,6 +162,55 @@ public sealed class ClaudeOAuthUsageClient : IClaudeLiveUsageClient
         return amount;
     }
 
+    // limits[] repeats the session and weekly windows and adds the limits that count one model
+    // only ("weekly_scoped", named by scope.model.display_name). weekly_scoped_shares[] points
+    // back by position and carries the part of the weekly limit that model may use.
+    private static IReadOnlyList<ClaudeModelLimit>? ModelLimits(JsonElement root, ClaudeLiveUsageWindow? week)
+    {
+        if (!root.TryGetProperty("limits", out var limits) || limits.ValueKind == JsonValueKind.Null) return null;
+        if (limits.ValueKind != JsonValueKind.Array || limits.GetArrayLength() > 32)
+            throw new InvalidDataException("Invalid Claude limits.");
+        var shares = new Dictionary<int, double>();
+        if (root.TryGetProperty("weekly_scoped_shares", out var rawShares) && rawShares.ValueKind == JsonValueKind.Array
+            && rawShares.GetArrayLength() <= 32)
+            foreach (var share in rawShares.EnumerateArray())
+                if (share.ValueKind == JsonValueKind.Object
+                    && share.TryGetProperty("limit_index", out var at) && at.ValueKind == JsonValueKind.Number
+                    && at.TryGetInt32(out var position)
+                    && share.TryGetProperty("allowance_percent_of_weekly", out var allowance)
+                    && allowance.ValueKind == JsonValueKind.Number && allowance.TryGetDouble(out var part)
+                    && double.IsFinite(part) && part is > 0 and <= 100)
+                    shares[position] = part;
+        var result = new List<ClaudeModelLimit>();
+        var index = -1;
+        foreach (var item in limits.EnumerateArray())
+        {
+            index++;
+            Object(item);
+            var kind = Text(item, "kind", 40);
+            if (kind is not ("weekly_all" or "weekly_scoped")) continue;
+            if (!item.TryGetProperty("percent", out var percent) || percent.ValueKind != JsonValueKind.Number
+                || !percent.TryGetDouble(out var used) || !double.IsFinite(used) || used is < 0 or > 100)
+                throw new InvalidDataException("Invalid Claude limit percent.");
+            if (kind == "weekly_all")
+            {
+                // The same weekly limit as seven_day.utilization. If the two disagree, this list
+                // is on a scale this build does not know, so none of it is shown.
+                if (week is not null && Math.Abs(week.UsedPercentage - used) > 1)
+                    throw new InvalidDataException("Unknown Claude limit scale.");
+                continue;
+            }
+            if (!item.TryGetProperty("scope", out var scope) || scope.ValueKind != JsonValueKind.Object
+                || !scope.TryGetProperty("model", out var model) || model.ValueKind != JsonValueKind.Object) continue;
+            var name = Text(model, "display_name", 200)?.Trim();
+            if (!ClaudeModelLimit.ValidName(name)
+                || result.Any(limit => string.Equals(limit.Model, name, StringComparison.OrdinalIgnoreCase))) continue;
+            if (result.Count == ClaudeModelLimit.MaxCount) break;
+            result.Add(new(name!, used, ResetTime(item), shares.TryGetValue(index, out var weeklyShare) ? weeklyShare : null));
+        }
+        return result.Count == 0 ? null : result;
+    }
+
     private static ClaudeLiveUsageWindow? Window(JsonElement root, string name)
     {
         if (!root.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null) return null;
@@ -164,17 +218,18 @@ public sealed class ClaudeOAuthUsageClient : IClaudeLiveUsageClient
         if (!value.TryGetProperty("utilization", out var percent) || percent.ValueKind != JsonValueKind.Number
             || !percent.TryGetDouble(out var used) || !double.IsFinite(used) || used is < 0 or > 100)
             throw new InvalidDataException("Invalid Claude utilization.");
+        return new(used, ResetTime(value));
+    }
+
+    private static DateTimeOffset? ResetTime(JsonElement value)
+    {
         var rawReset = Text(value, "resets_at", 80);
-        DateTimeOffset? reset = null;
-        if (rawReset is not null)
-        {
-            if (!DateTimeOffset.TryParse(rawReset, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
-                || parsed <= DateTimeOffset.UnixEpoch || (!rawReset.EndsWith('Z')
-                    && !System.Text.RegularExpressions.Regex.IsMatch(rawReset, @"[+-]\d{2}:\d{2}$")))
-                throw new InvalidDataException("Invalid Claude reset time.");
-            reset = parsed;
-        }
-        return new(used, reset);
+        if (rawReset is null) return null;
+        if (!DateTimeOffset.TryParse(rawReset, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            || parsed <= DateTimeOffset.UnixEpoch || (!rawReset.EndsWith('Z')
+                && !System.Text.RegularExpressions.Regex.IsMatch(rawReset, @"[+-]\d{2}:\d{2}$")))
+            throw new InvalidDataException("Invalid Claude reset time.");
+        return parsed;
     }
 
     private static void Object(JsonElement element)

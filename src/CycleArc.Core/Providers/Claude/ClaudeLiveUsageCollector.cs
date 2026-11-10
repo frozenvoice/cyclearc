@@ -7,12 +7,36 @@ using CycleArc.Services;
 namespace CycleArc.Providers.Claude;
 
 public sealed record ClaudeLiveUsageWindow(double UsedPercentage, DateTimeOffset? ResetsAt);
+/// <summary>
+/// A weekly limit that counts one model only (the server's <c>weekly_scoped</c> limit). It is
+/// reported by the live usage response alone and never takes part in ring, widget, tray or
+/// history period selection. <see cref="WeeklySharePercent"/> is the part of the whole weekly
+/// limit this model may use at most, when the server says so.
+/// </summary>
+public sealed record ClaudeModelLimit(string Model, double UsedPercentage, DateTimeOffset? ResetsAt, double? WeeklySharePercent)
+{
+    public const int MaxCount = 8;
+    public const int MaxNameLength = 40;
+
+    public static bool Valid(IReadOnlyList<ClaudeModelLimit>? value) => value is null
+        || (value.Count is > 0 and <= MaxCount && value.All(limit => limit is not null && ValidName(limit.Model)
+                && double.IsFinite(limit.UsedPercentage) && limit.UsedPercentage is >= 0 and <= 100
+                && (limit.ResetsAt is null || limit.ResetsAt > DateTimeOffset.UnixEpoch)
+                && (limit.WeeklySharePercent is null
+                    || (double.IsFinite(limit.WeeklySharePercent.Value) && limit.WeeklySharePercent is > 0 and <= 100)))
+            && value.Select(limit => limit.Model).Distinct(StringComparer.OrdinalIgnoreCase).Count() == value.Count);
+
+    public static bool ValidName(string? name) => name is { Length: > 0 and <= MaxNameLength }
+        && name.Trim().Length == name.Length && !name.Any(char.IsControl);
+}
+
 public sealed record ClaudeLiveUsageSample(DateTimeOffset ObservedAt, ClaudeLiveUsageWindow? FiveHour, ClaudeLiveUsageWindow? SevenDay)
 {
     public ClaudeExtraUsage? ExtraUsage { get; init; }
     public string? ExtraUsageFailure { get; init; }
     public ClaudeResetCreditInventory? ResetCredits { get; init; }
     public string? ResetCreditsFailure { get; init; }
+    public IReadOnlyList<ClaudeModelLimit>? ModelLimits { get; init; }
 }
 public sealed record ClaudeLiveUsageUpdate(ClaudeLiveUsageSample? Sample, string? Failure = null, DateTimeOffset? AttemptedAt = null);
 
@@ -192,7 +216,8 @@ public sealed class ClaudeLiveUsageCollector : IClaudeLiveUsageSource
         && sample.ExtraUsageFailure is null or "claude-extra-usage-unavailable"
         && ClaudeResetCreditInventory.Valid(sample.ResetCredits, now)
         && (sample.ResetCredits is null || sample.ResetCredits.ObservedAt <= sample.ObservedAt)
-        && sample.ResetCreditsFailure is null or "claude-reset-credits-unavailable" or "claude-reset-credits-not-provided";
+        && sample.ResetCreditsFailure is null or "claude-reset-credits-unavailable" or "claude-reset-credits-not-provided"
+        && ClaudeModelLimit.Valid(sample.ModelLimits);
     private static bool ValidWindow(ClaudeLiveUsageWindow? window) => window is null
         || (double.IsFinite(window.UsedPercentage) && window.UsedPercentage is >= 0 and <= 100
             && (window.ResetsAt is null || window.ResetsAt > DateTimeOffset.UnixEpoch));

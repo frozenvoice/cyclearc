@@ -321,6 +321,13 @@ public static class UiText
     public static string FiveHourUsed => T("5-hour used", "5시간 사용량");
     public static string FiveHourRemaining => T("5-hour remaining", "5시간 남음");
     public static string WeeklyUsed => T("Weekly used", "주간 사용량");
+    public static string ModelWeeklyUsed(string model) => T($"{model} weekly used", $"{model} 주간 사용량");
+    public static string ModelReset(string model) => T($"{model} reset", $"{model} 리셋");
+    public static string ModelWeeklyShare(double percent)
+    {
+        var share = percent.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        return T($"Up to {share}% of the weekly limit", $"주간 한도의 최대 {share}%");
+    }
     public static string WeeklyRemaining => T("Weekly remaining", "주간 남음");
     public static string LastChecked => T("Last checked", "마지막 확인");
     public static string ResetCredits => T("Reset credits", "리셋권");
