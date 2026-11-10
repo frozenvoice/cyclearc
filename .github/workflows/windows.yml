@@ -57,7 +57,7 @@ jobs:
           path: publish/.dev-velopack/*
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 14
 
       - name: Upload failed test results
         if: failure()

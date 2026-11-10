@@ -181,7 +181,7 @@ Assert-Contract ($installerUpload -match '(?m)^\s+if-no-files-found:\s+error\s*$
 Assert-Contract ($build.Contains('path: artifacts/widget-previews/*')) 'CI must upload optional preview evidence'
 $windowsRetention = @{
     'widget-previews' = 7
-    'CycleArc-win-x64' = 90
+    'CycleArc-win-x64' = 14
     'failed-test-results' = 90
     'CycleArc-published-win-x64' = 90
     'CycleArc-verification-tools' = 14

@@ -12,20 +12,15 @@ GitHub Actions 아티팩트는 업로드되는 순간에 보존 기간이 정해
 
 이 공개 저장소에서 `retention-days`는 1 이상 90 이하입니다. 값을 빼면 저장소 기본값인 90일이 적용됩니다. `0`도 그 기본값을 뜻하므로 명시적 보존으로 치지 않습니다.
 
-| 아티팩트 | 일수 | 이유 |
-| --- | --- | --- |
-| `widget-previews` | 7 | 위젯 미리보기. 실패한 화면을 잠시 확인하는 용도 |
-| `setup-install-logs` | 14 | 설치·repair 진단 로그 |
-| `CycleArc-verification-tools` | 14 | 같은 실행의 포터블·시작 검증이 받는 도구 |
-| `setup-shortcut-choices` | 14 | 바로가기 선택 검증 기록 |
-| `windows-build-local.yml`, `windows-e2e.yml`의 업로드 | 14 | 기존 값 유지 |
-| `failed-test-results` | 90 | 실패한 테스트 결과 |
-| `portable-distribution-evidence` | 90 | 포터블 검증 기록 |
-| `managed-startup-evidence` | 90 | 관리형 시작 검증 기록 |
-| `CycleArc-published-win-x64` | 90 | 릴리스가 비교하는 게시 실행 파일 |
-| `CycleArc-win-x64` | 90 | 릴리스가 내려받는 설치·패키지 산출물 |
+기본은 세 가지입니다. 미리보기는 7일, 일반 빌드와 설치 로그는 14일, 테스트·배포 증거는 90일입니다.
 
-`CycleArc-win-x64`는 90일입니다. `scripts/Release.ps1`은 선택한 `windows.yml` 실행에서 `CycleArc-win-x64`와 `CycleArc-published-win-x64`가 둘 다 만료 전일 때만 그 실행을 릴리스 원본으로 씁니다. 두 아티팩트의 보존 기간이 같으면, 게시 실행 파일 기록이 남아 있는 동안 설치 패키지도 받을 수 있습니다. 과거 용량은 자동 실행이 같은 패키지를 반복 업로드하면서 쌓였고, 앞으로는 수동 실행만 업로드합니다.
+| 구분 | 아티팩트 | 일수 |
+| --- | --- | --- |
+| 미리보기 | `widget-previews` | 7 |
+| 일반 빌드·설치 로그 | `CycleArc-win-x64`, `setup-install-logs`, `CycleArc-verification-tools`, `setup-shortcut-choices`, `windows-build-local.yml`과 `windows-e2e.yml`의 업로드 | 14 |
+| 테스트·배포 증거 | `failed-test-results`, `portable-distribution-evidence`, `managed-startup-evidence`, `CycleArc-published-win-x64` | 90 |
+
+수동 full run은 업로드 후 14일 동안 릴리스 원본으로 쓸 수 있습니다. `scripts/Release.ps1`은 그 실행의 `CycleArc-win-x64`와 `CycleArc-published-win-x64`가 둘 다 만료 전일 때만 릴리스를 진행합니다. 게시 실행 파일 증거는 90일 동안 남고, 설치 패키지는 14일에 만료됩니다. 14일이 지난 실행으로 릴리스하려면 `windows.yml`을 다시 실행합니다.
 
 같은 워크플로의 다음 job이 `download-artifact`로 받는 일은 보존 기간과 별개입니다. 그 다운로드는 실행 중에 일어납니다.
 
