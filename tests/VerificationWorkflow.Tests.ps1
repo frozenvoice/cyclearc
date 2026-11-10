@@ -36,6 +36,92 @@ function Assert-ManualWorkflow([string]$Text, [string]$Name) {
     Assert-Contract ($eventNames.Count -eq 1 -and $eventNames[0] -ceq 'workflow_dispatch') "$Name must be manual-only, with no push, PR, schedule or indirect event"
 }
 
+function Assert-UploadArtifactRetention {
+    param(
+        [string]$Text,
+        [string]$Name,
+        [hashtable]$ExpectedDays,
+        [int]$RequiredDays = 0
+    )
+    $lines = [regex]::Split($Text, '\r?\n')
+    $found = @()
+    $usesPattern = '^[ ]*(?:-[ ]+)?(?<key>uses):[ ]*[''"]?actions/upload-artifact@'
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $usesMatch = [regex]::Match($lines[$i], $usesPattern)
+        if (!$usesMatch.Success) { continue }
+        $usesColumn = $usesMatch.Groups['key'].Index
+        $stepStart = $i
+        $stepIndent = ([regex]::Match($lines[$i], '^[ ]*')).Length
+        if ($lines[$i] -notmatch '^[ ]*-[ ]+uses:') {
+            $owner = $null
+            for ($j = $i - 1; $j -ge 0; $j--) {
+                if ($lines[$j] -match '^\s*$' -or $lines[$j] -match '^\s*#') { continue }
+                $item = [regex]::Match($lines[$j], '^(?<indent>[ ]*)-[ ]+\S')
+                if ($item.Success -and $item.Groups['indent'].Value.Length -eq ($usesColumn - 2)) {
+                    $owner = $j
+                    $stepIndent = $item.Groups['indent'].Value.Length
+                    break
+                }
+                $lineIndent = ([regex]::Match($lines[$j], '^[ ]*')).Length
+                if ($lineIndent -lt $usesColumn) { break }
+            }
+            if ($null -eq $owner) { continue }
+            $stepStart = $owner
+        }
+        $stepEnd = $lines.Count - 1
+        for ($k = $i + 1; $k -lt $lines.Count; $k++) {
+            if ($lines[$k] -match '^\s*$' -or $lines[$k] -match '^\s*#') { continue }
+            $lineIndent = ([regex]::Match($lines[$k], '^[ ]*')).Length
+            if ($lineIndent -le $stepIndent) { $stepEnd = $k - 1; break }
+        }
+        $artifactName = $null
+        $days = $null
+        $retentionCount = 0
+        for ($n = $stepStart; $n -le $stepEnd; $n++) {
+            $withKey = [regex]::Match($lines[$n], '^[ ]*(?:-[ ]+)?(?<key>with)\s*:')
+            if (!$withKey.Success -or $withKey.Groups['key'].Index -ne $usesColumn) { continue }
+            for ($m = $n + 1; $m -le $stepEnd; $m++) {
+                if ($lines[$m] -match '^\s*$' -or $lines[$m] -match '^\s*#') { continue }
+                $nested = [regex]::Match($lines[$m], '^[ ]*(?<key>[A-Za-z_][\w-]*)\s*:')
+                if ($nested.Success -and $nested.Groups['key'].Index -le $usesColumn) { break }
+                $nameKey = [regex]::Match($lines[$m], '^[ ]*name:\s*(?<artifact>[^#\s]+)\s*$')
+                if ($nameKey.Success -and !$artifactName) {
+                    $artifactName = $nameKey.Groups['artifact'].Value.Trim("'").Trim('"')
+                }
+                $retentionKey = [regex]::Match($lines[$m], '^[ ]*retention-days:\s*(?<days>\d+)\s*$')
+                if ($retentionKey.Success) {
+                    $retentionCount++
+                    $days = [int]$retentionKey.Groups['days'].Value
+                }
+            }
+            break
+        }
+        $label = if ($artifactName) { $artifactName } else { "line $($i + 1)" }
+        Assert-Contract ($retentionCount -eq 1) "$Name upload '$label' must set retention-days exactly once"
+        $validDays = $false
+        if ($null -ne $days) { $validDays = ($days -ge 1 -and $days -le 90) }
+        $shownDays = if ($null -eq $days) { 'none' } else { [string]$days }
+        Assert-Contract $validDays "$Name upload '$label' must set retention-days to an integer from 1 through 90 (found $shownDays)"
+        if ($RequiredDays -gt 0) {
+            Assert-Contract ($days -eq $RequiredDays) "$Name upload '$label' must keep retention-days $RequiredDays"
+        }
+        if ($ExpectedDays) {
+            Assert-Contract ($artifactName -and $ExpectedDays.ContainsKey($artifactName)) "$Name upload '$label' must be one of the classified artifacts"
+            Assert-Contract ($days -eq [int]$ExpectedDays[$artifactName]) "$Name artifact $artifactName must keep retention-days $($ExpectedDays[$artifactName]) (found $days)"
+        }
+        $found += $artifactName
+    }
+    if ($ExpectedDays) {
+        Assert-Contract ($found.Count -eq $ExpectedDays.Count) "$Name must upload exactly the classified artifacts"
+        foreach ($key in $ExpectedDays.Keys) {
+            Assert-Contract (@($found) -contains $key) "$Name must still upload $key"
+        }
+    }
+    else {
+        Assert-Contract ($found.Count -gt 0) "$Name must upload at least one artifact"
+    }
+}
+
 function Assert-BuildLocalSetupIsolation([string]$Text) {
     $entryPoint = [regex]::Match($Text, '(?ms)^  build-local-entry-point:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
     $setupUi = [regex]::Match($Text, '(?ms)^  setup-ui:.*?(?=^  [a-zA-Z][\w-]*:|\z)').Value
@@ -93,6 +179,31 @@ $installerUpload = Get-Block $workflow '      - name: Upload Windows installer a
 Assert-Contract ($installerUpload -match '(?m)^\s+include-hidden-files:\s+true\s*$') 'installer upload must include files in the hidden .dev-velopack directory'
 Assert-Contract ($installerUpload -match '(?m)^\s+if-no-files-found:\s+error\s*$') 'missing installer assets must fail their upload step'
 Assert-Contract ($build.Contains('path: artifacts/widget-previews/*')) 'CI must upload optional preview evidence'
+$windowsRetention = @{
+    'widget-previews' = 7
+    'CycleArc-win-x64' = 90
+    'failed-test-results' = 90
+    'CycleArc-published-win-x64' = 90
+    'CycleArc-verification-tools' = 14
+    'setup-install-logs' = 14
+    'setup-shortcut-choices' = 14
+    'portable-distribution-evidence' = 90
+    'managed-startup-evidence' = 90
+}
+Assert-UploadArtifactRetention -Text $workflow -Name 'windows.yml' -ExpectedDays $windowsRetention
+Assert-Contract (Test-Path -LiteralPath (Join-Path $RepoRoot 'scripts/check-artifact-retention.py') -PathType Leaf) 'the dependency-free artifact retention checker must stay in scripts/'
+Assert-Contract (Test-Path -LiteralPath (Join-Path $RepoRoot 'docs/ci-artifact-policy.md') -PathType Leaf) 'the artifact retention policy must stay next to the workflow'
+foreach ($mutation in @(
+    @{ Name = 'commented retention'; Text = $workflow.Replace('          retention-days: 7', '          # retention-days: 7'); Pattern = 'widget-previews' },
+    @{ Name = 'default retention'; Text = $workflow.Replace('          retention-days: 7', '          retention-days: 0'); Pattern = '1 through 90' },
+    @{ Name = 'overlong retention'; Text = $workflow.Replace('          retention-days: 7', '          retention-days: 91'); Pattern = '1 through 90' }
+)) {
+    $rejected = $false
+    $reason = ''
+    try { Assert-UploadArtifactRetention -Text $mutation.Text -Name "synthetic $($mutation.Name)" -ExpectedDays $windowsRetention }
+    catch { $rejected = $true; $reason = $_.Exception.Message }
+    Assert-Contract ($rejected -and $reason -match [regex]::Escape($mutation.Pattern)) "retention guard must reject $($mutation.Name) ($reason)"
+}
 Assert-Contract ($managed.Contains('actions/download-artifact@v6')) 'managed install must consume the packaged artifact'
 Assert-Contract ($managed -match '(?m)^\s+needs:\s+build\s*$') 'managed install must depend on successful build'
 Assert-Contract ($managed.Contains('name: CycleArc-win-x64')) 'managed install must download the exact packaged artifact name'
@@ -160,6 +271,7 @@ foreach ($sourceWorkflow in @('windows-e2e.yml', 'windows-build-local.yml')) {
 }
 $buildLocalWorkflow = Get-Content -LiteralPath (Join-Path $RepoRoot '.github/workflows/windows-build-local.yml') -Raw
 Assert-BuildLocalSetupIsolation $buildLocalWorkflow
+Assert-UploadArtifactRetention -Text $buildLocalWorkflow -Name 'windows-build-local.yml' -RequiredDays 14
 foreach ($mutation in @(
     @{ Name = 'shared installed user'; Text = $buildLocalWorkflow.Replace('      - name: Drive build-local.cmd end to end', "      - name: Invalid shared-user UI`n        run: ./scripts/Verify-SetupUi.ps1`n`n      - name: Drive build-local.cmd end to end") },
     @{ Name = 'different artifact'; Text = $buildLocalWorkflow.Replace('artifact-ids: ${{ needs.build-local-entry-point.outputs.setup-artifact-id }}', 'name: unrelated-installer') },
@@ -184,6 +296,8 @@ foreach ($runBlock in $runBlocks) {
 }
 Write-Host "PASS: all $($runBlocks.Count) multiline build-local workflow PowerShell blocks parse."
 $installedWorkflow = Get-Content -LiteralPath (Join-Path $RepoRoot '.github/workflows/windows-e2e.yml') -Raw
+Assert-UploadArtifactRetention -Text $installedWorkflow -Name 'windows-e2e.yml' -RequiredDays 14
+Write-Host 'PASS: every upload-artifact step sets the classified retention-days value.'
 Assert-Contract ($installedWorkflow.Contains('50c73b4f070ccb8e6192c0dbbfc1b6476aa89153')) 'installed migration check must default to the known .NET 8 version 0.9.1 source commit'
 Assert-Contract ($installedWorkflow.Contains('dotnet-version: "8.0.x"') -and $installedWorkflow.Contains("version = '8.0.100'")) 'historical baseline must explicitly select its own .NET 8 SDK'
 Assert-Contract ($installedWorkflow.Contains('$verifyArguments.BaselineRepoRoot')) 'installed migration check must pass the separately built .NET 8 baseline to the real installed-app verification'
