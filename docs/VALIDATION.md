@@ -2,6 +2,25 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- Windows startup as a logon task (2026-11-11 Asia/Seoul):
+  - Diagnosis on the working profile, read only: the HKCU Run value was present and enabled
+    under Startup apps, and Velopack/app logs showed `--autorun` launches 1-5 minutes after each
+    sign-in (System event 7001 versus the stub log), last in Explorer's sequential Run order.
+  - Startup is now a per-account logon-triggered scheduled task, `CycleArc Startup <SID>`,
+    registered through Task Scheduler COM at the user's own rights. Run values migrate to it;
+    the Run value is the fallback when the task is refused and stays when Startup apps switched
+    it off; a task the user disabled is not re-enabled; opt-out and uninstall remove only this
+    installation's entry. `WindowsStartupRegistrationTests` cover these decisions.
+  - A non-elevated probe on this host registered, read, matched and deleted a task with the
+    production definition (path with spaces and `&`); its trigger resolved to this account's
+    sign-in, priority 5. The probe task was removed; the working installation was untouched.
+  - Local full `dev-run.ps1 -NoLaunch` passed in **7m 01s**: **2,509 unit tests** (zero
+    failed/skipped), `[ui-smoke] COMPLETE all default suites`, packaging and package-verify.
+    Host DPI 100% (96 DPI).
+  - Not run: the updated `--managed-startup` UiSmoke check (it installs, opts in/out and
+    uninstalls and refuses non-disposable profiles; it runs in the manual `Windows` workflow),
+    and a real sign-in with the new task.
+
 - Popup usage pace, comfortable line (2026-11-10 Asia/Seoul, branch `feat/flyout-pace-ahead`):
   - After the 0.12.0+8a885c0 install, a comfortable pace showed only the ring mark, so the
     feature was hard to notice. The line under the ring now shows for every projected pace,

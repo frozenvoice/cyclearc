@@ -46,6 +46,7 @@ internal static class PortableDistributionChecks
             Check(lease is not null, "Portable probe already running.");
         var preexisting = Request(DesktopInstanceCommand.Status);
         Check(!preexisting.Succeeded, "Portable verification refuses a running desktop.");
+        Check(ManagedStartupChecks.ReadTask() is null, "Portable verification refuses an existing CycleArc logon task.");
         var archives = Directory.GetFiles(Path.GetFullPath(assetDirectory), "CycleArc-*-win-x64-portable.zip");
         Check(archives.Length == 1, "Expected exactly one versioned portable ZIP.");
         var work = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), ".tmp", "portable-distribution"));
@@ -107,6 +108,7 @@ internal static class PortableDistributionChecks
                     "Second portable launch replaced the running desktop or changed its identity.");
             }
             Check(registry == SnapshotRegistry(), "Portable startup changed startup, uninstall or browser native-host registry entries.");
+            Check(ManagedStartupChecks.ReadTask() is null, "Portable startup registered a Windows logon task.");
             Check(managedRoots.All(root => !Directory.Exists(root)), "Portable startup created a managed/development installation.");
             Check(Directory.GetFileSystemEntries(extraction).SequenceEqual([executable]), "Portable startup polluted its extracted folder.");
             Check(Hash(executable) == hash && Hash(sentinel) == sentinelHash, "Portable startup changed its executable or shared data sentinel.");

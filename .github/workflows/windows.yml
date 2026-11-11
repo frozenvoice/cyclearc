@@ -299,7 +299,7 @@ jobs:
           path: artifacts/portable-distribution/*.json
           if-no-files-found: ignore
 
-  # Verify opt-in/out and execute the actual registered Run command on a fresh
+  # Verify opt-in/out and execute the actual registered logon task command on a fresh
   # profile. This does not log off or claim to reproduce Windows logon itself.
   managed-startup:
     needs: build
