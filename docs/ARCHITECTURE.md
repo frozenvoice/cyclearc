@@ -38,7 +38,9 @@ A new installation goes to `%LOCALAPPDATA%\Programs\CycleArc`. An installation t
 exists keeps its own location - resolved from its registered uninstall entry, then from a Velopack
 layout at either known root - so one at the former `%LOCALAPPDATA%\CycleArc` is updated in place
 rather than moved or duplicated. Nothing may assume a root; `Get-ManagedInstallRoot` resolves it.
-The stable launcher at the root of that directory owns desktop and Windows-startup entry points;
+The stable launcher at the root of that directory owns desktop and Windows-startup entry points
+(startup is a per-account logon-triggered scheduled task, `WindowsStartupRegistration`, with the
+HKCU Run value only as a fallback or where Startup apps switched it off);
 the actual app runs from `current\CycleArc.exe` beneath it. Claude callbacks use the current
 executable directly because statusLine stdin/stdout forwarding must remain synchronous.
 

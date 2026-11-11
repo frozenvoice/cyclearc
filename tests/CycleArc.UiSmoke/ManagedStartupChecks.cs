@@ -41,6 +41,7 @@ internal static class ManagedStartupChecks
         using (var key = Registry.CurrentUser.OpenSubKey(RunKey))
             Check(StartupNames.Append(SentinelName).All(name => key?.GetValue(name) is null),
                 "Managed startup verification refuses existing CycleArc or legacy startup registrations.");
+        Check(ReadTask() is null, "Managed startup verification refuses an existing CycleArc logon task.");
         Check(!PortableDistributionChecks.Request(DesktopInstanceCommand.Status).Succeeded,
             "Managed startup verification refuses a running desktop.");
         Check(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "scripts", "Verify-ManagedStartupRelease.ps1")),
@@ -91,7 +92,8 @@ internal static class ManagedStartupChecks
             desktop = first.Process;
             var settingsPath = Path.Combine(data, "settings.json");
             var firstSettings = new SettingsStore(settingsPath).Load();
-            Check(firstSettings.FirstRunCompleted && !firstSettings.StartWithWindows && ReadRunCommand() is null,
+            Check(firstSettings.FirstRunCompleted && !firstSettings.StartWithWindows && ReadRunCommand() is null
+                && ReadTask() is null,
                 "The first managed desktop opted into startup without user consent.");
             Check(SnapshotUnrelatedRun() == unrelated, "The first managed desktop changed unrelated Run values.");
             Shutdown(desktop, first.Ready, installRoot, work);
@@ -122,10 +124,13 @@ internal static class ManagedStartupChecks
             Check(activation.Succeeded && activation.ProcessId == desktop.Id,
                 "Could not activate the verified installed desktop for startup opt-in.");
             SetStartupThroughUi(desktop.Id, enabled: true);
-            var registered = ReadRunCommand();
+            // Startup is a logon-triggered scheduled task: Explorer starts Run values one by one
+            // after sign-in, which started CycleArc minutes late. No Run value may remain.
+            var task = ReadTask();
+            var registered = ReadTaskCommand();
             var expectedCommand = "\"" + launcher + "\" --autorun";
-            Check(registered == expectedCommand && ReadRunKind() == RegistryValueKind.String,
-                "Production startup UI did not register the exact quoted managed root launcher command.");
+            Check(task is { Enabled: true } && registered == expectedCommand && ReadRunCommand() is null,
+                "Production startup UI did not register an enabled logon task for the exact managed root launcher.");
             Check(new SettingsStore(settingsPath).Load().StartWithWindows && SnapshotUnrelatedRun() == unrelated,
                 "Startup UI did not save consent or changed unrelated Run values.");
             Shutdown(desktop, normal.Ready, installRoot, work);
@@ -139,7 +144,7 @@ internal static class ManagedStartupChecks
             Check(PortableDistributionChecks.HasTraySink(desktop.Id), "Registered startup command did not initialize its native tray sink.");
             Check(FindWindow(desktop.Id, "CycleArc") == 0 && FindWindow(desktop.Id, "CycleArc · Settings") == 0,
                 "Registered --autorun command opened the detail/settings window.");
-            Check(ReadRunCommand() == registered && SnapshotUnrelatedRun() == unrelated,
+            Check(ReadTaskCommand() == registered && ReadRunCommand() is null && SnapshotUnrelatedRun() == unrelated,
                 "Registered startup command changed startup registration or unrelated Run values.");
             var duplicateBudget = Stopwatch.StartNew();
             using (var duplicate = Start(parsed.Executable, parsed.Arguments, work, ProcessWindowStyle.Normal))
@@ -162,8 +167,8 @@ internal static class ManagedStartupChecks
             RunSetup(setup, output, "repair-opt-in");
             Check(ResolveManagedRoot() == installRoot, "Same-version repair moved the managed installation.");
             CheckInstalled(current, expectedHash, expectedProductVersion!);
-            Check(new SettingsStore(settingsPath).Load().StartWithWindows && ReadRunCommand() == registered,
-                "Same-version repair lost startup opt-in or its registered command.");
+            Check(new SettingsStore(settingsPath).Load().StartWithWindows && ReadTaskCommand() == registered
+                && ReadRunCommand() is null, "Same-version repair lost startup opt-in or its registered logon task.");
             var afterRepair = LaunchAndAwait(parsed.Executable, parsed.Arguments, work, current, expectedProductVersion!);
             desktop = afterRepair.Process;
             PortableDistributionChecks.AwaitWidget(desktop);
@@ -172,8 +177,8 @@ internal static class ManagedStartupChecks
             Check(optOutActivation.Succeeded && optOutActivation.ProcessId == desktop.Id,
                 "Could not activate the installed desktop for startup opt-out.");
             SetStartupThroughUi(desktop.Id, enabled: false);
-            Check(!new SettingsStore(settingsPath).Load().StartWithWindows && ReadRunCommand() is null,
-                "Production startup UI failed to save opt-out/remove Run registration.");
+            Check(!new SettingsStore(settingsPath).Load().StartWithWindows && ReadRunCommand() is null && ReadTask() is null,
+                "Production startup UI failed to save opt-out/remove startup registration.");
             Check(SnapshotUnrelatedRun() == unrelated, "Startup opt-out changed unrelated Run values.");
             Shutdown(desktop, afterRepair.Ready, installRoot, work);
             desktop.Dispose();
@@ -183,7 +188,7 @@ internal static class ManagedStartupChecks
             CheckInstalled(current, expectedHash, expectedProductVersion!);
             var optedOut = LaunchAndAwait(launcher, ["--show"], work, current, expectedProductVersion!);
             desktop = optedOut.Process;
-            Check(!new SettingsStore(settingsPath).Load().StartWithWindows && ReadRunCommand() is null,
+            Check(!new SettingsStore(settingsPath).Load().StartWithWindows && ReadRunCommand() is null && ReadTask() is null,
                 "Repair/normal restart re-enabled opted-out Windows startup.");
             Check(accounts.ReadExisting()?.Profiles.Single().Id == id && PortableDistributionChecks.Hash(sentinel) == sentinelHash,
                 "Managed startup/repair lost shared synthetic account data.");
@@ -195,7 +200,7 @@ internal static class ManagedStartupChecks
             RunWindowed(Path.Combine(installRoot, "Update.exe"), ["--uninstall", "--silent"], work, 120_000);
             Check(!File.Exists(current) && Directory.Exists(data) && PortableDistributionChecks.Hash(sentinel) == sentinelHash,
                 "Uninstall failed or removed shared user data.");
-            Check(ReadRunCommand() is null && SnapshotUnrelatedRun() == unrelated,
+            Check(ReadRunCommand() is null && ReadTask() is null && SnapshotUnrelatedRun() == unrelated,
                 "Uninstall left startup enabled or changed unrelated Run values.");
             File.WriteAllText(Path.Combine(output, "evidence.json"), JsonSerializer.Serialize(new
             {
@@ -203,7 +208,8 @@ internal static class ManagedStartupChecks
                 version = expectedProductVersion, executableSha256 = expectedHash,
                 setupSha256 = PortableDistributionChecks.Hash(setup), fullPackageSha256 = PortableDistributionChecks.Hash(full[0]),
                 portableZipSha256 = PortableDistributionChecks.Hash(portable[0]), installedRoot = installRoot,
-                registeredCommand = registered, registeredValueKind = "REG_SZ", freshInstallStartupOff = true,
+                registeredCommand = registered, registeredMechanism = "ScheduledTask:LogonTrigger",
+                registeredTaskName = TaskName, freshInstallStartupOff = true,
                 productionUiOptIn = true, registeredCommandExecuted = true, autorunQuiet = true,
                 trayReady = true, nativeWidgetVisible = true, duplicateAutorunKeepsFirstInstance = true,
                 productionUiOptOut = true, optInRepairPreserved = true, optOutRepairPreserved = true,
@@ -211,7 +217,7 @@ internal static class ManagedStartupChecks
                 checkedAtUtc = DateTimeOffset.UtcNow
             }, new JsonSerializerOptions { WriteIndented = true }));
             completed = true;
-            Console.WriteLine("PASS: exact production managed installer: first-use startup off, real Settings opt-in/off, actual HKCU Run command replay, quiet native tray/widget, duplicate-instance prevention, repair and shared-data preservation. Windows logon was not exercised.");
+            Console.WriteLine("PASS: exact production managed installer: first-use startup off, real Settings opt-in/off, registered logon task command replay with no Run value, quiet native tray/widget, duplicate-instance prevention, repair and shared-data preservation. Windows logon was not exercised.");
         }
         finally
         {
@@ -220,6 +226,10 @@ internal static class ManagedStartupChecks
                 try { if (!desktop.HasExited) { desktop.Kill(true); desktop.WaitForExit(10_000); } }
                 finally { desktop.Dispose(); }
             }
+            // A failed run must not leave a logon task behind on the runner.
+            if (!completed && installRoot is not null && ReadTask() is { } leftover
+                && WindowsStartupRegistration.Owns(leftover, Path.Combine(installRoot, "CycleArc.exe")))
+                new ScheduledStartupTasks().Delete(TaskName);
             if (sentinelCreated)
             {
                 using var key = Registry.CurrentUser.OpenSubKey(RunKey, true);
@@ -500,11 +510,20 @@ internal static class ManagedStartupChecks
         return key?.GetValue("CycleArc", null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
     }
 
-    private static RegistryValueKind ReadRunKind()
+    private static string TaskName
     {
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        return key!.GetValueKind("CycleArc");
+        get
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            return WindowsStartupRegistration.TaskName(identity.User!.Value);
+        }
     }
+
+    internal static StartupTaskState? ReadTask() => new ScheduledStartupTasks().Read(TaskName);
+
+    /// <summary>The registered task's action as one command line, in the shape the replay verifies.</summary>
+    private static string? ReadTaskCommand() =>
+        ReadTask() is { } task ? "\"" + task.Command + "\" " + task.Arguments : null;
 
     private static string SnapshotUnrelatedRun()
     {

@@ -38,6 +38,7 @@ public static class InstalledApp
             {
                 RemoveOwnedCursorHooks();
                 RemoveOwnedClaudeCallbacks();
+                RemoveOwnedStartup();
             })
             .Run();
         var locator = VelopackLocator.Current;
@@ -65,6 +66,19 @@ public static class InstalledApp
             or InvalidOperationException or NotSupportedException)
         {
             // Removal continues regardless; another owner's entries were never candidates.
+        }
+    }
+
+    // A scheduled task outlives the files it starts, so it goes with this installation.
+    private static void RemoveOwnedStartup()
+    {
+        try
+        {
+            if (VelopackLocator.Current.RootAppDir is { } root) WindowsStartupService.RemoveForUninstall(root);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException)
+        {
+            // Removal continues regardless; RemoveForUninstall itself never throws.
         }
     }
 
