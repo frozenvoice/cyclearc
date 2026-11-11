@@ -2,6 +2,19 @@
 
 ## Current work — Codex, Claude and Cursor
 
+- 0.13.0 release preparation (2026-11-11 Asia/Seoul):
+  - The local full `dev-run.ps1 -NoLaunch` gate passed in **7m 22s** on the final 0.13.0
+    versioned source based on `2a6ccaf`: guards, Release build, desktop-instance and
+    installer/script regressions, **2,509 unit tests** (zero failed/skipped),
+    `[ui-smoke] COMPLETE all default suites`, publish, packaging and package-verify.
+    Host DPI 100% (96 DPI).
+  - Release changes since 0.12.0: the flyout usage-pace mark and line, the Claude
+    per-model weekly limit rows, and Windows startup as a logon task. Version metadata is
+    0.13.0 / 0.13.0.0, with English/Korean notes.
+  - The user explicitly authorized the `Windows` full run and `windows-e2e.yml` for the
+    release commit, because the uninstall hook changed. Publication depends on both
+    succeeding for the exact SHA and on Release.ps1 artifact/hash verification.
+
 - Windows startup as a logon task (2026-11-11 Asia/Seoul):
   - Diagnosis on the working profile, read only: the HKCU Run value was present and enabled
     under Startup apps, and Velopack/app logs showed `--autorun` launches 1-5 minutes after each
